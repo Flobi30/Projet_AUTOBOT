@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autobot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autobot
+  template:
+    metadata:
+      labels:
+        app: autobot
+    spec:
+      containers:
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+      - name: autobot
+        image: autobot:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000

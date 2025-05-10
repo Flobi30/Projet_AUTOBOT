@@ -1,0 +1,44 @@
+
+"""This module handles profit calculations and profit engine."""
+
+class ProfitEngine:
+    def __init__(self, initial_capital):
+        self.capital = initial_capital
+
+    def calculate_profit(self, trades):
+        """Calculate total profit based on trades."""
+        total_profit = 0.0
+        for trade in trades:
+            total_profit += trade.get('profit', 0)
+        return total_profit
+pass
+    def update_capital(self, profit):
+        """Update current capital based on profit."""
+        self.capital += profit
+        return self.capital
+
+"""Enhanced Profit Engine for P&L calculation and reinvestment."""
+
+class ProfitEngine:
+    def __init__(self, initial_capital):
+        self.capital = initial_capital
+
+    def calculate_profit(self, trades):
+        """Calculate total profit from a list of trades."""
+        total_profit = sum(trade.get('profit', 0) for trade in trades)
+        return total_profit
+pass
+    def update_capital(self, profit):
+        """Update current capital with profit."""
+        self.capital += profit
+        return self.capital
+
+    def reinvest(self, profit):
+        """Reinvest profit immediately."""
+        self.capital += profit
+        return self.capital
+pass
+    def get_capital(self):
+        """Get current capital."""
+        return self.capital
+

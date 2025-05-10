@@ -1,0 +1,12 @@
+# Fichier requirements.txt nettoyé pour Docker
+python-dotenv
+pandas
+fastapi
+uvicorn
+open-interpreter
+vulture
+radon
+responses
+responses
+pytest
+pytest-cov

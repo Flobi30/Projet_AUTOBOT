@@ -1,0 +1,215 @@
+[
+  {
+  "prompt": "ecommerce_scaffold.md",
+  "module": "scaffolds/ecommerce",
+  "outputs": [
+  "src/ecommerce/",
+  "tests/test_ecommerce.py",
+  "docs/ecommerce_guide.md"
+  ]
+  },
+  {
+  "prompt": "market_data_providers.md",
+  "module": "data/providers",
+  "outputs": [
+  "src/data/providers.py",
+  "tests/test_providers.py"
+  ]
+  },
+  {
+  "prompt": "monitoring_scaffold.md",
+  "module": "monitoring",
+  "outputs": [
+  "src/monitoring/",
+  "tests/test_monitoring.py"
+  ]
+  },
+  {
+  "prompt": "refactor_backtest.md",
+  "module": "backtest",
+  "outputs": [
+  "src/backtest/",
+  "tests/test_backtest.py",
+  "docs/backtest_performance.md"
+  ]
+  },
+  {
+  "prompt": "rl_scaffold.md",
+  "module": "rl",
+  "outputs": [
+  "src/rl/",
+  "tests/test_rl.py",
+  "docs/rl_guide.md"
+  ]
+  },
+  {
+  "prompt": "rl_train.md",
+  "module": "rl/train",
+  "outputs": [
+  "src/rl/train.py"
+  ]
+  },
+  {
+  "prompt": "secrets_management.md",
+  "module": "security/secrets",
+  "outputs": [
+  "src/security/secrets.py",
+  "docs/secrets_management.md"
+  ]
+  },
+  {
+  "prompt": "security_scaffold.md",
+  "module": "security",
+  "outputs": [
+  "src/security/",
+  "tests/test_security.py",
+  "docs/security_guide.md"
+  ]
+  },
+  {
+  "prompt": "stress_test.md",
+  "module": "stress_test",
+  "outputs": [
+  "scripts/stress_test.py",
+  "results/"
+  ]
+  },
+  {
+  "prompt": "stress_test_scaffold.md",
+  "module": "stress_test",
+  "outputs": [
+  "src/stress_test/",
+  "tests/test_stress_test.py",
+  "docs/stress_test_guide.md"
+  ]
+  },
+  {
+  "prompt": "agents_adapter.md",
+  "module": "agents",
+  "outputs": [
+  "src/agents/adapters.py",
+  "src/agents/registry.py",
+  "tests/test_agents.py"
+  ]
+  },
+  {
+  "prompt": "agents_scaffold.md",
+  "module": "agents",
+  "outputs": [
+  "src/agents/",
+  "docs/agents_guide.md"
+  ]
+  },
+  {
+  "prompt": "audit_project.md",
+  "module": "audit",
+  "outputs": [
+  "docs/audit_report.md",
+  "requirements.txt"
+  ]
+  },
+  {
+  "prompt": "backtest_scaffold.md",
+  "module": "backtest",
+  "outputs": [
+  "src/backtest/",
+  "tests/test_backtest.py",
+  "docs/backtest_guide.md"
+  ]
+  },
+  {
+  "prompt": "broker_scaffold.md",
+  "module": "broker",
+  "outputs": [
+  "src/broker/interface.py",
+  "tests/test_broker.py"
+  ]
+  },
+  {
+  "prompt": "ci_cd_pipeline.md",
+  "module": "devops",
+  "outputs": [
+  ".github/workflows/ci.yml"
+  ]
+  },
+  {
+  "prompt": "cleanup_vulture.md",
+  "module": "cleanup",
+  "outputs": [
+  "docs/cleanup_summary.md",
+  "requirements.txt"
+  ]
+  },
+  {
+  "prompt": "data_scaffold.md",
+  "module": "data",
+  "outputs": [
+  "src/data/fetch.py",
+  "src/data/loader.py",
+  "tests/test_data_fetch.py"
+  ]
+  },
+  {
+  "prompt": "discover_low_latency_apis.md",
+  "module": "apis",
+  "outputs": [
+  "scripts/discover_apis.py",
+  "results/low_latency_apis.json"
+  ]
+  },
+  {
+  "prompt": "docker_k8s_scaffold.md",
+  "module": "infra",
+  "outputs": [
+  "Dockerfile",
+  "docker-compose.yml",
+  "k8s/deployment.yaml",
+  "k8s/service.yaml",
+  "k8s/hpa.yaml"
+  ]
+  },
+  {
+  "prompt": "strategy_manager.md",
+  "module": "core",
+  "outputs": [
+  "src/strategies.py",
+  "src/profit_engine.py",
+  "tests/test_strategies.py",
+  "docs/strategies_guide.md"
+  ]
+  },
+  {
+  "prompt": "guardian_scaffold.md",
+  "module": "guardian",
+  "outputs": [
+  "src/autobot_guardian.py",
+  "tests/test_guardian.py",
+  "docs/guardian_guide.md"
+  ]
+  },
+  {
+  "prompt": "ecommerce_recycle.md",
+  "module": "ecommerce",
+  "outputs": [
+  "src/ecommerce/recycle.py",
+  "tests/test_recycle.py",
+  "docs/recycle_guide.md"
+  ]
+  },
+  {
+  "prompt": "orchestrator.md",
+  "module": "orchestrator",
+  "outputs": [
+  "scripts/generate_all.py"
+  ]
+  },
+  {
+  "prompt": "ci_cd_full.md",
+  "module": "ci_cd",
+  "outputs": [
+  ".github/workflows/ci.yml"
+  ]
+  }
+  ]
+  
+  
