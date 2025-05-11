@@ -1,0 +1,29 @@
+# .openhands/microagents/tech_logs.agent.yaml
+name: GenerateTechLogsPage
+on_event: workflow_started
+
+# ==== Configuration LLM pour tout l’agent ====
+# Litellm utilisera "ollama" et le modèle "codellama:13b"
+custom_llm_provider: ollama
+custom_llm_model: codellama:13b
+
+steps:
+  - name: Generate Tech Logs Page
+    run: |
+      from litellm import completion
+
+      prompt = """
+      Génère une page web “Tech” pour AUTOBOT qui contient :
+      1. Les logs critiques (errors & warnings) de toutes les instances mères et amies.
+      2. Les erreurs récentes avec leur timestamp et leur traceback.
+      3. Un contrôle pour limiter dynamiquement le nombre total d’instances autorisées chez un utilisateur tiers.
+      4. Boutons “Télécharger logs” et “Exporter CSV”.
+      Structure la page en HTML + CSS simple, ou en React + Tailwind selon le projet existant.
+      """
+      result = completion(
+          prompt=prompt,
+      )
+      # Écrit la sortie dans un fichier HTML ou JSX
+      with open("src/autobot/frontend/tech_logs.html", "w", encoding="utf-8") as f:
+          f.write(result)
+      print("✅ Tech Logs page generated at src/autobot/frontend/tech_logs.html")
