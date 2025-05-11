@@ -3,7 +3,7 @@ on_event: workflow_started
 
 llm:
   provider: ollama
-  model: codellama:13b
+  model: ollama/codellama:13b
   api_base: http://host.docker.internal:11434
 
 steps:
@@ -12,16 +12,10 @@ steps:
       from litellm import completion
 
       prompt = """
-      Génère une page web “Tech” pour AUTOBOT qui contient :
-      1. Les logs critiques (errors & warnings) de toutes les instances mères et amies.
-      2. Les erreurs récentes avec leur timestamp et leur traceback.
-      3. Un contrôle pour limiter dynamiquement le nombre total d’instances autorisées chez un utilisateur tiers.
-      4. Boutons “Télécharger logs” et “Exporter CSV”.
-      Structure la page en HTML + CSS simple, ou en React + Tailwind selon le projet existant.
+      Génère une page web “Tech” pour AUTOBOT contenant :
+      1. Les logs critiques (errors & warnings) …
       """
-      result = completion(
-          prompt=prompt,
-      )
-      with open("src/autobot/frontend/tech_logs.html", "w", encoding="utf-8") as f:
+      result = completion(prompt=prompt)
+      with open("src/autobot/frontend/tech_logs.html", "w") as f:
           f.write(result)
       print("✅ Tech Logs page generated at src/autobot/frontend/tech_logs.html")
