@@ -1,0 +1,3 @@
+[console_scripts]
+workarena-human-eval = browsergym.workarena.human_eval.tool:main
+workarena-install = browsergym.workarena.install:main

@@ -1,0 +1,7 @@
+{
+  "model": {
+    "engine": "ollama",
+    "name": "codellama:13b",
+    "api_base": "http://host.docker.internal:11434"
+  }
+}

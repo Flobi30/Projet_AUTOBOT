@@ -1,0 +1,45 @@
+Metadata-Version: 2.1
+Name: libwebarena
+Version: 0.0.3
+Summary: This is an unofficial, use-at-your-own risks port of the webarena benchmark, for use as a standalone library package.
+Requires-Python: <4,>=3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: gymnasium
+Requires-Dist: playwright <1.40,>=1.32
+Requires-Dist: Pillow
+Requires-Dist: evaluate
+Requires-Dist: openai >=1
+Requires-Dist: types-tqdm
+Requires-Dist: tiktoken
+Requires-Dist: aiolimiter
+Requires-Dist: beartype ==0.12.0
+Requires-Dist: flask
+Requires-Dist: nltk
+Requires-Dist: text-generation
+Requires-Dist: transformers
+
+**Warning: use at your own risks!**
+
+Unofficial [WebArena](https://github.com/web-arena-x/webarena) port for compatibility with [BrowserGym](https://github.com/ServiceNow/BrowserGym). Changes below.
+
+More flexible/recent dependencies
+ - playwright>=1.32,<1.40
+ - openai>=1
+ - transformers
+
+Packaging into a single Python namespace
+```bash
+pip install libwebarena
+```
+
+```python
+import webarena
+import webarena.browser_env
+import webarena.agent
+import webarena.evaluation_harness
+import webarena.llms
+import webarena.llms.providers
+```
+
+Making `HTMLContentEvaluator` idempotent (`validate()` should not alter the browser's state)

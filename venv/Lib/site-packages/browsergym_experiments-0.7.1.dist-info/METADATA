@@ -1,0 +1,30 @@
+Metadata-Version: 2.3
+Name: browsergym-experiments
+Version: 0.7.1
+Summary: Experimentation tools for BrowserGym
+Project-URL: homepage, https://github.com/ServiceNow/BrowserGym
+Author: Alex Lacoste, Massimo Caccia, Maxime Gasse, Thibault Le Sellier De Chezelles
+License: Apache-2.0
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >3.7
+Requires-Dist: browsergym-core==0.7.1
+Requires-Dist: tiktoken>=0.4
+Description-Content-Type: text/markdown
+
+# BrowserGym experiments
+
+This package provides `browsergym.experiments`, a suite of experimentation tools for [BrowserGym](https://github.com/ServiceNow/BrowserGym).
+
+As a convenience namespace, it also provides `bgym`.
+
+## Setup
+
+1. Install the package
+```sh
+pip install browsergym-experiments
+```

@@ -1,0 +1,33 @@
+Metadata-Version: 2.3
+Name: browsergym-core
+Version: 0.7.1
+Summary: BrowserGym: a gym environment for web task automation in the Chromium browser
+Project-URL: homepage, https://github.com/ServiceNow/BrowserGym
+Author: Rim Assouel, Léo Boisvert, Massimo Caccia, Alex Drouin, Maxime Gasse, Alex Lacoste, Tom Marty
+License: Apache-2.0
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >3.9
+Requires-Dist: beautifulsoup4>=4.12
+Requires-Dist: gymnasium>=0.27
+Requires-Dist: lxml>=4.9
+Requires-Dist: numpy>=1.14
+Requires-Dist: pillow>=10.1
+Requires-Dist: playwright~=1.39
+Requires-Dist: pyparsing>=3
+Description-Content-Type: text/markdown
+
+# BrowserGym core
+
+This package provides `browsergym.core`, which provides the core functionalities of [BrowserGym](https://github.com/ServiceNow/BrowserGym).
+
+## Setup
+
+1. Install the package
+```sh
+pip install browsergym-core
+```
