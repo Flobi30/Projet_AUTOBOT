@@ -1,0 +1,12 @@
+{
+  "llm": {
+    "provider": "openai",
+    "api_base": "http://localhost:5000/v1",
+    "api_key": "sk-webui",
+    "model": "codellama-7b.Q4_K_M.gguf"
+  },
+  "agent": {
+    "default_agent": "CodeActAgent",
+    "auto_confirm": true
+  }
+}
