@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from autobot.router import router
+from autobot.router_clean import router
 
 app = FastAPI(
     title="Autobot API",
