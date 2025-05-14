@@ -1,3 +1,6 @@
-# Ultra minimal dependencies for CI
+# Minimal dependencies for CI
 pytest==7.4.0
 pytest-cov==4.1.0
+fastapi==0.88.0
+starlette==0.22.0
+pydantic==1.10.8
