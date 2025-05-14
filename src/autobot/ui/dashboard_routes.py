@@ -82,6 +82,13 @@ async def get_dashboard(request: Request):
     """
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+@router.get("/ecommerce", response_class=HTMLResponse)
+async def get_ecommerce(request: Request):
+    """
+    Render the e-commerce HTML page.
+    """
+    return templates.TemplateResponse("ecommerce.html", {"request": request})
+
 @router.get("/data", response_class=JSONResponse)
 async def get_dashboard_data(request: Request):
     """

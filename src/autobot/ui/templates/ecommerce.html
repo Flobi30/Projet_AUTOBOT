@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - E-commerce</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+                <h1>AUTOBOT</h1>
+            </div>
+            <nav class="nav-menu">
+                <a href="/dashboard" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="/trading" class="nav-item">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-text">Trading</span>
+                </a>
+                <a href="/rl" class="nav-item">
+                    <span class="nav-icon">🧠</span>
+                    <span class="nav-text">RL Training</span>
+                </a>
+                <a href="/agents" class="nav-item">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-text">Agents</span>
+                </a>
+                <a href="/ecommerce" class="nav-item active">
+                    <span class="nav-icon">🛒</span>
+                    <span class="nav-text">E-commerce</span>
+                </a>
+                <a href="/settings" class="nav-item">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Settings</span>
+                </a>
+            </nav>
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div class="user-details">
+                    <span class="user-name">User</span>
+                    <span class="user-role">Admin</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="content-header">
+                <h2>E-commerce Management</h2>
+                <div class="header-actions">
+                    <button id="sync-inventory-btn" class="btn btn-primary">Sync Inventory</button>
+                    <button id="identify-unsold-btn" class="btn btn-secondary">Identify Unsold</button>
+                    <button id="calculate-discounts-btn" class="btn btn-secondary">Calculate Discounts</button>
+                </div>
+            </header>
+
+            <div class="content-body">
+                <!-- Inventory Overview -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Inventory Overview</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="stats-container">
+                            <div class="stat-item">
+                                <span class="stat-value" id="total-products">0</span>
+                                <span class="stat-label">Total Products</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value" id="unsold-products">0</span>
+                                <span class="stat-label">Unsold Products</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value" id="total-value">$0</span>
+                                <span class="stat-label">Total Value</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value" id="unsold-value">$0</span>
+                                <span class="stat-label">Unsold Value</span>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="inventory-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs for Products and Orders -->
+                <div class="tabs">
+                    <div class="tab-header">
+                        <div class="tab-item active" data-tab="products">Products</div>
+                        <div class="tab-item" data-tab="unsold">Unsold Products</div>
+                        <div class="tab-item" data-tab="orders">Orders</div>
+                    </div>
+                    <div class="tab-content">
+                        <!-- Products Tab -->
+                        <div class="tab-pane active" id="products-tab">
+                            <div class="table-controls">
+                                <div class="search-container">
+                                    <input type="text" id="product-search" placeholder="Search products...">
+                                </div>
+                                <div class="filter-container">
+                                    <select id="category-filter">
+                                        <option value="">All Categories</option>
+                                    </select>
+                                    <select id="platform-filter">
+                                        <option value="">All Platforms</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="table-container">
+                                <table id="products-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>SKU</th>
+                                            <th>Category</th>
+                                            <th>Platform</th>
+                                            <th>Price</th>
+                                            <th>Quantity</th>
+                                            <th>Days in Inventory</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="products-body">
+                                        <!-- Products will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Unsold Products Tab -->
+                        <div class="tab-pane" id="unsold-tab">
+                            <div class="table-controls">
+                                <div class="search-container">
+                                    <input type="text" id="unsold-search" placeholder="Search unsold products...">
+                                </div>
+                            </div>
+                            <div class="table-container">
+                                <table id="unsold-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>SKU</th>
+                                            <th>Category</th>
+                                            <th>Original Price</th>
+                                            <th>Discount Price</th>
+                                            <th>Quantity</th>
+                                            <th>Days in Inventory</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="unsold-body">
+                                        <!-- Unsold products will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Orders Tab -->
+                        <div class="tab-pane" id="orders-tab">
+                            <div class="table-controls">
+                                <div class="search-container">
+                                    <input type="text" id="order-search" placeholder="Search orders...">
+                                </div>
+                                <div class="filter-container">
+                                    <select id="status-filter">
+                                        <option value="">All Statuses</option>
+                                        <option value="pending">Pending</option>
+                                        <option value="processing">Processing</option>
+                                        <option value="shipped">Shipped</option>
+                                        <option value="delivered">Delivered</option>
+                                        <option value="cancelled">Cancelled</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="table-container">
+                                <table id="orders-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Order ID</th>
+                                            <th>User ID</th>
+                                            <th>Products</th>
+                                            <th>Total Amount</th>
+                                            <th>Status</th>
+                                            <th>Created At</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="orders-body">
+                                        <!-- Orders will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="product-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="product-modal-title">Product Details</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- Product details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary close-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="order-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="order-modal-title">Order Details</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- Order details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary close-modal">Close</button>
+                <button class="btn btn-primary" id="update-order-btn">Update Status</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/ecommerce.js"></script>
+</body>
+</html>
