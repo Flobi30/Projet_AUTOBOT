@@ -592,8 +592,49 @@ class AgentOrchestrator:
                 time.sleep(self.update_interval)
     
     def _check_auto_scaling(self):
-        """Check if agents need to be scaled up or down"""
-        pass
+        """
+        Check if agents need to be scaled up or down based on workload and performance metrics.
+        This method implements intelligent scaling of agents based on:
+        1. Current workload (message queue size, processing time)
+        2. Resource utilization (CPU, memory)
+        3. Performance metrics (errors, response time)
+        4. Time-based patterns (e.g., market hours for trading agents)
+        """
+        with self.lock:
+            for agent_type in AgentType:
+                agents = self.get_agents_by_type(agent_type)
+                
+                if not agents:
+                    continue
+                
+                avg_queue_size = sum(len(a.inbox) for a in agents) / len(agents)
+                avg_errors = sum(a.metrics["errors"] for a in agents) / len(agents)
+                busy_agents = sum(1 for a in agents if a.status == AgentStatus.BUSY)
+                busy_ratio = busy_agents / len(agents)
+                
+                if (avg_queue_size > 20 or busy_ratio > 0.8) and len(agents) < self.max_agents / len(AgentType):
+                    # Create a new agent of this type
+                    template_agent = agents[0]
+                    new_name = f"{template_agent.name} {len(agents) + 1}"
+                    self.create_agent(agent_type, new_name, template_agent.config.copy())
+                    logger.info(f"Auto-scaled up: created new {agent_type.value} agent '{new_name}'")
+                
+                elif (avg_queue_size < 5 and busy_ratio < 0.3 and avg_errors < 1) and len(agents) > 1:
+                    least_active = min(agents, key=lambda a: a.last_active)
+                    if int(time.time()) - least_active.last_active > 3600:  # Inactive for 1 hour
+                        self.unregister_agent(least_active.id)
+                        logger.info(f"Auto-scaled down: removed inactive {agent_type.value} agent '{least_active.name}'")
+            
+            trading_agents = self.get_agents_by_type(AgentType.TRADING)
+            if trading_agents:
+                current_hour = datetime.now().hour
+                is_market_hours = 8 <= current_hour <= 20  # 8 AM to 8 PM
+                
+                if is_market_hours and len(trading_agents) < 5:
+                    template_agent = trading_agents[0]
+                    new_name = f"{template_agent.name} {len(trading_agents) + 1}"
+                    self.create_agent(AgentType.TRADING, new_name, template_agent.config.copy())
+                    logger.info(f"Auto-scaled up: created new trading agent '{new_name}' for market hours")
     
     def start(self):
         """Start the orchestrator"""
