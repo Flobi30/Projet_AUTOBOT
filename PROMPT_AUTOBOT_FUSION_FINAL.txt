@@ -1,0 +1,101 @@
+# PROJET AUTOBOT — PROMPT FINAL POUR DEVIN AI
+
+## 🎯 Objectif global :
+Tu es en charge de reprendre, finaliser, optimiser et orchestrer entièrement AUTOBOT, un système IA multi-modulaire centré sur le trading algorithmique mais intégrant également l’e-commerce, la veille IA, la scalabilité et l’orchestration avancée.
+
+Ton objectif est de rendre le projet :
+- Autonome
+- Stable et scalable
+- Hautement rentable
+- Multi-agents
+- Prêt à déployer
+- Interfaçable comme un assistant IA intelligent
+- Génère des profits sur plusieurs plateforme
+
+---
+
+## 📁 Ce qui existe déjà :
+- Backend Python avec FastAPI (`src/autobot/`)
+- Modules de trading, IA, backtests, duplication, optimisation, etc.
+- Intégration partielle d’agents IA (`agents_shortlist.json`)
+- Scripts initiaux (bootstrap_full.py, validate_all.py)
+- Connecteurs API partiels : AlphaVantage, CCXT, CoinGecko, FRED, Shopify, etc.
+- Tests unitaires de base
+- Fonctionnalité RL partielle
+
+---
+
+## ✅ Tâches à réaliser :
+
+### 🔍 Analyse & restructuration
+- Lire l’ensemble du code
+- Supprimer les fichiers ou fonctions inutiles
+- Corriger tous les chemins d’import, noms incohérents
+- Réorganiser la structure du projet si besoin
+
+### 🔧 Développement & complétions
+- Finaliser tous les endpoints FastAPI (predict, train, backtest, monitoring…)
+- Compléter la boucle RL (avec tests)
+- Finaliser et tester les modules IA/plugins (audités ou ajoutés)
+- Générer des tests unitaires pour tous les modules
+- Mettre en place une interface API de configuration de clés (pas besoin de modifier le code)
+- Ajouter un moteur de duplication IA intelligent + ghosting
+- Ajouter un système de licence par clé d’authentification
+
+### 💻 Interface & exécution
+- Développer une interface web responsive (fond noir, vert néon)
+- Créer un exécutable portable (.exe, .app, .sh)
+- Lancer automatiquement AUTOBOT + interface navigateur
+- Créer une version mobile Android/iOS (Flutter ou React Native)
+- Liaison directe à l’API + authentification sécurisée
+
+### 🔁 Orchestration IA multi-agent
+- Orchestrer AUTOBOT à l’aide d’un orchestrateur IA (SuperAGI ou équivalent)
+- AUTOBOT = agent principal intelligent
+- Créer une architecture où AUTOBOT pilote ses sous-agents (TraderBot, Guardian, RiskManager, EcomBot…)
+- Tu dois permettre une **interface directe avec AUTOBOT** pour l’interroger, lui donner des ordres ou lire ses réponses (console, API ou interface)
+
+### 📡 Recherche intelligente
+- Pendant le développement, faire une **veille technologique IA**
+- Explorer https://aiagentsdirectory.com et d’autres sites
+- Sélectionner les meilleures IA par fonctionnalité : sécurité, scalabilité, performance, finance…
+- Éviter les redondances
+- Documenter tous les ajouts dans un fichier `enrichments.txt`
+
+### 🧠 Améliorations stratégiques
+- Détecter les limitations du projet (“plafonds de verre”)
+- Proposer et appliquer des solutions concrètes
+- Si tu trouves de nouvelles pistes de revenus automatisés (bots, scraping, arbitrage, automation B2B...), tu peux les intégrer
+
+### 🐳 Docker & déploiement
+- Préparer le projet pour le Docker
+- Ajouter une version portable (archive ou setup) pour Windows/macOS/Linux
+- CI/CD prêt à l’emploi (préparation production)
+
+---
+
+## 🗂️ Finalisation attendue :
+- Projet 100% fonctionnel
+- Testé, stable, modulaire
+- Facilement partageable
+- Livrable Docker + app + exécutable
+- Interface simple + configurable
+- Scalable sur machine dédiée ou cloud
+
+📄 Générer un fichier `README.md` clair expliquant :
+- Toutes les API nécessaires
+- Comment lancer AUTOBOT (local, web, cloud)
+- Comment faire les backtests et passer en mode réel
+- Avec quel type de machine l’exécuter (VPS ou autre)
+
+---
+
+## 💡 Règles d’exécution :
+- Tu peux exécuter des tâches en parallèle (multithread IA)
+- Stocke tout ce que tu apprends pour optimiser tes décisions
+- Tu es libre de restructurer ou remplacer des modules
+- Budget cible : **max 200 €** (optimise l’utilisation de tes ACU)
+
+---
+
+Projet piloté par Devin AI — prompt fusionné et généré le 14/05/2025
