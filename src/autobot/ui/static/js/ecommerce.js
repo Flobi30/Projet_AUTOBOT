@@ -577,7 +577,61 @@ function formatDate(timestamp) {
     }).format(date);
 }
 
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', duration = 5000) {
     console.log(`[${type}] ${message}`);
     
+    let container = document.querySelector('.notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'notification-container';
+        document.body.appendChild(container);
+    }
+    
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    
+    let icon = '';
+    switch (type) {
+        case 'success':
+            icon = '✓';
+            break;
+        case 'error':
+            icon = '✗';
+            break;
+        case 'warning':
+            icon = '⚠';
+            break;
+        case 'info':
+        default:
+            icon = 'ℹ';
+            break;
+    }
+    
+    notification.innerHTML = `
+        <div class="notification-icon">${icon}</div>
+        <div class="notification-content">
+            <div class="notification-message">${message}</div>
+        </div>
+        <button class="notification-close">×</button>
+    `;
+    
+    container.appendChild(notification);
+    
+    const closeBtn = notification.querySelector('.notification-close');
+    closeBtn.addEventListener('click', () => {
+        closeNotification(notification);
+    });
+    
+    setTimeout(() => {
+        closeNotification(notification);
+    }, duration);
+    
+    return notification;
+}
+
+function closeNotification(notification) {
+    notification.classList.add('closing');
+    notification.addEventListener('animationend', () => {
+        notification.remove();
+    });
 }

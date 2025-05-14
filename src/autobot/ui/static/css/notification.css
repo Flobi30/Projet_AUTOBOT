@@ -1,0 +1,154 @@
+/**
+ * Notification system styles for AUTOBOT
+ * Follows the black background with neon green accent design
+ */
+
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  width: 300px;
+  max-width: 100%;
+}
+
+.notification {
+  margin-bottom: 10px;
+  padding: 15px;
+  border-radius: 5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: slide-in 0.3s ease-out forwards;
+  backdrop-filter: blur(5px);
+  border-left: 4px solid;
+}
+
+.notification.closing {
+  animation: slide-out 0.3s ease-in forwards;
+}
+
+.notification-content {
+  flex: 1;
+  margin-right: 10px;
+}
+
+.notification-title {
+  font-weight: bold;
+  margin-bottom: 5px;
+  font-size: 16px;
+}
+
+.notification-message {
+  opacity: 0.9;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  margin: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.notification-close:hover {
+  color: #fff;
+}
+
+.notification-icon {
+  margin-right: 12px;
+  font-size: 20px;
+}
+
+/* Notification types */
+.notification.success {
+  background-color: rgba(0, 50, 0, 0.85);
+  border-color: #00ff00;
+}
+
+.notification.success .notification-icon {
+  color: #00ff00;
+}
+
+.notification.error {
+  background-color: rgba(50, 0, 0, 0.85);
+  border-color: #ff3333;
+}
+
+.notification.error .notification-icon {
+  color: #ff3333;
+}
+
+.notification.warning {
+  background-color: rgba(50, 40, 0, 0.85);
+  border-color: #ffcc00;
+}
+
+.notification.warning .notification-icon {
+  color: #ffcc00;
+}
+
+.notification.info {
+  background-color: rgba(0, 20, 40, 0.85);
+  border-color: #00ccff;
+}
+
+.notification.info .notification-icon {
+  color: #00ccff;
+}
+
+/* Animations */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Glow effect for success notifications */
+.notification.success {
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
+}
+
+/* Pulse animation for important notifications */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(0, 255, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 255, 0, 0);
+  }
+}
+
+.notification.important {
+  animation: pulse 2s infinite;
+}
