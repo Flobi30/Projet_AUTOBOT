@@ -10,6 +10,18 @@ class StrategyManager:
     def __init__(self, strategies=None):
         self.strategies = strategies or {}
         
+    def get(self, strategy_name: str):
+        """
+        Get a strategy by name.
+        
+        Args:
+            strategy_name: Name of the strategy to get
+            
+        Returns:
+            The strategy class
+        """
+        return self.strategies.get(strategy_name)
+        
     def run_backtest(self, strategy_name: str, parameters: dict) -> dict:
         return {
             "sharpe_ratio": 1.23,
