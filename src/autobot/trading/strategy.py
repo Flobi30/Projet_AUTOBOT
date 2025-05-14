@@ -162,3 +162,108 @@ class RSIStrategy(Strategy):
         data.loc[data['rsi'] > self.overbought, 'signal'] = -1  # Sell when overbought
         
         return data
+
+
+class BollingerBandsStrategy(Strategy):
+    """
+    Bollinger Bands trading strategy.
+    """
+    def __init__(self, window: int = 20, num_std: float = 2.0):
+        super().__init__(
+            name="BollingerBands",
+            parameters={
+                'window': window,
+                'num_std': num_std
+            }
+        )
+        self.window = window
+        self.num_std = num_std
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on Bollinger Bands.
+        
+        Args:
+            data: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with added signal column (1 for buy, -1 for sell, 0 for hold)
+        """
+        if len(data) < self.window:
+            raise ValueError(f"Data length ({len(data)}) is less than window ({self.window})")
+        
+        data = data.copy()
+        
+        # Calculate Bollinger Bands
+        data['middle_band'] = data['close'].rolling(window=self.window).mean()
+        rolling_std = data['close'].rolling(window=self.window).std()
+        data['upper_band'] = data['middle_band'] + (rolling_std * self.num_std)
+        data['lower_band'] = data['middle_band'] - (rolling_std * self.num_std)
+        
+        # Calculate Bandwidth and %B
+        data['bandwidth'] = (data['upper_band'] - data['lower_band']) / data['middle_band']
+        data['percent_b'] = (data['close'] - data['lower_band']) / (data['upper_band'] - data['lower_band'])
+        
+        data['signal'] = 0
+        
+        data.loc[data['close'] < data['lower_band'], 'signal'] = 1
+        
+        data.loc[data['close'] > data['upper_band'], 'signal'] = -1
+        
+        data.loc[(data['percent_b'] > 0.05) & (data['percent_b'].shift(1) <= 0.05), 'signal'] = 1
+        
+        data.loc[(data['percent_b'] < 0.95) & (data['percent_b'].shift(1) >= 0.95), 'signal'] = -1
+        
+        return data
+
+
+class MACDStrategy(Strategy):
+    """
+    Moving Average Convergence Divergence (MACD) strategy.
+    """
+    def __init__(self, fast_period: int = 12, slow_period: int = 26, signal_period: int = 9):
+        super().__init__(
+            name="MACD",
+            parameters={
+                'fast_period': fast_period,
+                'slow_period': slow_period,
+                'signal_period': signal_period
+            }
+        )
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+        self.signal_period = signal_period
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on MACD indicator.
+        
+        Args:
+            data: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with added signal column (1 for buy, -1 for sell, 0 for hold)
+        """
+        if len(data) < self.slow_period + self.signal_period:
+            raise ValueError(f"Data length ({len(data)}) is less than required minimum ({self.slow_period + self.signal_period})")
+        
+        data = data.copy()
+        
+        # Calculate MACD
+        data['ema_fast'] = data['close'].ewm(span=self.fast_period, adjust=False).mean()
+        data['ema_slow'] = data['close'].ewm(span=self.slow_period, adjust=False).mean()
+        data['macd'] = data['ema_fast'] - data['ema_slow']
+        data['signal_line'] = data['macd'].ewm(span=self.signal_period, adjust=False).mean()
+        data['histogram'] = data['macd'] - data['signal_line']
+        
+        data['signal'] = 0
+        
+        data.loc[(data['macd'] > data['signal_line']) & (data['macd'].shift(1) <= data['signal_line'].shift(1)), 'signal'] = 1
+        
+        data.loc[(data['macd'] < data['signal_line']) & (data['macd'].shift(1) >= data['signal_line'].shift(1)), 'signal'] = -1
+        
+        data.loc[(data['histogram'] > 0) & (data['histogram'].shift(1) <= 0), 'signal'] = 1
+        
+        data.loc[(data['histogram'] < 0) & (data['histogram'].shift(1) >= 0), 'signal'] = -1
+        
+        return data
