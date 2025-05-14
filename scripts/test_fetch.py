@@ -1,6 +1,6 @@
 import requests
 
-URL = "'https://example.com'"
+URL = "https://example.com"
 resp = requests.get(URL)
 print("Status:", resp.status_code)
 data = resp.json()
