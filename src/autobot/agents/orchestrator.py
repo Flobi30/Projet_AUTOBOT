@@ -38,6 +38,26 @@ class AgentType(str, Enum):
     SECURITY = "security"
     ECOMMERCE = "ecommerce"
     ORCHESTRATOR = "orchestrator"
+    
+    RL_AGENT = "rl_agent"
+    PREDICTION = "prediction"
+    OPTIMIZATION = "optimization"
+    NLP = "nlp"
+    SENTIMENT = "sentiment"
+    ANOMALY = "anomaly"
+    
+    INVENTORY = "inventory"
+    PRICING = "pricing"
+    RECOMMENDATION = "recommendation"
+    
+    STRATEGY = "strategy"
+    MARKET_MAKER = "market_maker"
+    ARBITRAGE = "arbitrage"
+    TREND_FOLLOWING = "trend_following"
+    MEAN_REVERSION = "mean_reversion"
+    
+    SUPER_AGI = "super_agi"
+    
     CUSTOM = "custom"
 
 class AgentMessage:
@@ -680,6 +700,492 @@ class AgentOrchestrator:
                 "message_history_count": len(self.message_history),
                 "agents": {agent_id: agent.to_dict() for agent_id, agent in self.agents.items()}
             }
+
+class SuperAGIAgent(Agent):
+    """
+    Agent that integrates with SuperAGI framework for advanced AI capabilities.
+    This agent can leverage SuperAGI's tools, memory, and planning capabilities.
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        config: Dict[str, Any] = None,
+        api_key: Optional[str] = None,
+        api_base: str = "https://api.superagi.com/v1",
+        tools: List[str] = None
+    ):
+        """
+        Initialize a SuperAGI agent.
+        
+        Args:
+            agent_id: Unique ID for this agent
+            name: Human-readable name
+            config: Agent configuration
+            api_key: SuperAGI API key
+            api_base: SuperAGI API base URL
+            tools: List of SuperAGI tools to use
+        """
+        super().__init__(agent_id, AgentType.SUPER_AGI, name, config)
+        
+        self.api_key = api_key
+        self.api_base = api_base
+        self.tools = tools or []
+        self.session_id = None
+        self.last_response = None
+        
+        self.register_message_handler("execute_task", self._handle_execute_task)
+        self.register_message_handler("stop_execution", self._handle_stop_execution)
+        self.register_message_handler("update_tools", self._handle_update_tools)
+        
+        logger.info(f"SuperAGI Agent {self.name} ({self.id}) initialized with {len(self.tools)} tools")
+    
+    def _initialize_session(self) -> bool:
+        """
+        Initialize a SuperAGI session.
+        
+        Returns:
+            bool: True if initialization was successful
+        """
+        if not self.api_key:
+            logger.error(f"SuperAGI Agent {self.id} has no API key")
+            return False
+        
+        try:
+            import requests
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "agent_name": self.name,
+                "tools": self.tools,
+                "config": self.config
+            }
+            
+            response = requests.post(
+                f"{self.api_base}/agents/create_session",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                self.session_id = result.get("session_id")
+                logger.info(f"SuperAGI Agent {self.id} initialized session {self.session_id}")
+                return True
+            else:
+                logger.error(f"SuperAGI Agent {self.id} failed to initialize session: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"SuperAGI Agent {self.id} failed to initialize session: {str(e)}")
+            return False
+    
+    def _handle_execute_task(self, message: AgentMessage) -> bool:
+        """
+        Handle execute_task message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        task = message.content.get("task")
+        if not task:
+            logger.warning(f"SuperAGI Agent {self.id} received execute_task message without task")
+            return False
+        
+        if not self.session_id and not self._initialize_session():
+            logger.error(f"SuperAGI Agent {self.id} failed to initialize session for task execution")
+            return False
+        
+        try:
+            import requests
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "session_id": self.session_id,
+                "task": task,
+                "parameters": message.content.get("parameters", {})
+            }
+            
+            response = requests.post(
+                f"{self.api_base}/agents/execute_task",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                self.last_response = result
+                
+                self.send_message(
+                    recipient_id=message.sender_id,
+                    message_type="task_result",
+                    content={
+                        "task_id": message.id,
+                        "result": result
+                    }
+                )
+                
+                logger.info(f"SuperAGI Agent {self.id} executed task successfully")
+                return True
+            else:
+                logger.error(f"SuperAGI Agent {self.id} failed to execute task: {response.text}")
+                
+                self.send_message(
+                    recipient_id=message.sender_id,
+                    message_type="task_error",
+                    content={
+                        "task_id": message.id,
+                        "error": response.text
+                    }
+                )
+                
+                return False
+                
+        except Exception as e:
+            logger.error(f"SuperAGI Agent {self.id} failed to execute task: {str(e)}")
+            
+            self.send_message(
+                recipient_id=message.sender_id,
+                message_type="task_error",
+                content={
+                    "task_id": message.id,
+                    "error": str(e)
+                }
+            )
+            
+            return False
+    
+    def _handle_stop_execution(self, message: AgentMessage) -> bool:
+        """
+        Handle stop_execution message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        if not self.session_id:
+            logger.warning(f"SuperAGI Agent {self.id} received stop_execution message but has no active session")
+            return False
+        
+        try:
+            import requests
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "session_id": self.session_id
+            }
+            
+            response = requests.post(
+                f"{self.api_base}/agents/stop_execution",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"SuperAGI Agent {self.id} stopped execution successfully")
+                return True
+            else:
+                logger.error(f"SuperAGI Agent {self.id} failed to stop execution: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"SuperAGI Agent {self.id} failed to stop execution: {str(e)}")
+            return False
+    
+    def _handle_update_tools(self, message: AgentMessage) -> bool:
+        """
+        Handle update_tools message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        tools = message.content.get("tools")
+        if not tools:
+            logger.warning(f"SuperAGI Agent {self.id} received update_tools message without tools")
+            return False
+        
+        self.tools = tools
+        
+        if self.session_id:
+            try:
+                import requests
+                
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                data = {
+                    "session_id": self.session_id,
+                    "tools": self.tools
+                }
+                
+                response = requests.post(
+                    f"{self.api_base}/agents/update_tools",
+                    headers=headers,
+                    json=data
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"SuperAGI Agent {self.id} updated tools successfully")
+                    return True
+                else:
+                    logger.error(f"SuperAGI Agent {self.id} failed to update tools: {response.text}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"SuperAGI Agent {self.id} failed to update tools: {str(e)}")
+                return False
+        
+        return True
+    
+    def stop(self):
+        """Stop the agent and clean up resources"""
+        if self.session_id:
+            try:
+                import requests
+                
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                data = {
+                    "session_id": self.session_id
+                }
+                
+                requests.post(
+                    f"{self.api_base}/agents/end_session",
+                    headers=headers,
+                    json=data
+                )
+                
+                logger.info(f"SuperAGI Agent {self.id} ended session {self.session_id}")
+            except Exception as e:
+                logger.error(f"SuperAGI Agent {self.id} failed to end session: {str(e)}")
+        
+        super().stop()
+
+
+class TradingAgent(Agent):
+    """
+    Specialized agent for trading operations.
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        strategy_type: str,
+        exchange: str,
+        symbols: List[str],
+        config: Dict[str, Any] = None
+    ):
+        """
+        Initialize a trading agent.
+        
+        Args:
+            agent_id: Unique ID for this agent
+            name: Human-readable name
+            strategy_type: Type of trading strategy to use
+            exchange: Exchange to trade on
+            symbols: Symbols to trade
+            config: Agent configuration
+        """
+        agent_type = AgentType.TRADING
+        
+        if strategy_type == "market_maker":
+            agent_type = AgentType.MARKET_MAKER
+        elif strategy_type == "arbitrage":
+            agent_type = AgentType.ARBITRAGE
+        elif strategy_type == "trend_following":
+            agent_type = AgentType.TREND_FOLLOWING
+        elif strategy_type == "mean_reversion":
+            agent_type = AgentType.MEAN_REVERSION
+        
+        merged_config = {
+            "strategy_type": strategy_type,
+            "exchange": exchange,
+            "symbols": symbols
+        }
+        
+        if config:
+            merged_config.update(config)
+        
+        super().__init__(agent_id, agent_type, name, merged_config)
+        
+        self.strategy_type = strategy_type
+        self.exchange = exchange
+        self.symbols = symbols
+        self.positions = {}
+        self.orders = {}
+        
+        self.register_message_handler("place_order", self._handle_place_order)
+        self.register_message_handler("cancel_order", self._handle_cancel_order)
+        self.register_message_handler("update_strategy", self._handle_update_strategy)
+        
+        logger.info(f"Trading Agent {self.name} ({self.id}) initialized with strategy {self.strategy_type} on {self.exchange}")
+    
+    def _handle_place_order(self, message: AgentMessage) -> bool:
+        """
+        Handle place_order message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        logger.info(f"Trading Agent {self.id} received place_order message")
+        return True
+    
+    def _handle_cancel_order(self, message: AgentMessage) -> bool:
+        """
+        Handle cancel_order message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        logger.info(f"Trading Agent {self.id} received cancel_order message")
+        return True
+    
+    def _handle_update_strategy(self, message: AgentMessage) -> bool:
+        """
+        Handle update_strategy message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        strategy_params = message.content.get("strategy_params")
+        if not strategy_params:
+            logger.warning(f"Trading Agent {self.id} received update_strategy message without strategy_params")
+            return False
+        
+        self.config["strategy_params"] = strategy_params
+        logger.info(f"Trading Agent {self.id} updated strategy parameters")
+        return True
+
+
+class EcommerceAgent(Agent):
+    """
+    Specialized agent for e-commerce operations.
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        platform: str,
+        store_id: str,
+        config: Dict[str, Any] = None
+    ):
+        """
+        Initialize an e-commerce agent.
+        
+        Args:
+            agent_id: Unique ID for this agent
+            name: Human-readable name
+            platform: E-commerce platform (e.g., "shopify", "woocommerce")
+            store_id: Store ID
+            config: Agent configuration
+        """
+        agent_type = AgentType.ECOMMERCE
+        
+        merged_config = {
+            "platform": platform,
+            "store_id": store_id
+        }
+        
+        if config:
+            merged_config.update(config)
+        
+        super().__init__(agent_id, agent_type, name, merged_config)
+        
+        self.platform = platform
+        self.store_id = store_id
+        
+        self.register_message_handler("sync_inventory", self._handle_sync_inventory)
+        self.register_message_handler("update_pricing", self._handle_update_pricing)
+        self.register_message_handler("process_order", self._handle_process_order)
+        
+        logger.info(f"E-commerce Agent {self.name} ({self.id}) initialized for platform {self.platform}")
+    
+    def _handle_sync_inventory(self, message: AgentMessage) -> bool:
+        """
+        Handle sync_inventory message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        logger.info(f"E-commerce Agent {self.id} received sync_inventory message")
+        return True
+    
+    def _handle_update_pricing(self, message: AgentMessage) -> bool:
+        """
+        Handle update_pricing message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        products = message.content.get("products")
+        if not products:
+            logger.warning(f"E-commerce Agent {self.id} received update_pricing message without products")
+            return False
+        
+        logger.info(f"E-commerce Agent {self.id} updating pricing for {len(products)} products")
+        return True
+    
+    def _handle_process_order(self, message: AgentMessage) -> bool:
+        """
+        Handle process_order message.
+        
+        Args:
+            message: Message to handle
+            
+        Returns:
+            bool: True if handling was successful
+        """
+        order_id = message.content.get("order_id")
+        if not order_id:
+            logger.warning(f"E-commerce Agent {self.id} received process_order message without order_id")
+            return False
+        
+        logger.info(f"E-commerce Agent {self.id} processing order {order_id}")
+        return True
+
 
 def create_orchestrator(config_path: Optional[str] = None) -> AgentOrchestrator:
     """
