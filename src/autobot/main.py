@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from autobot.router_clean import router
+from autobot.routes.health_routes import router as health_router
 
 app = FastAPI(
     title="Autobot API",
@@ -9,13 +10,14 @@ app = FastAPI(
 )
 
 app.include_router(router)
+app.include_router(health_router)
 
-@app.get("/health", tags=["health"])
-async def health_check():
+@app.get("/", tags=["root"])
+async def root():
     """
-    Health check endpoint to verify the service is running.
+    Root endpoint that redirects to the dashboard.
     """
-    return {"status": "ok"}
+    return {"message": "Welcome to AUTOBOT API", "docs_url": "/docs"}
 
 @app.get("/predict", tags=["predict"])
 async def predict():
