@@ -10,7 +10,6 @@ anyio==4.9.0
 argon2-cffi==23.1.0
 argon2-cffi-bindings==21.2.0
 attrs==25.3.0
-# autobot==0.1.0  # Using local package instead
 bashlex==0.18
 beartype==0.12.0
 beautifulsoup4==4.13.4
