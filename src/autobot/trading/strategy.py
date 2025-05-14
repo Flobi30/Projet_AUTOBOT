@@ -267,3 +267,143 @@ class MACDStrategy(Strategy):
         data.loc[(data['histogram'] < 0) & (data['histogram'].shift(1) >= 0), 'signal'] = -1
         
         return data
+
+
+class VolumeWeightedMAStrategy(Strategy):
+    """
+    Volume-Weighted Moving Average (VWMA) strategy.
+    """
+    def __init__(self, short_window: int = 20, long_window: int = 50):
+        super().__init__(
+            name="VolumeWeightedMA",
+            parameters={
+                'short_window': short_window,
+                'long_window': long_window
+            }
+        )
+        self.short_window = short_window
+        self.long_window = long_window
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on Volume-Weighted Moving Average crossover.
+        
+        Args:
+            data: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with added signal column (1 for buy, -1 for sell, 0 for hold)
+        """
+        if len(data) < self.long_window:
+            raise ValueError(f"Data length ({len(data)}) is less than long_window ({self.long_window})")
+        
+        if 'volume' not in data.columns:
+            raise ValueError("Volume data is required for VWMA strategy")
+        
+        data = data.copy()
+        
+        # Calculate Volume-Weighted Moving Averages
+        data['pv'] = data['close'] * data['volume']
+        
+        data['short_vwma'] = data['pv'].rolling(window=self.short_window).sum() / data['volume'].rolling(window=self.short_window).sum()
+        data['long_vwma'] = data['pv'].rolling(window=self.long_window).sum() / data['volume'].rolling(window=self.long_window).sum()
+        
+        # Calculate VWMA slope for trend strength
+        data['short_vwma_slope'] = data['short_vwma'].diff(5) / data['short_vwma'].shift(5)
+        data['long_vwma_slope'] = data['long_vwma'].diff(10) / data['long_vwma'].shift(10)
+        
+        data['signal'] = 0
+        
+        data.loc[data['short_vwma'] > data['long_vwma'], 'signal'] = 1
+        data.loc[data['short_vwma'] < data['long_vwma'], 'signal'] = -1
+        
+        data.loc[(data['signal'] == 1) & (data['short_vwma_slope'] < 0), 'signal'] = 0  # Weak uptrend
+        data.loc[(data['signal'] == -1) & (data['short_vwma_slope'] > 0), 'signal'] = 0  # Weak downtrend
+        
+        data.loc[(data['signal'] == 1) & (data['short_vwma_slope'] > 0.01) & (data['long_vwma_slope'] > 0), 'signal'] = 2  # Strong buy
+        data.loc[(data['signal'] == -1) & (data['short_vwma_slope'] < -0.01) & (data['long_vwma_slope'] < 0), 'signal'] = -2  # Strong sell
+        
+        return data
+
+
+class AdaptiveMultiStrategySystem(Strategy):
+    """
+    Adaptive Multi-Strategy System that combines multiple strategies with dynamic weighting.
+    """
+    def __init__(self, strategies: List[Strategy] = None, lookback_period: int = 20):
+        self.strategies = strategies or [
+            MovingAverageStrategy(),
+            RSIStrategy(),
+            BollingerBandsStrategy(),
+            MACDStrategy()
+        ]
+        self.lookback_period = lookback_period
+        
+        strategy_names = [s.name for s in self.strategies]
+        
+        super().__init__(
+            name="AdaptiveMultiStrategy",
+            parameters={
+                'strategies': strategy_names,
+                'lookback_period': lookback_period
+            }
+        )
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generate buy/sell signals by combining multiple strategies with dynamic weighting.
+        
+        Args:
+            data: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with added signal column (1 for buy, -1 for sell, 0 for hold)
+        """
+        if len(data) < self.lookback_period:
+            raise ValueError(f"Data length ({len(data)}) is less than lookback_period ({self.lookback_period})")
+        
+        data = data.copy()
+        
+        strategy_signals = {}
+        strategy_performance = {}
+        
+        for strategy in self.strategies:
+            try:
+                strategy_data = strategy.generate_signals(data)
+                strategy_signals[strategy.name] = strategy_data['signal']
+                
+                # Calculate recent performance for each strategy
+                if len(strategy_data) > self.lookback_period:
+                    recent_data = strategy_data.iloc[-self.lookback_period:]
+                    recent_data['strategy_returns'] = recent_data['signal'].shift(1) * recent_data['close'].pct_change()
+                    cumulative_return = (1 + recent_data['strategy_returns'].fillna(0)).prod() - 1
+                    strategy_performance[strategy.name] = max(cumulative_return, 0)  # Only consider positive performance
+                else:
+                    strategy_performance[strategy.name] = 1.0  # Default equal weight
+            except Exception as e:
+                continue
+        
+        if not strategy_signals:
+            data['signal'] = 0
+            return data
+        
+        total_performance = sum(strategy_performance.values())
+        if total_performance > 0:
+            weights = {name: perf / total_performance for name, perf in strategy_performance.items()}
+        else:
+            weights = {name: 1.0 / len(strategy_performance) for name in strategy_performance}
+        
+        data['signal'] = 0
+        for name, signal in strategy_signals.items():
+            if name in weights:
+                data['signal'] += signal * weights[name]
+        
+        data['signal_strength'] = data['signal'].abs()
+        data.loc[data['signal'] > 0.3, 'signal'] = 1
+        data.loc[data['signal'] < -0.3, 'signal'] = -1
+        data.loc[(data['signal'] >= -0.3) & (data['signal'] <= 0.3), 'signal'] = 0
+        
+        data.loc[data['signal'] > 0.7, 'signal'] = 2
+        data.loc[data['signal'] < -0.7, 'signal'] = -2
+        
+        return data
