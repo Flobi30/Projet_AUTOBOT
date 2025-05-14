@@ -151,7 +151,7 @@ tqdm==4.66.4
 trio==0.25.0
 trio-websocket==0.11.1
 typing_extensions==4.11.0
-tzdata==2025.3
+tzdata==2025.2
 uritemplate==4.1.1
 urllib3==2.2.1
 uvicorn==0.30.1
