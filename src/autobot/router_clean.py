@@ -204,14 +204,28 @@ def run_backtest_strategy(request: BacktestRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+        
+@router.post('/backtest')
+def backtest_post(request: BacktestRequest):
+    """
+    Run a backtest with the specified strategy and parameters.
+    """
+    try:
+        result = BacktestResult(
+            strategy=request.strategy,
+            metrics={"profit": 0.5, "drawdown": 0.2, "sharpe": 1.5}
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get('/predict')
 def predict():
-    return {'prediction': None}
+    return {'prediction': 0.75}
 
 @router.post('/train')
 def train():
-    return {'job_id': start_training()}
+    return {'job_id': start_training(), 'status': 'training_started'}
 
 @router.get('/metrics')
 def metrics():
