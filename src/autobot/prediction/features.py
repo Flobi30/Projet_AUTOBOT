@@ -7,10 +7,16 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Optional, Union, Callable, Tuple
 from datetime import datetime
-import talib
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 logger = logging.getLogger(__name__)
+
+try:
+    import talib
+    TALIB_AVAILABLE = True
+except ImportError:
+    logger.warning("TA-Lib not available. Using fallback implementations for technical indicators.")
+    TALIB_AVAILABLE = False
 
 class FeatureExtractor:
     """Feature extractor for market data."""
@@ -153,80 +159,120 @@ class FeatureExtractor:
         Returns:
             DataFrame with technical indicators
         """
-        df["rsi_14"] = talib.RSI(df["close"].values, timeperiod=14)
-        
-        macd, macd_signal, macd_hist = talib.MACD(
-            df["close"].values,
-            fastperiod=12,
-            slowperiod=26,
-            signalperiod=9
-        )
-        df["macd"] = macd
-        df["macd_signal"] = macd_signal
-        df["macd_hist"] = macd_hist
-        
-        upper, middle, lower = talib.BBANDS(
-            df["close"].values,
-            timeperiod=20,
-            nbdevup=2,
-            nbdevdn=2,
-            matype=0
-        )
-        df["bb_upper"] = upper
-        df["bb_middle"] = middle
-        df["bb_lower"] = lower
-        df["bb_width"] = (upper - lower) / middle
-        
-        slowk, slowd = talib.STOCH(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            fastk_period=14,
-            slowk_period=3,
-            slowk_matype=0,
-            slowd_period=3,
-            slowd_matype=0
-        )
-        df["stoch_k"] = slowk
-        df["stoch_d"] = slowd
-        
-        df["adx"] = talib.ADX(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            timeperiod=14
-        )
-        
-        df["cci"] = talib.CCI(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            timeperiod=14
-        )
-        
-        df["atr"] = talib.ATR(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            timeperiod=14
-        )
-        
-        df["willr"] = talib.WILLR(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            timeperiod=14
-        )
-        
-        df["roc"] = talib.ROC(df["close"].values, timeperiod=10)
-        
-        df["mfi"] = talib.MFI(
-            df["high"].values,
-            df["low"].values,
-            df["close"].values,
-            df["volume"].values,
-            timeperiod=14
-        )
+        if TALIB_AVAILABLE:
+            df["rsi_14"] = talib.RSI(df["close"].values, timeperiod=14)
+            
+            macd, macd_signal, macd_hist = talib.MACD(
+                df["close"].values,
+                fastperiod=12,
+                slowperiod=26,
+                signalperiod=9
+            )
+            df["macd"] = macd
+            df["macd_signal"] = macd_signal
+            df["macd_hist"] = macd_hist
+            
+            upper, middle, lower = talib.BBANDS(
+                df["close"].values,
+                timeperiod=20,
+                nbdevup=2,
+                nbdevdn=2,
+                matype=0
+            )
+            df["bb_upper"] = upper
+            df["bb_middle"] = middle
+            df["bb_lower"] = lower
+            df["bb_width"] = (upper - lower) / middle
+            
+            slowk, slowd = talib.STOCH(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                fastk_period=14,
+                slowk_period=3,
+                slowk_matype=0,
+                slowd_period=3,
+                slowd_matype=0
+            )
+            df["stoch_k"] = slowk
+            df["stoch_d"] = slowd
+            
+            df["adx"] = talib.ADX(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                timeperiod=14
+            )
+            
+            df["cci"] = talib.CCI(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                timeperiod=14
+            )
+            
+            df["atr"] = talib.ATR(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                timeperiod=14
+            )
+            
+            df["willr"] = talib.WILLR(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                timeperiod=14
+            )
+            
+            df["roc"] = talib.ROC(df["close"].values, timeperiod=10)
+            
+            df["mfi"] = talib.MFI(
+                df["high"].values,
+                df["low"].values,
+                df["close"].values,
+                df["volume"].values,
+                timeperiod=14
+            )
+        else:
+            delta = df['close'].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            rs = avg_gain / avg_loss
+            df['rsi_14'] = 100 - (100 / (1 + rs))
+            
+            ema12 = df['close'].ewm(span=12, adjust=False).mean()
+            ema26 = df['close'].ewm(span=26, adjust=False).mean()
+            df['macd'] = ema12 - ema26
+            df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+            df['macd_hist'] = df['macd'] - df['macd_signal']
+            
+            df['bb_middle'] = df['close'].rolling(window=20).mean()
+            std = df['close'].rolling(window=20).std()
+            df['bb_upper'] = df['bb_middle'] + 2 * std
+            df['bb_lower'] = df['bb_middle'] - 2 * std
+            df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
+            
+            low_min = df['low'].rolling(window=14).min()
+            high_max = df['high'].rolling(window=14).max()
+            df['stoch_k'] = 100 * ((df['close'] - low_min) / (high_max - low_min))
+            df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
+            
+            # Simple placeholders for other indicators
+            df['adx'] = df['close'].rolling(window=14).std() * 10  # Placeholder
+            df['cci'] = (df['close'] - df['close'].rolling(window=14).mean()) / df['close'].rolling(window=14).std()
+            df['atr'] = (df['high'] - df['low']).rolling(window=14).mean()
+            df['willr'] = -100 * ((high_max - df['close']) / (high_max - low_min))
+            df['roc'] = df['close'].pct_change(10) * 100
+            
+            typical_price = (df['high'] + df['low'] + df['close']) / 3
+            money_flow = typical_price * df['volume']
+            positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(window=14).sum()
+            negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(window=14).sum()
+            money_ratio = positive_flow / negative_flow
+            df['mfi'] = 100 - (100 / (1 + money_ratio))
         
         return df
     
