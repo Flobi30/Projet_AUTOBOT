@@ -1,4 +1,4 @@
-so"""
+"""
 Stress test script to simulate a flash crash and analyze its impact.
 """
 

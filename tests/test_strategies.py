@@ -1,6 +1,6 @@
 # tests/test_strategies.py
 import pytest
-from strategies import select_strategy, StrategyManager, ExampleStrategy
+from autobot.strategies import select_strategy, StrategyManager, ExampleStrategy
 
 sm = StrategyManager({"example": ExampleStrategy})
 
