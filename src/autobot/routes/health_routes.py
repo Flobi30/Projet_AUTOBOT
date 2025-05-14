@@ -20,6 +20,7 @@ def health_check(response: Response) -> Dict[str, Any]:
     
     if health_data["status"] == "healthy":
         response.status_code = status.HTTP_200_OK
+        return {"status": "ok"}
     elif health_data["status"] in ["warning", "unhealthy"]:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     else:
