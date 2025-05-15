@@ -22,6 +22,11 @@ from autobot.agents.superagi_integration import (
     SecuritySuperAGIAgent,
     create_superagi_agent
 )
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,11 +173,13 @@ class EnhancedSuperAGIOrchestrator:
             return
         
         self.running = True
-        self.autonomous_thread = threading.Thread(
+        self.autonomous_thread = create_managed_thread(
+            name="superagi_autonomous_operation",
             target=self._autonomous_operation_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, 'running', False)
         )
-        self.autonomous_thread.start()
         
         logger.info("Started autonomous operation")
     
@@ -187,7 +194,7 @@ class EnhancedSuperAGIOrchestrator:
     
     def _autonomous_operation_loop(self) -> None:
         """Background loop for autonomous operation."""
-        while self.running:
+        while self.running and not is_shutdown_requested():
             try:
                 if "trading" in self.agents and self.agent_status.get("trading") == "active":
                     self._process_trading_tasks()
@@ -200,11 +207,18 @@ class EnhancedSuperAGIOrchestrator:
                 
                 self._check_active_runs()
                 
-                time.sleep(10)
+                for _ in range(10):  # 10 * 1s = 10 seconds
+                    if not self.running or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in autonomous operation loop: {str(e)}")
-                time.sleep(30)
+                
+                for _ in range(15):  # 15 * 2s = 30 seconds
+                    if not self.running or is_shutdown_requested():
+                        break
+                    time.sleep(2)
     
     def _process_trading_tasks(self) -> None:
         """Process autonomous trading tasks."""
