@@ -275,4 +275,4 @@ def _auto_training_loop() -> None:
             logger.error(f"Error in auto-training loop: {str(e)}")
             time.sleep(300)  # 5 minutes
 
-start_auto_training(True)
+# start_auto_training(True)
