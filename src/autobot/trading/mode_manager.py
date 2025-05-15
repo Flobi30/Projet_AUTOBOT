@@ -74,8 +74,8 @@ class ModeManager:
         self._monitoring_thread = None
         self._monitoring_active = False
         
-        if self.autonomous_mode and self.auto_switching:
-            self._start_monitoring_thread()
+        # if self.autonomous_mode and self.auto_switching:
+        #     self._start_monitoring_thread()
         
         if self.visible_interface:
             logger.info(f"Mode Manager initialized with {self.current_mode.value} mode")
