@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AUTOBOT - Dashboard Mobile</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="mobile-container">
+        <!-- Header -->
+        <header class="mobile-header">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+            </div>
+            <div class="menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li><a href="/mobile" class="active"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+                    <li><a href="/mobile/trading"><i class="fas fa-exchange-alt"></i> Trading</a></li>
+                    <li><a href="/mobile/ecommerce"><i class="fas fa-shopping-cart"></i> E-commerce</a></li>
+                    <li><a href="/mobile/rl-training"><i class="fas fa-brain"></i> RL Training</a></li>
+                    <li><a href="/mobile/settings"><i class="fas fa-cog"></i> Settings</a></li>
+                    <li><a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Portfolio Summary -->
+            <section class="collapsible-section">
+                <div class="collapsible-header active">
+                    <h2><i class="fas fa-wallet"></i> Portfolio</h2>
+                </div>
+                <div class="collapsible-content" style="max-height: 500px;">
+                    <div class="portfolio-summary">
+                        <div class="portfolio-value">
+                            <span class="value-label">Total Value</span>
+                            <span class="value-amount">€12,450.78</span>
+                            <span class="value-change positive">+2.4%</span>
+                        </div>
+                        <div class="portfolio-chart-container">
+                            <canvas id="portfolioChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="asset-distribution">
+                        <h3>Asset Distribution</h3>
+                        <div class="asset-list">
+                            <div class="asset-item">
+                                <div class="asset-info">
+                                    <span class="asset-name">BTC</span>
+                                    <span class="asset-value">€5,230.45</span>
+                                </div>
+                                <div class="asset-progress">
+                                    <div class="progress-bar" style="width: 42%;"></div>
+                                </div>
+                                <span class="asset-percentage">42%</span>
+                            </div>
+                            <div class="asset-item">
+                                <div class="asset-info">
+                                    <span class="asset-name">ETH</span>
+                                    <span class="asset-value">€3,120.33</span>
+                                </div>
+                                <div class="asset-progress">
+                                    <div class="progress-bar" style="width: 25%;"></div>
+                                </div>
+                                <span class="asset-percentage">25%</span>
+                            </div>
+                            <div class="asset-item">
+                                <div class="asset-info">
+                                    <span class="asset-name">EUR</span>
+                                    <span class="asset-value">€4,100.00</span>
+                                </div>
+                                <div class="asset-progress">
+                                    <div class="progress-bar" style="width: 33%;"></div>
+                                </div>
+                                <span class="asset-percentage">33%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Trading Performance -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-chart-bar"></i> Trading Performance</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="performance-metrics">
+                        <div class="metric-item">
+                            <span class="metric-label">Win Rate</span>
+                            <span class="metric-value">68%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Profit Factor</span>
+                            <span class="metric-value">1.85</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Drawdown</span>
+                            <span class="metric-value">12.3%</span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Recent Trades -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-history"></i> Recent Trades</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="recent-trades">
+                        <div class="trade-item profit">
+                            <div class="trade-info">
+                                <span class="trade-pair">BTC/EUR</span>
+                                <span class="trade-type">BUY</span>
+                            </div>
+                            <div class="trade-details">
+                                <span class="trade-amount">0.05 BTC</span>
+                                <span class="trade-price">€28,450.00</span>
+                            </div>
+                            <div class="trade-result">
+                                <span class="trade-profit">+€142.25</span>
+                                <span class="trade-time">15:30</span>
+                            </div>
+                        </div>
+                        <div class="trade-item loss">
+                            <div class="trade-info">
+                                <span class="trade-pair">ETH/EUR</span>
+                                <span class="trade-type">SELL</span>
+                            </div>
+                            <div class="trade-details">
+                                <span class="trade-amount">1.2 ETH</span>
+                                <span class="trade-price">€1,820.00</span>
+                            </div>
+                            <div class="trade-result">
+                                <span class="trade-profit">-€36.40</span>
+                                <span class="trade-time">14:45</span>
+                            </div>
+                        </div>
+                        <div class="trade-item profit">
+                            <div class="trade-info">
+                                <span class="trade-pair">XRP/EUR</span>
+                                <span class="trade-type">BUY</span>
+                            </div>
+                            <div class="trade-details">
+                                <span class="trade-amount">500 XRP</span>
+                                <span class="trade-price">€0.48</span>
+                            </div>
+                            <div class="trade-result">
+                                <span class="trade-profit">+€24.00</span>
+                                <span class="trade-time">13:15</span>
+                            </div>
+                        </div>
+                    </div>
+                    <a href="/mobile/trading/history" class="view-all-link">View All Trades <i class="fas fa-arrow-right"></i></a>
+                </div>
+            </section>
+            
+            <!-- E-commerce Summary -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-shopping-bag"></i> E-commerce</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="ecommerce-summary">
+                        <div class="summary-metrics">
+                            <div class="metric-item">
+                                <span class="metric-label">Products</span>
+                                <span class="metric-value">24</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Sales</span>
+                                <span class="metric-value">€1,245</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Profit</span>
+                                <span class="metric-value">€420</span>
+                            </div>
+                        </div>
+                        <div class="product-list">
+                            <h3>Top Products</h3>
+                            <div class="product-item">
+                                <span class="product-name">Wireless Earbuds</span>
+                                <span class="product-sales">12 units</span>
+                                <span class="product-profit">€180</span>
+                            </div>
+                            <div class="product-item">
+                                <span class="product-name">Smart Watch</span>
+                                <span class="product-sales">5 units</span>
+                                <span class="product-profit">€125</span>
+                            </div>
+                            <div class="product-item">
+                                <span class="product-name">Phone Case</span>
+                                <span class="product-sales">18 units</span>
+                                <span class="product-profit">€90</span>
+                            </div>
+                        </div>
+                        <a href="/mobile/ecommerce" class="view-all-link">Manage E-commerce <i class="fas fa-arrow-right"></i></a>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- AI Insights -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-robot"></i> AI Insights</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="ai-insights">
+                        <div class="insight-item">
+                            <div class="insight-header">
+                                <i class="fas fa-lightbulb"></i>
+                                <h3>Market Trend</h3>
+                            </div>
+                            <p>BTC showing bullish pattern with strong support at €27,800. Consider increasing position if price holds above this level.</p>
+                        </div>
+                        <div class="insight-item">
+                            <div class="insight-header">
+                                <i class="fas fa-chart-line"></i>
+                                <h3>Portfolio Suggestion</h3>
+                            </div>
+                            <p>Current asset allocation is too concentrated in BTC (42%). Consider diversifying by adding SOL and ADA to reduce volatility.</p>
+                        </div>
+                        <div class="insight-item">
+                            <div class="insight-header">
+                                <i class="fas fa-shopping-cart"></i>
+                                <h3>E-commerce Opportunity</h3>
+                            </div>
+                            <p>Detected 15 new unsold electronics items with high profit potential. Estimated profit margin: 35-40%.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <a href="/mobile" class="bottom-nav-item active">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="/mobile/trading" class="bottom-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Trading</span>
+            </a>
+            <a href="/mobile/ecommerce" class="bottom-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Shop</span>
+            </a>
+            <a href="/mobile/rl-training" class="bottom-nav-item">
+                <i class="fas fa-brain"></i>
+                <span>AI</span>
+            </a>
+            <a href="/mobile/settings" class="bottom-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="/static/js/mobile.js"></script>
+    <script>
+        // Initialize charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Portfolio chart
+            const portfolioCtx = document.getElementById('portfolioChart').getContext('2d');
+            const portfolioChart = new Chart(portfolioCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Portfolio Value',
+                        data: [11800, 11950, 12100, 11900, 12200, 12350, 12450],
+                        borderColor: '#1eff00',
+                        backgroundColor: 'rgba(30, 255, 0, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#222',
+                            titleColor: '#1eff00',
+                            bodyColor: '#fff',
+                            borderColor: '#1eff00',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '€' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Performance chart
+            const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+            const performanceChart = new Chart(performanceCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Daily P&L',
+                        data: [120, -45, 85, -30, 150, 65, 105],
+                        backgroundColor: function(context) {
+                            const value = context.dataset.data[context.dataIndex];
+                            return value >= 0 ? 'rgba(30, 255, 0, 0.7)' : 'rgba(255, 30, 0, 0.7)';
+                        },
+                        borderWidth: 0,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#222',
+                            titleColor: '#1eff00',
+                            bodyColor: '#fff',
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += '€' + context.parsed.y;
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '€' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Store charts for mobile.js to access
+            window.autobotCharts = {
+                portfolio: portfolioChart,
+                performance: performanceChart
+            };
+        });
+    </script>
+</body>
+</html>

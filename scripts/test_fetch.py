@@ -1,9 +1,13 @@
 import requests
+import json
 
-URL = "'https://example.com'"
+URL = "https://jsonplaceholder.typicode.com/todos/1"
 resp = requests.get(URL)
 print("Status:", resp.status_code)
-data = resp.json()
-# Affiche les clés de haut niveau et le nombre d'agents dans la première catégorie
-print(data.keys())
-print("Agents dans la 1ère catégorie :", len(data["categories"][0]["agents"]))
+
+try:
+    data = resp.json()
+    print("Response data:", json.dumps(data, indent=2))
+except json.JSONDecodeError:
+    print("Response is not valid JSON")
+    print("Response text:", resp.text[:100])  # Show first 100 chars

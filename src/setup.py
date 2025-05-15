@@ -1,14 +1,15 @@
 # setup.py
 from setuptools import setup, find_packages
+import os
+
+with open(os.path.join(os.path.dirname(__file__), 'README.txt'), 'r') as f:
+    description = f.read()
 
 setup(
     name="autobot",
     version="0.1.0",
-    package_dir={"": "src"},           # Tout ce qui est dans src/ devient module racine
-    packages=find_packages(where="src"),  
-    py_modules=[                       # Fais aussi des .py de src/ des modules top‑level
-        __import__("glob").glob("src/*.py").__iter__().__next__().split("/")[-1].split(".")[0]
-        for _ in __import__("glob").glob("src/*.py")
-    ]
+    description=description,
+    packages=find_packages(),
+    python_requires=">=3.10",
 )
 

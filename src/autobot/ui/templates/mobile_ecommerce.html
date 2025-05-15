@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AUTOBOT - E-commerce Mobile</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="mobile-container">
+        <!-- Header -->
+        <header class="mobile-header">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+            </div>
+            <div class="menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li><a href="/mobile"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+                    <li><a href="/mobile/trading"><i class="fas fa-exchange-alt"></i> Trading</a></li>
+                    <li><a href="/mobile/ecommerce" class="active"><i class="fas fa-shopping-cart"></i> E-commerce</a></li>
+                    <li><a href="/mobile/rl-training"><i class="fas fa-brain"></i> RL Training</a></li>
+                    <li><a href="/mobile/settings"><i class="fas fa-cog"></i> Settings</a></li>
+                    <li><a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- E-commerce Summary -->
+            <section class="collapsible-section">
+                <div class="collapsible-header active">
+                    <h2><i class="fas fa-chart-pie"></i> E-commerce Summary</h2>
+                </div>
+                <div class="collapsible-content" style="max-height: 500px;">
+                    <div class="ecommerce-summary">
+                        <div class="summary-metrics">
+                            <div class="metric-item">
+                                <span class="metric-label">Products</span>
+                                <span class="metric-value">24</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Sales</span>
+                                <span class="metric-value">€1,245</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-label">Profit</span>
+                                <span class="metric-value">€420</span>
+                            </div>
+                        </div>
+                        <div class="ecommerce-chart-container">
+                            <canvas id="salesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Product Inventory -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-boxes"></i> Inventory</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="inventory-filters">
+                        <div class="filter-group">
+                            <label for="categoryFilter">Category</label>
+                            <select id="categoryFilter" class="form-control">
+                                <option value="all">All Categories</option>
+                                <option value="electronics">Electronics</option>
+                                <option value="fashion">Fashion</option>
+                                <option value="home">Home &amp; Garden</option>
+                                <option value="beauty">Beauty</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="sortFilter">Sort By</label>
+                            <select id="sortFilter" class="form-control">
+                                <option value="profit">Profit Margin</option>
+                                <option value="price">Price</option>
+                                <option value="date">Date Added</option>
+                                <option value="stock">Stock Level</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="product-list">
+                        <div class="product-item">
+                            <div class="product-image">
+                                <img src="https://via.placeholder.com/80" alt="Wireless Earbuds">
+                            </div>
+                            <div class="product-details">
+                                <h3 class="product-name">Wireless Earbuds</h3>
+                                <div class="product-meta">
+                                    <span class="product-category">Electronics</span>
+                                    <span class="product-stock">Stock: 8</span>
+                                </div>
+                                <div class="product-pricing">
+                                    <span class="product-price">€49.99</span>
+                                    <span class="product-profit">Profit: €15.00</span>
+                                </div>
+                            </div>
+                            <div class="product-actions">
+                                <button class="btn btn-sm btn-primary"><i class="fas fa-edit"></i></button>
+                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        
+                        <div class="product-item">
+                            <div class="product-image">
+                                <img src="https://via.placeholder.com/80" alt="Smart Watch">
+                            </div>
+                            <div class="product-details">
+                                <h3 class="product-name">Smart Watch</h3>
+                                <div class="product-meta">
+                                    <span class="product-category">Electronics</span>
+                                    <span class="product-stock">Stock: 5</span>
+                                </div>
+                                <div class="product-pricing">
+                                    <span class="product-price">€89.99</span>
+                                    <span class="product-profit">Profit: €25.00</span>
+                                </div>
+                            </div>
+                            <div class="product-actions">
+                                <button class="btn btn-sm btn-primary"><i class="fas fa-edit"></i></button>
+                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        
+                        <div class="product-item">
+                            <div class="product-image">
+                                <img src="https://via.placeholder.com/80" alt="Phone Case">
+                            </div>
+                            <div class="product-details">
+                                <h3 class="product-name">Phone Case</h3>
+                                <div class="product-meta">
+                                    <span class="product-category">Electronics</span>
+                                    <span class="product-stock">Stock: 18</span>
+                                </div>
+                                <div class="product-pricing">
+                                    <span class="product-price">€19.99</span>
+                                    <span class="product-profit">Profit: €5.00</span>
+                                </div>
+                            </div>
+                            <div class="product-actions">
+                                <button class="btn btn-sm btn-primary"><i class="fas fa-edit"></i></button>
+                                <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary btn-block add-product-btn">
+                        <i class="fas fa-plus"></i> Add New Product
+                    </button>
+                </div>
+            </section>
+            
+            <!-- Unsold Inventory Opportunities -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-tags"></i> Unsold Inventory Opportunities</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="opportunity-list">
+                        <div class="opportunity-item">
+                            <div class="opportunity-header">
+                                <h3>Electronics Bundle</h3>
+                                <span class="opportunity-badge high">High Profit</span>
+                            </div>
+                            <div class="opportunity-details">
+                                <p>15 unsold electronics items detected with high profit potential. Estimated margin: 35-40%.</p>
+                                <div class="opportunity-meta">
+                                    <span><i class="fas fa-store"></i> 3 suppliers</span>
+                                    <span><i class="fas fa-truck"></i> 2-3 days delivery</span>
+                                </div>
+                            </div>
+                            <div class="opportunity-actions">
+                                <button class="btn btn-primary btn-block">View Details</button>
+                            </div>
+                        </div>
+                        
+                        <div class="opportunity-item">
+                            <div class="opportunity-header">
+                                <h3>Fashion Clearance</h3>
+                                <span class="opportunity-badge medium">Medium Profit</span>
+                            </div>
+                            <div class="opportunity-details">
+                                <p>8 clothing items from premium brands at clearance prices. Estimated margin: 25-30%.</p>
+                                <div class="opportunity-meta">
+                                    <span><i class="fas fa-store"></i> 2 suppliers</span>
+                                    <span><i class="fas fa-truck"></i> 1-2 days delivery</span>
+                                </div>
+                            </div>
+                            <div class="opportunity-actions">
+                                <button class="btn btn-primary btn-block">View Details</button>
+                            </div>
+                        </div>
+                        
+                        <div class="opportunity-item">
+                            <div class="opportunity-header">
+                                <h3>Home Decor Collection</h3>
+                                <span class="opportunity-badge medium">Medium Profit</span>
+                            </div>
+                            <div class="opportunity-details">
+                                <p>12 home decor items with seasonal discount. Estimated margin: 20-25%.</p>
+                                <div class="opportunity-meta">
+                                    <span><i class="fas fa-store"></i> 1 supplier</span>
+                                    <span><i class="fas fa-truck"></i> 3-4 days delivery</span>
+                                </div>
+                            </div>
+                            <div class="opportunity-actions">
+                                <button class="btn btn-primary btn-block">View Details</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Order Management -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-shipping-fast"></i> Orders</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="order-tabs">
+                        <button class="tab-btn active" data-tab="pending">Pending (3)</button>
+                        <button class="tab-btn" data-tab="shipped">Shipped (5)</button>
+                        <button class="tab-btn" data-tab="completed">Completed (12)</button>
+                    </div>
+                    
+                    <div class="tab-content active" data-tab="pending">
+                        <div class="order-list">
+                            <div class="order-item">
+                                <div class="order-header">
+                                    <span class="order-id">#ORD-2025-0042</span>
+                                    <span class="order-date">May 14, 2025</span>
+                                </div>
+                                <div class="order-customer">
+                                    <span class="customer-name">Jean Dupont</span>
+                                    <span class="customer-email">jean.dupont@example.com</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="order-items">3 items</span>
+                                    <span class="order-total">€159.97</span>
+                                </div>
+                                <div class="order-actions">
+                                    <button class="btn btn-sm btn-primary">Process</button>
+                                    <button class="btn btn-sm btn-secondary">Details</button>
+                                </div>
+                            </div>
+                            
+                            <div class="order-item">
+                                <div class="order-header">
+                                    <span class="order-id">#ORD-2025-0041</span>
+                                    <span class="order-date">May 14, 2025</span>
+                                </div>
+                                <div class="order-customer">
+                                    <span class="customer-name">Marie Martin</span>
+                                    <span class="customer-email">marie.martin@example.com</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="order-items">1 item</span>
+                                    <span class="order-total">€89.99</span>
+                                </div>
+                                <div class="order-actions">
+                                    <button class="btn btn-sm btn-primary">Process</button>
+                                    <button class="btn btn-sm btn-secondary">Details</button>
+                                </div>
+                            </div>
+                            
+                            <div class="order-item">
+                                <div class="order-header">
+                                    <span class="order-id">#ORD-2025-0040</span>
+                                    <span class="order-date">May 13, 2025</span>
+                                </div>
+                                <div class="order-customer">
+                                    <span class="customer-name">Pierre Dubois</span>
+                                    <span class="customer-email">pierre.dubois@example.com</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="order-items">2 items</span>
+                                    <span class="order-total">€69.98</span>
+                                </div>
+                                <div class="order-actions">
+                                    <button class="btn btn-sm btn-primary">Process</button>
+                                    <button class="btn btn-sm btn-secondary">Details</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" data-tab="shipped">
+                        <!-- Shipped orders content -->
+                        <div class="order-list">
+                            <div class="order-item">
+                                <div class="order-header">
+                                    <span class="order-id">#ORD-2025-0039</span>
+                                    <span class="order-date">May 12, 2025</span>
+                                </div>
+                                <div class="order-customer">
+                                    <span class="customer-name">Sophie Bernard</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="order-items">2 items</span>
+                                    <span class="order-total">€109.98</span>
+                                </div>
+                                <div class="order-shipping">
+                                    <span class="shipping-carrier">DHL</span>
+                                    <span class="tracking-number">DHL4582937465</span>
+                                </div>
+                                <div class="order-actions">
+                                    <button class="btn btn-sm btn-secondary">Track</button>
+                                    <button class="btn btn-sm btn-secondary">Details</button>
+                                </div>
+                            </div>
+                            
+                            <!-- More shipped orders would be here -->
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" data-tab="completed">
+                        <!-- Completed orders content -->
+                        <div class="order-list">
+                            <div class="order-item">
+                                <div class="order-header">
+                                    <span class="order-id">#ORD-2025-0028</span>
+                                    <span class="order-date">May 5, 2025</span>
+                                </div>
+                                <div class="order-customer">
+                                    <span class="customer-name">Lucas Petit</span>
+                                </div>
+                                <div class="order-summary">
+                                    <span class="order-items">1 item</span>
+                                    <span class="order-total">€49.99</span>
+                                </div>
+                                <div class="order-status">
+                                    <span class="status-label">Delivered</span>
+                                    <span class="delivery-date">May 8, 2025</span>
+                                </div>
+                                <div class="order-actions">
+                                    <button class="btn btn-sm btn-secondary">Details</button>
+                                </div>
+                            </div>
+                            
+                            <!-- More completed orders would be here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <a href="/mobile" class="bottom-nav-item">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="/mobile/trading" class="bottom-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Trading</span>
+            </a>
+            <a href="/mobile/ecommerce" class="bottom-nav-item active">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Shop</span>
+            </a>
+            <a href="/mobile/rl-training" class="bottom-nav-item">
+                <i class="fas fa-brain"></i>
+                <span>AI</span>
+            </a>
+            <a href="/mobile/settings" class="bottom-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="/static/js/mobile.js"></script>
+    <script>
+        // Initialize charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Sales chart
+            const salesCtx = document.getElementById('salesChart').getContext('2d');
+            const salesChart = new Chart(salesCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Sales',
+                        data: [180, 220, 170, 250, 300, 280, 220],
+                        backgroundColor: 'rgba(30, 255, 0, 0.7)',
+                        borderWidth: 0,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#222',
+                            titleColor: '#1eff00',
+                            bodyColor: '#fff',
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += '€' + context.parsed.y;
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '€' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Store charts for mobile.js to access
+            window.autobotCharts = {
+                sales: salesChart
+            };
+            
+            // Tab switching for orders
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const tab = this.dataset.tab;
+                    
+                    tabBtns.forEach(btn => btn.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    this.classList.add('active');
+                    document.querySelector(`.tab-content[data-tab="${tab}"]`).classList.add('active');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

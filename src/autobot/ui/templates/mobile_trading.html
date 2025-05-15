@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AUTOBOT - Trading Mobile</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="mobile-container">
+        <!-- Header -->
+        <header class="mobile-header">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+            </div>
+            <div class="menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li><a href="/mobile"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+                    <li><a href="/mobile/trading" class="active"><i class="fas fa-exchange-alt"></i> Trading</a></li>
+                    <li><a href="/mobile/ecommerce"><i class="fas fa-shopping-cart"></i> E-commerce</a></li>
+                    <li><a href="/mobile/rl-training"><i class="fas fa-brain"></i> RL Training</a></li>
+                    <li><a href="/mobile/settings"><i class="fas fa-cog"></i> Settings</a></li>
+                    <li><a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Market Overview -->
+            <section class="collapsible-section">
+                <div class="collapsible-header active">
+                    <h2><i class="fas fa-chart-line"></i> Market Overview</h2>
+                </div>
+                <div class="collapsible-content" style="max-height: 500px;">
+                    <div class="market-chart-container">
+                        <canvas id="marketChart"></canvas>
+                    </div>
+                    <div class="market-selector">
+                        <select id="pairSelector" class="form-control">
+                            <option value="BTC/EUR">BTC/EUR</option>
+                            <option value="ETH/EUR">ETH/EUR</option>
+                            <option value="XRP/EUR">XRP/EUR</option>
+                            <option value="SOL/EUR">SOL/EUR</option>
+                        </select>
+                        <select id="timeframeSelector" class="form-control">
+                            <option value="1m">1 minute</option>
+                            <option value="5m">5 minutes</option>
+                            <option value="15m">15 minutes</option>
+                            <option value="1h" selected>1 hour</option>
+                            <option value="4h">4 hours</option>
+                            <option value="1d">1 day</option>
+                        </select>
+                    </div>
+                    <div class="market-info">
+                        <div class="info-item">
+                            <span class="info-label">Price</span>
+                            <span class="info-value">€28,450.00</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">24h Change</span>
+                            <span class="info-value positive">+2.4%</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">24h Volume</span>
+                            <span class="info-value">€1.2B</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Trading Form -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-exchange-alt"></i> Place Order</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="trading-form">
+                        <div class="form-tabs">
+                            <button class="tab-btn active" data-tab="market">Market</button>
+                            <button class="tab-btn" data-tab="limit">Limit</button>
+                            <button class="tab-btn" data-tab="stop">Stop</button>
+                        </div>
+                        
+                        <div class="tab-content active" data-tab="market">
+                            <div class="form-group">
+                                <label for="marketPair">Pair</label>
+                                <select id="marketPair" class="form-control">
+                                    <option value="BTC/EUR">BTC/EUR</option>
+                                    <option value="ETH/EUR">ETH/EUR</option>
+                                    <option value="XRP/EUR">XRP/EUR</option>
+                                    <option value="SOL/EUR">SOL/EUR</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="marketSide">Side</label>
+                                <div class="side-selector">
+                                    <button class="side-btn buy active" data-side="buy">Buy</button>
+                                    <button class="side-btn sell" data-side="sell">Sell</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="marketAmount">Amount</label>
+                                <input type="number" id="marketAmount" class="form-control" placeholder="0.00" step="0.01">
+                                <div class="amount-shortcuts">
+                                    <button class="shortcut-btn" data-percent="25">25%</button>
+                                    <button class="shortcut-btn" data-percent="50">50%</button>
+                                    <button class="shortcut-btn" data-percent="75">75%</button>
+                                    <button class="shortcut-btn" data-percent="100">100%</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Estimated Cost</label>
+                                <div class="cost-display">€0.00</div>
+                            </div>
+                            <button class="btn btn-primary btn-block">Place Market Order</button>
+                        </div>
+                        
+                        <div class="tab-content" data-tab="limit">
+                            <!-- Limit order form content -->
+                            <div class="form-group">
+                                <label for="limitPair">Pair</label>
+                                <select id="limitPair" class="form-control">
+                                    <option value="BTC/EUR">BTC/EUR</option>
+                                    <option value="ETH/EUR">ETH/EUR</option>
+                                    <option value="XRP/EUR">XRP/EUR</option>
+                                    <option value="SOL/EUR">SOL/EUR</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="limitSide">Side</label>
+                                <div class="side-selector">
+                                    <button class="side-btn buy active" data-side="buy">Buy</button>
+                                    <button class="side-btn sell" data-side="sell">Sell</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="limitPrice">Price</label>
+                                <input type="number" id="limitPrice" class="form-control" placeholder="0.00" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label for="limitAmount">Amount</label>
+                                <input type="number" id="limitAmount" class="form-control" placeholder="0.00" step="0.01">
+                                <div class="amount-shortcuts">
+                                    <button class="shortcut-btn" data-percent="25">25%</button>
+                                    <button class="shortcut-btn" data-percent="50">50%</button>
+                                    <button class="shortcut-btn" data-percent="75">75%</button>
+                                    <button class="shortcut-btn" data-percent="100">100%</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Total Cost</label>
+                                <div class="cost-display">€0.00</div>
+                            </div>
+                            <button class="btn btn-primary btn-block">Place Limit Order</button>
+                        </div>
+                        
+                        <div class="tab-content" data-tab="stop">
+                            <!-- Stop order form content -->
+                            <div class="form-group">
+                                <label for="stopPair">Pair</label>
+                                <select id="stopPair" class="form-control">
+                                    <option value="BTC/EUR">BTC/EUR</option>
+                                    <option value="ETH/EUR">ETH/EUR</option>
+                                    <option value="XRP/EUR">XRP/EUR</option>
+                                    <option value="SOL/EUR">SOL/EUR</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="stopSide">Side</label>
+                                <div class="side-selector">
+                                    <button class="side-btn buy active" data-side="buy">Buy</button>
+                                    <button class="side-btn sell" data-side="sell">Sell</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="stopTriggerPrice">Trigger Price</label>
+                                <input type="number" id="stopTriggerPrice" class="form-control" placeholder="0.00" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label for="stopPrice">Limit Price</label>
+                                <input type="number" id="stopPrice" class="form-control" placeholder="0.00" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label for="stopAmount">Amount</label>
+                                <input type="number" id="stopAmount" class="form-control" placeholder="0.00" step="0.01">
+                                <div class="amount-shortcuts">
+                                    <button class="shortcut-btn" data-percent="25">25%</button>
+                                    <button class="shortcut-btn" data-percent="50">50%</button>
+                                    <button class="shortcut-btn" data-percent="75">75%</button>
+                                    <button class="shortcut-btn" data-percent="100">100%</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Total Cost</label>
+                                <div class="cost-display">€0.00</div>
+                            </div>
+                            <button class="btn btn-primary btn-block">Place Stop Order</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Open Orders -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-list"></i> Open Orders</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="open-orders">
+                        <div class="order-item">
+                            <div class="order-header">
+                                <span class="order-pair">BTC/EUR</span>
+                                <span class="order-type limit">Limit</span>
+                                <span class="order-side buy">Buy</span>
+                            </div>
+                            <div class="order-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">Amount</span>
+                                    <span class="detail-value">0.1 BTC</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Price</span>
+                                    <span class="detail-value">€27,500.00</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Total</span>
+                                    <span class="detail-value">€2,750.00</span>
+                                </div>
+                            </div>
+                            <div class="order-actions">
+                                <button class="btn btn-sm btn-danger">Cancel</button>
+                                <button class="btn btn-sm btn-secondary">Edit</button>
+                            </div>
+                        </div>
+                        <div class="order-item">
+                            <div class="order-header">
+                                <span class="order-pair">ETH/EUR</span>
+                                <span class="order-type stop">Stop</span>
+                                <span class="order-side sell">Sell</span>
+                            </div>
+                            <div class="order-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">Amount</span>
+                                    <span class="detail-value">2.5 ETH</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Trigger</span>
+                                    <span class="detail-value">€1,750.00</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Price</span>
+                                    <span class="detail-value">€1,745.00</span>
+                                </div>
+                            </div>
+                            <div class="order-actions">
+                                <button class="btn btn-sm btn-danger">Cancel</button>
+                                <button class="btn btn-sm btn-secondary">Edit</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Trading History -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-history"></i> Trading History</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="trading-history">
+                        <div class="history-item">
+                            <div class="history-header">
+                                <span class="history-date">Today, 15:30</span>
+                                <span class="history-pair">BTC/EUR</span>
+                                <span class="history-side buy">Buy</span>
+                            </div>
+                            <div class="history-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">Amount</span>
+                                    <span class="detail-value">0.05 BTC</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Price</span>
+                                    <span class="detail-value">€28,450.00</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Total</span>
+                                    <span class="detail-value">€1,422.50</span>
+                                </div>
+                            </div>
+                            <div class="history-result">
+                                <span class="result-label">P&L</span>
+                                <span class="result-value positive">+€142.25</span>
+                            </div>
+                        </div>
+                        <div class="history-item">
+                            <div class="history-header">
+                                <span class="history-date">Today, 14:45</span>
+                                <span class="history-pair">ETH/EUR</span>
+                                <span class="history-side sell">Sell</span>
+                            </div>
+                            <div class="history-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">Amount</span>
+                                    <span class="detail-value">1.2 ETH</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Price</span>
+                                    <span class="detail-value">€1,820.00</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Total</span>
+                                    <span class="detail-value">€2,184.00</span>
+                                </div>
+                            </div>
+                            <div class="history-result">
+                                <span class="result-label">P&L</span>
+                                <span class="result-value negative">-€36.40</span>
+                            </div>
+                        </div>
+                    </div>
+                    <a href="/mobile/trading/history" class="view-all-link">View All History <i class="fas fa-arrow-right"></i></a>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <a href="/mobile" class="bottom-nav-item">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="/mobile/trading" class="bottom-nav-item active">
+                <i class="fas fa-chart-line"></i>
+                <span>Trading</span>
+            </a>
+            <a href="/mobile/ecommerce" class="bottom-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Shop</span>
+            </a>
+            <a href="/mobile/rl-training" class="bottom-nav-item">
+                <i class="fas fa-brain"></i>
+                <span>AI</span>
+            </a>
+            <a href="/mobile/settings" class="bottom-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="/static/js/mobile.js"></script>
+    <script>
+        // Initialize charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Market chart
+            const marketCtx = document.getElementById('marketChart').getContext('2d');
+            const marketChart = new Chart(marketCtx, {
+                type: 'candlestick',
+                data: {
+                    datasets: [{
+                        label: 'BTC/EUR',
+                        data: [
+                            { t: new Date('2025-05-08'), o: 28100, h: 28500, l: 27900, c: 28300 },
+                            { t: new Date('2025-05-09'), o: 28300, h: 28700, l: 28200, c: 28500 },
+                            { t: new Date('2025-05-10'), o: 28500, h: 28900, l: 28400, c: 28700 },
+                            { t: new Date('2025-05-11'), o: 28700, h: 28800, l: 28100, c: 28200 },
+                            { t: new Date('2025-05-12'), o: 28200, h: 28600, l: 28000, c: 28400 },
+                            { t: new Date('2025-05-13'), o: 28400, h: 28700, l: 28300, c: 28600 },
+                            { t: new Date('2025-05-14'), o: 28600, h: 29000, l: 28400, c: 28900 }
+                        ],
+                        borderColor: function(context) {
+                            const open = context.raw.o;
+                            const close = context.raw.c;
+                            return open > close ? 'rgba(255, 30, 0, 1)' : 'rgba(30, 255, 0, 1)';
+                        },
+                        backgroundColor: function(context) {
+                            const open = context.raw.o;
+                            const close = context.raw.c;
+                            return open > close ? 'rgba(255, 30, 0, 0.5)' : 'rgba(30, 255, 0, 0.5)';
+                        }
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#222',
+                            titleColor: '#1eff00',
+                            bodyColor: '#fff',
+                            callbacks: {
+                                label: function(context) {
+                                    const data = context.raw;
+                                    return [
+                                        'Open: €' + data.o,
+                                        'High: €' + data.h,
+                                        'Low: €' + data.l,
+                                        'Close: €' + data.c
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day'
+                            },
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '€' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Store charts for mobile.js to access
+            window.autobotCharts = {
+                market: marketChart
+            };
+            
+            // Tab switching
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const tab = this.dataset.tab;
+                    
+                    tabBtns.forEach(btn => btn.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    this.classList.add('active');
+                    document.querySelector(`.tab-content[data-tab="${tab}"]`).classList.add('active');
+                });
+            });
+            
+            // Side selection
+            const sideBtns = document.querySelectorAll('.side-btn');
+            
+            sideBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const sideSelector = this.parentElement;
+                    sideSelector.querySelectorAll('.side-btn').forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                });
+            });
+            
+            // Amount shortcuts
+            const shortcutBtns = document.querySelectorAll('.shortcut-btn');
+            
+            shortcutBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const percent = this.dataset.percent;
+                    const amountInput = this.closest('.form-group').querySelector('input');
+                    
+                    // In a real app, this would calculate the max amount based on available balance
+                    const maxAmount = 1.0; // Example max amount
+                    amountInput.value = (maxAmount * percent / 100).toFixed(2);
+                    
+                    // Update cost display
+                    updateCostDisplay();
+                });
+            });
+            
+            // Update cost display when amount or price changes
+            const amountInputs = document.querySelectorAll('input[id$="Amount"]');
+            const priceInputs = document.querySelectorAll('input[id$="Price"]');
+            
+            [...amountInputs, ...priceInputs].forEach(input => {
+                input.addEventListener('input', updateCostDisplay);
+            });
+            
+            function updateCostDisplay() {
+                const activeTab = document.querySelector('.tab-content.active').dataset.tab;
+                const amountInput = document.querySelector(`#${activeTab}Amount`);
+                let priceInput;
+                
+                if (activeTab === 'market') {
+                    // For market orders, use current market price
+                    priceInput = { value: 28450 }; // Example market price
+                } else {
+                    priceInput = document.querySelector(`#${activeTab}Price`);
+                }
+                
+                if (amountInput.value && priceInput.value) {
+                    const cost = parseFloat(amountInput.value) * parseFloat(priceInput.value);
+                    const costDisplay = document.querySelector(`.tab-content[data-tab="${activeTab}"] .cost-display`);
+                    costDisplay.textContent = '€' + cost.toFixed(2);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
