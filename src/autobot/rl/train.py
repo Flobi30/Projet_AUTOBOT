@@ -12,6 +12,11 @@ from pathlib import Path
 
 from .ppo_agent import PPOAgent
 from .env import TradingEnvironment
+from ..thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +72,13 @@ def start_training(
         _training_jobs[job_id] = job_info
     
     if background:
-        thread = threading.Thread(
+        thread = create_managed_thread(
+            name=f"training_job_{job_id}",
             target=_run_training_job,
             args=(job_id,),
-            daemon=True
+            daemon=True,
+            auto_start=True
         )
-        thread.start()
     else:
         _run_training_job(job_id)
     
@@ -236,11 +242,13 @@ def start_auto_training(active: bool = True) -> None:
     
     if active and (_auto_training_thread is None or not _auto_training_thread.is_alive()):
         _auto_training_active = True
-        _auto_training_thread = threading.Thread(
+        _auto_training_thread = create_managed_thread(
+            name="auto_training_thread",
             target=_auto_training_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(globals(), '_auto_training_active', False)
         )
-        _auto_training_thread.start()
         logger.info("Auto-training system activated")
     elif not active and _auto_training_thread is not None:
         _auto_training_active = False
@@ -254,7 +262,7 @@ def _auto_training_loop() -> None:
     symbols = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "ADA/USDT"]
     timeframes = ["15m", "1h", "4h", "1d"]
     
-    while _auto_training_active:
+    while _auto_training_active and not is_shutdown_requested():
         try:
             symbol = np.random.choice(symbols)
             timeframe = np.random.choice(timeframes)
@@ -269,10 +277,17 @@ def _auto_training_loop() -> None:
             
             logger.info(f"Auto-training started job {job_id} for {symbol} on {timeframe}")
             
-            time.sleep(3600)  # 1 hour
+            for _ in range(36):  # 36 * 100s = ~1 hour
+                if not _auto_training_active or is_shutdown_requested():
+                    break
+                time.sleep(100)
             
         except Exception as e:
             logger.error(f"Error in auto-training loop: {str(e)}")
-            time.sleep(300)  # 5 minutes
+            
+            for _ in range(30):  # 30 * 10s = 5 minutes
+                if not _auto_training_active or is_shutdown_requested():
+                    break
+                time.sleep(10)
 
 # start_auto_training(True)
