@@ -2,8 +2,12 @@ import jwt
 import time
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -43,6 +47,33 @@ def decode_token(token: str) -> Dict[str, Any]:
         return payload
     except jwt.PyJWTError:
         raise ValueError("Invalid token")
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+    """
+    Get the current authenticated user from the token.
+    
+    Args:
+        token: JWT token from authorization header
+        
+    Returns:
+        Dict: User data from the token
+    """
+    try:
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 def verify_license_key(license_key: str) -> bool:
     """
