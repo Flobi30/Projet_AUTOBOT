@@ -12,9 +12,21 @@ import signal
 import os
 import logging
 import time
+import sys
 from typing import List, Dict, Any, Set
 
 logger = logging.getLogger(__name__)
+
+try:
+    from autobot.thread_management import (
+        stop_all_threads,
+        get_all_threads,
+        is_shutdown_requested
+    )
+    _has_thread_management = True
+except ImportError:
+    _has_thread_management = False
+    logger.warning("Could not import thread_management module, falling back to basic thread cleanup")
 
 _original_threads: Set[int] = set()
 _monitored_threads: Dict[int, threading.Thread] = {}
@@ -39,6 +51,12 @@ def _terminate_threads():
     """Terminate all non-original threads."""
     logger.debug("Terminating threads...")
     
+    if _has_thread_management:
+        logger.debug("Using thread management module to stop threads")
+        results = stop_all_threads(timeout=1.0)
+        logger.debug(f"Thread stop results: {results}")
+        return
+    
     for module_name in [
         "autobot.rl.train", 
         "autobot.agents.superagi_integration_enhanced",
@@ -46,18 +64,21 @@ def _terminate_threads():
         "autobot.trading.cross_chain_arbitrage",
         "autobot.trading.institutional_flow_analyzer",
         "autobot.trading.oracle_integration",
-        "autobot.trading.auto_hedging"
+        "autobot.trading.auto_hedging",
+        "autobot.trading.market_meta_analysis"
     ]:
         try:
             module = __import__(module_name, fromlist=["*"])
-            if hasattr(module, "_auto_training_active"):
-                module._auto_training_active = False
-            if hasattr(module, "_scanning_active"):
-                module._scanning_active = False
-            if hasattr(module, "_monitoring_active"):
-                module._monitoring_active = False
-            if hasattr(module, "_autonomous_active"):
-                module._autonomous_active = False
+            for flag_name in [
+                "_auto_training_active",
+                "_scanning_active", 
+                "_monitoring_active", 
+                "_autonomous_active",
+                "_meta_analysis_active"
+            ]:
+                if hasattr(module, flag_name):
+                    setattr(module, flag_name, False)
+                    logger.debug(f"Set {module_name}.{flag_name} to False")
         except (ImportError, AttributeError) as e:
             logger.debug(f"Could not access module {module_name}: {e}")
     
@@ -88,14 +109,15 @@ def thread_cleanup():
     
     atexit.register(_terminate_threads)
     
-    monitor_thread = threading.Thread(
-        target=lambda: (
-            [_monitor_new_threads(), time.sleep(1)] 
-            for _ in range(60)  # Monitor for 60 seconds max
-        ),
-        daemon=True
-    )
-    monitor_thread.start()
+    if not _has_thread_management:
+        monitor_thread = threading.Thread(
+            target=lambda: (
+                [_monitor_new_threads(), time.sleep(1)] 
+                for _ in range(60)  # Monitor for 60 seconds max
+            ),
+            daemon=True
+        )
+        monitor_thread.start()
     
     yield
     
