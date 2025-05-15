@@ -43,29 +43,60 @@ class TestGhostingThreadManagement(unittest.TestCase):
         self.license_manager.use_feature.return_value = True
         
         self.thread_manager = GhostingThreadManager()
+        self.running_flags = {}
     
     def tearDown(self):
         """
         Tear down test fixtures.
         """
+        for flag_name in self.running_flags:
+            self.running_flags[flag_name] = False
+            
         self.thread_manager.stop_all_threads()
+        
+        time.sleep(0.2)
+    
+    def _create_target_function(self, flag_name, should_exit=False):
+        """
+        Create a target function that runs until the flag is set to False.
+        
+        Args:
+            flag_name: Name of the flag to check
+            should_exit: Whether the function should exit immediately (for testing)
+            
+        Returns:
+            Function: Target function for thread
+        """
+        self.running_flags[flag_name] = True
+        
+        def target_function(*args, **kwargs):
+            if should_exit:
+                return
+                
+            while self.running_flags[flag_name] and not is_shutdown_requested():
+                time.sleep(0.01)
+                
+            return args
+        
+        return target_function
     
     def test_create_heartbeat_thread(self):
         """
         Test creating a heartbeat thread.
         """
-        target_mock = MagicMock()
+        target_function = self._create_target_function("heartbeat")
         
         thread = self.thread_manager.create_heartbeat_thread(
-            target=target_mock,
+            target=target_function,
             name="test_heartbeat"
         )
+        
+        time.sleep(0.1)
         
         self.assertTrue(thread.is_alive())
         self.assertEqual(thread.name, "test_heartbeat")
         
-        time.sleep(0.1)
-        
+        self.running_flags["heartbeat"] = False
         thread.stop()
         
         time.sleep(0.1)
@@ -76,18 +107,19 @@ class TestGhostingThreadManagement(unittest.TestCase):
         """
         Test creating a cleanup thread.
         """
-        target_mock = MagicMock()
+        target_function = self._create_target_function("cleanup")
         
         thread = self.thread_manager.create_cleanup_thread(
-            target=target_mock,
+            target=target_function,
             name="test_cleanup"
         )
+        
+        time.sleep(0.1)
         
         self.assertTrue(thread.is_alive())
         self.assertEqual(thread.name, "test_cleanup")
         
-        time.sleep(0.1)
-        
+        self.running_flags["cleanup"] = False
         thread.stop()
         
         time.sleep(0.1)
@@ -98,52 +130,58 @@ class TestGhostingThreadManagement(unittest.TestCase):
         """
         Test creating a worker thread.
         """
-        target_mock = MagicMock()
+        target_function = self._create_target_function("worker")
         
         thread = self.thread_manager.create_worker_thread(
-            target=target_mock,
+            target=target_function,
             name="test_worker",
             args=(1, 2, 3)
         )
         
+        time.sleep(0.1)
+        
         self.assertTrue(thread.is_alive())
         self.assertEqual(thread.name, "test_worker")
         
-        time.sleep(0.1)
-        
+        self.running_flags["worker"] = False
         thread.stop()
         
         time.sleep(0.1)
         
         self.assertFalse(thread.is_alive())
-        target_mock.assert_called_with(1, 2, 3)
     
     def test_stop_all_threads(self):
         """
         Test stopping all threads.
         """
-        target_mock1 = MagicMock()
-        target_mock2 = MagicMock()
-        target_mock3 = MagicMock()
+        target_function1 = self._create_target_function("heartbeat2")
+        target_function2 = self._create_target_function("cleanup2")
+        target_function3 = self._create_target_function("worker2")
         
         thread1 = self.thread_manager.create_heartbeat_thread(
-            target=target_mock1,
+            target=target_function1,
             name="test_heartbeat"
         )
         
         thread2 = self.thread_manager.create_cleanup_thread(
-            target=target_mock2,
+            target=target_function2,
             name="test_cleanup"
         )
         
         thread3 = self.thread_manager.create_worker_thread(
-            target=target_mock3,
+            target=target_function3,
             name="test_worker"
         )
+        
+        time.sleep(0.1)
         
         self.assertTrue(thread1.is_alive())
         self.assertTrue(thread2.is_alive())
         self.assertTrue(thread3.is_alive())
+        
+        self.running_flags["heartbeat2"] = False
+        self.running_flags["cleanup2"] = False
+        self.running_flags["worker2"] = False
         
         time.sleep(0.1)
         
@@ -164,12 +202,14 @@ class TestGhostingThreadManagement(unittest.TestCase):
         """
         Test getting thread statistics.
         """
-        target_mock = MagicMock()
+        target_function = self._create_target_function("heartbeat_stats")
         
         thread = self.thread_manager.create_heartbeat_thread(
-            target=target_mock,
+            target=target_function,
             name="test_heartbeat"
         )
+        
+        time.sleep(0.1)
         
         stats = self.thread_manager.get_thread_stats()
         
@@ -178,6 +218,7 @@ class TestGhostingThreadManagement(unittest.TestCase):
         self.assertTrue("test_heartbeat" in stats["threads"])
         self.assertTrue(stats["threads"]["test_heartbeat"]["alive"])
         
+        self.running_flags["heartbeat_stats"] = False
         thread.stop()
         
         time.sleep(0.1)

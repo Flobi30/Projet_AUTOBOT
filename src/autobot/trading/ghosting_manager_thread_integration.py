@@ -115,15 +115,15 @@ class GhostingThreadManager:
         """
         results = {}
         
-        for name, thread in list(self.threads.items()):
+        threads_to_stop = list(self.threads.items())
+        
+        for name, thread in threads_to_stop:
             try:
                 if thread.is_alive():
-                    thread.stop()
-                    results[name] = True
+                    success = thread.stop(timeout=0.5)
+                    results[name] = success
                 else:
                     results[name] = True
-                    
-                del self.threads[name]
             except Exception as e:
                 logger.error(f"Error stopping thread {name}: {str(e)}")
                 results[name] = False
