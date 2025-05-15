@@ -291,12 +291,23 @@ class MetricsCollector:
             self.latency_stats['p90'] = sorted_latencies[int(len(sorted_latencies) * 0.9)]
             self.latency_stats['p99'] = sorted_latencies[int(len(sorted_latencies) * 0.99)]
         
-        logger.info(
-            f"HFT Metrics: Throughput={self.throughput:.2f} orders/s, "
-            f"Success={self.success_rate:.2%}, "
-            f"Latency p50={self.latency_stats['p50']/1000:.2f}μs, "
-            f"p99={self.latency_stats['p99']/1000:.2f}μs"
-        )
+        if hasattr(self, 'autonomous_mode') and hasattr(self, 'visible_interface'):
+            if not self.autonomous_mode or self.visible_interface:
+                logger.info(
+                    f"HFT Metrics: Throughput={self.throughput:.2f} orders/s, "
+                    f"Success={self.success_rate:.2%}, "
+                    f"Latency p50={self.latency_stats['p50']/1000:.2f}μs, "
+                    f"p99={self.latency_stats['p99']/1000:.2f}μs"
+                )
+            else:
+                logger.debug(f"HFT: {self.throughput:.0f}ops, {self.success_rate:.1%}sr")
+        else:
+            logger.info(
+                f"HFT Metrics: Throughput={self.throughput:.2f} orders/s, "
+                f"Success={self.success_rate:.2%}, "
+                f"Latency p50={self.latency_stats['p50']/1000:.2f}μs, "
+                f"p99={self.latency_stats['p99']/1000:.2f}μs"
+            )
         
         self.latency_buffer = []
         self.success_buffer = []
@@ -510,6 +521,7 @@ class OptimizedHFTExecutionEngine:
     """
     Optimized High-Frequency Trading execution engine with ultra-low latency pipeline,
     parallel order execution across multiple venues, and controlled ghosting capabilities.
+    Supports autonomous operation with minimal user visibility.
     """
     
     def __init__(
@@ -517,7 +529,10 @@ class OptimizedHFTExecutionEngine:
         num_workers: int = 8,
         throttle_ns: int = 100000,  # 100 microseconds
         license_key: Optional[str] = None,
-        instance_id: Optional[str] = None
+        instance_id: Optional[str] = None,
+        autonomous_mode: bool = True,
+        visible_interface: bool = False,
+        auto_optimization: bool = True
     ):
         """
         Initialize the optimized HFT execution engine.
@@ -527,10 +542,16 @@ class OptimizedHFTExecutionEngine:
             throttle_ns: Throttling interval in nanoseconds
             license_key: License key for ghosting control
             instance_id: Unique ID for this instance
+            autonomous_mode: Whether to run in autonomous mode
+            visible_interface: Whether to show interface in autonomous mode
+            auto_optimization: Whether to automatically optimize execution parameters
         """
         self.num_workers = num_workers
         self.throttle_ns = throttle_ns
         self.instance_id = instance_id or str(uuid.uuid4())
+        self.autonomous_mode = autonomous_mode
+        self.visible_interface = visible_interface
+        self.auto_optimization = auto_optimization
         
         self.license_manager = LicenseManager(license_key)
         self.is_registered = self.license_manager.register_instance(self.instance_id)
@@ -571,12 +592,21 @@ class OptimizedHFTExecutionEngine:
         
         self.result_callbacks = []
         
+        self.auto_optimization_active = False
+        self.auto_optimization_thread = None
+        
+        if self.auto_optimization and self.autonomous_mode:
+            self._start_auto_optimization()
+        
         for worker in self.workers:
             worker.start()
         
         self.result_processor.start()
         
-        logger.info(f"Optimized HFT Execution Engine initialized with {num_workers} workers")
+        if not self.autonomous_mode or self.visible_interface:
+            logger.info(f"Optimized HFT Execution Engine initialized with {num_workers} workers")
+        else:
+            logger.debug(f"HFT Engine initialized: {self.instance_id}")
     
     def add_venue(self, venue_config: Dict[str, Any]) -> None:
         """
@@ -775,9 +805,119 @@ class OptimizedHFTExecutionEngine:
         """
         return self.metrics_collector.get_metrics()
     
+    def _start_auto_optimization(self) -> None:
+        """Start the auto-optimization thread for continuous parameter tuning"""
+        if self.auto_optimization_thread is not None and self.auto_optimization_thread.is_alive():
+            return
+            
+        self.auto_optimization_active = True
+        self.auto_optimization_thread = threading.Thread(
+            target=self._auto_optimization_loop,
+            daemon=True
+        )
+        self.auto_optimization_thread.start()
+        
+        if not self.autonomous_mode or self.visible_interface:
+            logger.info("HFT auto-optimization started")
+        else:
+            logger.debug("HFT auto-opt started")
+    
+    def _stop_auto_optimization(self) -> None:
+        """Stop the auto-optimization thread"""
+        self.auto_optimization_active = False
+        if self.auto_optimization_thread and self.auto_optimization_thread.is_alive():
+            self.auto_optimization_thread.join(timeout=1)
+            
+        if not self.autonomous_mode or self.visible_interface:
+            logger.info("HFT auto-optimization stopped")
+        else:
+            logger.debug("HFT auto-opt stopped")
+    
+    def _auto_optimization_loop(self) -> None:
+        """
+        Background thread that continuously optimizes execution parameters
+        based on performance metrics and market conditions.
+        """
+        optimization_interval = 60  # seconds
+        
+        while self.auto_optimization_active:
+            try:
+                time.sleep(optimization_interval)
+                
+                if not self.auto_optimization_active:
+                    break
+                
+                # Get current metrics
+                metrics = self.get_metrics()
+                
+                if metrics['throughput'] > 0:
+                    if metrics['success_rate'] < 0.95 and self.num_workers > 2:
+                        self._adjust_worker_count(self.num_workers - 1)
+                    elif metrics['success_rate'] > 0.98 and metrics['throughput'] > 5000:
+                        self._adjust_worker_count(self.num_workers + 1)
+                
+                if 'latency' in metrics and metrics['latency']['count'] > 0:
+                    p99_latency_ns = metrics['latency']['p99']
+                    
+                    if p99_latency_ns > 1000000:  # > 1ms
+                        self.throttle_ns = min(1000000, self.throttle_ns * 1.5)
+                    elif p99_latency_ns < 100000 and self.throttle_ns > 10000:  # < 100μs
+                        # Decrease throttling to improve throughput
+                        self.throttle_ns = max(10000, self.throttle_ns * 0.8)
+                
+            except Exception as e:
+                logger.error(f"Error in HFT auto-optimization: {e}")
+                time.sleep(10)  # Wait before retrying
+    
+    def _adjust_worker_count(self, new_count: int) -> None:
+        """
+        Adjust the number of worker processes.
+        
+        Args:
+            new_count: New worker count
+        """
+        if new_count == self.num_workers:
+            return
+            
+        new_count = max(1, min(32, new_count))
+        
+        if new_count > self.num_workers:
+            for i in range(self.num_workers, new_count):
+                input_queue = mp.Queue()
+                self.worker_input_queues.append(input_queue)
+                
+                cpu_id = i % mp.cpu_count() if CPU_AFFINITY else None
+                
+                worker = WorkerProcess(
+                    worker_id=i,
+                    input_queue=input_queue,
+                    output_queue=self.worker_output_queue,
+                    venues=self.venues,
+                    cpu_id=cpu_id
+                )
+                
+                self.workers.append(worker)
+                worker.start()
+                
+        elif new_count < self.num_workers:
+            for i in range(self.num_workers - 1, new_count - 1, -1):
+                worker = self.workers.pop()
+                worker.shutdown()
+                self.worker_input_queues.pop()
+        
+        self.num_workers = new_count
+        
+        if not self.autonomous_mode or self.visible_interface:
+            logger.info(f"Adjusted HFT worker count to {self.num_workers}")
+        else:
+            logger.debug(f"HFT workers: {self.num_workers}")
+    
     def shutdown(self) -> None:
         """Shutdown the execution engine"""
         self.flush()
+        
+        if hasattr(self, 'auto_optimization_active') and self.auto_optimization_active:
+            self._stop_auto_optimization()
         
         for worker in self.workers:
             worker.shutdown()
@@ -790,12 +930,21 @@ class OptimizedHFTExecutionEngine:
         
         self.license_manager.unregister_instance(self.instance_id)
         
-        logger.info("Optimized HFT Execution Engine shut down")
+        if hasattr(self, 'autonomous_mode') and hasattr(self, 'visible_interface'):
+            if not self.autonomous_mode or self.visible_interface:
+                logger.info("Optimized HFT Execution Engine shut down")
+            else:
+                logger.debug(f"HFT Engine shutdown: {self.instance_id}")
+        else:
+            logger.info("Optimized HFT Execution Engine shut down")
 
 
 def create_optimized_hft_engine(
     num_workers: int = 8,
-    license_key: Optional[str] = None
+    license_key: Optional[str] = None,
+    autonomous_mode: bool = True,
+    visible_interface: bool = False,
+    auto_optimization: bool = True
 ) -> OptimizedHFTExecutionEngine:
     """
     Create a new optimized HFT execution engine.
@@ -803,8 +952,17 @@ def create_optimized_hft_engine(
     Args:
         num_workers: Number of worker processes
         license_key: License key for ghosting control
+        autonomous_mode: Whether to run in autonomous mode
+        visible_interface: Whether to show interface in autonomous mode
+        auto_optimization: Whether to automatically optimize execution parameters
         
     Returns:
         OptimizedHFTExecutionEngine: New execution engine
     """
-    return OptimizedHFTExecutionEngine(num_workers=num_workers, license_key=license_key)
+    return OptimizedHFTExecutionEngine(
+        num_workers=num_workers,
+        license_key=license_key,
+        autonomous_mode=autonomous_mode,
+        visible_interface=visible_interface,
+        auto_optimization=auto_optimization
+    )
