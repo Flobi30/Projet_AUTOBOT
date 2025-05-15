@@ -122,8 +122,8 @@ class CrossChainArbitrage:
         self._scanning_active = False
         self._execution_threads = {}
         
-        if self.autonomous_mode:
-            self._start_scanning_thread()
+        # if self.autonomous_mode:
+        #     self._start_scanning_thread()
     
     def update_price(self, asset: str, chain: str, price: float):
         """
