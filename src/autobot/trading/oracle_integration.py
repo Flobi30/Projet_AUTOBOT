@@ -17,6 +17,12 @@ import json
 import requests
 from collections import deque
 
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
+
 logger = logging.getLogger(__name__)
 
 class OracleData:
@@ -489,11 +495,13 @@ class OracleIntegration:
             return
         
         self._refresh_active = True
-        self._refresh_thread = threading.Thread(
+        self._refresh_thread = create_managed_thread(
+            name="oracle_refresh_thread",
             target=self._refresh_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, '_refresh_active', False)
         )
-        self._refresh_thread.start()
         
         if self.visible_interface:
             logger.info("Started oracle data refresh thread")
@@ -504,11 +512,14 @@ class OracleIntegration:
         """
         Background loop for continuous data refreshing.
         """
-        while self._refresh_active:
+        while self._refresh_active and not is_shutdown_requested():
             try:
                 current_time = datetime.now().timestamp()
                 
                 for cache_key, cache_entry in list(self.data_cache.items()):
+                    if not self._refresh_active or is_shutdown_requested():
+                        break
+                        
                     cache_age = current_time - cache_entry["timestamp"]
                     
                     if cache_age >= self.cache_duration:
@@ -522,11 +533,18 @@ class OracleIntegration:
                             except Exception as e:
                                 logger.error(f"Error refreshing data for {cache_key}: {str(e)}")
                 
-                time.sleep(self.refresh_interval)
+                for _ in range(min(60, self.refresh_interval)):
+                    if not self._refresh_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in oracle refresh loop: {str(e)}")
-                time.sleep(30)  # 30 seconds
+                
+                for _ in range(30):  # 30 * 1s = 30 seconds
+                    if not self._refresh_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
     
     def stop_refresh(self):
         """

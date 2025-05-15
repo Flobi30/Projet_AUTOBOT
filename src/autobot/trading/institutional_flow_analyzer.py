@@ -15,6 +15,12 @@ from datetime import datetime
 import numpy as np
 from collections import deque
 
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
+
 logger = logging.getLogger(__name__)
 
 class InstitutionalSignal:
@@ -197,11 +203,13 @@ class InstitutionalFlowAnalyzer:
             return
         
         self._analysis_active = True
-        self._analysis_thread = threading.Thread(
+        self._analysis_thread = create_managed_thread(
+            name="institutional_flow_analyzer",
             target=self._analysis_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, '_analysis_active', False)
         )
-        self._analysis_thread.start()
         
         if self.visible_interface:
             logger.info("Started institutional flow analysis thread")
@@ -212,22 +220,41 @@ class InstitutionalFlowAnalyzer:
         """
         Background loop for continuous institutional flow analysis.
         """
-        while self._analysis_active:
+        while self._analysis_active and not is_shutdown_requested():
             try:
                 for symbol in self.dark_pool_data.keys():
+                    if not self._analysis_active or is_shutdown_requested():
+                        break
                     self._analyze_dark_pool(symbol)
                 
+                if not self._analysis_active or is_shutdown_requested():
+                    break
+                    
                 for symbol in self.block_trades.keys():
+                    if not self._analysis_active or is_shutdown_requested():
+                        break
                     self._analyze_block_trades(symbol)
                 
+                if not self._analysis_active or is_shutdown_requested():
+                    break
+                    
                 for symbol in self.options_flow.keys():
+                    if not self._analysis_active or is_shutdown_requested():
+                        break
                     self._analyze_options_flow(symbol)
                 
-                time.sleep(self.analysis_interval)
+                for _ in range(min(60, self.analysis_interval)):
+                    if not self._analysis_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in institutional flow analysis loop: {str(e)}")
-                time.sleep(30)  # 30 seconds
+                
+                for _ in range(30):  # 30 * 1s = 30 seconds
+                    if not self._analysis_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
     
     def _analyze_dark_pool(self, symbol: str):
         """
