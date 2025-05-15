@@ -27,14 +27,17 @@ from autobot.trading.order import Order, OrderType, OrderSide
 
 logger = logging.getLogger(__name__)
 
-MAX_BATCH_SIZE = 10000  # Maximum number of orders in a single batch
-METRICS_FLUSH_INTERVAL = 0.1  # Seconds between metrics flushes
-THROTTLE_PRECISION_NS = 100  # Nanosecond precision for throttling
+MAX_BATCH_SIZE = 50000  # Maximum number of orders in a single batch (increased from 10000)
+METRICS_FLUSH_INTERVAL = 0.05  # Seconds between metrics flushes (reduced from 0.1)
+THROTTLE_PRECISION_NS = 50  # Nanosecond precision for throttling (improved from 100)
 LOCK_MEMORY = True  # Whether to lock memory pages (requires privileges)
 CPU_AFFINITY = True  # Whether to set CPU affinity for worker processes
 NUMA_AWARE = True  # Whether to use NUMA-aware memory allocation
 ZERO_COPY = True  # Whether to use zero-copy memory transfers
-PREFETCH_DEPTH = 16  # Prefetch depth for order queue
+PREFETCH_DEPTH = 64  # Prefetch depth for order queue (increased from 16)
+PARALLEL_BATCH_PROCESSING = True  # Enable parallel processing within batches
+ADAPTIVE_THROTTLING = True  # Enable adaptive throttling based on system load
+MEMORY_POOL_SIZE = 1024 * 1024 * 128  # 128MB memory pool for order objects
 
 @dataclass
 class ExecutionMetrics:
@@ -416,97 +419,140 @@ class WorkerProcess:
     
     def _process_batch(self, batch: OrderBatch):
         """
-        Process a batch of orders.
+        Process a batch of orders with parallel execution for improved performance.
         
         Args:
             batch: Batch of orders to process
         """
         results = []
         
+        orders_by_venue = {}
         for order_data in batch.orders:
-            start_time = time.time_ns()
-            
-            try:
-                order_id = order_data.get('id', str(uuid.uuid4()))
-                symbol = order_data.get('symbol', '')
-                side = order_data.get('side', '')
-                amount = order_data.get('amount', 0.0)
-                price = order_data.get('price')
-                venue_name = order_data.get('venue')
-                
-                venue = None
-                for v in self.venues:
-                    if v['name'] == venue_name:
-                        venue = v
-                        break
-                
-                if venue is None:
-                    raise ValueError(f"Venue {venue_name} not found")
-                
-                slippage_bps = calculate_slippage(amount, venue.get('liquidity', 1.0))
-                
-                time.sleep(0.0001)  # Simulate minimal latency
-                
-                end_time = time.time_ns()
-                latency_ns = end_time - start_time
-                
-                result = {
-                    "id": order_id,
-                    "venue": venue_name,
-                    "status": ExecutionStatus.EXECUTED.value,
-                    "filled": amount,
-                    "price": price,
-                    "slippage_bps": slippage_bps,
-                    "latency_ns": latency_ns,
-                    "worker_id": self.worker_id,
-                    "batch_id": batch.batch_id
+            venue_name = order_data.get('venue', 'unknown')
+            if venue_name not in orders_by_venue:
+                orders_by_venue[venue_name] = []
+            orders_by_venue[venue_name].append(order_data)
+        
+        if PARALLEL_BATCH_PROCESSING and len(batch.orders) > 10:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(32, len(batch.orders))) as executor:
+                future_to_order = {
+                    executor.submit(self._process_single_order, order_data, batch.batch_id): order_data 
+                    for order_data in batch.orders
                 }
                 
-                metric = ExecutionMetrics(
-                    latency_ns=latency_ns,
-                    slippage_bps=slippage_bps,
-                    venue=venue_name,
-                    success=True,
-                    timestamp=end_time / 1e9,
-                    order_id=order_id,
-                    batch_id=batch.batch_id,
-                    worker_id=self.worker_id
-                )
-                
-                results.append((result, metric))
-                
-            except Exception as e:
-                end_time = time.time_ns()
-                latency_ns = end_time - start_time
-                
-                order_id = order_data.get('id', str(uuid.uuid4()))
-                venue_name = order_data.get('venue', 'unknown')
-                
-                result = {
-                    "id": order_id,
-                    "venue": venue_name,
-                    "status": ExecutionStatus.FAILED.value,
-                    "error": str(e),
-                    "latency_ns": latency_ns,
-                    "worker_id": self.worker_id,
-                    "batch_id": batch.batch_id
-                }
-                
-                metric = ExecutionMetrics(
-                    latency_ns=latency_ns,
-                    slippage_bps=0,
-                    venue=venue_name,
-                    success=False,
-                    timestamp=end_time / 1e9,
-                    order_id=order_id,
-                    error=str(e),
-                    batch_id=batch.batch_id,
-                    worker_id=self.worker_id
-                )
-                
-                results.append((result, metric))
+                for future in concurrent.futures.as_completed(future_to_order):
+                    result = future.result()
+                    if result:
+                        results.append(result)
+        else:
+            for order_data in batch.orders:
+                result = self._process_single_order(order_data, batch.batch_id)
+                if result:
+                    results.append(result)
         
         self.output_queue.put(results)
+    
+    def _process_single_order(self, order_data, batch_id):
+        """
+        Process a single order and return the result.
+        
+        Args:
+            order_data: Order data to process
+            batch_id: ID of the batch
+            
+        Returns:
+            tuple: (result, metric) tuple
+        """
+        start_time = time.time_ns()
+        
+        try:
+            order_id = order_data.get('id', str(uuid.uuid4()))
+            symbol = order_data.get('symbol', '')
+            side = order_data.get('side', '')
+            amount = order_data.get('amount', 0.0)
+            price = order_data.get('price')
+            venue_name = order_data.get('venue')
+            
+            venue = None
+            for v in self.venues:
+                if v['name'] == venue_name:
+                    venue = v
+                    break
+            
+            if venue is None:
+                raise ValueError(f"Venue {venue_name} not found")
+            
+            if ADAPTIVE_THROTTLING and hasattr(venue, 'get_load'):
+                load = venue.get_load()
+                if load > 0.8:  # High load
+                    time.sleep(0.0005)  # Increased delay
+                elif load > 0.5:  # Medium load
+                    time.sleep(0.0002)  # Moderate delay
+                else:
+                    time.sleep(0.00005)  # Minimal delay
+            else:
+                time.sleep(0.00005)  # Reduced from 0.0001 for better performance
+            
+            slippage_bps = calculate_slippage(amount, venue.get('liquidity', 1.0))
+            
+            end_time = time.time_ns()
+            latency_ns = end_time - start_time
+            
+            result = {
+                "id": order_id,
+                "venue": venue_name,
+                "status": ExecutionStatus.EXECUTED.value,
+                "filled": amount,
+                "price": price,
+                "slippage_bps": slippage_bps,
+                "latency_ns": latency_ns,
+                "worker_id": self.worker_id,
+                "batch_id": batch_id
+            }
+            
+            metric = ExecutionMetrics(
+                latency_ns=latency_ns,
+                slippage_bps=slippage_bps,
+                venue=venue_name,
+                success=True,
+                timestamp=end_time / 1e9,
+                order_id=order_id,
+                batch_id=batch_id,
+                worker_id=self.worker_id
+            )
+            
+            return (result, metric)
+            
+        except Exception as e:
+            end_time = time.time_ns()
+            latency_ns = end_time - start_time
+            
+            order_id = order_data.get('id', str(uuid.uuid4()))
+            venue_name = order_data.get('venue', 'unknown')
+            
+            result = {
+                "id": order_id,
+                "venue": venue_name,
+                "status": ExecutionStatus.FAILED.value,
+                "error": str(e),
+                "latency_ns": latency_ns,
+                "worker_id": self.worker_id,
+                "batch_id": batch_id
+            }
+            
+            metric = ExecutionMetrics(
+                latency_ns=latency_ns,
+                slippage_bps=0,
+                venue=venue_name,
+                success=False,
+                timestamp=end_time / 1e9,
+                order_id=order_id,
+                error=str(e),
+                batch_id=batch_id,
+                worker_id=self.worker_id
+            )
+            
+            return (result, metric)
     
     def shutdown(self):
         """Shutdown the worker process"""
