@@ -7,9 +7,42 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Optional, Union, Callable, Tuple
 from datetime import datetime
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 logger = logging.getLogger(__name__)
+
+try:
+    from sklearn.preprocessing import StandardScaler, MinMaxScaler
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    logger.warning("scikit-learn not available or incompatible with numpy version. Using fallback implementations.")
+    SKLEARN_AVAILABLE = False
+    
+    class StandardScaler:
+        def __init__(self):
+            self.mean_ = None
+            self.scale_ = None
+            
+        def fit_transform(self, X):
+            self.mean_ = np.mean(X, axis=0)
+            self.scale_ = np.std(X, axis=0)
+            return (X - self.mean_) / self.scale_
+            
+        def transform(self, X):
+            return (X - self.mean_) / self.scale_
+    
+    class MinMaxScaler:
+        def __init__(self):
+            self.min_ = None
+            self.scale_ = None
+            
+        def fit_transform(self, X):
+            self.min_ = np.min(X, axis=0)
+            self.max_ = np.max(X, axis=0)
+            self.scale_ = self.max_ - self.min_
+            return (X - self.min_) / self.scale_
+            
+        def transform(self, X):
+            return (X - self.min_) / self.scale_
 
 try:
     import talib

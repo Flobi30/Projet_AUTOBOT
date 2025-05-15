@@ -224,6 +224,8 @@ class InventoryManager:
     Inventory manager for e-commerce platforms.
     Handles unsold inventory identification, competitive pricing,
     and direct ordering of unsold products.
+    
+    Supports autonomous mode operation with minimal user visibility.
     """
     
     def __init__(
@@ -232,7 +234,10 @@ class InventoryManager:
         unsold_threshold_days: int = 30,
         discount_rate: float = 0.3,
         min_margin: float = 0.1,
-        competitive_rate: float = 0.2
+        competitive_rate: float = 0.2,
+        autonomous_mode: bool = False,
+        visible_interface: bool = True,
+        auto_optimization: bool = False
     ):
         """
         Initialize the inventory manager.
@@ -243,22 +248,38 @@ class InventoryManager:
             discount_rate: Default discount rate for unsold products
             min_margin: Minimum margin to maintain for discounted products
             competitive_rate: Rate for competitive pricing
+            autonomous_mode: Whether to operate in autonomous mode without user intervention
+            visible_interface: Whether to show detailed information in the interface
+            auto_optimization: Whether to automatically optimize inventory in the background
         """
         self.data_dir = data_dir
         self.unsold_threshold_days = unsold_threshold_days
         self.discount_rate = discount_rate
         self.min_margin = min_margin
         self.competitive_rate = competitive_rate
+        self.autonomous_mode = autonomous_mode
+        self.visible_interface = visible_interface
+        self.auto_optimization = auto_optimization
         
         self.products: Dict[str, Product] = {}
         self.orders: Dict[str, Order] = {}
         self.platform_connectors: Dict[str, Any] = {}
         
+        self._optimization_thread = None
+        self._optimization_active = False
+        self._optimization_interval = 3600  # 1 hour
+        
         os.makedirs(data_dir, exist_ok=True)
         
         self._load_data()
         
-        logger.info(f"Inventory Manager initialized with {len(self.products)} products")
+        if self.visible_interface:
+            logger.info(f"Inventory Manager initialized with {len(self.products)} products")
+        else:
+            logger.debug(f"Inventory Manager initialized with {len(self.products)} products")
+            
+        if self.auto_optimization:
+            self._start_optimization_thread()
     
     def _load_data(self):
         """Load data from files"""
@@ -436,7 +457,11 @@ class InventoryManager:
         
         self._save_data()
         
-        logger.info(f"Identified {len(unsold_products)} unsold products")
+        if self.visible_interface:
+            logger.info(f"Identified {len(unsold_products)} unsold products")
+        else:
+            logger.debug(f"Identified {len(unsold_products)} unsold products")
+            
         return unsold_products
     
     def calculate_discount_prices(self, products: Optional[List[Product]] = None) -> Dict[str, float]:
@@ -467,7 +492,11 @@ class InventoryManager:
         
         self._save_data()
         
-        logger.info(f"Calculated discount prices for {len(discount_prices)} products")
+        if self.visible_interface:
+            logger.info(f"Calculated discount prices for {len(discount_prices)} products")
+        else:
+            logger.debug(f"Calculated discount prices for {len(discount_prices)} products")
+            
         return discount_prices
     
     def calculate_competitive_prices(self, products: Optional[List[Product]] = None) -> Dict[str, float]:
@@ -502,7 +531,11 @@ class InventoryManager:
         
         self._save_data()
         
-        logger.info(f"Calculated competitive prices for {len(competitive_prices)} products")
+        if self.visible_interface:
+            logger.info(f"Calculated competitive prices for {len(competitive_prices)} products")
+        else:
+            logger.debug(f"Calculated competitive prices for {len(competitive_prices)} products")
+            
         return competitive_prices
     
     def _get_competitor_prices(self, product: Product) -> List[float]:
@@ -750,14 +783,102 @@ class InventoryManager:
             "generated_at": int(time.time())
         }
 
-def create_inventory_manager(data_dir: str = "data/ecommerce") -> InventoryManager:
+    def _start_optimization_thread(self):
+        """
+        Start the background optimization thread for autonomous inventory management.
+        This thread continuously optimizes inventory pricing and identifies unsold products.
+        """
+        import threading
+        
+        if self._optimization_thread is not None and self._optimization_thread.is_alive():
+            return
+        
+        self._optimization_active = True
+        self._optimization_thread = threading.Thread(
+            target=self._optimization_loop,
+            daemon=True
+        )
+        self._optimization_thread.start()
+        
+        if self.visible_interface:
+            logger.info("Started inventory optimization thread")
+        else:
+            logger.debug("Started inventory optimization thread")
+    
+    def _optimization_loop(self):
+        """
+        Background loop for continuous inventory optimization.
+        Runs in a separate thread when auto_optimization is enabled.
+        """
+        import time
+        
+        while self._optimization_active:
+            try:
+                # Identify unsold inventory
+                unsold_products = self.identify_unsold_inventory()
+                
+                # Calculate discount prices for unsold products
+                if unsold_products:
+                    self.calculate_discount_prices(unsold_products)
+                
+                # Calculate competitive prices for all products
+                self.calculate_competitive_prices()
+                
+                # Generate inventory report
+                report = self.generate_inventory_report()
+                
+                if self.visible_interface:
+                    logger.info(f"Auto-optimization completed: {len(unsold_products)} unsold products identified")
+                    logger.info(f"Unsold value percentage: {report['unsold_value_percentage']:.2f}%")
+                else:
+                    logger.debug(f"Auto-optimization completed: {len(unsold_products)} unsold products identified")
+                
+                if len(self.products) > 1000:
+                    self._optimization_interval = 7200  # 2 hours for large inventory
+                elif len(self.products) > 500:
+                    self._optimization_interval = 3600  # 1 hour for medium inventory
+                else:
+                    self._optimization_interval = 1800  # 30 minutes for small inventory
+                
+                time.sleep(self._optimization_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in inventory optimization loop: {str(e)}")
+                time.sleep(300)  # 5 minutes
+    
+    def stop_optimization(self):
+        """
+        Stop the background optimization thread.
+        """
+        self._optimization_active = False
+        
+        if self.visible_interface:
+            logger.info("Stopped inventory optimization thread")
+        else:
+            logger.debug("Stopped inventory optimization thread")
+
+
+def create_inventory_manager(
+    data_dir: str = "data/ecommerce",
+    autonomous_mode: bool = False,
+    visible_interface: bool = True,
+    auto_optimization: bool = False
+) -> InventoryManager:
     """
     Create a new inventory manager.
     
     Args:
         data_dir: Directory for storing data
+        autonomous_mode: Whether to operate in autonomous mode without user intervention
+        visible_interface: Whether to show detailed information in the interface
+        auto_optimization: Whether to automatically optimize inventory in the background
         
     Returns:
         InventoryManager: New inventory manager instance
     """
-    return InventoryManager(data_dir)
+    return InventoryManager(
+        data_dir=data_dir,
+        autonomous_mode=autonomous_mode,
+        visible_interface=visible_interface,
+        auto_optimization=auto_optimization
+    )

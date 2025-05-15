@@ -233,6 +233,9 @@ class TradingSuperAGIAgent(SuperAGIAgent):
         symbol = content.get("symbol", "BTC/USD")
         timeframe = content.get("timeframe", "1h")
         
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
+        
         task = f"Analyze market conditions for {symbol} on {timeframe} timeframe. " \
                f"Identify key support/resistance levels, trend direction, and potential entry/exit points."
         
@@ -251,35 +254,45 @@ class TradingSuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="analysis_started",
-                    content={
-                        "run_id": run_id,
-                        "symbol": symbol,
-                        "timeframe": timeframe,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="analysis_started",
+                        content={
+                            "run_id": run_id,
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"TradingSuperAGIAgent {self.id} started market analysis for {symbol}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"TradingSuperAGIAgent {self.id} started market analysis for {symbol}")
+                else:
+                    logger.info(f"TradingSuperAGIAgent {self.id} started market analysis for {symbol}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="analysis_error",
+                        content={
+                            "error": "Failed to start analysis",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"TradingSuperAGIAgent {self.id} failed to start analysis: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="analysis_error",
                     content={
-                        "error": "Failed to start analysis",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="analysis_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"TradingSuperAGIAgent {self.id} failed to analyze market: SuperAGI agent not initialized")
     
     def _handle_generate_trading_strategy(self, message: AgentMessage):
         """
@@ -293,6 +306,9 @@ class TradingSuperAGIAgent(SuperAGIAgent):
         symbol = content.get("symbol", "BTC/USD")
         timeframe = content.get("timeframe", "1h")
         risk_level = content.get("risk_level", "medium")
+        
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
         
         task = f"Generate a {strategy_type} trading strategy for {symbol} on {timeframe} timeframe " \
                f"with {risk_level} risk level. Include entry/exit rules, position sizing, and risk management."
@@ -312,36 +328,46 @@ class TradingSuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="strategy_generation_started",
-                    content={
-                        "run_id": run_id,
-                        "strategy_type": strategy_type,
-                        "symbol": symbol,
-                        "timeframe": timeframe,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="strategy_generation_started",
+                        content={
+                            "run_id": run_id,
+                            "strategy_type": strategy_type,
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"TradingSuperAGIAgent {self.id} started strategy generation for {strategy_type}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"TradingSuperAGIAgent {self.id} started strategy generation for {strategy_type}")
+                else:
+                    logger.info(f"TradingSuperAGIAgent {self.id} started strategy generation for {strategy_type}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="strategy_generation_error",
+                        content={
+                            "error": "Failed to start strategy generation",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"TradingSuperAGIAgent {self.id} failed to start strategy generation: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="strategy_generation_error",
                     content={
-                        "error": "Failed to start strategy generation",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="strategy_generation_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"TradingSuperAGIAgent {self.id} failed to generate strategy: SuperAGI agent not initialized")
 
 
 class EcommerceSuperAGIAgent(SuperAGIAgent):
@@ -398,6 +424,9 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
         source = content.get("source", "all")
         category = content.get("category", "all")
         
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
+        
         task = f"Analyze inventory for {category} category from {source} source. " \
                f"Identify slow-moving items, potential markdowns, and restocking opportunities."
         
@@ -416,35 +445,45 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="inventory_analysis_started",
-                    content={
-                        "run_id": run_id,
-                        "source": source,
-                        "category": category,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="inventory_analysis_started",
+                        content={
+                            "run_id": run_id,
+                            "source": source,
+                            "category": category,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"EcommerceSuperAGIAgent {self.id} started inventory analysis for {category}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"EcommerceSuperAGIAgent {self.id} started inventory analysis for {category}")
+                else:
+                    logger.info(f"EcommerceSuperAGIAgent {self.id} started inventory analysis for {category}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="inventory_analysis_error",
+                        content={
+                            "error": "Failed to start analysis",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"EcommerceSuperAGIAgent {self.id} failed to start inventory analysis: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="inventory_analysis_error",
                     content={
-                        "error": "Failed to start analysis",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="inventory_analysis_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"EcommerceSuperAGIAgent {self.id} failed to analyze inventory: SuperAGI agent not initialized")
     
     def _handle_optimize_pricing(self, message: AgentMessage):
         """
@@ -457,14 +496,19 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
         products = content.get("products", [])
         strategy = content.get("strategy", self.pricing_strategy)
         
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
+        
         if not products:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="pricing_optimization_error",
-                content={
-                    "error": "No products specified"
-                }
-            )
+            if not autonomous_mode or visible_interface:
+                self.send_message(
+                    recipient_id=message.sender_id,
+                    message_type="pricing_optimization_error",
+                    content={
+                        "error": "No products specified"
+                    }
+                )
+            logger.error(f"EcommerceSuperAGIAgent {self.id} failed to optimize pricing: No products specified")
             return
         
         product_list = ", ".join([p.get("name", f"Product {i+1}") for i, p in enumerate(products[:5])])
@@ -489,35 +533,45 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="pricing_optimization_started",
-                    content={
-                        "run_id": run_id,
-                        "product_count": len(products),
-                        "strategy": strategy,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="pricing_optimization_started",
+                        content={
+                            "run_id": run_id,
+                            "product_count": len(products),
+                            "strategy": strategy,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"EcommerceSuperAGIAgent {self.id} started pricing optimization for {len(products)} products")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"EcommerceSuperAGIAgent {self.id} started pricing optimization for {len(products)} products")
+                else:
+                    logger.info(f"EcommerceSuperAGIAgent {self.id} started pricing optimization for {len(products)} products")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="pricing_optimization_error",
+                        content={
+                            "error": "Failed to start optimization",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"EcommerceSuperAGIAgent {self.id} failed to start pricing optimization: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="pricing_optimization_error",
                     content={
-                        "error": "Failed to start optimization",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="pricing_optimization_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"EcommerceSuperAGIAgent {self.id} failed to optimize pricing: SuperAGI agent not initialized")
     
     def _handle_generate_product_description(self, message: AgentMessage):
         """
@@ -530,14 +584,19 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
         product = content.get("product", {})
         style = content.get("style", "professional")
         
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
+        
         if not product:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="description_generation_error",
-                content={
-                    "error": "No product specified"
-                }
-            )
+            if not autonomous_mode or visible_interface:
+                self.send_message(
+                    recipient_id=message.sender_id,
+                    message_type="description_generation_error",
+                    content={
+                        "error": "No product specified"
+                    }
+                )
+            logger.error(f"EcommerceSuperAGIAgent {self.id} failed to generate product description: No product specified")
             return
         
         product_name = product.get("name", "Product")
@@ -560,35 +619,45 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="description_generation_started",
-                    content={
-                        "run_id": run_id,
-                        "product_name": product_name,
-                        "style": style,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="description_generation_started",
+                        content={
+                            "run_id": run_id,
+                            "product_name": product_name,
+                            "style": style,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"EcommerceSuperAGIAgent {self.id} started description generation for {product_name}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"EcommerceSuperAGIAgent {self.id} started description generation for {product_name}")
+                else:
+                    logger.info(f"EcommerceSuperAGIAgent {self.id} started description generation for {product_name}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="description_generation_error",
+                        content={
+                            "error": "Failed to start generation",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"EcommerceSuperAGIAgent {self.id} failed to start description generation: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="description_generation_error",
                     content={
-                        "error": "Failed to start generation",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="description_generation_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"EcommerceSuperAGIAgent {self.id} failed to generate product description: SuperAGI agent not initialized")
 
 
 class SecuritySuperAGIAgent(SuperAGIAgent):
@@ -648,6 +717,9 @@ class SecuritySuperAGIAgent(SuperAGIAgent):
         log_type = content.get("log_type", "authentication")
         time_range = content.get("time_range", "24h")
         
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
+        
         task = f"Analyze {log_type} security logs for the past {time_range}. " \
                f"Identify suspicious activities, potential threats, and security vulnerabilities."
         
@@ -666,35 +738,45 @@ class SecuritySuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="security_analysis_started",
-                    content={
-                        "run_id": run_id,
-                        "log_type": log_type,
-                        "time_range": time_range,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="security_analysis_started",
+                        content={
+                            "run_id": run_id,
+                            "log_type": log_type,
+                            "time_range": time_range,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"SecuritySuperAGIAgent {self.id} started security log analysis for {log_type}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"SecuritySuperAGIAgent {self.id} started security log analysis for {log_type}")
+                else:
+                    logger.info(f"SecuritySuperAGIAgent {self.id} started security log analysis for {log_type}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="security_analysis_error",
+                        content={
+                            "error": "Failed to start analysis",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"SecuritySuperAGIAgent {self.id} failed to start security log analysis: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="security_analysis_error",
                     content={
-                        "error": "Failed to start analysis",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="security_analysis_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"SecuritySuperAGIAgent {self.id} failed to analyze security logs: SuperAGI agent not initialized")
     
     def _handle_generate_security_policy(self, message: AgentMessage):
         """
@@ -706,6 +788,9 @@ class SecuritySuperAGIAgent(SuperAGIAgent):
         content = message.content
         policy_type = content.get("policy_type", "authentication")
         compliance_framework = content.get("compliance_framework", "GDPR")
+        
+        autonomous_mode = self.config.get("autonomous_mode", True)
+        visible_interface = self.config.get("visible_interface", False)
         
         task = f"Generate a {policy_type} security policy compliant with {compliance_framework}. " \
                f"Include implementation guidelines, monitoring procedures, and incident response protocols."
@@ -725,35 +810,45 @@ class SecuritySuperAGIAgent(SuperAGIAgent):
                     "start_time": int(time.time())
                 }
                 
-                self.send_message(
-                    recipient_id=message.sender_id,
-                    message_type="policy_generation_started",
-                    content={
-                        "run_id": run_id,
-                        "policy_type": policy_type,
-                        "compliance_framework": compliance_framework,
-                        "status": "processing"
-                    }
-                )
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="policy_generation_started",
+                        content={
+                            "run_id": run_id,
+                            "policy_type": policy_type,
+                            "compliance_framework": compliance_framework,
+                            "status": "processing"
+                        }
+                    )
                 
-                logger.info(f"SecuritySuperAGIAgent {self.id} started policy generation for {policy_type}")
+                if autonomous_mode and not visible_interface:
+                    logger.debug(f"SecuritySuperAGIAgent {self.id} started policy generation for {policy_type}")
+                else:
+                    logger.info(f"SecuritySuperAGIAgent {self.id} started policy generation for {policy_type}")
             else:
+                if not autonomous_mode or visible_interface:
+                    self.send_message(
+                        recipient_id=message.sender_id,
+                        message_type="policy_generation_error",
+                        content={
+                            "error": "Failed to start generation",
+                            "details": run_result.get("error", "Unknown error")
+                        }
+                    )
+                
+                logger.error(f"SecuritySuperAGIAgent {self.id} failed to start policy generation: {run_result.get('error', 'Unknown error')}")
+        else:
+            if not autonomous_mode or visible_interface:
                 self.send_message(
                     recipient_id=message.sender_id,
                     message_type="policy_generation_error",
                     content={
-                        "error": "Failed to start generation",
-                        "details": run_result.get("error", "Unknown error")
+                        "error": "SuperAGI agent not initialized"
                     }
                 )
-        else:
-            self.send_message(
-                recipient_id=message.sender_id,
-                message_type="policy_generation_error",
-                content={
-                    "error": "SuperAGI agent not initialized"
-                }
-            )
+            
+            logger.error(f"SecuritySuperAGIAgent {self.id} failed to generate security policy: SuperAGI agent not initialized")
 
 
 def create_superagi_agent(
@@ -761,7 +856,9 @@ def create_superagi_agent(
     name: str,
     config: Dict[str, Any] = None,
     api_key: str = None,
-    base_url: str = "https://api.superagi.com/v1"
+    base_url: str = "https://api.superagi.com/v1",
+    autonomous_mode: bool = True,
+    visible_interface: bool = False
 ) -> Optional[SuperAGIAgent]:
     """
     Factory function to create a specialized SuperAGI agent.
@@ -772,12 +869,17 @@ def create_superagi_agent(
         config: Agent configuration
         api_key: SuperAGI API key
         base_url: SuperAGI API base URL
+        autonomous_mode: Whether to operate in autonomous mode without user intervention
+        visible_interface: Whether to show the interface or operate invisibly in the background
         
     Returns:
         SuperAGIAgent: Created agent, or None if creation failed
     """
     agent_id = f"superagi_{agent_type}_{int(time.time())}"
     config = config or {}
+    
+    config["autonomous_mode"] = autonomous_mode
+    config["visible_interface"] = visible_interface
     
     if agent_type == "trading":
         return TradingSuperAGIAgent(agent_id, name, config, api_key, base_url)
