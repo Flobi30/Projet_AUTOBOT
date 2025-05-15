@@ -15,6 +15,12 @@ from datetime import datetime
 import numpy as np
 from collections import deque
 
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
+
 logger = logging.getLogger(__name__)
 
 class HedgePosition:
@@ -419,11 +425,13 @@ class AutoHedging:
             return
         
         self._check_active = True
-        self._check_thread = threading.Thread(
+        self._check_thread = create_managed_thread(
+            name="auto_hedging_check_thread",
             target=self._check_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, '_check_active', False)
         )
-        self._check_thread.start()
         
         if self.visible_interface:
             logger.info("Started auto hedging check thread")
@@ -434,16 +442,25 @@ class AutoHedging:
         """
         Background loop for continuous hedge checking.
         """
-        while self._check_active:
+        while self._check_active and not is_shutdown_requested():
             try:
                 for position_id in list(self.positions.keys()):
+                    if not self._check_active or is_shutdown_requested():
+                        break
                     self._check_hedge_position(position_id)
                 
-                time.sleep(self.check_interval)
+                for _ in range(min(60, self.check_interval)):
+                    if not self._check_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in hedge check loop: {str(e)}")
-                time.sleep(30)  # 30 seconds
+                
+                for _ in range(30):  # 30 * 1s = 30 seconds
+                    if not self._check_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
     
     def _check_hedge_position(self, position_id: str):
         """
@@ -656,6 +673,12 @@ class AutoHedging:
         Stop the background hedge check thread.
         """
         self._check_active = False
+        
+        if self._check_thread is not None and self._check_thread.is_alive():
+            if isinstance(self._check_thread, ManagedThread):
+                self._check_thread.stop(timeout=2.0)
+            else:
+                self._check_thread.join(timeout=2.0)
         
         if self.visible_interface:
             logger.info("Stopped auto hedging check thread")
