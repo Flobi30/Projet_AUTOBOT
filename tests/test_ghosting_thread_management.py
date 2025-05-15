@@ -29,7 +29,7 @@ class TestGhostingThreadManagement(unittest.TestCase):
         Set up test fixtures.
         """
         self.license_manager = MagicMock(spec=LicenseManager)
-        self.license_manager.verify_license.return_value = True
+        self.license_manager._verify_license.return_value = True  # Mock the private method correctly
         self.license_manager.get_max_instances.return_value = 10
         
         self.thread_manager = GhostingThreadManager()
