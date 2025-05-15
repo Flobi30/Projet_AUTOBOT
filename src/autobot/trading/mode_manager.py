@@ -18,6 +18,12 @@ from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 import numpy as np
 
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
+
 logger = logging.getLogger(__name__)
 
 class TradingMode(Enum):
@@ -241,11 +247,13 @@ class ModeManager:
             return
         
         self._monitoring_active = True
-        self._monitoring_thread = threading.Thread(
+        self._monitoring_thread = create_managed_thread(
+            name="mode_monitoring_thread",
             target=self._monitoring_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, '_monitoring_active', False)
         )
-        self._monitoring_thread.start()
         
         if self.visible_interface:
             logger.info("Started mode monitoring thread")
@@ -256,15 +264,22 @@ class ModeManager:
         """
         Background loop for continuous mode monitoring and switching.
         """
-        while self._monitoring_active:
+        while self._monitoring_active and not is_shutdown_requested():
             try:
                 self._evaluate_mode_switch()
                 
-                time.sleep(10)  # Check every 10 seconds
+                for _ in range(10):  # 10 * 1s = 10 seconds
+                    if not self._monitoring_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in mode monitoring loop: {str(e)}")
-                time.sleep(30)  # 30 seconds
+                
+                for _ in range(15):  # 15 * 2s = 30 seconds
+                    if not self._monitoring_active or is_shutdown_requested():
+                        break
+                    time.sleep(2)
     
     def stop_monitoring(self):
         """
