@@ -3,6 +3,8 @@ Advanced Multi-Agent Orchestrator for AUTOBOT
 
 This module provides a sophisticated orchestration system that integrates
 all specialized AI agents to maximize system efficiency and profit generation.
+The orchestrator operates autonomously in the background without requiring
+user intervention, with agents continuously optimizing performance.
 """
 
 import logging
@@ -17,6 +19,7 @@ import json
 import os
 import numpy as np
 from datetime import datetime
+import atexit
 
 from autobot.agents.anomaly_detection_agent import AnomalyDetectionAgent, AnomalyEvent
 from autobot.agents.sentiment_analysis_agent import SentimentAnalysisAgent, SentimentData
@@ -179,7 +182,9 @@ class AdvancedOrchestrator:
         max_concurrent_tasks: int = 10,
         task_timeout: int = 300,
         enable_superagi: bool = True,
-        license_key: Optional[str] = None
+        license_key: Optional[str] = None,
+        autonomous_mode: bool = True,
+        visible_interface: bool = False
     ):
         """
         Initialize the advanced orchestrator.
@@ -191,12 +196,16 @@ class AdvancedOrchestrator:
             task_timeout: Timeout for tasks in seconds
             enable_superagi: Whether to enable SuperAGI integration
             license_key: License key for controlled ghosting
+            autonomous_mode: Whether to operate in autonomous mode without user intervention
+            visible_interface: Whether to show the interface or operate invisibly in the background
         """
         self.data_dir = data_dir
         self.max_concurrent_tasks = max_concurrent_tasks
         self.task_timeout = task_timeout
         self.enable_superagi = enable_superagi
         self.license_key = license_key
+        self.autonomous_mode = autonomous_mode
+        self.visible_interface = visible_interface
         
         os.makedirs(data_dir, exist_ok=True)
         
@@ -211,6 +220,9 @@ class AdvancedOrchestrator:
         self.active_tasks = {}
         self.completed_tasks = {}
         self.events = []
+        
+        self.autonomous_thread = None
+        self.last_autonomous_action = time.time()
         
         self.resources = ResourceAllocation({
             "cpu": self.config.get("resources", {}).get("cpu", 100),
@@ -246,7 +258,12 @@ class AdvancedOrchestrator:
         self.event_processor.start()
         self.agent_monitor.start()
         
+        atexit.register(self.shutdown)
+        
         logger.info("Advanced Orchestrator initialized")
+        
+        if self.autonomous_mode:
+            self._start_autonomous_operation()
     
     def _load_config(self, config_path: Optional[str]) -> Dict[str, Any]:
         """
@@ -1199,6 +1216,185 @@ class AdvancedOrchestrator:
             "timestamp": time.time()
         }
     
+    def _start_autonomous_operation(self) -> None:
+        """
+        Start autonomous operation in the background.
+        This method launches a background thread that continuously monitors
+        and optimizes the system without requiring user intervention.
+        """
+        if self.autonomous_thread is not None and self.autonomous_thread.is_alive():
+            logger.info("Autonomous operation already running")
+            return
+            
+        self.autonomous_thread = threading.Thread(
+            target=self._autonomous_operation_loop,
+            daemon=True
+        )
+        self.autonomous_thread.start()
+        
+        logger.info("Started autonomous operation in background")
+    
+    def _autonomous_operation_loop(self) -> None:
+        """
+        Main loop for autonomous operation.
+        Continuously monitors and optimizes the system without user intervention.
+        """
+        check_interval = 60  # seconds
+        
+        while self.running:
+            try:
+                current_time = time.time()
+                
+                if current_time - self.last_autonomous_action > check_interval:
+                    self.last_autonomous_action = current_time
+                    
+                    if self.anomaly_agent:
+                        anomalies = self.anomaly_agent.get_anomaly_events()
+                        for anomaly in anomalies:
+                            self._handle_autonomous_anomaly(anomaly)
+                    
+                    if self.sentiment_agent:
+                        sentiment_events = self.sentiment_agent.get_sentiment_events()
+                        for event in sentiment_events:
+                            self._handle_autonomous_sentiment(event)
+                    
+                    if self.trading_agent and self.prediction_engine:
+                        self._optimize_trading_strategies()
+                    
+                    if self.inventory_manager:
+                        self._manage_ecommerce_inventory()
+                    
+                    self._optimize_resource_allocation()
+                    
+                    system_status = self.get_system_status()
+                    logger.debug(f"Autonomous system status: {json.dumps(system_status, indent=2)}")
+                
+                time.sleep(5)  # Short sleep to prevent CPU hogging
+                
+            except Exception as e:
+                logger.error(f"Error in autonomous operation: {str(e)}")
+                time.sleep(30)  # Longer sleep on error
+    
+    def _handle_autonomous_anomaly(self, anomaly: AnomalyEvent) -> None:
+        """
+        Handle an anomaly event autonomously.
+        
+        Args:
+            anomaly: Anomaly event to handle
+        """
+        if not anomaly.processed:
+            logger.info(f"Autonomous handling of anomaly: {anomaly.anomaly_type} for {anomaly.symbol}")
+            
+            if anomaly.action in ["BUY", "SELL"] and anomaly.confidence > 0.7:
+                self.add_task(
+                    agent_id="trading",
+                    task_type="trading",
+                    priority=AgentPriority.HIGH,
+                    data={
+                        "action": "execute_trade",
+                        "symbol": anomaly.symbol,
+                        "side": anomaly.action.lower(),
+                        "amount": anomaly.suggested_position_size,
+                        "reason": f"Autonomous anomaly: {anomaly.anomaly_type}"
+                    }
+                )
+    
+    def _handle_autonomous_sentiment(self, sentiment_data: Tuple[List[str], SentimentData]) -> None:
+        """
+        Handle sentiment data autonomously.
+        
+        Args:
+            sentiment_data: Sentiment data to handle
+        """
+        symbols, data = sentiment_data
+        
+        if abs(data.normalized_score) > 0.8 and data.confidence > 0.7:
+            logger.info(f"Autonomous handling of sentiment: {data.normalized_score:.2f} for {symbols}")
+            
+            action = "buy" if data.normalized_score > 0 else "sell"
+            
+            for symbol in symbols:
+                self.add_task(
+                    agent_id="trading",
+                    task_type="trading",
+                    priority=AgentPriority.MEDIUM,
+                    data={
+                        "action": "execute_trade",
+                        "symbol": symbol,
+                        "side": action,
+                        "amount": 0.05,  # Conservative amount for sentiment-based trades
+                        "reason": f"Autonomous sentiment: {data.normalized_score:.2f}"
+                    }
+                )
+    
+    def _optimize_trading_strategies(self) -> None:
+        """Optimize trading strategies autonomously"""
+        if not self.trading_agent:
+            return
+            
+        strategies = self.trading_agent.get_strategies()
+        
+        for strategy_name, strategy in strategies.items():
+            optimized_params = self.prediction_engine.optimize_strategy_parameters(
+                strategy_name, 
+                strategy.get_parameters()
+            )
+            
+            if optimized_params:
+                logger.info(f"Autonomously optimizing strategy: {strategy_name}")
+                
+                self.add_task(
+                    agent_id="trading",
+                    task_type="trading",
+                    priority=AgentPriority.LOW,
+                    data={
+                        "action": "update_strategy",
+                        "strategy_name": strategy_name,
+                        "parameters": optimized_params
+                    }
+                )
+    
+    def _manage_ecommerce_inventory(self) -> None:
+        """Manage e-commerce inventory autonomously"""
+        if not self.inventory_manager:
+            return
+            
+        unsold_products = self.inventory_manager.identify_unsold_inventory()
+        
+        if unsold_products:
+            logger.info(f"Autonomously managing {len(unsold_products)} unsold products")
+            
+            self.inventory_manager.calculate_discount_prices()
+            self.inventory_manager.calculate_competitive_prices()
+            
+            self.add_task(
+                agent_id="ecommerce",
+                task_type="ecommerce",
+                priority=AgentPriority.LOW,
+                data={
+                    "action": "update_listings",
+                    "count": len(unsold_products)
+                }
+            )
+    
+    def _optimize_resource_allocation(self) -> None:
+        """Optimize resource allocation autonomously"""
+        utilization = self.resources.get_utilization()
+        
+        # Check for over-utilized resources
+        over_utilized = [res for res, util in utilization.items() if util > 0.9]
+        
+        if over_utilized:
+            logger.info(f"Autonomously optimizing over-utilized resources: {over_utilized}")
+            
+            # Pause low-priority agents to free resources
+            for agent_id, status in self.agent_status.items():
+                if status == "active" and agent_id not in ["trading", "security"]:
+                    self.pause_agent(agent_id)
+                    logger.info(f"Temporarily paused {agent_id} to free resources")
+                    
+                    threading.Timer(300, self.resume_agent, args=[agent_id]).start()
+    
     def shutdown(self) -> None:
         """Shutdown the orchestrator and all components"""
         self.running = False
@@ -1221,6 +1417,9 @@ class AdvancedOrchestrator:
         if self.hft_engine:
             self.hft_engine.shutdown()
         
+        if self.autonomous_thread and self.autonomous_thread.is_alive():
+            self.autonomous_thread.join(timeout=1)
+        
         if self.task_processor.is_alive():
             self.task_processor.join(timeout=1)
         
@@ -1235,7 +1434,9 @@ class AdvancedOrchestrator:
 
 def create_advanced_orchestrator(
     config_path: Optional[str] = None,
-    license_key: Optional[str] = None
+    license_key: Optional[str] = None,
+    autonomous_mode: bool = True,
+    visible_interface: bool = False
 ) -> AdvancedOrchestrator:
     """
     Create a new advanced orchestrator.
@@ -1243,10 +1444,17 @@ def create_advanced_orchestrator(
     Args:
         config_path: Path to configuration file
         license_key: License key for controlled ghosting
+        autonomous_mode: Whether to operate in autonomous mode without user intervention
+        visible_interface: Whether to show the interface or operate invisibly in the background
         
     Returns:
         AdvancedOrchestrator: New orchestrator instance
     """
-    orchestrator = AdvancedOrchestrator(config_path=config_path, license_key=license_key)
+    orchestrator = AdvancedOrchestrator(
+        config_path=config_path, 
+        license_key=license_key,
+        autonomous_mode=autonomous_mode,
+        visible_interface=visible_interface
+    )
     orchestrator.initialize_components()
     return orchestrator
