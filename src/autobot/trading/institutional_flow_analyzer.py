@@ -109,8 +109,8 @@ class InstitutionalFlowAnalyzer:
         self._analysis_thread = None
         self._analysis_active = False
         
-        if self.autonomous_mode:
-            self._start_analysis_thread()
+        # if self.autonomous_mode:
+        #     self._start_analysis_thread()
     
     def update_dark_pool_data(self, symbol: str, data: Dict[str, Any]):
         """

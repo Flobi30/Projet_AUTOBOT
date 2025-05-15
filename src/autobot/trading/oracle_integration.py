@@ -300,8 +300,8 @@ class OracleIntegration:
         self.register_provider(BandProtocolProvider())
         self.register_provider(API3Provider())
         
-        if self.autonomous_mode and self.auto_refresh:
-            self._start_refresh_thread()
+        # if self.autonomous_mode and self.auto_refresh:
+        #     self._start_refresh_thread()
     
     def register_provider(self, provider: OracleProvider):
         """

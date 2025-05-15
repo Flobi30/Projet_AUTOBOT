@@ -349,8 +349,8 @@ class AutoHedging:
         self._check_thread = None
         self._check_active = False
         
-        if self.autonomous_mode and self.auto_hedge:
-            self._start_check_thread()
+        # if self.autonomous_mode and self.auto_hedge:
+        #     self._start_check_thread()
     
     def register_strategy(self, strategy: HedgingStrategy):
         """
