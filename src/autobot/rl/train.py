@@ -102,34 +102,49 @@ def _run_training_job(job_id: str) -> None:
         agent = PPOAgent(
             state_dim=env.observation_space.shape[0],
             action_dim=env.action_space.n,
-            learning_rate=0.0003
+            lr=0.0003
         )
         
         best_reward = -float('inf')
         best_model_path = None
         
         for episode in range(job_info['episodes']):
-            state = env.reset()
+            state, _ = env.reset()
             done = False
+            truncated = False
             total_reward = 0
             
-            while not done:
-                action = agent.select_action(state)
-                next_state, reward, done, _ = env.step(action)
-                agent.store_transition(state, action, reward, next_state, done)
+            while not done and not truncated:
+                action, log_prob, value = agent.select_action(state)
+                step_result = env.step(action)
+                
+                if len(step_result) == 5:
+                    next_state, reward, done, truncated, info = step_result
+                else:
+                    next_state, reward, done, info = step_result
+                    truncated = False
+                
+                agent.store_transition(state, action, reward, value, log_prob, done)
                 state = next_state
                 total_reward += reward
-                
-                if len(agent.memory) >= agent.batch_size:
-                    agent.update()
             
             progress = int((episode + 1) / job_info['episodes'] * 100)
+            
+            _, _, last_value = agent.select_action(state)
+            
+            agent.finish_episode(last_value, done)
+            
+            update_metrics = agent.update()
+            
+            agent.add_episode_metrics(total_reward, len(env.portfolio_history))
             
             metrics = {
                 'episode': episode + 1,
                 'total_reward': float(total_reward),
                 'final_portfolio_value': float(env.portfolio_value),
-                'best_portfolio_value': float(max(env.portfolio_history))
+                'best_portfolio_value': float(max(env.portfolio_history)),
+                'policy_loss': update_metrics.get('policy_loss', 0),
+                'value_loss': update_metrics.get('value_loss', 0)
             }
             
             _update_job_status(job_id, 'running', progress, metrics)
