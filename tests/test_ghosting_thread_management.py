@@ -30,7 +30,17 @@ class TestGhostingThreadManagement(unittest.TestCase):
         """
         self.license_manager = MagicMock(spec=LicenseManager)
         self.license_manager._verify_license.return_value = True  # Mock the private method correctly
-        self.license_manager.get_max_instances.return_value = 10
+        self.license_manager.get_license_info.return_value = {
+            "max_instances": 10,
+            "features": {
+                "ghosting": {
+                    "max_usage": 10,
+                    "enabled": True
+                }
+            }
+        }
+        self.license_manager.is_feature_enabled.return_value = True
+        self.license_manager.use_feature.return_value = True
         
         self.thread_manager = GhostingThreadManager()
     
