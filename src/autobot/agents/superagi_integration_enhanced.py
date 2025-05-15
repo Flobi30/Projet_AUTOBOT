@@ -494,7 +494,7 @@ def create_enhanced_orchestrator(
     
     orchestrator.initialize_agents()
     
-    if autonomous_mode:
-        orchestrator.start_autonomous_operation()
+    # if autonomous_mode:
+    #     orchestrator.start_autonomous_operation()
     
     return orchestrator
