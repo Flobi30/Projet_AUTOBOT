@@ -15,6 +15,12 @@ from datetime import datetime
 import numpy as np
 from collections import deque
 
+from autobot.thread_management import (
+    create_managed_thread,
+    is_shutdown_requested,
+    ManagedThread
+)
+
 logger = logging.getLogger(__name__)
 
 class ArbitrageOpportunity:
@@ -193,11 +199,13 @@ class CrossChainArbitrage:
             return
         
         self._scanning_active = True
-        self._scanning_thread = threading.Thread(
+        self._scanning_thread = create_managed_thread(
+            name="cross_chain_arbitrage_scanner",
             target=self._scanning_loop,
-            daemon=True
+            daemon=True,
+            auto_start=True,
+            cleanup_callback=lambda: setattr(self, '_scanning_active', False)
         )
-        self._scanning_thread.start()
         
         if self.visible_interface:
             logger.info("Started cross-chain arbitrage scanning thread")
@@ -208,15 +216,22 @@ class CrossChainArbitrage:
         """
         Background loop for continuous arbitrage opportunity scanning.
         """
-        while self._scanning_active:
+        while self._scanning_active and not is_shutdown_requested():
             try:
                 self._scan_opportunities()
                 
-                time.sleep(self.scan_interval)
+                for _ in range(min(10, self.scan_interval)):
+                    if not self._scanning_active or is_shutdown_requested():
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"Error in arbitrage scanning loop: {str(e)}")
-                time.sleep(30)  # 30 seconds
+                
+                for _ in range(15):  # 15 * 2s = 30 seconds
+                    if not self._scanning_active or is_shutdown_requested():
+                        break
+                    time.sleep(2)
     
     def _scan_opportunities(self):
         """
@@ -374,13 +389,14 @@ class CrossChainArbitrage:
             "steps": []
         }
         
-        thread = threading.Thread(
+        thread = create_managed_thread(
+            name=f"arbitrage_execution_{opportunity.id}",
             target=self._arbitrage_execution_thread,
             args=(opportunity.id,),
-            daemon=True
+            daemon=True,
+            auto_start=True
         )
         self._execution_threads[opportunity.id] = thread
-        thread.start()
         
         if self.visible_interface:
             logger.info(f"Started arbitrage execution: {opportunity.asset} from {opportunity.source_chain} to {opportunity.target_chain} (${position_size:.2f})")
@@ -395,7 +411,7 @@ class CrossChainArbitrage:
             opportunity_id: ID of the opportunity to execute
         """
         try:
-            if opportunity_id not in self.active_arbitrages:
+            if opportunity_id not in self.active_arbitrages or is_shutdown_requested():
                 return
             
             arbitrage = self.active_arbitrages[opportunity_id]
@@ -408,6 +424,9 @@ class CrossChainArbitrage:
                 "timestamp": datetime.now().timestamp()
             })
             
+            if is_shutdown_requested():
+                return
+                
             arbitrage["steps"].append({
                 "step": "buying",
                 "chain": opportunity["source_chain"],
@@ -415,11 +434,17 @@ class CrossChainArbitrage:
                 "timestamp": datetime.now().timestamp()
             })
             
-            time.sleep(2)  # Simulate API call
+            for _ in range(20):  # 0.1s increments for 2s
+                if is_shutdown_requested():
+                    return
+                time.sleep(0.1)
             
+            if is_shutdown_requested():
+                return
+                
             buy_amount = position_size / opportunity["source_price"]
             
-            if opportunity["source_chain"] != opportunity["target_chain"]:
+            if opportunity["source_chain"] != opportunity["target_chain"] and not is_shutdown_requested():
                 arbitrage["steps"].append({
                     "step": "bridging",
                     "from_chain": opportunity["source_chain"],
@@ -432,11 +457,21 @@ class CrossChainArbitrage:
                     opportunity["target_chain"] in self.bridge_times[opportunity["source_chain"]]):
                     bridge_time = self.bridge_times[opportunity["source_chain"]][opportunity["target_chain"]]["seconds"]
                 
-                time.sleep(min(bridge_time, 5))  # Simulate bridge (max 5 seconds for simulation)
+                bridge_time_seconds = min(bridge_time, 5)  # max 5 seconds for simulation
+                for _ in range(int(bridge_time_seconds * 10)):  # 0.1s increments
+                    if is_shutdown_requested():
+                        return
+                    time.sleep(0.1)
                 
+                if is_shutdown_requested():
+                    return
+                    
                 bridge_fee = opportunity["estimated_fees"].get("bridge", 0.3) / 100
                 buy_amount = buy_amount * (1 - bridge_fee)
             
+            if is_shutdown_requested():
+                return
+                
             arbitrage["steps"].append({
                 "step": "selling",
                 "chain": opportunity["target_chain"],
@@ -444,14 +479,23 @@ class CrossChainArbitrage:
                 "timestamp": datetime.now().timestamp()
             })
             
-            time.sleep(2)  # Simulate API call
+            for _ in range(20):  # 0.1s increments for 2s
+                if is_shutdown_requested():
+                    return
+                time.sleep(0.1)
             
+            if is_shutdown_requested():
+                return
+                
             target_trading_fee = opportunity["estimated_fees"].get("target_trading", 0.1) / 100
             sell_amount = buy_amount * opportunity["target_price"] * (1 - target_trading_fee)
             
             profit = sell_amount - position_size
             profit_percentage = (profit / position_size) * 100
             
+            if is_shutdown_requested():
+                return
+                
             arbitrage["status"] = "completed"
             arbitrage["steps"].append({
                 "step": "completed",
@@ -460,16 +504,19 @@ class CrossChainArbitrage:
                 "timestamp": datetime.now().timestamp()
             })
             
-            self.completed_arbitrages.append(arbitrage)
-            del self.active_arbitrages[opportunity_id]
+            if opportunity_id in self.active_arbitrages and not is_shutdown_requested():
+                self.completed_arbitrages.append(arbitrage)
+                del self.active_arbitrages[opportunity_id]
             
-            if self.visible_interface:
-                logger.info(f"Completed arbitrage: {opportunity['asset']} from {opportunity['source_chain']} to {opportunity['target_chain']} (profit: ${profit:.2f}, {profit_percentage:.2f}%)")
-            else:
-                logger.debug(f"Completed arbitrage: {opportunity['asset']} from {opportunity['source_chain']} to {opportunity['target_chain']} (profit: ${profit:.2f}, {profit_percentage:.2f}%)")
+                if self.visible_interface:
+                    logger.info(f"Completed arbitrage: {opportunity['asset']} from {opportunity['source_chain']} to {opportunity['target_chain']} (profit: ${profit:.2f}, {profit_percentage:.2f}%)")
+                else:
+                    logger.debug(f"Completed arbitrage: {opportunity['asset']} from {opportunity['source_chain']} to {opportunity['target_chain']} (profit: ${profit:.2f}, {profit_percentage:.2f}%)")
             
         except Exception as e:
-            if opportunity_id in self.active_arbitrages:
+            logger.error(f"Error executing arbitrage {opportunity_id}: {str(e)}")
+            
+            if opportunity_id in self.active_arbitrages and not is_shutdown_requested():
                 self.active_arbitrages[opportunity_id]["status"] = "failed"
                 self.active_arbitrages[opportunity_id]["steps"].append({
                     "step": "failed",
@@ -479,8 +526,6 @@ class CrossChainArbitrage:
                 
                 self.completed_arbitrages.append(self.active_arbitrages[opportunity_id])
                 del self.active_arbitrages[opportunity_id]
-            
-            logger.error(f"Error executing arbitrage {opportunity_id}: {str(e)}")
     
     def get_active_arbitrages(self) -> List[Dict[str, Any]]:
         """
