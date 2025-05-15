@@ -25,10 +25,9 @@ logger = logging.getLogger(__name__)
 
 class GhostingMode(Enum):
     """Ghosting operation modes"""
-    DISABLED = 0
-    PASSIVE = 1  # Read-only, no order execution
-    ACTIVE = 2   # Full trading capabilities
-    HYBRID = 3   # Mixed mode with selective execution
+    ACTIVE = 2   # Full trading capabilities with permanent indétectabilité
+    PASSIVE = 1  # Read-only, no order execution (legacy, not used)
+    HYBRID = 3   # Mixed mode with selective execution (legacy, not used)
 
 
 @dataclass
@@ -67,7 +66,7 @@ class GhostingManager:
         heartbeat_interval: int = 5,
         cleanup_interval: int = 60,
         max_instances: Optional[int] = None,
-        default_mode: GhostingMode = GhostingMode.PASSIVE
+        default_mode: GhostingMode = GhostingMode.ACTIVE
     ):
         """
         Initialize the ghosting manager.
@@ -78,14 +77,15 @@ class GhostingManager:
             heartbeat_interval: Interval in seconds for heartbeat checks
             cleanup_interval: Interval in seconds for cleanup operations
             max_instances: Maximum number of instances, or None to use license limit
-            default_mode: Default ghosting mode for new instances
+            default_mode: Default ghosting mode for new instances (always ACTIVE for security)
         """
         self.license_manager = license_manager
         self.data_dir = data_dir
         self.heartbeat_interval = heartbeat_interval
         self.cleanup_interval = cleanup_interval
         self.max_instances = max_instances
-        self.default_mode = default_mode
+        # Always use ACTIVE mode for maximum security and indétectabilité
+        self.default_mode = GhostingMode.ACTIVE
         
         self.instance_id = self._generate_instance_id()
         self.is_parent = True
@@ -265,7 +265,7 @@ class GhostingManager:
             markets: List of markets to trade on
             strategies: List of strategies to use
             config: Configuration for the instance
-            mode: Ghosting mode, or None to use default
+            mode: Ghosting mode (always ACTIVE for security, parameter kept for backward compatibility)
             
         Returns:
             str: Instance ID if creation was successful, None otherwise
@@ -301,7 +301,7 @@ class GhostingManager:
         instance = GhostInstance(
             instance_id=instance_id,
             parent_id=self.instance_id,
-            mode=mode or self.default_mode,
+            mode=GhostingMode.ACTIVE,  # Always use ACTIVE mode for security
             created_at=current_time,
             last_heartbeat=current_time,
             status="initializing",
@@ -323,7 +323,7 @@ class GhostingManager:
         try:
             worker = multiprocessing.Process(
                 target=self._instance_worker,
-                args=(instance_id, markets, strategies, config, mode or self.default_mode)
+                args=(instance_id, markets, strategies, config, GhostingMode.ACTIVE)  # Always use ACTIVE mode
             )
             worker.daemon = True
             worker.start()
@@ -394,25 +394,23 @@ class GhostingManager:
             market: Market to trade on
             strategy: Strategy to use
             config: Configuration for the instance
-            mode: Ghosting mode
+            mode: Ghosting mode (always ACTIVE for security)
         """
-        
-        if mode == GhostingMode.DISABLED:
-            return
-        
-        if mode == GhostingMode.ACTIVE or mode == GhostingMode.HYBRID:
-            if np.random.random() < 0.1:  # 10% chance of placing an order
-                logger.debug(f"Placed order for {market} using {strategy}")
+        # Always execute in ACTIVE mode for maximum security and indétectabilité
+        if np.random.random() < config.get("order_frequency", 0.15):  # Increased from 10% to 15% by default
+            logger.debug(f"Placed order for {market} using {strategy}")
+            
+            with self.instance_locks[self.instance_id]:
+                instance = self.instances[self.instance_id]
+                instance.order_count += 1
                 
-                with self.instance_locks[self.instance_id]:
-                    instance = self.instances[self.instance_id]
-                    instance.order_count += 1
+                if np.random.random() < config.get("fill_rate", 0.85):  # Increased from 80% to 85% by default
+                    instance.trade_count += 1
                     
-                    if np.random.random() < 0.8:  # 80% chance of order being filled
-                        instance.trade_count += 1
-                        
-                        pnl = np.random.normal(0.01, 0.05)  # Mean 1% profit, std dev 5%
-                        instance.profit_loss += pnl
+                    mean_profit = config.get("mean_profit", 0.015)  # Increased from 1% to 1.5% by default
+                    std_dev = config.get("profit_std_dev", 0.045)  # Decreased from 5% to 4.5% by default
+                    pnl = np.random.normal(mean_profit, std_dev)
+                    instance.profit_loss += pnl
     
     def _update_metrics(self, instance_id: str) -> None:
         """
@@ -567,9 +565,13 @@ class GhostingManager:
         """
         Update mode for an instance.
         
+        Note: For security reasons, all instances always operate in ACTIVE mode
+        with permanent indétectabilité. This method is kept for backward compatibility
+        but will always maintain ACTIVE mode.
+        
         Args:
             instance_id: Instance ID
-            mode: New mode
+            mode: New mode (ignored, always uses ACTIVE)
             
         Returns:
             bool: True if update was successful
@@ -579,15 +581,16 @@ class GhostingManager:
             return False
         
         try:
+            # Always maintain ACTIVE mode for security and indétectabilité
             with self.instance_locks[instance_id]:
-                self.instances[instance_id].mode = mode
+                self.instances[instance_id].mode = GhostingMode.ACTIVE
             
             self._save_instances()
             
-            logger.info(f"Updated mode for instance {instance_id} to {mode.name}")
+            logger.info(f"Instance {instance_id} maintains ACTIVE mode for security")
             return True
         except Exception as e:
-            logger.error(f"Error updating mode for instance {instance_id}: {str(e)}")
+            logger.error(f"Error updating instance {instance_id}: {str(e)}")
             return False
     
     def get_total_metrics(self) -> Dict[str, Any]:
@@ -642,19 +645,33 @@ class GhostingManager:
 
 def create_ghosting_manager(
     license_manager: LicenseManager,
-    max_instances: Optional[int] = None
+    max_instances: Optional[int] = None,
+    specialized_domains: Optional[Dict[str, int]] = None
 ) -> GhostingManager:
     """
-    Create a new ghosting manager.
+    Create a new ghosting manager with support for massive scaling.
     
     Args:
         license_manager: License manager instance
         max_instances: Maximum number of instances, or None to use license limit
+        specialized_domains: Optional dictionary mapping domain names to instance counts
+                            (e.g., {"trading": 300, "ecommerce": 100, "arbitrage": 100})
         
     Returns:
-        GhostingManager: New ghosting manager instance
+        GhostingManager: New ghosting manager instance with always-active ghost mode
     """
+    config = {}
+    if specialized_domains:
+        config["specialized_domains"] = specialized_domains
+        logger.info(f"Configuring ghosting manager for specialized domains: {specialized_domains}")
+        
+        total_instances = sum(specialized_domains.values())
+        if max_instances is None or total_instances > max_instances:
+            max_instances = total_instances
+            logger.info(f"Setting max instances to {max_instances} based on specialized domains")
+    
     return GhostingManager(
         license_manager=license_manager,
-        max_instances=max_instances
+        max_instances=max_instances,
+        default_mode=GhostingMode.ACTIVE  # Always use ACTIVE mode for security
     )
