@@ -368,3 +368,25 @@ def calculate_position_size(balance: float, risk_pct: float, stop_loss: float) -
     risk_amount = balance * (risk_pct / 100)
     size = risk_amount / stop_loss
     return size
+
+def calculate_slippage(order_size: float, market_liquidity: float, volatility: float = 0.01) -> float:
+    """
+    Calculate expected slippage for an order based on market conditions.
+    
+    Args:
+        order_size: Size of the order
+        market_liquidity: Available liquidity in the market
+        volatility: Market volatility (default: 0.01 or 1%)
+        
+    Returns:
+        float: Expected slippage as a percentage
+    """
+    # Base slippage calculation
+    base_slippage = (order_size / market_liquidity) * 100
+    
+    adjusted_slippage = base_slippage * (1 + volatility * 10)
+    
+    if order_size > market_liquidity * 0.1:
+        adjusted_slippage *= 1.5
+    
+    return min(adjusted_slippage, 5.0)
