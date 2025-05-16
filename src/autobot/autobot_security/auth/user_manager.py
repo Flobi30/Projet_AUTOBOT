@@ -9,7 +9,17 @@ from datetime import datetime, timedelta
 import jwt
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
-from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key
+from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key, get_current_user
+
+class User(dict):
+    """
+    Classe User utilisée comme annotation de type pour les dépendances FastAPI.
+    Hérite de dict pour maintenir la compatibilité avec le code existant.
+    """
+    def __init__(self, data: Dict[str, Any]):
+        super().__init__(data)
+        for key, value in data.items():
+            setattr(self, key, value)
 
 logger = logging.getLogger(__name__)
 
