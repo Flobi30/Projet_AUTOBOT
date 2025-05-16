@@ -1,5 +1,5 @@
 import unittest
-from ..core import StressTest
+from src.stress_test.core import StressTest
 
 class TestStressTest(unittest.TestCase):
     def test_initialization(self):

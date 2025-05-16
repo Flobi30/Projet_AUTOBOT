@@ -50,3 +50,11 @@
    - Tester la compatibilité avec l'ensemble des dépendances
    - Mettre à jour les deux bibliothèques ensemble
    - Vérifier que les tests passent dans tous les environnements (CI et développement local)
+
+### Corrections des imports dans les tests
+
+Pour assurer la compatibilité avec la nouvelle structure du projet, nous avons:
+
+1. Créé un module `src/data/providers.py` contenant les classes de fournisseurs de données
+2. Créé un module de compatibilité `tests/data_compat.py` pour les tests existants
+3. Mis à jour les imports dans les fichiers de test pour utiliser la nouvelle structure
