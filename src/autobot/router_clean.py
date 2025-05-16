@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from autobot.schemas import BacktestRequest, BacktestResult
+from autobot.schemas import BacktestRequest, BacktestResult, APIKeysRequest, APIKeysResponse
 from autobot.ecommerce.kpis import get_kpis
 from autobot.guardian import get_logs, get_metrics
 from autobot.backtest_engine import run_backtest
@@ -264,3 +264,46 @@ def place_order(item_id: str, quantity: int):
     Place an order for unsold items at competitive prices.
     """
     return {"order_id": "123", "status": "placed"}
+
+@router.post('/setup', response_model=APIKeysResponse)
+def setup_api_keys(request: APIKeysRequest):
+    """
+    Configure et stocke les clés API pour les échanges.
+    
+    Args:
+        request: Les clés API à configurer
+        
+    Returns:
+        Dict: Statut de la configuration
+    """
+    try:
+        import json
+        import os
+        
+        config_dir = 'config'
+        os.makedirs(config_dir, exist_ok=True)
+        config_file = os.path.join(config_dir, 'api_keys.json')
+        
+        existing_keys = {}
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                existing_keys = json.load(f)
+        
+        keys_to_update = {k: v.dict() for k, v in request.__dict__.items() if v is not None and k != 'other'}
+        
+        if request.other:
+            for exchange, config in request.other.items():
+                keys_to_update[exchange] = config.dict()
+        
+        existing_keys.update(keys_to_update)
+        
+        with open(config_file, 'w') as f:
+            json.dump(existing_keys, f)
+        
+        from installer import run_backtests
+        run_backtests()
+        
+        return APIKeysResponse(status="success", message=f"Clés API sauvegardées avec succès pour {len(keys_to_update)} échange(s)")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la configuration des clés API: {str(e)}")

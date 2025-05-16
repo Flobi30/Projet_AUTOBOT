@@ -1,0 +1,36 @@
+# Enrichissements AUTOBOT
+
+## Installation Automatisée et Configuration des Clés API
+
+### Fichiers créés
+- `install.sh` - Script d'installation pour Linux
+- `install.bat` - Script d'installation pour Windows
+- `run_backtests.py` - Script pour lancer les backtests RL et trading
+
+### Fichiers modifiés
+- `installer.py` - Ajout des fonctions configure_api_keys() et run_backtests()
+- `src/autobot/schemas.py` - Ajout des schémas pour les clés API
+- `src/autobot/router_clean.py` - Ajout de l'endpoint /setup
+- `README.md` - Mise à jour avec les nouvelles instructions d'installation
+
+### Fonctionnalités ajoutées
+1. **Installation automatisée**
+   - Scripts d'installation pour Linux et Windows
+   - Vérification des dépendances système
+   - Configuration interactive des clés API
+   - Lancement automatique des backtests
+
+2. **Endpoint FastAPI /setup**
+   - Configuration des clés API via l'API
+   - Stockage sécurisé des clés dans un fichier JSON
+   - Lancement automatique des backtests après configuration
+
+3. **Séquencement des backtests**
+   - Exécution des backtests RL puis trading
+   - Génération d'un rapport de performance
+   - Sauvegarde des résultats dans un fichier JSON
+
+4. **Documentation**
+   - Instructions d'installation automatisée
+   - Guide de configuration des clés API
+   - Procédure pour passer du backtest au trading réel

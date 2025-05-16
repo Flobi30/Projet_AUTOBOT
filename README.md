@@ -54,7 +54,34 @@ Le projet est structuré en plusieurs modules principaux :
 - Python 3.10+
 - Docker (optionnel)
 
-### Installation avec pip
+### Installation Automatisée
+
+#### Sous Linux
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/Flobi30/Projet_AUTOBOT.git
+cd Projet_AUTOBOT
+
+# Rendre le script d'installation exécutable
+chmod +x install.sh
+
+# Lancer l'installation
+./install.sh
+```
+
+#### Sous Windows
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/Flobi30/Projet_AUTOBOT.git
+cd Projet_AUTOBOT
+
+# Lancer l'installation
+install.bat
+```
+
+### Installation Manuelle avec pip
 
 ```bash
 # Cloner le dépôt
@@ -64,16 +91,20 @@ cd Projet_AUTOBOT
 # Installer les dépendances
 pip install -e .
 pip install -r requirements.txt
+
+# Configurer les clés API
+python installer.py --config-only
 ```
 
 ### Installation avec Docker
 
 ```bash
-# Construire l'image Docker
-docker build -t autobot .
+# Cloner le dépôt
+git clone https://github.com/Flobi30/Projet_AUTOBOT.git
+cd Projet_AUTOBOT
 
-# Exécuter le conteneur
-docker run -p 8000:8000 autobot
+# Lancer avec Docker Compose
+docker-compose up
 ```
 
 ## Utilisation
@@ -91,6 +122,45 @@ Ouvrez votre navigateur et accédez à `http://localhost:8000/dashboard`
 ### API Documentation
 
 La documentation de l'API est disponible à `http://localhost:8000/docs`
+
+### Configuration des clés API
+
+#### Via l'interface FastAPI
+
+Une fois l'application démarrée, accédez à l'endpoint `/setup` pour configurer vos clés API:
+
+```bash
+curl -X POST "http://localhost:8000/setup" -H "Content-Type: application/json" -d '{
+  "binance": {
+    "api_key": "votre_cle_binance",
+    "api_secret": "votre_secret_binance"
+  }
+}'
+```
+
+#### Via le script de configuration
+
+```bash
+python installer.py --config-only
+```
+
+### Backtests et Trading Réel
+
+#### Lancer les backtests
+
+```bash
+python run_backtests.py
+```
+
+#### Passer du backtest au trading réel
+
+1. Assurez-vous que les backtests sont terminés et ont des résultats positifs
+2. Vérifiez les métriques de performance dans le dossier `results/`
+3. Activez le mode trading réel:
+
+```bash
+python -m src.autobot.main --live-trading
+```
 
 ## Modules Principaux
 
