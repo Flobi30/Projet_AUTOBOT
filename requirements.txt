@@ -21,3 +21,4 @@ gymnasium==0.28.1
 cloudpickle==2.2.1
 # Optional dependencies
 # ta-lib  # Uncomment to enable advanced technical indicators
+python-multipart==0.0.6
