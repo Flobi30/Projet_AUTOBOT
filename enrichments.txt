@@ -34,3 +34,19 @@
    - Instructions d'installation automatisée
    - Guide de configuration des clés API
    - Procédure pour passer du backtest au trading réel
+
+## Nettoyage et Optimisation du Projet
+
+### Fichiers et dossiers supprimés
+- Fichiers Python compilés (`__pycache__/`, `*.pyc`, `*.pyo`, `*.pyd`)
+- Dossiers de build et distribution (`build/`, `dist/`, `*.egg-info/`)
+- Environnements virtuels (`venv/`, `ENV/`)
+- Logs et données temporaires (`logs/`, `*.log`, `data/`)
+
+### Compatibilité des dépendances
+1. **numpy==1.22.4** - Cette version est compatible avec pandas 1.3.5 et fonctionne à la fois avec Python 3.10 (environnement CI) et Python 3.12 (environnement de développement local). Les versions antérieures de numpy (1.21.x) ne sont pas compatibles avec Python 3.12.
+
+2. Si une mise à jour vers des versions plus récentes de numpy/pandas est nécessaire, il faudra:
+   - Tester la compatibilité avec l'ensemble des dépendances
+   - Mettre à jour les deux bibliothèques ensemble
+   - Vérifier que les tests passent dans tous les environnements (CI et développement local)
