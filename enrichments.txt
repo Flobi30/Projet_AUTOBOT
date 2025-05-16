@@ -58,3 +58,37 @@ Pour assurer la compatibilité avec la nouvelle structure du projet, nous avons:
 1. Créé un module `src/data/providers.py` contenant les classes de fournisseurs de données
 2. Créé un module de compatibilité `tests/data_compat.py` pour les tests existants
 3. Mis à jour les imports dans les fichiers de test pour utiliser la nouvelle structure
+4. Créé un module `src/strategies/__init__.py` pour les stratégies de trading
+5. Créé un module de compatibilité `tests/strategies_compat.py` pour les tests existants
+
+### Scripts de nettoyage
+
+Nous avons créé deux scripts pour faciliter le nettoyage et la maintenance du projet:
+
+1. **scripts/cleanup.sh** - Script pour nettoyer les fichiers temporaires et compilés
+   - Supprime les fichiers Python compilés
+   - Supprime les dossiers de build et distribution
+   - Supprime les environnements virtuels
+   - Supprime les logs et données temporaires
+
+2. **scripts/reorganize.sh** - Script pour réorganiser la structure du projet
+   - Crée la structure de dossiers cible
+   - Corrige les fichiers avec des caractères invalides
+   - Déplace les fichiers dans les dossiers appropriés
+   - Crée un rapport de résumé
+
+### Optimisation de la taille du projet
+
+- Taille avant nettoyage: 2.0G
+- Taille après nettoyage: 383M
+- Réduction: 81%
+
+### Ajout de .gitignore
+
+Nous avons créé un fichier `.gitignore` complet pour:
+- Ignorer les fichiers Python compilés
+- Ignorer les dossiers de build et distribution
+- Ignorer les environnements virtuels
+- Ignorer les logs et données temporaires
+- Ignorer les fichiers de configuration spécifiques au projet (clés API, etc.)
+- Ignorer les fichiers de configuration d'IDE
