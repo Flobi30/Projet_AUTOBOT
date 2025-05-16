@@ -9,3 +9,17 @@ class BacktestRequest(BaseModel):
 class BacktestResult(BaseModel):
     strategy: str
     metrics: Dict[str, float]
+
+class APIKeyConfig(BaseModel):
+    api_key: str
+    api_secret: str
+
+class APIKeysRequest(BaseModel):
+    binance: APIKeyConfig = None
+    coinbase: APIKeyConfig = None
+    kraken: APIKeyConfig = None
+    other: Dict[str, APIKeyConfig] = {}
+
+class APIKeysResponse(BaseModel):
+    status: str
+    message: str
