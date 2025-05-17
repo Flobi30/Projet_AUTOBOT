@@ -369,24 +369,35 @@ def calculate_position_size(balance: float, risk_pct: float, stop_loss: float) -
     size = risk_amount / stop_loss
     return size
 
-def calculate_slippage(order_size: float, market_liquidity: float, volatility: float = 0.01) -> float:
+def calculate_slippage(order_size: float, market_metrics: dict) -> Optional[float]:
     """
-    Calculate expected slippage for an order based on market conditions.
+    Estimate expected slippage for an order based on market liquidity and volatility.
     
     Args:
         order_size: Size of the order
-        market_liquidity: Available liquidity in the market
-        volatility: Market volatility (default: 0.01 or 1%)
+        market_metrics: Dictionary containing market depth, volatility, etc.
         
     Returns:
-        float: Expected slippage as a percentage
+        float: Expected slippage as a percentage, or None if order should not be executed
     """
-    # Base slippage calculation
-    base_slippage = (order_size / market_liquidity) * 100
+    base_slippage = 0.0005  # 0.05% base slippage
     
-    adjusted_slippage = base_slippage * (1 + volatility * 10)
+    liquidity = market_metrics.get('liquidity', 100.0)
+    volatility = market_metrics.get('volatility', 0.01)
+    market_depth = market_metrics.get('market_depth', 1000.0)
     
-    if order_size > market_liquidity * 0.1:
-        adjusted_slippage *= 1.5
+    # Calculate slippage based on order size relative to market depth
+    size_factor = min(1.0, order_size / market_depth)
     
-    return min(adjusted_slippage, 5.0)
+    if liquidity < 50.0:  # Low liquidity condition
+        size_factor *= 2.0  # Double slippage expectation in low liquidity
+        
+    if liquidity < 20.0:
+        return None  # Signal that order should not be executed in this condition
+    
+    volatility_factor = 1.0 + (volatility * 10.0)
+    
+    # Calculate final slippage estimate
+    slippage = base_slippage * size_factor * volatility_factor
+    
+    return min(slippage, 0.05)  # Cap at 5%

@@ -1,34 +1,32 @@
-# Guide d'Installation d'AUTOBOT
+# AUTOBOT Installation Guide
 
-Ce guide vous aidera à installer et configurer AUTOBOT sur différentes plateformes.
+This guide provides instructions for installing and configuring AUTOBOT.
 
-## Prérequis
+## Prerequisites
 
-- Python 3.9+ 
-- pip (gestionnaire de paquets Python)
+- Python 3.9 or higher
+- pip (Python package installer)
 - Git
-- Accès à Internet
-- Clé API pour les plateformes d'échange (pour le trading)
+- Internet connection
 
-## Installation Automatique (Recommandée)
+## Quick Installation (Recommended)
 
-AUTOBOT dispose d'un installateur automatique qui configure tout pour vous.
+For most users, the quickest way to get started is to use our automated installer:
 
 ```bash
-# Télécharger le projet
-git clone https://github.com/Flobi30/Projet_AUTOBOT.git
-cd Projet_AUTOBOT
+# Download and run the installer
+curl -sSL https://raw.githubusercontent.com/Flobi30/Projet_AUTOBOT/main/auto_installer.py | python3
 
-# Exécuter l'installateur
-python installer.py
+# Or if you've already cloned the repository
+python3 auto_installer.py
 ```
 
-L'installateur vous guidera à travers les étapes suivantes:
-1. Vérification des prérequis
-2. Installation des dépendances
-3. Configuration des clés API
-4. Création du fichier de configuration
-5. Installation des modules optionnels
+The installer will guide you through the setup process, including:
+- Checking system requirements
+- Installing dependencies
+- Configuring deployment options
+- Setting up security
+- Starting AUTOBOT
 
 ## Installation Manuelle
 

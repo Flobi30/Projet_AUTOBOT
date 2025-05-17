@@ -8,6 +8,9 @@ from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
 from autobot.ui.mobile_routes import router as mobile_router
 from autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
+from autobot.ui.arbitrage_routes import router as arbitrage_router
+from autobot.ui.backtest_routes import router as backtest_router
+from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
 
 app = FastAPI(
     title="Autobot API",
@@ -29,6 +32,9 @@ app.include_router(health_router)
 app.include_router(prediction_router)
 app.include_router(mobile_router)
 app.include_router(simplified_dashboard_router, prefix="/simple")
+app.include_router(arbitrage_router)
+app.include_router(backtest_router)
+app.include_router(deposit_withdrawal_router)
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
