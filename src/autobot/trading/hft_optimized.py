@@ -37,6 +37,11 @@ ZERO_COPY = True  # Whether to use zero-copy memory transfers
 PREFETCH_DEPTH = 64  # Prefetch depth for order queue (increased from 16)
 PARALLEL_BATCH_PROCESSING = True  # Enable parallel processing within batches
 ADAPTIVE_THROTTLING = True  # Enable adaptive throttling based on system load
+MARKET_CONDITION_MONITOR = True  # Monitor market conditions for self-regulation
+VOLATILITY_ADAPTATION = True  # Adapt to market volatility
+LIQUIDITY_ADAPTATION = True  # Adapt to market liquidity
+MAX_ORDER_RATE_VOLATILE = 1000  # Reduced rate during high volatility
+CIRCUIT_BREAKER_ENABLED = True  # Enable circuit breaker for extreme market conditions
 MEMORY_POOL_SIZE = 1024 * 1024 * 128  # 128MB memory pool for order objects
 
 @dataclass
@@ -598,6 +603,9 @@ class OptimizedHFTExecutionEngine:
         self.autonomous_mode = autonomous_mode
         self.visible_interface = visible_interface
         self.auto_optimization = auto_optimization
+        self.critical_scenarios = []
+        self.notification_service = None
+        self.alert_notification_types = ["liquidity", "volatility", "error"]
         
         self.license_manager = LicenseManager(license_key)
         self.is_registered = self.license_manager.register_instance(self.instance_id)
@@ -957,6 +965,31 @@ class OptimizedHFTExecutionEngine:
             logger.info(f"Adjusted HFT worker count to {self.num_workers}")
         else:
             logger.debug(f"HFT workers: {self.num_workers}")
+    
+    def _log_critical_scenario(self, scenario_type: str, details: Dict[str, Any]) -> None:
+        """
+        Log critical scenarios with detailed information for monitoring.
+        
+        Args:
+            scenario_type: Type of critical scenario (liquidity, volatility, error)
+            details: Dictionary with scenario details
+        """
+        logger.critical(f"CRITICAL SCENARIO: {scenario_type}")
+        logger.critical(f"Details: {json.dumps(details, indent=2)}")
+        
+        try:
+            alert = {
+                "timestamp": time.time(),
+                "type": scenario_type,
+                "details": details,
+                "status": "new"
+            }
+            self.critical_scenarios.append(alert)
+            
+            if self.notification_service and scenario_type in self.alert_notification_types:
+                self.notification_service.send_alert(scenario_type, details)
+        except Exception as e:
+            logger.error(f"Error logging critical scenario: {str(e)}")
     
     def shutdown(self) -> None:
         """Shutdown the execution engine"""

@@ -419,6 +419,76 @@ def deploy_autobot(config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
             print(f"{Colors.FAIL}Error starting AUTOBOT for cloud deployment: {str(e)}{Colors.ENDC}")
             return False, None
 
+def create_one_click_installer(config):
+    """
+    Create a one-click installer script for easy deployment.
+    
+    Args:
+        config: Deployment configuration
+    
+    Returns:
+        bool: True if successful
+    """
+    try:
+        print(f"{Colors.HEADER}Creating one-click installer script...{Colors.ENDC}")
+        
+        script_path = Path("autobot_installer.sh")
+        
+        with open(script_path, "w") as f:
+            f.write("#!/bin/bash\n\n")
+            f.write("# AUTOBOT One-Click Installer\n")
+            f.write("# This script will install and deploy AUTOBOT with pre-configured settings\n\n")
+            
+            f.write("# Check if Python 3.9+ is installed\n")
+            f.write('if ! command -v python3 &> /dev/null || [[ "$(python3 -c \'import sys; print(sys.version_info >= (3, 9))\')" != "True" ]]; then\n')
+            f.write('    echo "Python 3.9+ is required but not installed. Installing..."\n')
+            f.write('    if [ -f /etc/debian_version ]; then\n')
+            f.write('        sudo apt update\n')
+            f.write('        sudo apt install -y python3 python3-pip python3-venv\n')
+            f.write('    elif [ -f /etc/redhat-release ]; then\n')
+            f.write('        sudo yum install -y python3 python3-pip\n')
+            f.write('    elif [[ "$OSTYPE" == "darwin"* ]]; then\n')
+            f.write('        brew install python3\n')
+            f.write('    else\n')
+            f.write('        echo "Unsupported OS. Please install Python 3.9+ manually."\n')
+            f.write('        exit 1\n')
+            f.write('    fi\n')
+            f.write('fi\n\n')
+            
+            f.write("# Create virtual environment\n")
+            f.write('python3 -m venv autobot_env\n')
+            f.write('source autobot_env/bin/activate\n\n')
+            
+            f.write("# Clone repository\n")
+            f.write('if [ ! -d "Projet_AUTOBOT" ]; then\n')
+            f.write('    git clone https://github.com/Flobi30/Projet_AUTOBOT.git\n')
+            f.write('fi\n')
+            f.write('cd Projet_AUTOBOT\n\n')
+            
+            f.write("# Install dependencies\n")
+            f.write('pip install -r requirements.txt\n\n')
+            
+            f.write("# Create .env file with pre-configured settings\n")
+            f.write('cat > .env << EOL\n')
+            f.write(f'AUTOBOT_JWT_SECRET={config["security"]["jwt_secret"]}\n')
+            f.write(f'AUTOBOT_ADMIN_PASSWORD={config["security"]["admin_password"]}\n')
+            f.write(f'AUTOBOT_MAX_INSTANCES={config["deployment"]["max_instances"]}\n')
+            f.write(f'AUTOBOT_DEPLOYMENT_TYPE={config["deployment"]["type"]}\n')
+            f.write('EOL\n\n')
+            
+            f.write("# Start AUTOBOT\n")
+            f.write('python -m src.autobot.main\n')
+        
+        os.chmod(script_path, 0o755)
+        
+        print(f"{Colors.GREEN}✓ One-click installer script created: {script_path}{Colors.ENDC}")
+        print(f"{Colors.BOLD}You can use this script to quickly install AUTOBOT on other machines.{Colors.ENDC}")
+        
+        return True
+    except Exception as e:
+        print(f"{Colors.FAIL}Error creating one-click installer: {str(e)}{Colors.ENDC}")
+        return False
+
 def main():
     """Main installer function."""
     print_banner()
@@ -445,6 +515,8 @@ def main():
     if not setup_local_environment(config):
         print(f"{Colors.FAIL}Failed to set up local environment. Please fix the issues and try again.{Colors.ENDC}")
         return
+    
+    create_one_click_installer(config)
     
     success, url = deploy_autobot(config)
     if not success:

@@ -460,7 +460,8 @@ class LicenseManager:
         max_instances: int,
         features: Dict[str, Dict[str, Any]],
         expires_at: Optional[int] = None,
-        custom_id: Optional[str] = None
+        custom_id: Optional[str] = None,
+        user_specific_limits: Optional[Dict[str, int]] = None
     ) -> Optional[str]:
         """
         Create a child license for distribution.
@@ -471,6 +472,7 @@ class LicenseManager:
             features: Dictionary of features to enable
             expires_at: Expiration timestamp, or None for same as parent
             custom_id: Custom license ID, or None to generate
+            user_specific_limits: Dictionary mapping user IDs to their max instance limits
             
         Returns:
             str: Generated license key, or None if creation failed
@@ -517,7 +519,8 @@ class LicenseManager:
             "exp": expires_at,
             "max_instances": max_instances,
             "features": license_features,
-            "parent_license_id": self.license_info.license_id
+            "parent_license_id": self.license_info.license_id,
+            "user_specific_limits": user_specific_limits or {}
         }
         
         license_key = jwt.encode(payload, self.secret_key, algorithm="HS256")
@@ -529,12 +532,13 @@ class LicenseManager:
             "max_instances": max_instances,
             "features": license_features,
             "is_valid": True,
-            "last_check": int(time.time())
+            "last_check": int(time.time()),
+            "user_specific_limits": user_specific_limits or {}
         }
         
         self._save_license_data()
         
-        logger.info(f"Created child license {license_id} for user {user_id}")
+        logger.info(f"Created child license {license_id} for user {user_id} with user-specific limits: {user_specific_limits}")
         return license_key
     
     def revoke_child_license(self, license_id: str) -> bool:

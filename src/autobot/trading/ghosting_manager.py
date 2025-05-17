@@ -593,6 +593,75 @@ class GhostingManager:
             logger.error(f"Error updating instance {instance_id}: {str(e)}")
             return False
     
+    def get_max_instances_for_user(self, user_id: str) -> int:
+        """
+        Get the maximum number of instances allowed for a specific user.
+        
+        Args:
+            user_id: User ID to check
+            
+        Returns:
+            int: Maximum number of instances allowed for the user
+        """
+        if not self.license_manager:
+            return self.max_instances
+        
+        license_info = self.license_manager.get_license_info()
+        
+        if "user_specific_limits" in license_info and user_id in license_info["user_specific_limits"]:
+            return license_info["user_specific_limits"][user_id]
+        
+        if user_id == license_info["user_id"]:
+            return -1  # Unlimited for creator
+        
+        # Otherwise, return the default max_instances
+        return license_info["max_instances"]
+    
+    def register_instance(self, instance_id: str, domain: str, user_id: str) -> bool:
+        """
+        Register a new instance.
+        
+        Args:
+            instance_id: Unique ID for the instance
+            domain: Domain for the instance (trading, arbitrage, etc.)
+            user_id: ID of the user creating the instance
+            
+        Returns:
+            bool: True if registration was successful
+        """
+        if instance_id in self.instances:
+            logger.warning(f"Instance {instance_id} already registered")
+            return False
+        
+        user_max_instances = self.get_max_instances_for_user(user_id)
+        
+        if user_max_instances != -1:  # -1 means unlimited
+            user_instances = sum(1 for inst in self.instances.values() if inst["user_id"] == user_id)
+            
+            if user_instances >= user_max_instances:
+                logger.warning(f"User {user_id} has reached their instance limit ({user_max_instances})")
+                return False
+        
+        if domain in self.domain_limits:
+            domain_count = sum(1 for inst in self.instances.values() if inst["domain"] == domain)
+            
+            if domain_count >= self.domain_limits[domain]:
+                logger.warning(f"Domain {domain} has reached its limit ({self.domain_limits[domain]})")
+                return False
+        
+        # Register instance
+        self.instances[instance_id] = {
+            "status": "active",
+            "domain": domain,
+            "user_id": user_id,
+            "created_at": time.time(),
+            "last_heartbeat": time.time(),
+            "metrics": {}
+        }
+        
+        logger.info(f"Registered instance {instance_id} for user {user_id} in domain {domain}")
+        return True
+        
     def get_total_metrics(self) -> Dict[str, Any]:
         """
         Get total metrics across all active instances.
