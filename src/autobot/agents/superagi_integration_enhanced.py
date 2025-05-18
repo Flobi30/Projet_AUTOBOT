@@ -39,7 +39,7 @@ class EnhancedSuperAGIOrchestrator:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "https://api.superagi.com/v1",
+        api_base: str = "https://api.superagi.com/v1",  # Renommé de base_url à api_base
         config_path: Optional[str] = None,
         autonomous_mode: bool = True,
         visible_interface: bool = False,
@@ -57,7 +57,7 @@ class EnhancedSuperAGIOrchestrator:
             agent_types: Types of agents to create
         """
         self.api_key = api_key
-        self.base_url = base_url
+        self.api_base = api_base  # Renommé de base_url à api_base
         self.autonomous_mode = autonomous_mode
         self.visible_interface = visible_interface
         self.agent_types = agent_types
@@ -66,7 +66,7 @@ class EnhancedSuperAGIOrchestrator:
         
         self.connector = SuperAGIConnector(
             api_key=self.api_key,
-            endpoint=self.base_url
+            base_url=self.api_base  # Utilisez api_base comme source mais gardez base_url comme nom de paramètre
         )
         
         self.agents = {}

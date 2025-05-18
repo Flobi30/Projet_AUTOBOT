@@ -10,7 +10,14 @@ AUTOBOT est un framework complet pour le trading automatisé, l'apprentissage pa
 
 Le projet est structuré en plusieurs modules principaux :
 
-### 1. Module de Trading
+### 1. SuperAGI - Orchestrateur Principal
+
+- **AutobotMaster** : Agent orchestrateur principal qui pilote tous les composants
+- **Interface conversationnelle** : Contrôle de tous les modules via langage naturel
+- **Intégration API** : Mapping des endpoints FastAPI vers des outils SuperAGI
+- **Workflows automatisés** : Exécution de séquences d'actions complexes
+
+### 2. Module de Trading
 
 - **Fournisseur CCXT amélioré** : Intégration complète avec les échanges de cryptomonnaies
 - **Gestionnaire de risque avancé** : Dimensionnement des positions, protection contre les drawdowns
@@ -53,6 +60,7 @@ Le projet est structuré en plusieurs modules principaux :
 
 - Python 3.10+
 - Docker (optionnel)
+- Clé API SuperAGI (pour l'orchestration avancée)
 
 ### Installation Automatisée
 
@@ -122,6 +130,43 @@ Ouvrez votre navigateur et accédez à `http://localhost:8000/dashboard`
 ### API Documentation
 
 La documentation de l'API est disponible à `http://localhost:8000/docs`
+
+### Configuration de SuperAGI
+
+#### Via le script d'installation
+
+```bash
+python src/installer.py --superagi-key="VOTRE_CLE_API_SUPERAGI"
+```
+
+#### Configuration manuelle
+
+1. Créez un fichier `config/superagi_config.yaml` avec votre clé API SuperAGI :
+
+```yaml
+api_key: "votre_clé_api_superagi"
+base_url: "https://api.superagi.com"
+enabled: true
+```
+
+2. Redémarrez AUTOBOT pour appliquer les changements.
+
+### Utilisation de l'interface conversationnelle
+
+Une fois SuperAGI configuré, vous pouvez interagir avec AUTOBOT via l'interface de chat :
+
+1. Accédez à l'interface web d'AUTOBOT (http://localhost:8000/simple)
+2. Cliquez sur l'onglet "Chat"
+3. Entrez vos commandes en langage naturel
+
+Exemples de commandes :
+
+```
+> @AutobotMaster Démarre 5 clones HFT, exécute backtest, et rapporte-moi le PnL.
+> Prédis le prix de BTC pour demain
+> Lance un backtest sur la stratégie momentum avec ETH/USD
+> Entraîne le modèle avec les données des 30 derniers jours
+```
 
 ### Configuration des clés API
 
@@ -214,9 +259,25 @@ agent = RLAgent(
 train_agent(agent, episodes=1000)
 ```
 
-### Orchestrateur Multi-Agent
+### Orchestrateur Multi-Agent avec SuperAGI
 
 ```python
+from autobot.agents.autobot_master import create_autobot_master_agent
+
+# Créer l'agent AutobotMaster
+master_agent = create_autobot_master_agent(
+    api_key="votre_clé_api_superagi",
+    base_url="https://api.superagi.com"
+)
+
+# Traiter une commande en langage naturel
+response = master_agent.process_message(
+    "Démarre 5 clones HFT sur BTC/USD et ETH/USD avec la stratégie momentum"
+)
+
+print(response)  # Affiche la réponse de l'agent
+
+# Utilisation avec l'orchestrateur existant
 from autobot.agents.orchestrator import AgentOrchestrator
 
 # Créer un orchestrateur

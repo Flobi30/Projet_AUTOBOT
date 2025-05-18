@@ -11,6 +11,7 @@ from autobot.ui.simplified_dashboard_routes import router as simplified_dashboar
 from autobot.ui.arbitrage_routes import router as arbitrage_router
 from autobot.ui.backtest_routes import router as backtest_router
 from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
+from autobot.ui.chat_routes_custom import router as chat_router
 
 app = FastAPI(
     title="Autobot API",
@@ -35,6 +36,7 @@ app.include_router(simplified_dashboard_router, prefix="/simple")
 app.include_router(arbitrage_router)
 app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
+app.include_router(chat_router)
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
