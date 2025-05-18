@@ -71,7 +71,7 @@ class AutobotMasterAgent(SuperAGIAgent):
             
             self.orchestrator = EnhancedSuperAGIOrchestrator(
                 api_key=self.api_key,
-                base_url=self.base_url,
+                base_url=self.api_base,  # Utiliser api_base au lieu de base_url
                 config_path=None,  # Utiliser None car on passe la config directement
                 autonomous_mode=True,
                 visible_interface=False,
