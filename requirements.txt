@@ -22,3 +22,5 @@ cloudpickle==2.2.1
 # Optional dependencies
 # ta-lib  # Uncomment to enable advanced technical indicators
 python-multipart==0.0.6
+# SuperAGI integration
+superagi==0.0.12

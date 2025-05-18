@@ -351,6 +351,7 @@
             <div class="tab active" data-tab="funds">Funds Management</div>
             <div class="tab" data-tab="api">API Keys</div>
             <div class="tab" data-tab="status">System Status</div>
+            <div class="tab" data-tab="chat">Chat</div>
         </div>
         
         <div class="tab-content active" id="funds-tab">
@@ -530,7 +531,60 @@
                 </div>
             </div>
         </div>
+        
+        <div class="tab-content" id="chat-tab">
+            <div class="card">
+                <h2>AUTOBOT Assistant</h2>
+                
+                <div id="chat-container" style="height: 400px; overflow-y: auto; margin-bottom: 20px; padding: 10px; background-color: var(--secondary-bg); border-radius: 4px;">
+                    <div id="chat-messages">
+                        <div class="chat-message bot">
+                            <div class="message-content">Bonjour, je suis AutobotMaster. Comment puis-je vous aider?</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chat-input-container">
+                    <form id="chat-form">
+                        <div style="display: flex;">
+                            <input type="text" id="chat-input" class="form-control" placeholder="Tapez votre message ici..." style="flex-grow: 1; margin-right: 10px;">
+                            <button type="submit" class="btn btn-primary">Envoyer</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="chat-suggestions" style="margin-top: 20px;">
+                    <h3>Suggestions de commandes:</h3>
+                    <div class="suggestion-buttons" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                        <button class="btn btn-primary suggestion-btn" data-text="Démarre 5 clones HFT">Démarre 5 clones HFT</button>
+                        <button class="btn btn-primary suggestion-btn" data-text="Exécute un backtest sur BTC/USD">Backtest BTC/USD</button>
+                        <button class="btn btn-primary suggestion-btn" data-text="Lance l'entraînement du modèle">Entraîner modèle</button>
+                        <button class="btn btn-primary suggestion-btn" data-text="Prédis le prix de ETH pour demain">Prédire ETH</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+    
+    <style>
+        .chat-message {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        
+        .chat-message.user {
+            background-color: var(--accent-color);
+            color: var(--primary-bg);
+            margin-left: auto;
+        }
+        
+        .chat-message.bot {
+            background-color: var(--card-bg);
+            border-left: 4px solid var(--accent-color);
+        }
+    </style>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -635,6 +689,65 @@
                 if (value < 0.6) return '#ffd600';  // Yellow
                 if (value < 0.8) return '#ff6d00';  // Orange
                 return '#d50000';  // Red
+            }
+            
+            // Chat functionality
+            const chatForm = document.getElementById('chat-form');
+            const chatInput = document.getElementById('chat-input');
+            const chatMessages = document.getElementById('chat-messages');
+            const chatContainer = document.getElementById('chat-container');
+            
+            if (chatForm && chatInput && chatMessages && chatContainer) {
+                // WebSocket connection
+                const socket = new WebSocket(`ws://${window.location.host}/ws/chat`);
+                
+                socket.onmessage = function(event) {
+                    const response = JSON.parse(event.data);
+                    addBotMessage(response.message);
+                };
+                
+                chatForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const message = chatInput.value.trim();
+                    if (message) {
+                        addUserMessage(message);
+                        sendMessage(message);
+                        chatInput.value = '';
+                    }
+                });
+                
+                function addUserMessage(message) {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'chat-message user';
+                    messageDiv.innerHTML = `<div class="message-content">${message}</div>`;
+                    chatMessages.appendChild(messageDiv);
+                    scrollToBottom();
+                }
+                
+                function addBotMessage(message) {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'chat-message bot';
+                    messageDiv.innerHTML = `<div class="message-content">${message}</div>`;
+                    chatMessages.appendChild(messageDiv);
+                    scrollToBottom();
+                }
+                
+                function sendMessage(message) {
+                    socket.send(JSON.stringify({message: message}));
+                }
+                
+                function scrollToBottom() {
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+                
+                // Suggestion buttons
+                document.querySelectorAll('.suggestion-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const text = this.getAttribute('data-text');
+                        chatInput.value = text;
+                        chatInput.focus();
+                    });
+                });
             }
         });
     </script>

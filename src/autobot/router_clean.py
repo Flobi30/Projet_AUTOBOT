@@ -307,3 +307,37 @@ def setup_api_keys(request: APIKeysRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la configuration des clés API: {str(e)}")
+
+from pydantic import BaseModel
+from typing import List, Optional
+
+class GhostingRequest(BaseModel):
+    count: int = 1
+    markets: Optional[List[str]] = None
+    strategies: Optional[List[str]] = None
+
+@router.post('/ghosting/start')
+def start_ghosting(request: GhostingRequest):
+    """
+    Start ghosting instances with the specified parameters.
+    """
+    try:
+        from autobot.trading.ghosting_manager import create_ghosting_manager
+        from autobot.autobot_security.license_manager import get_license_manager
+        
+        license_manager = get_license_manager()
+        ghosting_manager = create_ghosting_manager(license_manager)
+        
+        instance_ids = []
+        for _ in range(request.count):
+            instance_id = ghosting_manager.create_instance(
+                markets=request.markets or ["BTC/USD", "ETH/USD"],
+                strategies=request.strategies or ["momentum", "mean_reversion"],
+                config={"interval": 1, "order_frequency": 0.15}
+            )
+            if instance_id:
+                instance_ids.append(instance_id)
+        
+        return {"success": True, "count": len(instance_ids), "instance_ids": instance_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
