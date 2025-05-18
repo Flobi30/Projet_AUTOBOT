@@ -28,7 +28,14 @@ class TestSuperAGIIntegration(unittest.TestCase):
         }
         
         with patch("src.autobot.agents.autobot_master.get_license_manager") as mock_license_manager, \
-             patch("src.autobot.agents.autobot_master.create_ghosting_manager") as mock_ghosting_manager:
+             patch("src.autobot.agents.autobot_master.create_ghosting_manager") as mock_ghosting_manager, \
+             patch("requests.get") as mock_get, \
+             patch("requests.post") as mock_post:
+            
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"prediction": 0.75, "metrics": {"profit": 0.5, "drawdown": 0.2, "sharpe": 1.5}, "job_id": "123"}
+            mock_get.return_value = mock_response
+            mock_post.return_value = mock_response
             
             mock_license_manager.return_value = MagicMock()
             mock_ghosting_manager.return_value = MagicMock()

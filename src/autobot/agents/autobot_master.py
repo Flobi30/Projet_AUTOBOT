@@ -70,9 +70,12 @@ class AutobotMasterAgent(SuperAGIAgent):
             self.ghosting_manager = create_ghosting_manager(license_manager)
             
             self.orchestrator = EnhancedSuperAGIOrchestrator(
-                parent_agent=self,
-                sub_agents=self.sub_agents,
-                config=self.config
+                api_key=self.api_key,
+                base_url=self.base_url,
+                config_path=None,  # Utiliser None car on passe la config directement
+                autonomous_mode=True,
+                visible_interface=False,
+                agent_types=["trading", "ecommerce", "security"]
             )
             
             logger.info(f"AutobotMaster initialized with {len(self.sub_agents)} sub-agents")
@@ -95,8 +98,12 @@ class AutobotMasterAgent(SuperAGIAgent):
         action, params = self._interpret_message(message)
         
         if action in self.tools:
-            result = self.tools[action](**params)
-            return self._format_response(action, result)
+            try:
+                result = self.tools[action](**params)
+                return self._format_response(action, result)
+            except Exception as e:
+                logger.error(f"Error executing {action}: {str(e)}")
+                return f"Une erreur est survenue lors de l'exécution de {action}: {str(e)}"
         else:
             return super().process_message(message)
     
@@ -168,7 +175,7 @@ class AutobotMasterAgent(SuperAGIAgent):
             return response.json()
         except Exception as e:
             logger.error(f"Error executing prediction: {str(e)}")
-            return {"error": str(e)}
+            return {"prediction": "N/A", "error": str(e)}
     
     def _tool_backtest(self, strategy: str = "default", symbol: str = "BTC/USD", timeframe: str = "1h") -> Dict[str, Any]:
         """
@@ -192,7 +199,7 @@ class AutobotMasterAgent(SuperAGIAgent):
             return response.json()
         except Exception as e:
             logger.error(f"Error executing backtest: {str(e)}")
-            return {"error": str(e)}
+            return {"strategy": strategy, "metrics": {"profit": 0, "drawdown": 0, "sharpe": 0}, "error": str(e)}
     
     def _tool_train(self) -> Dict[str, Any]:
         """
@@ -207,7 +214,7 @@ class AutobotMasterAgent(SuperAGIAgent):
             return response.json()
         except Exception as e:
             logger.error(f"Error executing training: {str(e)}")
-            return {"error": str(e)}
+            return {"job_id": "N/A", "status": "error", "error": str(e)}
     
     def _tool_ghosting(self, count: int = 1, markets: List[str] = None, strategies: List[str] = None) -> Dict[str, Any]:
         """
