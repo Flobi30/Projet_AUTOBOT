@@ -7,9 +7,9 @@ without requiring the superagi package, avoiding dependency conflicts.
 
 import os
 import logging
-import yaml
 import re
 import time
+import json
 from typing import Dict, List, Any, Optional, Union, Tuple
 
 from .agent import CustomSuperAGIAgent
@@ -259,8 +259,21 @@ def create_autobot_master_agent(
     try:
         config = {}
         if config_path and os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
+            try:
+                with open(config_path, 'r') as f:
+                    try:
+                        config = json.load(f) or {}
+                    except json.JSONDecodeError:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                try:
+                                    key, value = line.split('=', 1)
+                                    config[key.strip()] = value.strip()
+                                except ValueError:
+                                    pass
+            except Exception as e:
+                logger.warning(f"Failed to load config from {config_path}: {str(e)}")
         
         if not api_key and "api_key" in config:
             api_key = config["api_key"]
