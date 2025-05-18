@@ -739,3 +739,20 @@ def create_license_manager(
         license_server=license_server,
         offline_mode=offline_mode
     )
+
+_license_manager_instance = None
+
+def get_license_manager() -> Optional[LicenseManager]:
+    """
+    Retourne l'instance singleton du LicenseManager.
+    Crée une nouvelle instance si nécessaire.
+    
+    Returns:
+        LicenseManager: Instance du gestionnaire de licences, ou None si la création échoue
+    """
+    global _license_manager_instance
+    
+    if _license_manager_instance is None:
+        _license_manager_instance = create_license_manager()
+        
+    return _license_manager_instance
