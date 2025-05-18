@@ -8,6 +8,7 @@ via une interface conversationnelle.
 import os
 import logging
 import yaml
+import requests  # Déplacé l'import au niveau du module
 from typing import Dict, List, Any, Optional, Union
 
 from .superagi_integration import SuperAGIAgent
@@ -170,7 +171,6 @@ class AutobotMasterAgent(SuperAGIAgent):
             Dict: Résultat de la prédiction
         """
         try:
-            import requests
             response = requests.get("http://localhost:8000/predict")
             return response.json()
         except Exception as e:
@@ -190,7 +190,6 @@ class AutobotMasterAgent(SuperAGIAgent):
             Dict: Résultat du backtest
         """
         try:
-            import requests
             response = requests.post("http://localhost:8000/backtest", json={
                 "strategy": strategy,
                 "symbol": symbol,
@@ -209,7 +208,6 @@ class AutobotMasterAgent(SuperAGIAgent):
             Dict: Résultat de l'entraînement
         """
         try:
-            import requests
             response = requests.post("http://localhost:8000/train")
             return response.json()
         except Exception as e:
