@@ -66,7 +66,7 @@ class EnhancedSuperAGIOrchestrator:
         
         self.connector = SuperAGIConnector(
             api_key=self.api_key,
-            endpoint=self.base_url
+            base_url=self.base_url
         )
         
         self.agents = {}
