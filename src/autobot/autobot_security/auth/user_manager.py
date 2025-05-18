@@ -7,6 +7,8 @@ import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import jwt
+from fastapi import Depends, HTTPException, status, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
 from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key, get_current_user
@@ -397,3 +399,33 @@ class UserManager:
             user_copy["api_keys"] = api_keys
         
         return user_copy
+
+async def get_current_user_ws(websocket: WebSocket) -> User:
+    """
+    Authenticate user from WebSocket connection.
+    Similar to get_current_user but adapted for WebSocket connections.
+    
+    Args:
+        websocket: WebSocket connection
+        
+    Returns:
+        User: Authenticated user
+        
+    Raises:
+        WebSocketDisconnect: If authentication fails
+    """
+    try:
+        token = websocket.query_params.get("token")
+        if not token:
+            token = websocket.cookies.get("access_token")
+            
+        if not token:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+            
+        payload = decode_token(token)
+        user_data = {"id": payload.get("sub"), "username": payload.get("username"), "role": payload.get("role")}
+        return User(user_data)
+    except Exception:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)

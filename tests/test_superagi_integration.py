@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 import requests
+import asyncio
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -91,6 +92,30 @@ class TestSuperAGIIntegration(unittest.TestCase):
             mock_ghosting.assert_called_once()
             self.assertIn("Ghosting activé", response)
             self.assertIn("5 instances", response)
+
+class TestWebSocketAuthentication(unittest.TestCase):
+    """Test cases for WebSocket authentication."""
+    
+    def test_websocket_authentication(self):
+        """Test WebSocket authentication function."""
+        from fastapi import WebSocket
+        from src.autobot.autobot_security.auth.jwt_handler import create_access_token
+        from src.autobot.autobot_security.auth.user_manager import get_current_user_ws
+        
+        class MockWebSocket:
+            def __init__(self):
+                self.query_params = {"token": create_access_token({"sub": "test_user", "username": "test", "role": "user"})}
+                self.cookies = {}
+                
+            async def close(self, code=1000):
+                pass
+        
+        async def test_auth():
+            user = await get_current_user_ws(MockWebSocket())
+            return user
+            
+        user = asyncio.run(test_auth())
+        self.assertEqual(user.id, "test_user")
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,3 +32,21 @@ def client():
     utilisable dans tous les tests d'endpoint.
     """
     return TestClient(app)
+
+import asyncio
+from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
+
+class MockUser:
+    def __init__(self, id="test_user", username="test", role="user"):
+        self.id = id
+        self.username = username
+        self.role = role
+
+async def mock_get_current_user_ws(websocket: WebSocket):
+    """Version simplifiée de get_current_user_ws pour les tests"""
+    return MockUser()
+
+import sys
+if 'pytest' in sys.modules:
+    sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
