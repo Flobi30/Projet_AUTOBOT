@@ -30,7 +30,7 @@ class AutobotMasterAgent(SuperAGIAgent):
         name: str,
         config: Dict[str, Any],
         api_key: str = None,
-        base_url: str = "https://api.superagi.com",
+        api_base: str = "https://api.superagi.com/v1",
         sub_agents: Optional[List[SuperAGIAgent]] = None
     ):
         """
@@ -41,10 +41,10 @@ class AutobotMasterAgent(SuperAGIAgent):
             name: Nom de l'agent
             config: Configuration de l'agent
             api_key: Clé API SuperAGI
-            base_url: URL de base de l'API SuperAGI
+            api_base: URL de base de l'API SuperAGI
             sub_agents: Liste des agents subordonnés
         """
-        super().__init__(agent_id, name, config, api_key, base_url)
+        super().__init__(agent_id, name, config, api_key, api_base)
         
         self.sub_agents = sub_agents or []
         self.orchestrator = None
@@ -71,7 +71,7 @@ class AutobotMasterAgent(SuperAGIAgent):
             
             self.orchestrator = EnhancedSuperAGIOrchestrator(
                 api_key=self.api_key,
-                base_url=self.api_base,  # Utiliser api_base au lieu de base_url
+                api_base=self.api_base,  # Utiliser api_base de façon cohérente
                 config_path=None,  # Utiliser None car on passe la config directement
                 autonomous_mode=True,
                 visible_interface=False,
@@ -267,7 +267,7 @@ class AutobotMasterAgent(SuperAGIAgent):
 
 def create_autobot_master_agent(
     api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
+    api_base: Optional[str] = None,
     config_path: Optional[str] = None
 ) -> AutobotMasterAgent:
     """
@@ -275,7 +275,7 @@ def create_autobot_master_agent(
     
     Args:
         api_key: Clé API SuperAGI (optionnelle)
-        base_url: URL de base de l'API SuperAGI (optionnelle)
+        api_base: URL de base de l'API SuperAGI (optionnelle)
         config_path: Chemin vers le fichier de configuration (optionnel)
         
     Returns:
@@ -293,11 +293,11 @@ def create_autobot_master_agent(
         except Exception as e:
             logger.error(f"Error loading config from {config_path}: {str(e)}")
     
-    trading_agent = TradingSuperAGIAgent("trading-1", "Trading Agent", config.get("agents", {}).get("trading", {}), api_key, base_url)
-    ecommerce_agent = EcommerceSuperAGIAgent("ecommerce-1", "E-commerce Agent", config.get("agents", {}).get("ecommerce", {}), api_key, base_url)
-    security_agent = SecuritySuperAGIAgent("security-1", "Security Agent", config.get("agents", {}).get("security", {}), api_key, base_url)
+    trading_agent = TradingSuperAGIAgent("trading-1", "Trading Agent", config.get("agents", {}).get("trading", {}), api_key, api_base)
+    ecommerce_agent = EcommerceSuperAGIAgent("ecommerce-1", "E-commerce Agent", config.get("agents", {}).get("ecommerce", {}), api_key, api_base)
+    security_agent = SecuritySuperAGIAgent("security-1", "Security Agent", config.get("agents", {}).get("security", {}), api_key, api_base)
     
     sub_agents = [trading_agent, ecommerce_agent, security_agent]
     
     master_config = config.get("agents", {}).get("autobot_master", {})
-    return AutobotMasterAgent("master-1", "AutobotMaster", master_config, api_key, base_url, sub_agents)
+    return AutobotMasterAgent("master-1", "AutobotMaster", master_config, api_key, api_base, sub_agents)
