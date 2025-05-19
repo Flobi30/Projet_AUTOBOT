@@ -1,0 +1,704 @@
+{% extends "base.html" %}
+
+{% block title %}Duplication{% endblock %}
+{% block header_title %}Duplication d'Instances{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline" id="refreshInstances">
+    <i class="fas fa-sync"></i> Rafraîchir
+</button>
+<button class="btn btn-primary" id="createInstance">
+    <i class="fas fa-plus"></i> Nouvelle Instance
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Instance Stats -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Total Instances</span>
+        <span class="metric-value">{{ instances_total|default('5') }}</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Instances Actives</span>
+        <span class="metric-value">{{ instances_active|default('3') }}</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Performances Moyennes</span>
+        <span class="metric-value">{{ instances_performance|default('+3,7%') }}</span>
+    </div>
+</div>
+
+<!-- Instances Table -->
+<div class="card">
+    <div class="card-header">
+        <h3>Mes Instances</h3>
+        <div class="card-actions">
+            <select id="statusFilter" class="form-select">
+                <option value="all">Tous les statuts</option>
+                <option value="active">Actives</option>
+                <option value="paused">En pause</option>
+                <option value="stopped">Arrêtées</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Nom</th>
+                        <th>Type</th>
+                        <th>Marché</th>
+                        <th>Stratégie</th>
+                        <th>Performance</th>
+                        <th>Statut</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="instancesTable">
+                    {% for instance in instances|default([
+                        {'id': 'INST-001', 'name': 'Bot Alpha', 'type': 'Trading', 'market': 'BTC/EUR', 'strategy': 'MovingAvg', 'performance': '+4.5%', 'status': 'active'},
+                        {'id': 'INST-002', 'name': 'Bot Beta', 'type': 'Trading', 'market': 'ETH/EUR', 'strategy': 'RSI', 'performance': '+2.1%', 'status': 'active'},
+                        {'id': 'INST-003', 'name': 'Bot Gamma', 'type': 'Arbitrage', 'market': 'Multi', 'strategy': 'SpreadCapture', 'performance': '+5.8%', 'status': 'active'},
+                        {'id': 'INST-004', 'name': 'Bot Delta', 'type': 'Trading', 'market': 'XRP/EUR', 'strategy': 'MACD', 'performance': '-1.2%', 'status': 'paused'},
+                        {'id': 'INST-005', 'name': 'Bot Epsilon', 'type': 'E-commerce', 'market': 'N/A', 'strategy': 'PriceOptimizer', 'performance': 'N/A', 'status': 'stopped'}
+                    ]) %}
+                    <tr data-status="{{ instance.status }}">
+                        <td>{{ instance.id }}</td>
+                        <td>{{ instance.name }}</td>
+                        <td>{{ instance.type }}</td>
+                        <td>{{ instance.market }}</td>
+                        <td>{{ instance.strategy }}</td>
+                        <td class="{% if instance.performance.startswith('+') %}positive{% elif instance.performance.startswith('-') %}negative{% endif %}">
+                            {{ instance.performance }}
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ instance.status }}">
+                                {{ instance.status|capitalize }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                {% if instance.status == 'active' %}
+                                <button class="btn-icon pause-instance" data-id="{{ instance.id }}">
+                                    <i class="fas fa-pause"></i>
+                                </button>
+                                {% elif instance.status == 'paused' %}
+                                <button class="btn-icon resume-instance" data-id="{{ instance.id }}">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                {% endif %}
+                                <button class="btn-icon stop-instance" data-id="{{ instance.id }}">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <button class="btn-icon edit-instance" data-id="{{ instance.id }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn-icon delete-instance" data-id="{{ instance.id }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Contrôles administratifs cachés (visibles uniquement pour les administrateurs) -->
+<div class="admin-controls">
+    <div class="admin-header">
+        <h3>Contrôles Administrateur</h3>
+        <button class="btn-sm btn-outline" id="toggleAdminControls">
+            <i class="fas fa-eye-slash"></i> Masquer
+        </button>
+    </div>
+    
+    <div class="admin-section">
+        <h4>Gestion des Instances Utilisateurs</h4>
+        <p>Contrôlez les instances de tous les utilisateurs sans qu'ils le sachent.</p>
+        
+        <div class="table-container">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Utilisateur</th>
+                        <th>Instances</th>
+                        <th>Limite</th>
+                        <th>Performance</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="adminUsersTable">
+                    {% for user in admin_users|default([
+                        {'username': 'user1', 'instances': 3, 'limit': 5, 'performance': '+3.2%'},
+                        {'username': 'user2', 'instances': 7, 'limit': 10, 'performance': '+4.8%'},
+                        {'username': 'user3', 'instances': 2, 'limit': 3, 'performance': '-1.5%'}
+                    ]) %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.instances }} / {{ user.limit }}</td>
+                        <td>
+                            <input type="number" class="admin-input limit-input" 
+                                   data-username="{{ user.username }}" 
+                                   value="{{ user.limit }}" min="0" max="20">
+                        </td>
+                        <td class="{% if user.performance.startswith('+') %}positive{% elif user.performance.startswith('-') %}negative{% endif %}">
+                            {{ user.performance }}
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon view-user-instances" data-username="{{ user.username }}">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn-icon pause-all-instances" data-username="{{ user.username }}">
+                                    <i class="fas fa-pause"></i>
+                                </button>
+                                <button class="btn-icon stop-all-instances" data-username="{{ user.username }}">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="admin-action-buttons">
+            <button class="btn btn-outline" id="saveUserLimits">
+                <i class="fas fa-save"></i> Enregistrer les limites
+            </button>
+            <button class="btn btn-danger" id="pauseAllUsers">
+                <i class="fas fa-pause-circle"></i> Mettre en pause toutes les instances
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal pour créer/éditer une instance -->
+<div class="modal" id="instanceModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="instanceModalTitle">Nouvelle Instance</h3>
+            <span class="close-modal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="instanceForm">
+                <div class="form-group">
+                    <label for="instanceName">Nom</label>
+                    <input type="text" id="instanceName" required>
+                </div>
+                <div class="form-group">
+                    <label for="instanceType">Type</label>
+                    <select id="instanceType" required>
+                        <option value="Trading">Trading</option>
+                        <option value="Arbitrage">Arbitrage</option>
+                        <option value="E-commerce">E-commerce</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="instanceMarket">Marché</label>
+                    <input type="text" id="instanceMarket">
+                </div>
+                <div class="form-group">
+                    <label for="instanceStrategy">Stratégie</label>
+                    <select id="instanceStrategy">
+                        <option value="MovingAvg">Moving Average</option>
+                        <option value="RSI">RSI</option>
+                        <option value="MACD">MACD</option>
+                        <option value="SpreadCapture">Spread Capture</option>
+                        <option value="PriceOptimizer">Price Optimizer</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary close-modal">Annuler</button>
+            <button class="btn btn-primary" id="saveInstance">Enregistrer</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialiser les filtres de statut
+    const statusFilter = document.getElementById('statusFilter');
+    if (statusFilter) {
+        statusFilter.addEventListener('change', function() {
+            const selectedStatus = this.value;
+            const rows = document.querySelectorAll('#instancesTable tr');
+            
+            rows.forEach(row => {
+                const status = row.getAttribute('data-status');
+                if (selectedStatus === 'all' || status === selectedStatus) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+    
+    // Initialiser les boutons d'action
+    document.querySelectorAll('.pause-instance').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const instanceId = this.getAttribute('data-id');
+            pauseInstance(instanceId);
+        });
+    });
+    
+    document.querySelectorAll('.resume-instance').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const instanceId = this.getAttribute('data-id');
+            resumeInstance(instanceId);
+        });
+    });
+    
+    document.querySelectorAll('.stop-instance').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const instanceId = this.getAttribute('data-id');
+            stopInstance(instanceId);
+        });
+    });
+    
+    document.querySelectorAll('.edit-instance').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const instanceId = this.getAttribute('data-id');
+            editInstance(instanceId);
+        });
+    });
+    
+    document.querySelectorAll('.delete-instance').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const instanceId = this.getAttribute('data-id');
+            deleteInstance(instanceId);
+        });
+    });
+    
+    // Initialiser le modal de création/édition d'instance
+    const createInstanceBtn = document.getElementById('createInstance');
+    const instanceModal = document.getElementById('instanceModal');
+    const closeModalBtns = document.querySelectorAll('.close-modal');
+    const saveInstanceBtn = document.getElementById('saveInstance');
+    
+    if (createInstanceBtn && instanceModal) {
+        createInstanceBtn.addEventListener('click', function() {
+            document.getElementById('instanceModalTitle').textContent = 'Nouvelle Instance';
+            document.getElementById('instanceForm').reset();
+            instanceModal.classList.add('modal-open');
+        });
+        
+        closeModalBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                instanceModal.classList.remove('modal-open');
+            });
+        });
+        
+        saveInstanceBtn.addEventListener('click', function() {
+            saveInstance();
+        });
+    }
+    
+    // Initialiser les contrôles administrateur (visibles uniquement pour les administrateurs)
+    const toggleAdminBtn = document.getElementById('toggleAdminControls');
+    if (toggleAdminBtn) {
+        toggleAdminBtn.addEventListener('click', function() {
+            const adminControls = document.querySelector('.admin-controls');
+            adminControls.classList.toggle('admin-controls-hidden');
+            
+            if (adminControls.classList.contains('admin-controls-hidden')) {
+                this.innerHTML = '<i class="fas fa-eye"></i> Afficher';
+            } else {
+                this.innerHTML = '<i class="fas fa-eye-slash"></i> Masquer';
+            }
+        });
+    }
+    
+    document.querySelectorAll('.view-user-instances').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            viewUserInstances(username);
+        });
+    });
+    
+    document.querySelectorAll('.pause-all-instances').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            pauseAllUserInstances(username);
+        });
+    });
+    
+    document.querySelectorAll('.stop-all-instances').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            stopAllUserInstances(username);
+        });
+    });
+    
+    const saveUserLimitsBtn = document.getElementById('saveUserLimits');
+    if (saveUserLimitsBtn) {
+        saveUserLimitsBtn.addEventListener('click', function() {
+            saveUserLimits();
+        });
+    }
+    
+    const pauseAllUsersBtn = document.getElementById('pauseAllUsers');
+    if (pauseAllUsersBtn) {
+        pauseAllUsersBtn.addEventListener('click', function() {
+            pauseAllUsers();
+        });
+    }
+    
+    // Fonctions d'action
+    function pauseInstance(instanceId) {
+        fetch(`/api/instances/${instanceId}/pause`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(`Instance ${instanceId} mise en pause`, 'success');
+                    refreshInstances();
+                } else {
+                    showNotification(`Erreur: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification(`Erreur: ${error.message}`, 'error');
+            });
+    }
+    
+    function resumeInstance(instanceId) {
+        fetch(`/api/instances/${instanceId}/resume`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(`Instance ${instanceId} reprise`, 'success');
+                    refreshInstances();
+                } else {
+                    showNotification(`Erreur: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                showNotification(`Erreur: ${error.message}`, 'error');
+            });
+    }
+    
+    function stopInstance(instanceId) {
+        if (confirm(`Êtes-vous sûr de vouloir arrêter l'instance ${instanceId} ?`)) {
+            fetch(`/api/instances/${instanceId}/stop`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Instance ${instanceId} arrêtée`, 'success');
+                        refreshInstances();
+                    } else {
+                        showNotification(`Erreur: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                });
+        }
+    }
+    
+    function editInstance(instanceId) {
+        fetch(`/api/instances/${instanceId}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('instanceModalTitle').textContent = `Modifier Instance ${instanceId}`;
+                document.getElementById('instanceName').value = data.name;
+                document.getElementById('instanceType').value = data.type;
+                document.getElementById('instanceMarket').value = data.market;
+                document.getElementById('instanceStrategy').value = data.strategy;
+                
+                // Ajouter l'ID de l'instance au formulaire
+                const form = document.getElementById('instanceForm');
+                form.setAttribute('data-instance-id', instanceId);
+                
+                instanceModal.classList.add('modal-open');
+            })
+            .catch(error => {
+                showNotification(`Erreur: ${error.message}`, 'error');
+            });
+    }
+    
+    function deleteInstance(instanceId) {
+        if (confirm(`Êtes-vous sûr de vouloir supprimer l'instance ${instanceId} ? Cette action est irréversible.`)) {
+            fetch(`/api/instances/${instanceId}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Instance ${instanceId} supprimée`, 'success');
+                        refreshInstances();
+                    } else {
+                        showNotification(`Erreur: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                });
+        }
+    }
+    
+    function saveInstance() {
+        const form = document.getElementById('instanceForm');
+        const instanceId = form.getAttribute('data-instance-id');
+        
+        const instanceData = {
+            name: document.getElementById('instanceName').value,
+            type: document.getElementById('instanceType').value,
+            market: document.getElementById('instanceMarket').value,
+            strategy: document.getElementById('instanceStrategy').value
+        };
+        
+        const url = instanceId ? `/api/instances/${instanceId}` : '/api/instances';
+        const method = instanceId ? 'PUT' : 'POST';
+        
+        fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(instanceData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(`Instance ${instanceId || 'créée'} avec succès`, 'success');
+                instanceModal.classList.remove('modal-open');
+                refreshInstances();
+            } else {
+                showNotification(`Erreur: ${data.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            showNotification(`Erreur: ${error.message}`, 'error');
+        });
+    }
+    
+    function refreshInstances() {
+        fetch('/api/instances')
+            .then(response => response.json())
+            .then(data => {
+                // Mettre à jour le tableau des instances
+                const instancesTable = document.getElementById('instancesTable');
+                instancesTable.innerHTML = '';
+                
+                data.instances.forEach(instance => {
+                    const row = document.createElement('tr');
+                    row.setAttribute('data-status', instance.status);
+                    
+                    row.innerHTML = `
+                        <td>${instance.id}</td>
+                        <td>${instance.name}</td>
+                        <td>${instance.type}</td>
+                        <td>${instance.market}</td>
+                        <td>${instance.strategy}</td>
+                        <td class="${instance.performance.startsWith('+') ? 'positive' : instance.performance.startsWith('-') ? 'negative' : ''}">
+                            ${instance.performance}
+                        </td>
+                        <td>
+                            <span class="status-badge status-${instance.status}">
+                                ${instance.status.charAt(0).toUpperCase() + instance.status.slice(1)}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                ${instance.status === 'active' ? 
+                                    `<button class="btn-icon pause-instance" data-id="${instance.id}">
+                                        <i class="fas fa-pause"></i>
+                                    </button>` : 
+                                    instance.status === 'paused' ? 
+                                    `<button class="btn-icon resume-instance" data-id="${instance.id}">
+                                        <i class="fas fa-play"></i>
+                                    </button>` : ''}
+                                <button class="btn-icon stop-instance" data-id="${instance.id}">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <button class="btn-icon edit-instance" data-id="${instance.id}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn-icon delete-instance" data-id="${instance.id}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    
+                    instancesTable.appendChild(row);
+                });
+                
+                // Réinitialiser les écouteurs d'événements
+                initActionButtons();
+                
+                // Mettre à jour les statistiques
+                document.querySelector('.metric-card:nth-child(1) .metric-value').textContent = data.instances_total;
+                document.querySelector('.metric-card:nth-child(2) .metric-value').textContent = data.instances_active;
+                document.querySelector('.metric-card:nth-child(3) .metric-value').textContent = data.instances_performance;
+            })
+            .catch(error => {
+                showNotification(`Erreur: ${error.message}`, 'error');
+            });
+    }
+    
+    // Fonctions d'administration
+    function viewUserInstances(username) {
+        fetch(`/api/admin/users/${username}/instances`)
+            .then(response => response.json())
+            .then(data => {
+                // Afficher les instances de l'utilisateur dans un modal ou une section dédiée
+                showNotification(`Affichage des instances de ${username}`, 'info');
+            })
+            .catch(error => {
+                showNotification(`Erreur: ${error.message}`, 'error');
+            });
+    }
+    
+    function pauseAllUserInstances(username) {
+        if (confirm(`Êtes-vous sûr de vouloir mettre en pause toutes les instances de ${username} ?`)) {
+            fetch(`/api/admin/users/${username}/instances/pause`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Toutes les instances de ${username} mises en pause`, 'success');
+                    } else {
+                        showNotification(`Erreur: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                });
+        }
+    }
+    
+    function stopAllUserInstances(username) {
+        if (confirm(`Êtes-vous sûr de vouloir arrêter toutes les instances de ${username} ? Cette action est irréversible.`)) {
+            fetch(`/api/admin/users/${username}/instances/stop`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Toutes les instances de ${username} arrêtées`, 'success');
+                    } else {
+                        showNotification(`Erreur: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                });
+        }
+    }
+    
+    function saveUserLimits() {
+        const limits = [];
+        document.querySelectorAll('.limit-input').forEach(input => {
+            limits.push({
+                username: input.getAttribute('data-username'),
+                limit: parseInt(input.value)
+            });
+        });
+        
+        fetch('/api/admin/user-limits', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ limits })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Limites utilisateurs mises à jour', 'success');
+            } else {
+                showNotification(`Erreur: ${data.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            showNotification(`Erreur: ${error.message}`, 'error');
+        });
+    }
+    
+    function pauseAllUsers() {
+        if (confirm('Êtes-vous sûr de vouloir mettre en pause toutes les instances de tous les utilisateurs ?')) {
+            fetch('/api/admin/instances/pause-all', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Toutes les instances mises en pause', 'success');
+                    } else {
+                        showNotification(`Erreur: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                });
+        }
+    }
+    
+    // Fonction utilitaire pour afficher les notifications
+    function showNotification(message, type = 'info') {
+        // Cette fonction est définie dans common.js
+        if (window.showNotification) {
+            window.showNotification(message, type);
+        } else {
+            alert(message);
+        }
+    }
+    
+    // Initialiser les boutons d'action
+    function initActionButtons() {
+        document.querySelectorAll('.pause-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                pauseInstance(instanceId);
+            });
+        });
+        
+        document.querySelectorAll('.resume-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                resumeInstance(instanceId);
+            });
+        });
+        
+        document.querySelectorAll('.stop-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                stopInstance(instanceId);
+            });
+        });
+        
+        document.querySelectorAll('.edit-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                editInstance(instanceId);
+            });
+        });
+        
+        document.querySelectorAll('.delete-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                deleteInstance(instanceId);
+            });
+        });
+    }
+    
+    // Initialiser le rafraîchissement des instances
+    const refreshInstancesBtn = document.getElementById('refreshInstances');
+    if (refreshInstancesBtn) {
+        refreshInstancesBtn.addEventListener('click', function() {
+            refreshInstances();
+        });
+    }
+});
+</script>
+{% endblock %}

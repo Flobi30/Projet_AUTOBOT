@@ -17,7 +17,7 @@ class TradingEnv:
     def __init__(
         self,
         data: pd.DataFrame,
-        initial_balance: float = 10000.0,
+        initial_balance: float = 500.0,
         transaction_fee: float = 0.001,
         window_size: int = 10,
         reward_scaling: float = 0.01
@@ -241,7 +241,7 @@ class TradingEnvironment(gym.Env):
         timeframe: str = "1h",
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        initial_balance: float = 10000.0,
+        initial_balance: float = 500.0,
         transaction_fee: float = 0.001,
         window_size: int = 10,
         reward_scaling: float = 0.01,

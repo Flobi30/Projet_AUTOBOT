@@ -71,7 +71,7 @@ class ProfitOptimizer:
         }
         
         self.last_rebalance = datetime.now()
-        self.initial_capital = self.config.get("initial_capital", 1000.0)
+        self.initial_capital = self.config.get("initial_capital", 500.0)
         self.current_capital = self.initial_capital
         
         self.is_running = False
