@@ -338,7 +338,7 @@ async def get_backtest(backtest_id: str, user: User = Depends(get_current_user))
             date_range.append(current_date.strftime("%Y-%m-%d"))
         current_date += timedelta(days=1)
     
-    initial_capital = 10000
+    initial_capital = 500
     equity = [initial_capital]
     
     volatility = 0.01
@@ -425,7 +425,7 @@ async def get_backtest(backtest_id: str, user: User = Depends(get_current_user))
         "timeframe": "1d",
         "start_date": "2023-01-01",
         "end_date": "2023-12-31",
-        "initial_capital": 10000,
+        "initial_capital": 500,
         "params": {
             "fast_period": 10,
             "slow_period": 50

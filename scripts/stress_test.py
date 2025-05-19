@@ -46,7 +46,7 @@ def introduce_flash_crash(df, drop_percent=-20, crash_duration_minutes=15):
 
     return df_crash, crash_start_idx, crash_start_idx + crash_duration_minutes
 
-def run_backtest(df, initial_balance=10000):
+def run_backtest(df, initial_balance=500):
     """Run a simple backtest to measure drawdown and P&L."""
     balance = initial_balance
     positions = 0

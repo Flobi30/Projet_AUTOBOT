@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 
-def run_backtest(df, strategy_fn, initial_capital=10000):
+def run_backtest(df, strategy_fn, initial_capital=500):
     """Exécute un backtest simple"""
     pass
     if df is None or len(df) == 0:

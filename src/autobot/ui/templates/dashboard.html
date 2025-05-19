@@ -1,431 +1,225 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AUTOBOT - Dashboard</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <div class="dashboard">
-        <header class="header">
-            <div class="logo">
-                <img src="/static/img/logo.png" alt="AUTOBOT Logo">
-                <h1>AUTOBOT</h1>
-            </div>
-            <div class="user-info">
-                <span id="username">Utilisateur</span>
-                <button class="btn-secondary" id="logout-btn">Déconnexion</button>
-            </div>
-        </header>
-        
-        <nav class="sidebar">
-            <ul>
-                <li><a href="#dashboard" class="active" data-section="dashboard-section">Dashboard</a></li>
-                <li><a href="#trading" data-section="trading-section">Trading</a></li>
-                <li><a href="#rl" data-section="rl-section">Apprentissage RL</a></li>
-                <li><a href="#agents" data-section="agents-section">Agents IA</a></li>
-                <li><a href="#ecommerce" data-section="ecommerce-section">E-commerce</a></li>
-                <li><a href="#settings" data-section="settings-section">Paramètres</a></li>
-            </ul>
-        </nav>
-        
-        <main class="content">
-            <!-- Dashboard Section -->
-            <section id="dashboard-section" class="section active">
-                <h2>Dashboard</h2>
-                
-                <div class="cards">
-                    <div class="card">
-                        <h3>Portfolio Total</h3>
-                        <div class="value">€10,245.67</div>
-                        <div class="change positive">+2.5% (24h)</div>
-                    </div>
-                    <div class="card">
-                        <h3>Profit/Perte</h3>
-                        <div class="value">€245.67</div>
-                        <div class="change positive">+2.5% (24h)</div>
-                    </div>
-                    <div class="card">
-                        <h3>Trades Actifs</h3>
-                        <div class="value">12</div>
-                        <div class="change">Sur 3 marchés</div>
-                    </div>
-                    <div class="card">
-                        <h3>Agents Actifs</h3>
-                        <div class="value">5</div>
-                        <div class="change">Sur 8 total</div>
-                    </div>
-                </div>
-                
-                <div class="charts">
-                    <div class="chart">
-                        <h3>Performance du Portfolio</h3>
-                        <canvas id="portfolio-chart"></canvas>
-                    </div>
-                    <div class="chart">
-                        <h3>Allocation d'Actifs</h3>
-                        <canvas id="allocation-chart"></canvas>
-                    </div>
-                </div>
-                
-                <div class="table-container">
-                    <h3>Transactions Récentes</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Paire</th>
-                                <th>Type</th>
-                                <th>Prix</th>
-                                <th>Quantité</th>
-                                <th>Total</th>
-                                <th>Statut</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recent-trades">
-                            <tr>
-                                <td>2025-05-14 12:30</td>
-                                <td>BTC/EUR</td>
-                                <td>Achat</td>
-                                <td>€45,678.90</td>
-                                <td>0.1</td>
-                                <td>€4,567.89</td>
-                                <td>Complété</td>
-                            </tr>
-                            <tr>
-                                <td>2025-05-14 11:45</td>
-                                <td>ETH/EUR</td>
-                                <td>Vente</td>
-                                <td>€2,345.67</td>
-                                <td>1.5</td>
-                                <td>€3,518.51</td>
-                                <td>Complété</td>
-                            </tr>
-                            <tr>
-                                <td>2025-05-14 10:15</td>
-                                <td>XRP/EUR</td>
-                                <td>Achat</td>
-                                <td>€0.75</td>
-                                <td>5000</td>
-                                <td>€3,750.00</td>
-                                <td>Complété</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            
-            <!-- Trading Section -->
-            <section id="trading-section" class="section">
-                <h2>Trading</h2>
-                
-                <div class="controls">
-                    <button class="btn-primary" id="new-strategy-btn">Nouvelle Stratégie</button>
-                    <button class="btn-secondary" id="backtest-btn">Backtest</button>
-                </div>
-                
-                <div class="strategies">
-                    <div class="strategy-card">
-                        <h3>Moving Average Crossover</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Paire: BTC/EUR</p>
-                            <p>Timeframe: 1h</p>
-                            <p>Performance: +5.2%</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Éditer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                    
-                    <div class="strategy-card">
-                        <h3>RSI Oversold</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Paire: ETH/EUR</p>
-                            <p>Timeframe: 4h</p>
-                            <p>Performance: +3.7%</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Éditer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                    
-                    <div class="strategy-card">
-                        <h3>Bollinger Bands</h3>
-                        <span class="status inactive">Inactif</span>
-                        <div class="details">
-                            <p>Paire: XRP/EUR</p>
-                            <p>Timeframe: 1d</p>
-                            <p>Performance: -1.2%</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Éditer</button>
-                            <button class="btn-secondary">Activer</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="chart">
-                    <h3>Performance des Stratégies</h3>
-                    <canvas id="strategies-chart"></canvas>
-                </div>
-            </section>
-            
-            <!-- RL Section -->
-            <section id="rl-section" class="section">
-                <h2>Apprentissage par Renforcement</h2>
-                
-                <div class="controls">
-                    <button class="btn-primary" id="new-model-btn">Nouveau Modèle</button>
-                    <button class="btn-secondary" id="train-btn">Entraîner</button>
-                </div>
-                
-                <div class="models">
-                    <div class="model-card">
-                        <h3>DQN BTC Trader</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Paire: BTC/EUR</p>
-                            <p>Timeframe: 1h</p>
-                            <p>Performance: +7.8%</p>
-                            <p>Épisodes: 1000</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Éditer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                    
-                    <div class="model-card">
-                        <h3>PPO Multi-Asset</h3>
-                        <span class="status training">En entraînement</span>
-                        <div class="details">
-                            <p>Paires: Multiple</p>
-                            <p>Timeframe: 4h</p>
-                            <p>Progrès: 65%</p>
-                            <p>Épisodes: 750/1000</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Voir détails</button>
-                            <button class="btn-secondary">Arrêter</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="chart">
-                    <h3>Performance des Modèles RL</h3>
-                    <canvas id="rl-chart"></canvas>
-                </div>
-            </section>
-            
-            <!-- Agents Section -->
-            <section id="agents-section" class="section">
-                <h2>Agents IA</h2>
-                
-                <div class="controls">
-                    <button class="btn-primary" id="new-agent-btn">Nouvel Agent</button>
-                    <button class="btn-secondary" id="orchestrate-btn">Orchestrer</button>
-                </div>
-                
-                <div class="agents">
-                    <div class="agent-card">
-                        <h3>Market Analyzer</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Type: Analyse</p>
-                            <p>Tâches: 24/h</p>
-                            <p>Précision: 92%</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Configurer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                    
-                    <div class="agent-card">
-                        <h3>News Sentiment</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Type: Données</p>
-                            <p>Sources: 15</p>
-                            <p>Mise à jour: 5min</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Configurer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                    
-                    <div class="agent-card">
-                        <h3>Portfolio Optimizer</h3>
-                        <span class="status active">Actif</span>
-                        <div class="details">
-                            <p>Type: Optimisation</p>
-                            <p>Fréquence: 1h</p>
-                            <p>Amélioration: +2.3%</p>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-secondary">Configurer</button>
-                            <button class="btn-secondary">Désactiver</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="chart">
-                    <h3>Communication entre Agents</h3>
-                    <canvas id="agents-chart"></canvas>
-                </div>
-            </section>
-            
-            <!-- E-commerce Section -->
-            <section id="ecommerce-section" class="section">
-                <h2>E-commerce</h2>
-                
-                <div class="controls">
-                    <button class="btn-primary" id="sync-inventory-btn">Synchroniser Inventaire</button>
-                    <button class="btn-secondary" id="optimize-prices-btn">Optimiser Prix</button>
-                </div>
-                
-                <div class="cards">
-                    <div class="card">
-                        <h3>Produits Invendus</h3>
-                        <div class="value">124</div>
-                        <div class="change">Valeur: €12,450</div>
-                    </div>
-                    <div class="card">
-                        <h3>Économies Potentielles</h3>
-                        <div class="value">€2,890</div>
-                        <div class="change positive">+23.2%</div>
-                    </div>
-                    <div class="card">
-                        <h3>Commandes Recyclées</h3>
-                        <div class="value">45</div>
-                        <div class="change">Ce mois</div>
-                    </div>
-                </div>
-                
-                <div class="table-container">
-                    <h3>Produits Invendus Récents</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Produit</th>
-                                <th>SKU</th>
-                                <th>Prix Original</th>
-                                <th>Prix Optimisé</th>
-                                <th>Stock</th>
-                                <th>Jours en Stock</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="unsold-products">
-                            <tr>
-                                <td>Smartphone XYZ</td>
-                                <td>SM-XYZ-123</td>
-                                <td>€599.99</td>
-                                <td>€499.99</td>
-                                <td>15</td>
-                                <td>45</td>
-                                <td>
-                                    <button class="btn-secondary">Commander</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Écouteurs Bluetooth</td>
-                                <td>EB-BT-456</td>
-                                <td>€129.99</td>
-                                <td>€89.99</td>
-                                <td>32</td>
-                                <td>60</td>
-                                <td>
-                                    <button class="btn-secondary">Commander</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Montre Connectée</td>
-                                <td>MC-789</td>
-                                <td>€249.99</td>
-                                <td>€199.99</td>
-                                <td>8</td>
-                                <td>30</td>
-                                <td>
-                                    <button class="btn-secondary">Commander</button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            
-            <!-- Settings Section -->
-            <section id="settings-section" class="section">
-                <h2>Paramètres</h2>
-                
-                <div class="settings-form">
-                    <div class="form-group">
-                        <label for="api-key">Clé API</label>
-                        <input type="text" id="api-key" value="autobot_xxxxxxxxxxxx">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="license-key">Clé de Licence</label>
-                        <input type="text" id="license-key" value="AUTOBOT-XXXX-XXXX-XXXX-XXXX">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="risk-level">Niveau de Risque</label>
-                        <select id="risk-level">
-                            <option value="low">Faible</option>
-                            <option value="medium" selected>Moyen</option>
-                            <option value="high">Élevé</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="max-allocation">Allocation Maximum par Position (%)</label>
-                        <input type="text" id="max-allocation" value="10">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="auto-compound">
-                            <input type="checkbox" id="auto-compound" checked>
-                            Intérêt Composé Automatique
-                        </label>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="notifications">
-                            <input type="checkbox" id="notifications" checked>
-                            Activer les Notifications
-                        </label>
-                    </div>
-                    
-                    <div class="form-group">
-                        <button class="btn-primary" id="save-settings-btn">Enregistrer</button>
-                    </div>
-                </div>
-            </section>
-        </main>
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block header_title %}Dashboard Principal{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline">
+    <i class="fas fa-sync"></i> Rafraîchir
+</button>
+<button class="btn btn-primary">
+    <i class="fas fa-bolt"></i> Actions rapides
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Metric Cards -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Capital Total</span>
+        <span class="metric-value">{{ total_capital|default('32 480 €') }}</span>
+        <span class="metric-change positive">+4,82%</span>
     </div>
     
-    <!-- Modal -->
-    <div class="modal-container" id="modal">
-        <div class="modal">
-            <div class="modal-header">
-                <h3 id="modal-title">Titre Modal</h3>
-                <button id="close-modal">&times;</button>
-            </div>
-            <div class="modal-content" id="modal-content">
-                <!-- Modal content will be dynamically inserted here -->
+    <div class="metric-card">
+        <span class="metric-title">Instances Actives</span>
+        <span class="metric-value">{{ active_instances|default('3') }}</span>
+        <span class="metric-change positive">+1</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Performance</span>
+        <span class="metric-value">{{ performance|default('+4,82%') }}</span>
+        <span class="metric-status">7 jours</span>
+    </div>
+</div>
+
+<!-- Performance Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Graphique Performance</h3>
+        <div class="card-actions">
+            <button class="btn-sm">Journalier</button>
+            <button class="btn-sm active">Hebdomadaire</button>
+            <button class="btn-sm">Mensuel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- System Logs and AI Insights -->
+<div class="dashboard-split">
+    <div class="logs-section card">
+        <div class="card-header">
+            <h3>Logs Système</h3>
+            <button class="btn-sm">
+                <i class="fas fa-download"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="logs-container">
+                {% for log in system_logs|default([
+                    {'time': '18:42', 'system': 'SYSTÈME', 'message': 'Duplication créée avec succès'},
+                    {'time': '18:30', 'system': 'SYSTÈME', 'message': 'Alerte risque détectée'},
+                    {'time': '18:15', 'system': 'SYSTÈME', 'message': 'Turbo initialisé'},
+                    {'time': '18:00', 'system': 'SYSTÈME', 'message': 'Système opérationnel'}
+                ]) %}
+                <div class="log-item">
+                    <span class="log-time">{{ log.time }}</span>
+                    <span class="log-system">[{{ log.system }}]</span> 
+                    <span class="log-message">{{ log.message }}</span>
+                </div>
+                {% endfor %}
             </div>
         </div>
     </div>
     
-    <script src="/static/js/dashboard.js"></script>
-</body>
-</html>
+    <div class="ai-section card">
+        <div class="card-header">
+            <h3>Insights IA</h3>
+        </div>
+        <div class="card-body">
+            <div class="ai-container">
+                {% for insight in ai_insights|default([
+                    {'icon': 'fa-lightbulb', 'title': 'Opportunité', 'message': 'Le marché BTC montre une tendance haussière'},
+                    {'icon': 'fa-chart-line', 'title': 'Performance', 'message': 'La stratégie A surperforme de 5.2%'}
+                ]) %}
+                <div class="ai-insight">
+                    <div class="insight-icon">
+                        <i class="fas {{ insight.icon }}"></i>
+                    </div>
+                    <div class="insight-content">
+                        <h4>{{ insight.title }}</h4>
+                        <p>{{ insight.message }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat avec l'IA -->
+<div class="chat-section card">
+    <div class="card-header">
+        <h3>Chat avec AutobotMaster</h3>
+    </div>
+    <div class="card-body">
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message message-bot">
+                    Bonjour, je suis AutobotMaster. Comment puis-je vous aider aujourd'hui?
+                </div>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="chatInput" placeholder="Tapez votre message ici...">
+                <button id="sendMessage"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Performance Chart
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    const performanceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+            datasets: [{
+                label: 'Performance',
+                data: [28500, 29200, 29800, 30500, 31200, 32000, 32480],
+                borderColor: '#00ff9d',
+                backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888'
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) {
+                            return value + ' €';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Initialize chat functionality
+    const chatInput = document.getElementById('chatInput');
+    const sendMessageBtn = document.getElementById('sendMessage');
+    const chatMessages = document.getElementById('chatMessages');
+    
+    function sendMessage() {
+        const message = chatInput.value.trim();
+        if (message) {
+            // Add user message to chat
+            const userMessageDiv = document.createElement('div');
+            userMessageDiv.className = 'message message-user';
+            userMessageDiv.textContent = message;
+            chatMessages.appendChild(userMessageDiv);
+            
+            // Clear input
+            chatInput.value = '';
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Send to server via WebSocket (handled in common.js)
+            if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+                window.socket.send(JSON.stringify({
+                    type: 'chat_message',
+                    message: message
+                }));
+            }
+            
+            // Simulate bot response (in real implementation, this would come from the server)
+            setTimeout(() => {
+                const botMessageDiv = document.createElement('div');
+                botMessageDiv.className = 'message message-bot';
+                botMessageDiv.textContent = 'Je traite votre demande...';
+                chatMessages.appendChild(botMessageDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }, 500);
+        }
+    }
+    
+    sendMessageBtn.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+});
+</script>
+{% endblock %}
