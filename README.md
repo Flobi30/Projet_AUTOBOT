@@ -328,7 +328,7 @@ Ce projet est sous licence propriétaire. Tous droits réservés.
 Toutes les routes API et UI nécessitent une clé de licence valide. La clé est définie dans le fichier `.env` :
 
 ```
-LICENSE_KEY=AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX
+LICENSE_KEY=<votre_clé_de_licence>
 ```
 
 ### Guide de test API
@@ -347,27 +347,27 @@ curl -X POST -F "username=admin" -F "password=votre_mot_de_passe_fort" http://lo
 
 #### Détecter du texte avec l'API mobile
 ```bash
-curl -G "http://localhost:8000/api/mobile/detect?text=exemple" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX"
+curl -G "http://localhost:8000/api/mobile/detect?text=exemple" -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>"
 ```
 
 #### Lister les modèles de prédiction
 ```bash
-curl http://localhost:8000/api/prediction/models -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX"
+curl http://localhost:8000/api/prediction/models -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>"
 ```
 
 #### Entraîner un modèle de prédiction de texte
 ```bash
-curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -d '{"data":[{"text":"Exemple de texte positif","label":1},{"text":"Exemple de texte négatif","label":0}]}' http://localhost:8000/api/prediction/train?model_name=text_model&model_type=TextClassificationModel
+curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -d '{"data":[{"text":"Exemple de texte positif","label":1},{"text":"Exemple de texte négatif","label":0}]}' http://localhost:8000/api/prediction/train?model_name=text_model&model_type=TextClassificationModel
 ```
 
 #### Faire une prédiction avec un modèle de texte
 ```bash
-curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -d '{"data":[{"text":"Nouveau texte à prédire"}]}' http://localhost:8000/api/prediction/predict?model_name=text_model
+curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -d '{"data":[{"text":"Nouveau texte à prédire"}]}' http://localhost:8000/api/prediction/predict?model_name=text_model
 ```
 
 #### Accéder au dashboard simplifié avec authentification
 ```bash
-curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -H "Accept: text/html" http://localhost:8000/simple/
+curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -H "Accept: text/html" http://localhost:8000/simple/
 ```
 
 ## Auteur

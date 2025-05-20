@@ -230,13 +230,13 @@ echo -e "${YELLOW}Création ou mise à jour du fichier .env...${NC}"
 if [ ! -f ".env" ]; then
     cat > .env << 'EOF'
 PYTHONPATH=src
-LICENSE_KEY=AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX
+LICENSE_KEY=<votre_clé_de_licence>
 EOF
     echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
     echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
 else
     if ! grep -q "LICENSE_KEY" .env; then
-        echo "LICENSE_KEY=AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" >> .env
+        echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
         echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
         echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
     fi
