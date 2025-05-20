@@ -108,8 +108,8 @@ router.include_router(api_router)
 router.include_router(health_router)
 router.include_router(prediction_router)
 router.include_router(auth_router)
-router.include_router(mobile_router, prefix="/mobile")
-router.include_router(simplified_dashboard_router, prefix="/simple")
+router.include_router(mobile_router)  # Le préfixe "/mobile" est déjà défini dans le routeur
+router.include_router(simplified_dashboard_router)  # Le préfixe "/simple" est déjà défini dans le routeur
 router.include_router(arbitrage_router)
 router.include_router(backtest_router)
 router.include_router(deposit_withdrawal_router)

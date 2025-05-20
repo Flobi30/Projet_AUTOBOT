@@ -6,12 +6,12 @@ la compatibilité avec le code existant.
 
 from autobot.autobot_guardian import AutobotGuardian
 
-def get_logs() -> dict:
+def get_logs() -> list:
     """
     Compatibilité avec l'ancien code.
     
     Returns:
-        dict: Logs du système
+        list: Logs du système
     """
     return AutobotGuardian.get_logs()
 
