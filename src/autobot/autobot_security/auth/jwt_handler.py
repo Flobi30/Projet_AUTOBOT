@@ -1,5 +1,6 @@
 import jwt
 import time
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
@@ -85,7 +86,8 @@ def verify_license_key(license_key: str) -> bool:
     Returns:
         bool: True if valid, False otherwise
     """
-    return bool(license_key and len(license_key) > 10)
+    expected = os.getenv("LICENSE_KEY")
+    return license_key == expected
 
 def generate_license_key(user_id: str, features: list, expiration_days: int = 365) -> str:
     """

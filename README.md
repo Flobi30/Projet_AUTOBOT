@@ -32,9 +32,9 @@ Le projet est structuré en plusieurs modules principaux :
 
 ### 3. Module de Sécurité
 
-- **Authentification JWT** : Système sécurisé de gestion des sessions
+- **Authentification OAuth2/JWT** : Système sécurisé de gestion des sessions avec tokens JWT HS256
 - **Gestion des utilisateurs** : Création, authentification et gestion des utilisateurs
-- **Système de licences** : Contrôle d'accès basé sur des licences avec fonctionnalités spécifiques
+- **Système de licences** : Contrôle d'accès basé sur des licences avec vérification via LICENSE_KEY
 
 ### 4. Orchestrateur Multi-Agent
 
@@ -322,6 +322,53 @@ order = inventory_manager.place_order(
 ## Licence
 
 Ce projet est sous licence propriétaire. Tous droits réservés.
+
+### Vérification de licence
+
+Toutes les routes API et UI nécessitent une clé de licence valide. La clé est définie dans le fichier `.env` :
+
+```
+LICENSE_KEY=AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX
+```
+
+### Guide de test API
+
+Une fois le serveur démarré, vous pouvez tester l'API avec les commandes curl suivantes:
+
+#### Vérifier l'état du serveur
+```bash
+curl http://localhost:8000/health
+```
+
+#### Obtenir un token d'authentification
+```bash
+curl -X POST -F "username=admin" -F "password=votre_mot_de_passe_fort" http://localhost:8000/token
+```
+
+#### Détecter du texte avec l'API mobile
+```bash
+curl -G "http://localhost:8000/api/mobile/detect?text=exemple" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX"
+```
+
+#### Lister les modèles de prédiction
+```bash
+curl http://localhost:8000/api/prediction/models -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX"
+```
+
+#### Entraîner un modèle de prédiction de texte
+```bash
+curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -d '{"data":[{"text":"Exemple de texte positif","label":1},{"text":"Exemple de texte négatif","label":0}]}' http://localhost:8000/api/prediction/train?model_name=text_model&model_type=TextClassificationModel
+```
+
+#### Faire une prédiction avec un modèle de texte
+```bash
+curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -d '{"data":[{"text":"Nouveau texte à prédire"}]}' http://localhost:8000/api/prediction/predict?model_name=text_model
+```
+
+#### Accéder au dashboard simplifié avec authentification
+```bash
+curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX" -H "Accept: text/html" http://localhost:8000/simple/
+```
 
 ## Auteur
 

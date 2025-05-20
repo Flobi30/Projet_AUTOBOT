@@ -11,7 +11,7 @@ import logging
 
 from ..prediction.engine import PredictionEngine, create_prediction_engine, PredictionResult
 from ..prediction.models import get_model
-from ..autobot_security.auth.jwt_handler import get_current_user
+from ..autobot_security.auth.jwt_handler import get_current_user, verify_license_key
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,8 @@ async def train_model(
     data: Dict[str, Any] = Body(...),
     model_name: str = Query("default", description="Model name"),
     model_type: str = Query("LSTMModel", description="Model type"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Train a prediction model.
@@ -84,7 +85,8 @@ async def train_model(
 async def predict(
     data: Dict[str, Any] = Body(...),
     model_name: str = Query("default", description="Model name"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Make predictions.
@@ -119,7 +121,8 @@ async def predict(
 async def evaluate_model(
     data: Dict[str, Any] = Body(...),
     model_name: str = Query("default", description="Model name"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Evaluate a prediction model.
@@ -152,7 +155,8 @@ async def evaluate_model(
 
 @router.get("/api/prediction/models", summary="Get available models")
 async def get_models(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Get available prediction models.
@@ -183,7 +187,8 @@ async def get_models(
 async def save_model(
     model_name: str,
     path: str = Body(..., embed=True),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Save a prediction model.
@@ -216,7 +221,8 @@ async def save_model(
 @router.post("/api/prediction/load", summary="Load a prediction model")
 async def load_model(
     path: str = Body(..., embed=True),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Load a prediction model.
@@ -248,7 +254,8 @@ async def load_model(
 @router.delete("/api/prediction/models/{model_name}", summary="Delete a prediction model")
 async def delete_model(
     model_name: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """
     Delete a prediction model.
