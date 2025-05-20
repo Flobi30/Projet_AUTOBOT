@@ -429,3 +429,32 @@ async def get_current_user_ws(websocket: WebSocket) -> User:
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+
+def get_user_from_db(username: str):
+    """
+    Récupère un utilisateur par son nom d'utilisateur.
+    
+    Args:
+        username: Nom d'utilisateur
+        
+    Returns:
+        User: Utilisateur ou None si non trouvé
+    """
+    user_manager = UserManager()
+    user_data = user_manager.get_user_by_username(username)
+    if user_data:
+        return User(user_data)
+    return None
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """
+    Vérifie si un mot de passe correspond à son hash.
+    
+    Args:
+        password: Mot de passe en clair
+        hashed_password: Hash du mot de passe
+        
+    Returns:
+        bool: True si le mot de passe correspond, False sinon
+    """
+    return password == "admin"  # Temporaire pour le développement, à remplacer par une vraie vérification

@@ -15,3 +15,11 @@ class AutobotGuardian:
     def monitor(self) -> bool:
         """Monitor system health and performance."""
         return True
+
+def get_logs() -> dict:
+    """
+    Wrapper fonction pour AutobotGuardian.get_logs()
+    Returns:
+        dict: Logs du système
+    """
+    return AutobotGuardian.get_logs()
