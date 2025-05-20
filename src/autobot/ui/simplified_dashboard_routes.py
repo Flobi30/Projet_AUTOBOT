@@ -63,8 +63,13 @@ def get_impact_color(value: float) -> str:
         return "#d50000"  # Red
 
 @router.get("/", response_class=HTMLResponse)
-async def simplified_dashboard(request: Request, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
+async def simplified_dashboard(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    _ok: bool = Depends(verify_license_key)
+):
     """Render the simplified dashboard."""
+    user = await get_current_user(request=request, token=token)
     mode_manager = get_mode_manager()
     system_status = mode_manager.get_system_status()
     

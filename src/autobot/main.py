@@ -10,8 +10,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.base import BaseHTTPMiddleware
 
 from autobot.router_new import router
+from autobot.ui.auth_routes import router as auth_router
 
 app = FastAPI(
     title="Autobot API",
@@ -28,7 +30,22 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 templates = Jinja2Templates(directory=templates_dir)
 
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/login") or path.startswith("/static") or path == "/token" or path.startswith("/docs") or path.startswith("/redoc"):
+            return await call_next(request)
+        
+        token = request.cookies.get("access_token")
+        if not token and not path.startswith("/api/"):
+            return RedirectResponse(url="/login")
+        
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
+
 app.include_router(router)
+app.include_router(auth_router)
 
 @app.get("/", tags=["root"])
 async def root(request: Request):

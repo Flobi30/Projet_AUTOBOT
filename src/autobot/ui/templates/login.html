@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 20px;
+            border-radius: 10px;
+            background-color: #1e1e2d;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .login-form {
+            display: flex;
+            flex-direction: column;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #b5b5c3;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #323248;
+            border-radius: 5px;
+            background-color: #171723;
+            color: #ffffff;
+        }
+        .btn-login {
+            background-color: #3699ff;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .error-message {
+            color: #f64e60;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>AUTOBOT</h1>
+            <p>Connectez-vous pour accéder au dashboard</p>
+        </div>
+        {% if error %}
+        <div class="error-message">
+            {{ error }}
+        </div>
+        {% endif %}
+        <form class="login-form" method="post" action="/login">
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label for="license_key">Clé de licence</label>
+                <input type="text" id="license_key" name="license_key" required>
+            </div>
+            <button type="submit" class="btn-login">Se connecter</button>
+        </form>
+    </div>
+</body>
+</html>
