@@ -1,13 +1,17 @@
+import os
+import sys
+import dotenv
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+dotenv.load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import os
-import dotenv
 
-dotenv.load_dotenv()
-
-from autobot.router_new import router
+from src.autobot.router_new import router
 
 app = FastAPI(
     title="Autobot API",
