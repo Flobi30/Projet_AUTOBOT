@@ -1,0 +1,7 @@
+{
+  "admin_user": "admin",
+  "admin_password": "votre_mot_de_passe_fort",
+  "jwt_secret": "your-secret-key",
+  "jwt_algorithm": "HS256",
+  "token_expire_minutes": 1440
+}
