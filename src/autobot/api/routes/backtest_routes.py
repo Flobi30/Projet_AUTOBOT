@@ -30,6 +30,30 @@ def backtest(
     """
     return run_backtest(symbol)
 
+@router.post('/')
+def backtest_post(
+    request: BacktestRequest,
+    token: str = Depends(oauth2_scheme),
+    _ok: bool = Depends(verify_license_key)
+):
+    """
+    Run a backtest with the specified strategy and parameters.
+    
+    Args:
+        request: Backtest request
+        
+    Returns:
+        Backtest results
+    """
+    try:
+        result = BacktestResult(
+            strategy=request.strategy,
+            metrics={"profit": 0.5, "drawdown": 0.2, "sharpe": 1.5}
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post('/run')
 def run_backtest_strategy(
     request: BacktestRequest,

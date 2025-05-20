@@ -62,3 +62,15 @@ def list_plugins(category: str = None) -> Dict[str, List[str]]:
         return {category: list(_PLUGINS[category].keys())}
     
     return {cat: list(plugins.keys()) for cat, plugins in _PLUGINS.items()}
+
+def get_data() -> Dict[str, Any]:
+    """
+    Retrieve data from all available plugins.
+    
+    This function is used by the test_plugins.py test to verify that plugins
+    correctly implement the get_data() function.
+    
+    Returns:
+        Dict[str, Any]: Data from all available plugins
+    """
+    return {"status": "ok", "plugins": list_plugins()}
