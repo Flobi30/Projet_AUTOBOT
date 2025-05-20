@@ -1,22 +1,17 @@
+import os
+import sys
+import dotenv
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+dotenv.load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import os
-import dotenv
-from autobot.router_clean import router
 
-dotenv.load_dotenv()
-from autobot.routes.health_routes import router as health_router
-from autobot.routes.prediction_routes import router as prediction_router
-from autobot.routes.auth_routes import router as auth_router
-from autobot.ui.mobile_routes import router as mobile_router
-from autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
-from autobot.ui.arbitrage_routes import router as arbitrage_router
-from autobot.ui.backtest_routes import router as backtest_router
-from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
-from autobot.ui.chat_routes_custom import router as chat_router
-from autobot.ui.routes import router as ui_router
+from autobot.router_new import router
 
 app = FastAPI(
     title="Autobot API",
@@ -34,16 +29,6 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 templates = Jinja2Templates(directory=templates_dir)
 
 app.include_router(router)
-app.include_router(health_router)
-app.include_router(prediction_router)
-app.include_router(auth_router)
-app.include_router(mobile_router)
-app.include_router(simplified_dashboard_router, prefix="/simple")
-app.include_router(arbitrage_router)
-app.include_router(backtest_router)
-app.include_router(deposit_withdrawal_router)
-app.include_router(chat_router)
-app.include_router(ui_router)
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
