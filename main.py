@@ -6,9 +6,21 @@ Maintient les fonctionnalités d'AutobotKernel tout en utilisant FastAPI
 import os
 import sys
 import uvicorn
+import logging
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, ROOT)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("autobot.log")
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class AutobotKernel:
     """
@@ -17,10 +29,17 @@ class AutobotKernel:
     """
 
     def __init__(self):
-        print("🟢 AutobotKernel initialized")
+        logger.info("🟢 AutobotKernel initialized")
+        
+        try:
+            from src.autobot.autobot_security.auth.modified_user_manager import ModifiedUserManager
+            self.user_manager = ModifiedUserManager()
+            logger.info("✅ Système d'authentification initialisé avec succès")
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de l'initialisation du système d'authentification : {str(e)}")
 
     def run(self):
-        print("🚀 AutobotKernel running…")
+        logger.info("🚀 AutobotKernel running…")
         
         from src.autobot.main import app
         uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

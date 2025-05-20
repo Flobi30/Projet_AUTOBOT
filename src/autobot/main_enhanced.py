@@ -32,6 +32,7 @@ from autobot.rl.env import TradingEnvironment
 from autobot.rl.train import train_agent, get_training_status
 from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key
 from autobot.autobot_security.auth.user_manager import UserManager
+from autobot.autobot_security.auth.modified_user_manager import ModifiedUserManager
 from autobot.agents.orchestrator import AgentOrchestrator
 from autobot.ecommerce.inventory_manager import InventoryManager
 from autobot.ui.dashboard_routes import include_dashboard_router
@@ -65,7 +66,7 @@ app.add_middleware(
 
 app.include_router(router)
 
-user_manager = UserManager()
+user_manager = ModifiedUserManager()
 risk_manager = RiskManagerEnhanced()
 agent_orchestrator = AgentOrchestrator()
 inventory_manager = InventoryManager()
