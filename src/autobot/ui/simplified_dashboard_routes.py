@@ -26,6 +26,7 @@ from ..trading.auto_mode_manager import (
     ComponentType
 )
 from ..autobot_security.auth.user_manager import get_current_user, User
+from ..autobot_security.auth.jwt_handler import oauth2_scheme, verify_license_key
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def get_impact_color(value: float) -> str:
         return "#d50000"  # Red
 
 @router.get("/", response_class=HTMLResponse)
-async def simplified_dashboard(request: Request, user: User = Depends(get_current_user)):
+async def simplified_dashboard(request: Request, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Render the simplified dashboard."""
     mode_manager = get_mode_manager()
     system_status = mode_manager.get_system_status()
@@ -126,7 +127,7 @@ async def simplified_dashboard(request: Request, user: User = Depends(get_curren
     )
 
 @router.post("/api/deposit")
-async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):
+async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Deposit funds."""
     if deposit.amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
@@ -152,7 +153,7 @@ async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_curren
     }
 
 @router.post("/api/withdraw")
-async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get_current_user)):
+async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Withdraw funds."""
     if withdrawal.amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
@@ -179,7 +180,7 @@ async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get
     }
 
 @router.get("/api/analyze-withdrawal")
-async def analyze_withdrawal_route(amount: float, user: User = Depends(get_current_user)):
+async def analyze_withdrawal_route(amount: float, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Analyze withdrawal impact."""
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
@@ -205,7 +206,8 @@ async def update_api_keys(
     exchange: str,
     api_key: str = Form(...),
     api_secret: str = Form(...),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """Update API keys for an exchange."""
     if exchange not in ["binance", "coinbase", "kraken"]:
@@ -221,7 +223,7 @@ async def update_api_keys(
     }
 
 @router.get("/api/system-status")
-async def get_system_status(user: User = Depends(get_current_user)):
+async def get_system_status(user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Get system status."""
     mode_manager = get_mode_manager()
     
@@ -233,7 +235,8 @@ async def get_system_status(user: User = Depends(get_current_user)):
 async def set_component_mode(
     component: str,
     mode: str,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    _ok: bool = Depends(verify_license_key)
 ):
     """Set component mode."""
     try:
@@ -256,7 +259,7 @@ async def set_component_mode(
     }
 
 @router.post("/api/system/auto-switching/{enabled}")
-async def set_auto_switching(enabled: bool, user: User = Depends(get_current_user)):
+async def set_auto_switching(enabled: bool, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Enable or disable automatic mode switching."""
     mode_manager = get_mode_manager()
     
@@ -269,7 +272,7 @@ async def set_auto_switching(enabled: bool, user: User = Depends(get_current_use
     }
 
 @router.post("/api/system/always-ghost/{enabled}")
-async def set_always_ghost(enabled: bool, user: User = Depends(get_current_user)):
+async def set_always_ghost(enabled: bool, user: User = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """Enable or disable always ghost mode."""
     mode_manager = get_mode_manager()
     

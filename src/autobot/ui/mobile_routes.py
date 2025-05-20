@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import os
 import logging
 
-from ..autobot_security.auth.jwt_handler import get_current_user
+from ..autobot_security.auth.jwt_handler import get_current_user, oauth2_scheme, verify_license_key
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory=templates_dir)
 router = APIRouter(tags=["Mobile"])
 
 @router.get("/mobile", response_class=HTMLResponse)
-async def mobile_dashboard(request: Request):
+async def mobile_dashboard(request: Request, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Mobile dashboard page.
     
@@ -38,7 +38,7 @@ async def mobile_dashboard(request: Request):
     )
 
 @router.get("/mobile/trading", response_class=HTMLResponse)
-async def mobile_trading(request: Request):
+async def mobile_trading(request: Request, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Mobile trading page.
     
@@ -54,7 +54,7 @@ async def mobile_trading(request: Request):
     )
 
 @router.get("/mobile/ecommerce", response_class=HTMLResponse)
-async def mobile_ecommerce(request: Request):
+async def mobile_ecommerce(request: Request, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Mobile e-commerce page.
     
@@ -70,7 +70,7 @@ async def mobile_ecommerce(request: Request):
     )
 
 @router.get("/mobile/rl-training", response_class=HTMLResponse)
-async def mobile_rl_training(request: Request):
+async def mobile_rl_training(request: Request, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Mobile RL training page.
     
@@ -86,7 +86,7 @@ async def mobile_rl_training(request: Request):
     )
 
 @router.get("/mobile/settings", response_class=HTMLResponse)
-async def mobile_settings(request: Request):
+async def mobile_settings(request: Request, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Mobile settings page.
     
@@ -102,7 +102,7 @@ async def mobile_settings(request: Request):
     )
 
 @router.get("/api/mobile/detect", summary="Detect if client is mobile")
-async def detect_mobile(user_agent: Optional[str] = None):
+async def detect_mobile(user_agent: Optional[str] = None, token: str = Depends(oauth2_scheme), _ok: bool = Depends(verify_license_key)):
     """
     Detect if the client is a mobile device.
     
@@ -129,7 +129,7 @@ async def detect_mobile(user_agent: Optional[str] = None):
     }
 
 @router.get("/api/mobile/portfolio", summary="Get portfolio data for mobile")
-async def get_mobile_portfolio(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_portfolio(current_user: Dict[str, Any] = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """
     Get portfolio data optimized for mobile display.
     
@@ -164,7 +164,7 @@ async def get_mobile_portfolio(current_user: Dict[str, Any] = Depends(get_curren
         raise HTTPException(status_code=500, detail=f"Error getting mobile portfolio data: {str(e)}")
 
 @router.get("/api/mobile/recent-trades", summary="Get recent trades for mobile")
-async def get_mobile_recent_trades(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_recent_trades(current_user: Dict[str, Any] = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """
     Get recent trades optimized for mobile display.
     
@@ -208,7 +208,7 @@ async def get_mobile_recent_trades(current_user: Dict[str, Any] = Depends(get_cu
         raise HTTPException(status_code=500, detail=f"Error getting mobile recent trades: {str(e)}")
 
 @router.get("/api/mobile/ai-insights", summary="Get AI insights for mobile")
-async def get_mobile_ai_insights(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_ai_insights(current_user: Dict[str, Any] = Depends(get_current_user), _ok: bool = Depends(verify_license_key)):
     """
     Get AI insights optimized for mobile display.
     

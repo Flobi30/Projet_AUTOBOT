@@ -226,6 +226,25 @@ else
   echo -e "${GREEN}✓ Le fichier auth_config.json existe déjà${NC}"
 fi
 
+echo -e "${YELLOW}Création ou mise à jour du fichier .env...${NC}"
+if [ ! -f ".env" ]; then
+    cat > .env << 'EOF'
+PYTHONPATH=src
+LICENSE_KEY=<votre_clé_de_licence>
+EOF
+    echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
+    echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
+else
+    if ! grep -q "LICENSE_KEY" .env; then
+        echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
+        echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
+        echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
+    fi
+fi
+
+echo -e "${YELLOW}Installation de python-dotenv...${NC}"
+pip install python-dotenv
+
 echo -e "${YELLOW}Définition des permissions...${NC}"
 chmod 644 src/autobot/autobot_security/auth/modified_user_manager.py
 chmod 644 src/autobot/autobot_security/auth/__init__.py
@@ -233,6 +252,7 @@ chmod 644 src/autobot/autobot_security/config.py
 chmod 644 src/autobot/main_enhanced.py
 chmod 644 main.py
 chmod 644 config/auth_config.json
+chmod 644 .env
 
 echo -e "${GREEN}=== Redémarrage du service AUTOBOT ===${NC}"
 echo -e "${YELLOW}Pour redémarrer le service AUTOBOT, exécutez:${NC}"

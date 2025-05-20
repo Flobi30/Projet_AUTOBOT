@@ -3,9 +3,13 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
+import dotenv
 from autobot.router_clean import router
+
+dotenv.load_dotenv()
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
+from autobot.routes.auth_routes import router as auth_router
 from autobot.ui.mobile_routes import router as mobile_router
 from autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
 from autobot.ui.arbitrage_routes import router as arbitrage_router
@@ -32,6 +36,7 @@ templates = Jinja2Templates(directory=templates_dir)
 app.include_router(router)
 app.include_router(health_router)
 app.include_router(prediction_router)
+app.include_router(auth_router)
 app.include_router(mobile_router)
 app.include_router(simplified_dashboard_router, prefix="/simple")
 app.include_router(arbitrage_router)
