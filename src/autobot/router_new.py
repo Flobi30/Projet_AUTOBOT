@@ -18,7 +18,7 @@ try:
     from autobot.autobot_security.auth.jwt_handler import oauth2_scheme, verify_license_key
     from autobot.schemas import BacktestRequest, BacktestResult
     from autobot.ecommerce.kpis import get_kpis
-    from autobot.autobot_guardian import get_logs, get_health
+    from autobot.guardian import get_logs, get_metrics
     from autobot.rl.train import start_training
     from autobot.backtest_engine import run_backtest
     
@@ -95,6 +95,13 @@ def logs():
     Get system logs.
     """
     return get_logs()
+
+@router.get('/health')
+def health():
+    """
+    Health check endpoint.
+    """
+    return {"status": "ok"}
 
 router.include_router(api_router)
 router.include_router(health_router)
