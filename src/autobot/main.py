@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from src.autobot.router_new import router
+from autobot.router_new import router
 
 app = FastAPI(
     title="Autobot API",
