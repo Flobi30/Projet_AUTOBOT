@@ -23,6 +23,11 @@ from .specialized_agents import (
     PredictionAgent
 )
 
+from .autobot_master import (
+    AutobotMasterAgent,
+    create_autobot_master_agent
+)
+
 __all__ = [
     'Agent',
     'AgentType',
@@ -35,5 +40,7 @@ __all__ = [
     'RLAgent',
     'SecurityAgent',
     'MonitoringAgent',
-    'PredictionAgent'
+    'PredictionAgent',
+    'AutobotMasterAgent',
+    'create_autobot_master_agent'
 ]

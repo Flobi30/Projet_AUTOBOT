@@ -18,7 +18,8 @@ try:
     from autobot.autobot_security.auth.jwt_handler import oauth2_scheme, verify_license_key
     from autobot.schemas import BacktestRequest, BacktestResult
     from autobot.ecommerce.kpis import get_kpis
-    from autobot.guardian import get_logs, get_metrics
+    from autobot.autobot_guardian import AutobotGuardian
+    from autobot.guardian import get_metrics
     from autobot.rl.train import start_training
     from autobot.backtest_engine import run_backtest
     
@@ -94,7 +95,7 @@ def logs():
     """
     Get system logs.
     """
-    return get_logs()
+    return AutobotGuardian.get_logs()
 
 @router.get('/health')
 def health():
@@ -107,8 +108,8 @@ router.include_router(api_router)
 router.include_router(health_router)
 router.include_router(prediction_router)
 router.include_router(auth_router)
-router.include_router(mobile_router, prefix="/mobile")
-router.include_router(simplified_dashboard_router, prefix="/simple")
+router.include_router(mobile_router)  # Le préfixe "/mobile" est déjà défini dans le routeur
+router.include_router(simplified_dashboard_router)  # Le préfixe "/simple" est déjà défini dans le routeur
 router.include_router(arbitrage_router)
 router.include_router(backtest_router)
 router.include_router(deposit_withdrawal_router)

@@ -1,14 +1,26 @@
-# File: src/autobot/guardian.py
+"""
+Module de compatibilité pour autobot_guardian.
+Ce module réexporte les fonctions d'autobot_guardian pour maintenir
+la compatibilité avec le code existant.
+"""
+
+from autobot.autobot_guardian import AutobotGuardian
 
 def get_logs() -> list:
     """
-    Returns placeholder list of logs.
+    Compatibilité avec l'ancien code.
+    
+    Returns:
+        list: Logs du système
     """
-    return []
+    return AutobotGuardian.get_logs()
 
 def get_metrics() -> dict:
     """
-    Returns placeholder system metrics (CPU, memory, latency).
+    Compatibilité avec l'ancien code.
+    
+    Returns:
+        dict: Métriques du système
     """
     return {
         "cpu_usage": 0.0,
