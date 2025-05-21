@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block title %}Logs AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="main-title">Logs & Monitoring</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="all">Tous</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-filter="backtest">Backtest</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-filter="live">Live</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-filter="ghosting">Ghosting</button>
+                <button type="button" class="btn btn-outline-primary filter-btn" data-filter="system">Système</button>
+            </div>
+        </div>
+        <div class="col-md-4 text-end">
+            <button id="download-csv" class="btn btn-success">
+                <i class="fas fa-download"></i> Télécharger CSV
+            </button>
+            <button id="refresh-logs" class="btn btn-secondary">
+                <i class="fas fa-sync-alt"></i> Rafraîchir
+            </button>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2>Journal des événements</h2>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
+                        <label class="form-check-label" for="auto-refresh">Auto-refresh</label>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="logs-container">
+                        <table class="table table-sm table-hover" id="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Horodatage</th>
+                                    <th>Type</th>
+                                    <th>Niveau</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Données dynamiques des logs -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Statistiques</h2>
+                </div>
+                <div class="card-body">
+                    <div class="stats-container">
+                        <div class="stat-item">
+                            <span class="stat-label">Total des logs</span>
+                            <span class="stat-value" id="total-logs">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Erreurs</span>
+                            <span class="stat-value" id="error-logs">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Avertissements</span>
+                            <span class="stat-value" id="warning-logs">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Informations</span>
+                            <span class="stat-value" id="info-logs">0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-container mt-4">
+                        <canvas id="logs-distribution-chart"></canvas>
+                    </div>
+                    
+                    <div class="chart-container mt-4">
+                        <canvas id="logs-timeline-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let logsData = [];
+    let distributionChart;
+    let timelineChart;
+    let currentFilter = 'all';
+    let autoRefresh = true;
+    let refreshInterval;
+    
+    // Filtrage des logs
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            currentFilter = this.getAttribute('data-filter');
+            updateLogsTable();
+        });
+    });
+    
+    // Auto-refresh toggle
+    document.getElementById('auto-refresh').addEventListener('change', function() {
+        autoRefresh = this.checked;
+        
+        if (autoRefresh) {
+            refreshInterval = setInterval(fetchLogs, 5000);
+        } else {
+            clearInterval(refreshInterval);
+        }
+    });
+    
+    // Rafraîchir manuellement
+    document.getElementById('refresh-logs').addEventListener('click', fetchLogs);
+    
+    // Télécharger CSV
+    document.getElementById('download-csv').addEventListener('click', function() {
+        downloadLogsCSV();
+    });
+    
+    function fetchLogs() {
+        fetch('/api/logs')
+        .then(response => response.json())
+        .then(data => {
+            logsData = data.logs;
+            updateLogsTable();
+            updateStats();
+            updateCharts();
+        })
+        .catch(error => console.error('Erreur:', error));
+    }
+    
+    function updateLogsTable() {
+        const tbody = document.querySelector('#logs-table tbody');
+        tbody.innerHTML = '';
+        
+        const filteredLogs = currentFilter === 'all' 
+            ? logsData 
+            : logsData.filter(log => log.type === currentFilter);
+        
+        filteredLogs.forEach(log => {
+            const tr = document.createElement('tr');
+            
+            // Level class
+            const levelClass = log.level === 'ERROR' 
+                ? 'danger' : log.level === 'WARNING' 
+                ? 'warning' : 'info';
+            
+            tr.innerHTML = `
+                <td>${log.timestamp}</td>
+                <td>${log.type}</td>
+                <td><span class="badge badge-${levelClass}">${log.level}</span></td>
+                <td>${log.message}</td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+    }
+    
+    function updateStats() {
+        document.getElementById('total-logs').textContent = logsData.length;
+        document.getElementById('error-logs').textContent = 
+            logsData.filter(log => log.level === 'ERROR').length;
+        document.getElementById('warning-logs').textContent = 
+            logsData.filter(log => log.level === 'WARNING').length;
+        document.getElementById('info-logs').textContent = 
+            logsData.filter(log => log.level === 'INFO').length;
+    }
+    
+    function updateCharts() {
+        updateDistributionChart();
+        updateTimelineChart();
+    }
+    
+    function updateDistributionChart() {
+        const ctx = document.getElementById('logs-distribution-chart').getContext('2d');
+        
+        if (distributionChart) {
+            distributionChart.destroy();
+        }
+        
+        // Compter les logs par type
+        const typeCount = {};
+        logsData.forEach(log => {
+            typeCount[log.type] = (typeCount[log.type] || 0) + 1;
+        });
+        
+        distributionChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: Object.keys(typeCount),
+                datasets: [{
+                    data: Object.values(typeCount),
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.7)',
+                        'rgba(54, 162, 235, 0.7)',
+                        'rgba(255, 206, 86, 0.7)',
+                        'rgba(75, 192, 192, 0.7)'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Distribution par Type'
+                    }
+                }
+            }
+        });
+    }
+    
+    function updateTimelineChart() {
+        const ctx = document.getElementById('logs-timeline-chart').getContext('2d');
+        
+        if (timelineChart) {
+            timelineChart.destroy();
+        }
+        
+        // Compter les logs par heure
+        const hourCount = {};
+        logsData.forEach(log => {
+            const hour = log.timestamp.split(' ')[1].split(':')[0];
+            hourCount[hour] = (hourCount[hour] || 0) + 1;
+        });
+        
+        // Trier les heures
+        const sortedHours = Object.keys(hourCount).sort();
+        
+        timelineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: sortedHours,
+                datasets: [{
+                    label: 'Nombre de logs',
+                    data: sortedHours.map(hour => hourCount[hour]),
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Activité par Heure'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+    
+    function downloadLogsCSV() {
+        // Filtrer les logs selon le filtre actuel
+        const filteredLogs = currentFilter === 'all' 
+            ? logsData 
+            : logsData.filter(log => log.type === currentFilter);
+        
+        // Créer le contenu CSV
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Horodatage,Type,Niveau,Message\n";
+        
+        filteredLogs.forEach(log => {
+            csvContent += `${log.timestamp},${log.type},${log.level},"${log.message.replace(/"/g, '""')}"\n`;
+        });
+        
+        // Créer un lien de téléchargement
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `autobot_logs_${currentFilter}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        
+        // Télécharger le fichier
+        link.click();
+        
+        // Nettoyer
+        document.body.removeChild(link);
+    }
+    
+    // Initialiser les données et mettre à jour périodiquement
+    fetchLogs();
+    refreshInterval = setInterval(fetchLogs, 5000);
+});
+</script>
+
+<style>
+.logs-container {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.stats-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 15px;
+    text-align: center;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: bold;
+}
+
+.chart-container {
+    margin-top: 20px;
+}
+
+.filter-btn.active {
+    background-color: #007bff;
+    color: white;
+}
+</style>
+{% endblock %}

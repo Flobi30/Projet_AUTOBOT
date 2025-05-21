@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="main-title">Configuration initiale AUTOBOT</h1>
+    
+    <div class="setup-form-container">
+        <form id="setup-form" method="post" action="/api/setup">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+            
+            <div class="form-section">
+                <h2>Clés API</h2>
+                <div class="form-group">
+                    <label for="alpha_api_key">Alpha Vantage API Key</label>
+                    <input type="text" id="alpha_api_key" name="alpha_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="twelve_api_key">Twelve Data API Key</label>
+                    <input type="text" id="twelve_api_key" name="twelve_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="fred_api_key">FRED API Key</label>
+                    <input type="text" id="fred_api_key" name="fred_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="news_api_key">NewsAPI Key</label>
+                    <input type="text" id="news_api_key" name="news_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="shopify_api_key">Shopify API Key</label>
+                    <input type="text" id="shopify_api_key" name="shopify_api_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="ollama_api_key">OLLAMA API Key</label>
+                    <input type="text" id="ollama_api_key" name="ollama_api_key" required>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h2>Licence & Sécurité</h2>
+                <div class="form-group">
+                    <label for="licence_key">Clé de Licence</label>
+                    <input type="text" id="licence_key" name="licence_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="jwt_secret_key">JWT Secret Key</label>
+                    <input type="text" id="jwt_secret_key" name="jwt_secret_key" required>
+                </div>
+                <div class="form-group">
+                    <label for="jwt_algorithm">JWT Algorithm</label>
+                    <select id="jwt_algorithm" name="jwt_algorithm" required>
+                        <option value="HS256">HS256</option>
+                        <option value="HS384">HS384</option>
+                        <option value="HS512">HS512</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h2>Administrateur</h2>
+                <div class="form-group">
+                    <label for="admin_user">Nom d'utilisateur Admin</label>
+                    <input type="text" id="admin_user" name="admin_user" required>
+                </div>
+                <div class="form-group">
+                    <label for="admin_password">Mot de passe Admin</label>
+                    <input type="password" id="admin_password" name="admin_password" required>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Valider et Démarrer AUTOBOT</button>
+            </div>
+        </form>
+        
+        <div id="setup-status" class="setup-status hidden">
+            <div class="status-item" data-status="pending">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Validation en cours...</span>
+            </div>
+            <div class="status-item" data-status="success" style="display:none;">
+                <i class="fas fa-check-circle"></i>
+                <span>✔️ Configuration valide</span>
+            </div>
+            <div class="status-item" data-status="error" style="display:none;">
+                <i class="fas fa-times-circle"></i>
+                <span>❌ Erreur de configuration</span>
+                <div class="error-details"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const setupForm = document.getElementById('setup-form');
+    const setupStatus = document.getElementById('setup-status');
+    
+    setupForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        setupStatus.classList.remove('hidden');
+        setupStatus.querySelector('[data-status="pending"]').style.display = 'flex';
+        setupStatus.querySelector('[data-status="success"]').style.display = 'none';
+        setupStatus.querySelector('[data-status="error"]').style.display = 'none';
+        
+        const formData = new FormData(setupForm);
+        const jsonData = {};
+        
+        formData.forEach((value, key) => {
+            jsonData[key] = value;
+        });
+        
+        fetch('/api/setup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(jsonData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            setupStatus.querySelector('[data-status="pending"]').style.display = 'none';
+            
+            if (data.success) {
+                setupStatus.querySelector('[data-status="success"]').style.display = 'flex';
+                // Redirect to backtests page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '/backtests';
+                }, 2000);
+            } else {
+                setupStatus.querySelector('[data-status="error"]').style.display = 'flex';
+                setupStatus.querySelector('.error-details').textContent = data.message || 'Erreur inconnue';
+            }
+        })
+        .catch(error => {
+            setupStatus.querySelector('[data-status="pending"]').style.display = 'none';
+            setupStatus.querySelector('[data-status="error"]').style.display = 'flex';
+            setupStatus.querySelector('.error-details').textContent = error.message || 'Erreur de connexion';
+        });
+    });
+});
+</script>
+
+<style>
+.setup-form-container {
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    padding: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin: 20px 0;
+}
+
+.form-section {
+    margin-bottom: 30px;
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 20px;
+}
+
+.form-section:last-child {
+    border-bottom: none;
+}
+
+.form-section h2 {
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    color: #495057;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-actions {
+    margin-top: 30px;
+    text-align: center;
+}
+
+.setup-status {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 5px;
+}
+
+.setup-status.hidden {
+    display: none;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.status-item i {
+    margin-right: 10px;
+    font-size: 1.2rem;
+}
+
+.status-item[data-status="success"] i {
+    color: #28a745;
+}
+
+.status-item[data-status="error"] i {
+    color: #dc3545;
+}
+
+.error-details {
+    margin-top: 10px;
+    color: #dc3545;
+    font-size: 0.9rem;
+}
+</style>
+{% endblock %}

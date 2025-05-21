@@ -1,0 +1,52 @@
+<nav class="main-nav">
+    <ul>
+        <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+            <a href="/">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Dashboard</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'setup' %}active{% endif %}">
+            <a href="/setup">
+                <i class="fas fa-cogs"></i>
+                <span>Configuration</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'backtests' %}active{% endif %}">
+            <a href="/backtests">
+                <i class="fas fa-chart-line"></i>
+                <span>Backtests</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'operations' %}active{% endif %}">
+            <a href="/operations">
+                <i class="fas fa-exchange-alt"></i>
+                <span>Opérations</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'ghosting' %}active{% endif %}">
+            <a href="/ghosting">
+                <i class="fas fa-clone"></i>
+                <span>Ghosting</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'licence' %}active{% endif %}">
+            <a href="/licence">
+                <i class="fas fa-key"></i>
+                <span>Licence</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'logs' %}active{% endif %}">
+            <a href="/logs">
+                <i class="fas fa-list"></i>
+                <span>Logs</span>
+            </a>
+        </li>
+        <li class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
+            <a href="/parametres">
+                <i class="fas fa-sliders-h"></i>
+                <span>Paramètres</span>
+            </a>
+        </li>
+    </ul>
+</nav>

@@ -177,3 +177,74 @@ http://[adresse-du-serveur]/logout
 ```
 
 Cela supprimera votre token d'authentification et vous redirigera vers la page de connexion.
+
+## 8. Orchestration 100% UI — "No-Touch" AUTOBOT
+
+AUTOBOT propose désormais une orchestration 100% UI qui ne nécessite aucune interaction avec le terminal. Voici comment utiliser cette nouvelle fonctionnalité :
+
+### 8.1 Configuration initiale
+
+1. Accédez à la page de configuration à l'adresse : `http://localhost:8000/setup`
+2. Remplissez tous les champs requis :
+   - Clés API (Alpha, Twelve, Fred, NewsAPI, Shopify, OLLAMA)
+   - Clé de licence
+   - JWT Secret Key et algorithme
+   - Identifiants administrateur
+3. Cliquez sur "Valider et Démarrer AUTOBOT"
+4. Le système validera toutes les clés et, si tout est correct, démarrera automatiquement les backtests
+
+### 8.2 Backtests automatiques
+
+Une fois la configuration validée, vous serez redirigé vers la page des backtests :
+
+1. Configurez les seuils de performance souhaités :
+   - Sharpe Ratio minimum
+   - Drawdown maximum
+   - P&L minimum
+2. Activez l'option "Auto-Live" si vous souhaitez un passage automatique en production
+3. Les backtests démarrent et s'exécutent automatiquement
+4. Vous pouvez suivre leur progression en temps réel
+
+### 8.3 Passage en production
+
+Lorsque tous les backtests atteignent les seuils définis :
+
+1. Si l'option "Auto-Live" est activée, le système passe automatiquement en mode production
+2. Sinon, un bouton "Passer en Production" apparaît, vous permettant de décider quand effectuer la transition
+3. Après le passage en production, vous êtes redirigé vers la page des opérations
+
+### 8.4 Opérations (Trading Live + Backtests continus)
+
+La page des opérations vous permet de :
+
+1. Suivre les performances du trading en temps réel
+2. Consulter le journal des ordres
+3. Activer/désactiver les backtests continus qui affinent les stratégies
+4. Visualiser les améliorations apportées par les backtests continus
+
+### 8.5 Ghosting / Duplication d'instances
+
+La page de ghosting vous permet de :
+
+1. Configurer le nombre maximum d'instances
+2. Choisir le mode d'évasion (user-agent, IP-rotation, delay random)
+3. Gérer les instances (pause, reprise, arrêt)
+4. Suivre les performances des instances dupliquées
+
+### 8.6 Gestion des licences
+
+La page de licence vous permet de :
+
+1. Vérifier le statut de votre licence
+2. Consulter les détails (type, nombre d'instances autorisées, date d'expiration)
+3. Appliquer une nouvelle clé de licence si nécessaire
+
+### 8.7 Logs & Monitoring
+
+La page des logs vous permet de :
+
+1. Filtrer les logs par type (Backtest, Live, Ghosting, Système)
+2. Visualiser les statistiques et graphiques
+3. Télécharger les logs au format CSV
+
+Cette orchestration 100% UI élimine complètement le besoin d'utiliser des commandes CLI, rendant AUTOBOT plus accessible et plus facile à utiliser.
