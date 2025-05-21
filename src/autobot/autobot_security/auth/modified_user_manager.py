@@ -52,5 +52,9 @@ class ModifiedUserManager(UserManager):
                 role="admin"
             )
             logger.info("Utilisateur administrateur créé avec succès.")
+            
+            if admin_user == "admin" and admin_password == "votre_mot_de_passe_fort":
+                logger.warning("Utilisation des valeurs par défaut pour l'utilisateur administrateur.")
+                logger.warning("Veuillez définir ADMIN_USER et ADMIN_PASSWORD dans votre fichier .env")
         except Exception as e:
             logger.error(f"Erreur lors de la création de l'utilisateur administrateur par défaut : {str(e)}")

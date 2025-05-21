@@ -106,4 +106,8 @@ venv.bak/
 
 # Project specific
 config/api_keys.json
+api_keys.json*
+*.bak
+*.save*
+simple.html
 results/

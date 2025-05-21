@@ -11,6 +11,7 @@ TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
 if SECRET_KEY == "your-secret-key":
     logging.warning("Using default SECRET_KEY value. This is insecure for production!")
+    logging.warning("Please set JWT_SECRET_KEY in your .env file")
 
 if ALGORITHM != "HS256":
     logging.info(f"Using non-default JWT algorithm: {ALGORITHM}")

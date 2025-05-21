@@ -2,13 +2,14 @@
 
 Ce guide explique comment configurer, se connecter à l'application AUTOBOT et accéder aux différentes interfaces utilisateur.
 
+
 ## 1. Configuration initiale
 
 Avant de pouvoir utiliser AUTOBOT, vous devez configurer les variables d'environnement dans le fichier `.env`:
 
 ```
 # JWT Authentication
-JWT_SECRET_KEY=votre_clé_secrète_jwt
+JWT_SECRET_KEY=votre_cle_secrete_jwt_generee_avec_openssl
 JWT_ALGORITHM=HS256
 TOKEN_EXPIRE_MINUTES=1440
 
@@ -17,19 +18,31 @@ ADMIN_USER=votre_nom_utilisateur
 ADMIN_PASSWORD=votre_mot_de_passe_fort
 
 # Clés API pour les services
-ALPHA_KEY=ta_cle_alpha
-TWELVE_KEY=ta_cle_twelve
-FRED_KEY=ta_cle_fred
-NEWSAPI_KEY=ta_cle_news
-SHOPIFY_KEY=ta_cle_shopify
-SHOPIFY_SHOP_NAME=nom_de_ton_shop
+ALPHA_KEY=votre_cle_alpha
+TWELVE_KEY=votre_cle_twelve
+FRED_KEY=votre_cle_fred
+NEWSAPI_KEY=votre_cle_news
+SHOPIFY_KEY=votre_cle_shopify
+SHOPIFY_SHOP_NAME=votre_nom_de_shop
 
 # Clé de licence AUTOBOT
-LICENSE_KEY=AUTOBOT-12345678-ABCDEFGH-IJKLMNOP-QRSTUVWX
+LICENSE_KEY=votre_cle_licence_autobot
 
 # Environment
 ENVIRONMENT=development  # Changer en "production" pour le déploiement
 ```
+
+### Génération d'une clé JWT sécurisée
+
+Pour une sécurité optimale, il est fortement recommandé de générer une clé JWT forte et unique. Vous pouvez utiliser la commande suivante pour générer une clé de 64 caractères hexadécimaux (32 octets) :
+
+```bash
+openssl rand -hex 32
+```
+
+Copiez la clé générée et remplacez la valeur de `JWT_SECRET_KEY` dans votre fichier `.env`.
+
+> **IMPORTANT** : Ne partagez jamais votre clé JWT avec des tiers et ne la stockez pas dans des fichiers publics ou des dépôts de code.
 
 ## 2. Prérequis
 
@@ -168,6 +181,13 @@ Si vous recevez une erreur concernant le token CSRF, vérifiez que :
 - Vous avez bien récupéré le token CSRF depuis le cookie
 - Vous avez inclus le token dans l'en-tête `X-CSRF-Token`
 - Vous avez inclus le token dans les données du formulaire
+
+### Erreur "JWT signature verification failed"
+
+Si vous recevez cette erreur, cela peut indiquer un problème avec la clé JWT :
+- Vérifiez que la valeur de `JWT_SECRET_KEY` dans le fichier `.env` est correcte
+- Assurez-vous que la même clé est utilisée pour la génération et la vérification des tokens
+- Si vous avez récemment changé la clé JWT, tous les tokens précédents seront invalidés
 
 ## 7. Déconnexion
 

@@ -41,7 +41,7 @@ log_error() {
 handle_error() {
     log_error "Une erreur s'est produite à la ligne $1"
     log_warning "Restauration des fichiers de configuration..."
-    
+
     # Restaurer les fichiers de configuration
     if [ -d "${BACKUP_DIR}" ]; then
         cp -f "${BACKUP_DIR}"/* "${AUTOBOT_DIR}/" 2>/dev/null || true
@@ -49,7 +49,7 @@ handle_error() {
     else
         log_error "Répertoire de sauvegarde introuvable."
     fi
-    
+
     exit 1
 }
 
@@ -114,23 +114,23 @@ class ModifiedUserManager(UserManager):
     Version modifiée de UserManager qui crée automatiquement un utilisateur
     administrateur par défaut à partir des variables d'environnement.
     """
-    
+
     def __init__(self, users_file: str = None):
         """
         Initialise le UserManager modifié.
-        
+
         Args:
             users_file: Chemin vers le fichier users.json
         """
         if users_file is None:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
             users_file = os.path.join(base_dir, "config", "users.json")
-        
+
         super().__init__(users_file)
-        
+
         if not self.users.get("users"):
             self._create_default_admin_user()
-    
+
     def _create_default_admin_user(self):
         """
         Crée un utilisateur administrateur par défaut à partir des variables d'environnement.
@@ -138,7 +138,7 @@ class ModifiedUserManager(UserManager):
         try:
             admin_user = os.getenv("ADMIN_USER", "admin")
             admin_password = os.getenv("ADMIN_PASSWORD", "votre_mot_de_passe_fort")
-            
+
             logger.info(f"Création de l'utilisateur administrateur par défaut : {admin_user}")
             self.register_user(
                 username=admin_user,
@@ -188,6 +188,7 @@ TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
 if SECRET_KEY == "your-secret-key":
     logging.warning("Using default SECRET_KEY value. This is insecure for production!")
+    logging.warning("Please set JWT_SECRET_KEY in your .env file")
 
 if ALGORITHM != "HS256":
     logging.info(f"Using non-default JWT algorithm: {ALGORITHM}")
@@ -238,7 +239,7 @@ class AutobotKernel:
 
     def __init__(self):
         logger.info("🟢 AutobotKernel initialized")
-        
+
         try:
             from src.autobot.autobot_security.auth.modified_user_manager import ModifiedUserManager
             self.user_manager = ModifiedUserManager()
@@ -248,7 +249,7 @@ class AutobotKernel:
 
     def run(self):
         logger.info("🚀 AutobotKernel running…")
-        
+
         from src.autobot.main import app
         uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
@@ -266,8 +267,14 @@ EOF
 # Création ou mise à jour du fichier .env
 log_warning "Création ou mise à jour du fichier .env..."
 if [ ! -f ".env" ]; then
-    cat > .env << 'EOF'
+    JWT_KEY=$(openssl rand -hex 32)
+
+    cat > .env << EOF
 PYTHONPATH=src
+
+JWT_SECRET_KEY=${JWT_KEY}
+JWT_ALGORITHM=HS256
+TOKEN_EXPIRE_MINUTES=1440
 
 ALPHA_KEY=ta_cle_alpha
 TWELVE_KEY=ta_cle_twelve
@@ -278,9 +285,6 @@ SHOPIFY_SHOP_NAME=nom_de_ton_shop
 
 LICENSE_KEY=<votre_clé_de_licence>
 
-JWT_SECRET_KEY=your-secret-key
-JWT_ALGORITHM=HS256
-TOKEN_EXPIRE_MINUTES=1440
 
 ADMIN_USER=admin
 ADMIN_PASSWORD=votre_mot_de_passe_fort
@@ -292,32 +296,42 @@ EOF
 else
     # Mise à jour du fichier .env existant
     if ! grep -q "JWT_SECRET_KEY" .env; then
+        JWT_KEY=$(openssl rand -hex 32)
+
         echo -e "\n# JWT Authentication" >> .env
-        echo "JWT_SECRET_KEY=your-secret-key" >> .env
+        echo "JWT_SECRET_KEY=${JWT_KEY}" >> .env
         echo "JWT_ALGORITHM=HS256" >> .env
         echo "TOKEN_EXPIRE_MINUTES=1440" >> .env
-        log "Variables JWT ajoutées à .env"
+
+        echo -e "${YELLOW}Une nouvelle clé JWT forte a été générée et ajoutée à .env${NC}"
     fi
-    
+
+    if ! grep -q "LICENSE_KEY" .env; then
+        echo -e "\n# License" >> .env
+        echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
+        echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
+        echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
+    fi
+
     if ! grep -q "ADMIN_USER" .env; then
         echo -e "\n# Admin Credentials" >> .env
         echo "ADMIN_USER=admin" >> .env
         echo "ADMIN_PASSWORD=votre_mot_de_passe_fort" >> .env
         log "Variables d'administration ajoutées à .env"
     fi
-    
+
     if ! grep -q "ENVIRONMENT" .env; then
         echo -e "\n# Environment" >> .env
         echo "ENVIRONMENT=development" >> .env
         log "Variable d'environnement ajoutée à .env"
     fi
-    
+
     if ! grep -q "LICENSE_KEY" .env; then
         echo -e "\n# License" >> .env
         echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
         log "Variable de licence ajoutée à .env"
     fi
-    
+
     log_warning "IMPORTANT: Veuillez vérifier et modifier les valeurs sensibles dans .env"
     log_warning "Exécutez: sudo nano .env"
 fi
@@ -373,16 +387,16 @@ if [ -f "$SUPERVISOR_CONF" ]; then
     if command -v supervisorctl &> /dev/null; then
         supervisorctl reread || { log_warning "Échec de supervisorctl reread"; }
         supervisorctl update || { log_warning "Échec de supervisorctl update"; }
-        
+
         # Redémarrage du service
         log "Redémarrage du service AUTOBOT..."
         supervisorctl restart autobot || { log_error "Échec du redémarrage du service"; }
-        
+
         # Vérification du statut
         sleep 5
         STATUS=$(supervisorctl status autobot)
         log "Statut du service: $STATUS"
-        
+
         if [[ "$STATUS" == *"RUNNING"* ]]; then
             log_success "Service AUTOBOT redémarré avec succès."
         else

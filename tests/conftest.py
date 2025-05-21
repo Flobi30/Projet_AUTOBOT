@@ -16,11 +16,10 @@ os.environ["PYTEST_CURRENT_TEST"] = "True"
 # tests/conftest.py
 import pytest
 from fastapi.testclient import TestClient
-from src.autobot.main import app
 
 # Import thread cleanup fixture to ensure all threads are properly terminated
 # The fixture is automatically used due to autouse=True
-from thread_cleanup import thread_cleanup
+from tests.thread_cleanup import thread_cleanup
 
 # Configure logging
 logging.basicConfig(
@@ -39,11 +38,9 @@ sys.modules['src.autobot.ui.mobile_routes.verify_license_key'] = mock_verify_lic
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Configure l'environnement de test avec les mocks nécessaires."""
-    with patch('src.autobot.ui.simplified_dashboard_routes.get_current_user', return_value={"sub": "testuser"}):
-        with patch('src.autobot.ui.simplified_dashboard_routes.verify_license_key', return_value=True):
-            with patch('src.autobot.ui.mobile_routes.get_current_user', return_value={"sub": "testuser"}):
-                with patch('src.autobot.ui.mobile_routes.verify_license_key', return_value=True):
-                    yield
+    with patch('src.autobot.autobot_security.auth.user_manager.get_current_user', return_value={"sub": "testuser"}):
+        with patch('src.autobot.autobot_security.auth.jwt_handler.verify_license_key', return_value=True):
+            yield
 
 @pytest.fixture(scope="session")
 def client():
@@ -51,9 +48,13 @@ def client():
     Fournit un TestClient pointé sur votre app FastAPI,
     utilisable dans tous les tests d'endpoint.
     """
-    with TestClient(app) as test_client:
+    def get_test_client():
+        from src.autobot.main import app
+        test_client = TestClient(app)
         test_client.cookies.set("access_token", "fake_token")
-        yield test_client
+        return test_client
+    
+    yield get_test_client()
 
 import asyncio
 from fastapi import WebSocket
@@ -70,15 +71,40 @@ async def mock_get_current_user_ws(websocket: WebSocket):
     return MockUser()
 
 if 'pytest' in sys.modules:
-    sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
+    try:
+        # Import the module first to ensure it exists in sys.modules
+        import autobot.autobot_security.auth.user_manager
+        sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
+    except (ImportError, KeyError) as e:
+        print(f"Warning: Could not patch user_manager.get_current_user_ws: {e}")
     
     try:
-        import src.autobot.ui.simplified_dashboard_routes
-        import src.autobot.ui.mobile_routes
+        def patch_ui_modules():
+            try:
+                def patch_simplified_dashboard():
+                    try:
+                        import src.autobot.ui.simplified_dashboard_routes
+                        src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
+                        src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
+                        print("Successfully patched simplified_dashboard_routes")
+                    except ImportError as e:
+                        print(f"Warning: Could not patch simplified_dashboard_routes: {e}")
+                
+                def patch_mobile_routes():
+                    try:
+                        import src.autobot.ui.mobile_routes
+                        src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
+                        src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
+                        print("Successfully patched mobile_routes")
+                    except ImportError as e:
+                        print(f"Warning: Could not patch mobile_routes: {e}")
+                
+                patch_simplified_dashboard()
+                patch_mobile_routes()
+            except Exception as e:
+                print(f"Warning: Could not patch UI routes: {e}")
         
-        src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
-        src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
-        src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
-        src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
-    except ImportError as e:
-        print(f"Warning: Could not patch UI routes: {e}")
+        import threading
+        threading.Timer(1.0, patch_ui_modules).start()
+    except Exception as e:
+        print(f"Warning: Error in UI module patching: {e}")
