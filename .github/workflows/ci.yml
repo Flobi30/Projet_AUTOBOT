@@ -18,12 +18,24 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Clean Python cache
+      - name: Clean Python cache and debug imports
         run: |
           find . -name "__pycache__" -type d -exec rm -rf {} +
           find . -name "*.pyc" -delete
           find . -name "*.pyo" -delete
           find . -name "*.pyd" -delete
+          
+          echo "=== Debug: Content of src/autobot/__init__.py ==="
+          cat src/autobot/__init__.py
+          
+          echo "=== Debug: Content of src/autobot/ui/__init__.py ==="
+          cat src/autobot/ui/__init__.py
+          
+          echo "=== Debug: Python path ==="
+          echo $PYTHONPATH
+          
+          echo "=== Debug: Python version ==="
+          python --version
 
       - name: Install system dependencies
         run: |
