@@ -34,7 +34,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install python-dotenv PyJWT python-multipart pyyaml torch
+          pip install python-dotenv PyJWT python-multipart pyyaml torch gymnasium requests
           pip install -r requirements.txt
           pip install -e .
 
