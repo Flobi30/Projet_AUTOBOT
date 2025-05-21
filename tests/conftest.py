@@ -71,7 +71,12 @@ async def mock_get_current_user_ws(websocket: WebSocket):
     return MockUser()
 
 if 'pytest' in sys.modules:
-    sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
+    try:
+        # Import the module first to ensure it exists in sys.modules
+        import autobot.autobot_security.auth.user_manager
+        sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
+    except (ImportError, KeyError) as e:
+        print(f"Warning: Could not patch user_manager.get_current_user_ws: {e}")
     
     try:
         def patch_ui_modules():
