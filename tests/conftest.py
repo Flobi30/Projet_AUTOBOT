@@ -16,7 +16,6 @@ os.environ["PYTEST_CURRENT_TEST"] = "True"
 # tests/conftest.py
 import pytest
 from fastapi.testclient import TestClient
-from src.autobot.main import app
 
 # Import thread cleanup fixture to ensure all threads are properly terminated
 # The fixture is automatically used due to autouse=True
@@ -51,6 +50,8 @@ def client():
     Fournit un TestClient pointé sur votre app FastAPI,
     utilisable dans tous les tests d'endpoint.
     """
+    from src.autobot.main import app
+    
     with TestClient(app) as test_client:
         test_client.cookies.set("access_token", "fake_token")
         yield test_client
