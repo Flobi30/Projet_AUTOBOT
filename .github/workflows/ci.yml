@@ -26,6 +26,8 @@ jobs:
           pip install -e .
 
       - name: Run tests locally
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
 
       - name: Build Docker image
