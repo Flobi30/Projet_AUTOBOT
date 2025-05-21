@@ -14,5 +14,3 @@ if 'pytest' in sys.modules:
     
     from autobot.autobot_guardian import get_logs
     from autobot.autobot_security.auth.jwt_handler import verify_license_key
-    
-    # from autobot.ui import auth_routes, simplified_dashboard_routes, mobile_routes
