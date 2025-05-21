@@ -13,9 +13,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.autobot.router_new import router
-from src.autobot.ui.auth_routes import router as auth_router
-from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
-from src.autobot.ui.mobile_routes import router as mobile_router
 
 app = FastAPI(
     title="Autobot API",
@@ -65,6 +62,10 @@ if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
     app.add_middleware(AuthMiddleware)
 
 app.include_router(router)
+
+from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
+from src.autobot.ui.mobile_routes import router as mobile_router
+
 # app.include_router(auth_router)
 app.include_router(simplified_dashboard_router)
 app.include_router(mobile_router)
