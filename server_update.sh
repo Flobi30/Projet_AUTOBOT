@@ -125,23 +125,21 @@ EOF
 echo -e "${YELLOW}Mise à jour de config.py...${NC}"
 cat > src/autobot/autobot_security/config.py << 'EOF'
 import os
-import json
 import logging
+from dotenv import load_dotenv
 
-AUTH_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'config', 'auth_config.json')
+load_dotenv()
 
-SECRET_KEY = 'your-secret-key'
-ALGORITHM = 'HS256'
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
-try:
-    if os.path.exists(AUTH_CONFIG_PATH):
-        with open(AUTH_CONFIG_PATH, 'r') as f:
-            auth_config = json.load(f)
-            SECRET_KEY = auth_config.get('jwt_secret', SECRET_KEY)
-            ALGORITHM = auth_config.get('jwt_algorithm', ALGORITHM)
-except Exception as e:
-    logging.error(f"Error loading auth_config.json: {str(e)}")
-    logging.warning("Using default SECRET_KEY and ALGORITHM values")
+if SECRET_KEY == "your-secret-key":
+    logging.warning("Using default SECRET_KEY value. This is insecure for production!")
+    logging.warning("Please set JWT_SECRET_KEY in your .env file")
+
+if ALGORITHM != "HS256":
+    logging.info(f"Using non-default JWT algorithm: {ALGORITHM}")
 EOF
 
 echo -e "${YELLOW}Mise à jour de main_enhanced.py...${NC}"
@@ -228,14 +226,33 @@ fi
 
 echo -e "${YELLOW}Création ou mise à jour du fichier .env...${NC}"
 if [ ! -f ".env" ]; then
-    cat > .env << 'EOF'
+    JWT_KEY=$(openssl rand -hex 32)
+    
+    cat > .env << EOF
 PYTHONPATH=src
+
+JWT_SECRET_KEY=${JWT_KEY}
+JWT_ALGORITHM=HS256
+TOKEN_EXPIRE_MINUTES=1440
+
 LICENSE_KEY=<votre_clé_de_licence>
 EOF
     echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
     echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
 else
+    if ! grep -q "JWT_SECRET_KEY" .env; then
+        JWT_KEY=$(openssl rand -hex 32)
+        
+        echo -e "\n# JWT Authentication" >> .env
+        echo "JWT_SECRET_KEY=${JWT_KEY}" >> .env
+        echo "JWT_ALGORITHM=HS256" >> .env
+        echo "TOKEN_EXPIRE_MINUTES=1440" >> .env
+        
+        echo -e "${YELLOW}Une nouvelle clé JWT forte a été générée et ajoutée à .env${NC}"
+    fi
+    
     if ! grep -q "LICENSE_KEY" .env; then
+        echo -e "\n# License" >> .env
         echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
         echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
         echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
