@@ -63,12 +63,17 @@ if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
 
 app.include_router(router)
 
-from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
-from src.autobot.ui.mobile_routes import router as mobile_router
+try:
+    from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
+    app.include_router(simplified_dashboard_router)
+except ImportError as e:
+    print(f"Warning: Could not import simplified_dashboard_router: {e}")
 
-# app.include_router(auth_router)
-app.include_router(simplified_dashboard_router)
-app.include_router(mobile_router)
+try:
+    from src.autobot.ui.mobile_routes import router as mobile_router
+    app.include_router(mobile_router)
+except ImportError as e:
+    print(f"Warning: Could not import mobile_router: {e}")
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
