@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 # Import thread cleanup fixture to ensure all threads are properly terminated
 # The fixture is automatically used due to autouse=True
-from thread_cleanup import thread_cleanup
+from tests.thread_cleanup import thread_cleanup
 
 # Configure logging
 logging.basicConfig(
@@ -48,11 +48,13 @@ def client():
     Fournit un TestClient pointé sur votre app FastAPI,
     utilisable dans tous les tests d'endpoint.
     """
-    from src.autobot.main import app
-    
-    with TestClient(app) as test_client:
+    def get_test_client():
+        from src.autobot.main import app
+        test_client = TestClient(app)
         test_client.cookies.set("access_token", "fake_token")
-        yield test_client
+        return test_client
+    
+    yield get_test_client()
 
 import asyncio
 from fastapi import WebSocket
