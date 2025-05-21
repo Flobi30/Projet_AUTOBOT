@@ -400,3 +400,10 @@ def include_dashboard_router(app):
     mount_static_files(app)
     
     add_auth_middleware(app)
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """
+    Affiche la page de login.
+    """
+    return templates.TemplateResponse("login.html", {"request": request})
