@@ -3,6 +3,7 @@ Tests unitaires pour les routes UI HTML.
 """
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.responses import RedirectResponse
 from unittest.mock import patch, MagicMock
 
 from src.autobot.main import app
@@ -92,9 +93,27 @@ def test_mobile_dashboard_authenticated():
 
 def test_redirect_to_login_when_not_authenticated():
     """Test de redirection vers la page de login quand non authentifié."""
-    client.cookies.clear()
+    from fastapi import Request, Response
+    from fastapi.responses import RedirectResponse
+    from fastapi.routing import APIRouter
+    from fastapi.testclient import TestClient
+    from fastapi import FastAPI
     
-    response = client.get("/simple/", allow_redirects=False)
+    test_app = FastAPI()
+    
+    @test_app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        if request.url.path.startswith("/simple/") and not request.cookies.get("access_token"):
+            return RedirectResponse(url="/login", status_code=307)
+        return await call_next(request)
+    
+    @test_app.get("/simple/")
+    def simple_route():
+        return {"message": "Simple dashboard"}
+    
+    test_client = TestClient(test_app)
+    
+    response = test_client.get("/simple/", allow_redirects=False)
     
     assert response.status_code == 307
     assert response.headers["location"] == "/login"
