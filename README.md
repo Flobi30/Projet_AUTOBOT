@@ -33,8 +33,10 @@ Le projet est structuré en plusieurs modules principaux :
 ### 3. Module de Sécurité
 
 - **Authentification OAuth2/JWT** : Système sécurisé de gestion des sessions avec tokens JWT HS256
+- **Protection CSRF** : Sécurisation des formulaires contre les attaques Cross-Site Request Forgery
 - **Gestion des utilisateurs** : Création, authentification et gestion des utilisateurs
 - **Système de licences** : Contrôle d'accès basé sur des licences avec vérification via LICENSE_KEY
+- **Configuration centralisée** : Variables sensibles stockées uniquement dans le fichier .env
 
 ### 4. Orchestrateur Multi-Agent
 
