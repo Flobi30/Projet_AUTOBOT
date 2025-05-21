@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.autobot.router_new import router
-from src.autobot.ui.auth_routes import router as auth_router
+from src.autobot.routes.auth_routes import router as auth_router
 from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
 from src.autobot.ui.mobile_routes import router as mobile_router
 
