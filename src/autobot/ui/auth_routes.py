@@ -41,7 +41,7 @@ async def login_submit(
     """Traite la soumission du formulaire de login."""
     if not verify_license_key(license_key):
         return RedirectResponse(
-            url=f"/login?error=Clé+de+licence+invalide",
+            url=f"/login?error=Cl",
             status_code=303
         )
     

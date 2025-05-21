@@ -13,7 +13,7 @@ if src not in sys.path:
 # tests/conftest.py
 import pytest
 from fastapi.testclient import TestClient
-from autobot.main import app
+from src.autobot.main import app
 
 # Import thread cleanup fixture to ensure all threads are properly terminated
 # The fixture is automatically used due to autouse=True
