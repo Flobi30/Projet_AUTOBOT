@@ -81,16 +81,30 @@ if 'pytest' in sys.modules:
     try:
         def patch_ui_modules():
             try:
-                import src.autobot.ui.simplified_dashboard_routes
-                import src.autobot.ui.mobile_routes
+                def patch_simplified_dashboard():
+                    try:
+                        import src.autobot.ui.simplified_dashboard_routes
+                        src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
+                        src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
+                        print("Successfully patched simplified_dashboard_routes")
+                    except ImportError as e:
+                        print(f"Warning: Could not patch simplified_dashboard_routes: {e}")
                 
-                src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
-                src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
-                src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
-                src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
-            except ImportError as e:
+                def patch_mobile_routes():
+                    try:
+                        import src.autobot.ui.mobile_routes
+                        src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
+                        src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
+                        print("Successfully patched mobile_routes")
+                    except ImportError as e:
+                        print(f"Warning: Could not patch mobile_routes: {e}")
+                
+                patch_simplified_dashboard()
+                patch_mobile_routes()
+            except Exception as e:
                 print(f"Warning: Could not patch UI routes: {e}")
         
-        patch_ui_modules()
+        import threading
+        threading.Timer(1.0, patch_ui_modules).start()
     except Exception as e:
         print(f"Warning: Error in UI module patching: {e}")
