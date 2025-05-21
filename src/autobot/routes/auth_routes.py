@@ -19,6 +19,7 @@ from ..autobot_security.auth.jwt_handler import (
 )
 from ..autobot_security.auth.user_manager import get_user_from_db, verify_password
 from ..autobot_security.config import SECRET_KEY, ALGORITHM, TOKEN_EXPIRE_MINUTES
+from ..autobot_security.csrf_protection import CSRFProtection
 
 load_dotenv()
 
@@ -27,6 +28,8 @@ router = APIRouter(tags=["Authentication"])
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates_dir = os.path.join(current_dir, "ui", "templates")
 templates = Jinja2Templates(directory=templates_dir)
+
+csrf_protection = CSRFProtection()
 
 
 @router.post("/token", summary="Obtenir un token d'accès")
@@ -76,10 +79,19 @@ async def login_page(request: Request, error: Optional[str] = None):
                 status_code=200
             )
         
-        return templates.TemplateResponse(
+        csrf_token = csrf_protection.generate_token()
+        response = templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": error}
+            {"request": request, "error": error, "csrf_token": csrf_token}
         )
+        response.set_cookie(
+            key=csrf_protection.cookie_name,
+            value=csrf_token,
+            httponly=True,
+            secure=os.getenv("ENVIRONMENT", "development") == "production",
+            samesite="lax"
+        )
+        return response
     except Exception as e:
         return HTMLResponse(
             content=f"<html><body>Erreur: {str(e)}</body></html>",
@@ -88,13 +100,22 @@ async def login_page(request: Request, error: Optional[str] = None):
 
 @router.post("/login")
 async def login_submit(
+    request: Request,
     response: Response,
     username: str = Form(...),
     password: str = Form(...),
     license_key: str = Form(...),
+    csrf_token: str = Form(...),
     redirect_url: Optional[str] = Form("/simple/")
 ):
     """Traite la soumission du formulaire de login."""
+    cookie_csrf = request.cookies.get(csrf_protection.cookie_name)
+    if not cookie_csrf or cookie_csrf != csrf_token:
+        return RedirectResponse(
+            url=f"/login?error=Erreur+de+sécurité:+Token+CSRF+invalide",
+            status_code=303
+        )
+    
     if not verify_license_key(license_key):
         return RedirectResponse(
             url=f"/login?error=Clé de licence invalide",
