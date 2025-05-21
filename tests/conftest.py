@@ -38,11 +38,9 @@ sys.modules['src.autobot.ui.mobile_routes.verify_license_key'] = mock_verify_lic
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Configure l'environnement de test avec les mocks nécessaires."""
-    with patch('src.autobot.ui.simplified_dashboard_routes.get_current_user', return_value={"sub": "testuser"}):
-        with patch('src.autobot.ui.simplified_dashboard_routes.verify_license_key', return_value=True):
-            with patch('src.autobot.ui.mobile_routes.get_current_user', return_value={"sub": "testuser"}):
-                with patch('src.autobot.ui.mobile_routes.verify_license_key', return_value=True):
-                    yield
+    with patch('src.autobot.autobot_security.auth.user_manager.get_current_user', return_value={"sub": "testuser"}):
+        with patch('src.autobot.autobot_security.auth.jwt_handler.verify_license_key', return_value=True):
+            yield
 
 @pytest.fixture(scope="session")
 def client():
