@@ -69,9 +69,9 @@
                     {'time': '18:00', 'system': 'SYSTÈME', 'message': 'Système opérationnel'}
                 ]) %}
                 <div class="log-item">
-                    <span class="log-time">{{ log.time }}</span>
-                    <span class="log-system">[{{ log.system }}]</span> 
-                    <span class="log-message">{{ log.message }}</span>
+                    <span class="log-time">{{ log.time|default("") }}</span>
+                    <span class="log-system">[{{ log.system|default("") }}]</span> 
+                    <span class="log-message">{{ log.message|default("") }}</span>
                 </div>
                 {% endfor %}
             </div>
@@ -90,11 +90,11 @@
                 ]) %}
                 <div class="ai-insight">
                     <div class="insight-icon">
-                        <i class="fas {{ insight.icon }}"></i>
+                        <i class="fas {{ insight.icon|default("") }}"></i>
                     </div>
                     <div class="insight-content">
-                        <h4>{{ insight.title }}</h4>
-                        <p>{{ insight.message }}</p>
+                        <h4>{{ insight.title|default("") }}</h4>
+                        <p>{{ insight.message|default("") }}</p>
                     </div>
                 </div>
                 {% endfor %}

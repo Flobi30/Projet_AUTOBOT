@@ -26,7 +26,7 @@
                 </ul>
             </nav>
             <div class="user-info">
-                <span id="username">{{ username }}</span>
+                <span id="username">{{ username|default("") }}</span>
                 <a href="/logout" class="btn btn-outline">Déconnexion</a>
             </div>
         </header>

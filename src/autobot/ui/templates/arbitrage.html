@@ -16,7 +16,7 @@
                 <h1>AUTOBOT</h1>
             </div>
             <div class="user-info">
-                <span>{{ user.username }}</span>
+                <span>{{ user.username|default("") }}</span>
                 <a href="/logout" class="btn btn-outline">Logout</a>
             </div>
         </header>
@@ -77,8 +77,8 @@
                             <div class="checkbox-group">
                                 {% for exchange in exchanges %}
                                 <div class="checkbox-item">
-                                    <input type="checkbox" id="exchange-{{ exchange.id }}" name="exchanges" value="{{ exchange.id }}" {% if exchange.id in settings.exchanges %}checked{% endif %}>
-                                    <label for="exchange-{{ exchange.id }}">{{ exchange.name }}</label>
+                                    <input type="checkbox" id="exchange-{{ exchange.id|default("") }}" name="exchanges" value="{{ exchange.id|default("") }}" {% if exchange.id in settings.exchanges %}checked{% endif %}>
+                                    <label for="exchange-{{ exchange.id|default("") }}">{{ exchange.name|default("") }}</label>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -110,13 +110,13 @@
                         <tbody>
                             {% for opportunity in opportunities %}
                             <tr>
-                                <td>{{ opportunity.symbol }}</td>
-                                <td>{{ opportunity.buy_exchange }}</td>
-                                <td>{{ opportunity.sell_exchange }}</td>
-                                <td>{{ opportunity.price_diff_percent }}%</td>
-                                <td>${{ opportunity.expected_profit }}</td>
+                                <td>{{ opportunity.symbol|default("") }}</td>
+                                <td>{{ opportunity.buy_exchange|default("") }}</td>
+                                <td>{{ opportunity.sell_exchange|default("") }}</td>
+                                <td>{{ opportunity.price_diff_percent|default("") }}%</td>
+                                <td>${{ opportunity.expected_profit|default("") }}</td>
                                 <td>
-                                    <button class="btn btn-primary execute-btn" data-id="{{ opportunity.id }}">Exécuter</button>
+                                    <button class="btn btn-primary execute-btn" data-id="{{ opportunity.id|default("") }}">Exécuter</button>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -143,13 +143,13 @@
                         <tbody>
                             {% for execution in recent_executions %}
                             <tr>
-                                <td>{{ execution.timestamp }}</td>
-                                <td>{{ execution.symbol }}</td>
-                                <td>{{ execution.buy_exchange }}</td>
-                                <td>{{ execution.sell_exchange }}</td>
-                                <td>{{ execution.amount }}</td>
-                                <td>${{ execution.profit }}</td>
-                                <td><span class="status {{ execution.status_class }}">{{ execution.status }}</span></td>
+                                <td>{{ execution.timestamp|default("") }}</td>
+                                <td>{{ execution.symbol|default("") }}</td>
+                                <td>{{ execution.buy_exchange|default("") }}</td>
+                                <td>{{ execution.sell_exchange|default("") }}</td>
+                                <td>{{ execution.amount|default("") }}</td>
+                                <td>${{ execution.profit|default("") }}</td>
+                                <td><span class="status {{ execution.status_class|default("") }}">{{ execution.status|default("") }}</span></td>
                             </tr>
                             {% endfor %}
                         </tbody>

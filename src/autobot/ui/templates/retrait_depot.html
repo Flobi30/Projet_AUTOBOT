@@ -79,25 +79,25 @@
                         {'date': '2025-05-18', 'type': 'Retrait', 'amount': '200.00', 'method': 'Virement bancaire', 'status': 'Complété'}
                     ]) %}
                     <tr>
-                        <td>{{ transaction.date }}</td>
+                        <td>{{ transaction.date|default("") }}</td>
                         <td>
                             <span class="transaction-type {{ transaction.type|lower }}">
-                                {{ transaction.type }}
+                                {{ transaction.type|default("") }}
                             </span>
                         </td>
-                        <td>{{ transaction.amount }} €</td>
-                        <td>{{ transaction.method }}</td>
+                        <td>{{ transaction.amount|default("") }} €</td>
+                        <td>{{ transaction.method|default("") }}</td>
                         <td>
                             <span class="status-badge status-{{ transaction.status|lower|replace(' ', '-') }}">
-                                {{ transaction.status }}
+                                {{ transaction.status|default("") }}
                             </span>
                         </td>
                         <td>
-                            <button class="btn btn-sm btn-outline" onclick="viewTransactionDetails('{{ loop.index }}')">
+                            <button class="btn btn-sm btn-outline" onclick="viewTransactionDetails('{{ loop.index|default("") }}')">
                                 <i class="fas fa-eye"></i>
                             </button>
                             {% if transaction.status == 'En attente' %}
-                            <button class="btn btn-sm btn-danger" onclick="cancelTransaction('{{ loop.index }}')">
+                            <button class="btn btn-sm btn-danger" onclick="cancelTransaction('{{ loop.index|default("") }}')">
                                 <i class="fas fa-times"></i>
                             </button>
                             {% endif %}
@@ -133,24 +133,24 @@
                     </div>
                     <div class="payment-method-details">
                         <div class="payment-method-name">
-                            {{ method.name }}
+                            {{ method.name|default("") }}
                             {% if method.is_default %}
                             <span class="default-badge">Par défaut</span>
                             {% endif %}
                         </div>
                         <div class="payment-method-info">
                             {% if method.type == 'bank' %}
-                            Compte se terminant par {{ method.last_digits }}
+                            Compte se terminant par {{ method.last_digits|default("") }}
                             {% elif method.type == 'card' %}
-                            Carte se terminant par {{ method.last_digits }}
+                            Carte se terminant par {{ method.last_digits|default("") }}
                             {% endif %}
                         </div>
                     </div>
                     <div class="payment-method-actions">
-                        <button class="btn btn-sm btn-outline" onclick="editPaymentMethod('{{ loop.index }}')">
+                        <button class="btn btn-sm btn-outline" onclick="editPaymentMethod('{{ loop.index|default("") }}')">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-sm btn-danger" onclick="removePaymentMethod('{{ loop.index }}')">
+                        <button class="btn btn-sm btn-danger" onclick="removePaymentMethod('{{ loop.index|default("") }}')">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>

@@ -61,11 +61,11 @@
         </div>
         {% if error %}
         <div class="error-message">
-            {{ error }}
+            {{ error|default("") }}
         </div>
         {% endif %}
         <form class="login-form" method="post" action="/login">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token|default("") }}">
             <div class="form-group">
                 <label for="username">Nom d'utilisateur</label>
                 <input type="text" id="username" name="username" required>

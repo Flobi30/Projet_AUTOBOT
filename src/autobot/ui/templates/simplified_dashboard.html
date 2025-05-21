@@ -333,16 +333,16 @@
                 <span>System Status:</span>
                 <span class="status-indicator status-active"></span>
                 <span>Active</span>
-                <span class="mode-badge mode-{{ current_mode }}">{{ current_mode|upper }}</span>
+                <span class="mode-badge mode-{{ current_mode|default("") }}">{{ current_mode|upper }}</span>
             </div>
         </div>
         
         {% if notification %}
-        <div class="notification notification-{{ notification.type }}">
+        <div class="notification notification-{{ notification.type|default("") }}">
             <div class="notification-icon">
                 {% if notification.type == 'success' %}✓{% elif notification.type == 'warning' %}⚠️{% else %}✗{% endif %}
             </div>
-            <div class="notification-message">{{ notification.message }}</div>
+            <div class="notification-message">{{ notification.message|default("") }}</div>
             <div class="notification-close">×</div>
         </div>
         {% endif %}
@@ -447,11 +447,11 @@
                 <form id="binance-api-form" action="/api/keys/binance" method="POST">
                     <div class="form-group">
                         <label for="binance-api-key">API Key</label>
-                        <input type="text" id="binance-api-key" name="api_key" class="form-control" value="{{ binance_api_key }}" required>
+                        <input type="text" id="binance-api-key" name="api_key" class="form-control" value="{{ binance_api_key|default("") }}" required>
                     </div>
                     <div class="form-group">
                         <label for="binance-api-secret">API Secret</label>
-                        <input type="password" id="binance-api-secret" name="api_secret" class="form-control" value="{{ binance_api_secret }}" required>
+                        <input type="password" id="binance-api-secret" name="api_secret" class="form-control" value="{{ binance_api_secret|default("") }}" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Save Binance API Keys</button>
                 </form>
@@ -466,11 +466,11 @@
                 <form id="coinbase-api-form" action="/api/keys/coinbase" method="POST">
                     <div class="form-group">
                         <label for="coinbase-api-key">API Key</label>
-                        <input type="text" id="coinbase-api-key" name="api_key" class="form-control" value="{{ coinbase_api_key }}" required>
+                        <input type="text" id="coinbase-api-key" name="api_key" class="form-control" value="{{ coinbase_api_key|default("") }}" required>
                     </div>
                     <div class="form-group">
                         <label for="coinbase-api-secret">API Secret</label>
-                        <input type="password" id="coinbase-api-secret" name="api_secret" class="form-control" value="{{ coinbase_api_secret }}" required>
+                        <input type="password" id="coinbase-api-secret" name="api_secret" class="form-control" value="{{ coinbase_api_secret|default("") }}" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Save Coinbase API Keys</button>
                 </form>
@@ -485,11 +485,11 @@
                 <form id="kraken-api-form" action="/api/keys/kraken" method="POST">
                     <div class="form-group">
                         <label for="kraken-api-key">API Key</label>
-                        <input type="text" id="kraken-api-key" name="api_key" class="form-control" value="{{ kraken_api_key }}" required>
+                        <input type="text" id="kraken-api-key" name="api_key" class="form-control" value="{{ kraken_api_key|default("") }}" required>
                     </div>
                     <div class="form-group">
                         <label for="kraken-api-secret">API Secret</label>
-                        <input type="password" id="kraken-api-secret" name="api_secret" class="form-control" value="{{ kraken_api_secret }}" required>
+                        <input type="password" id="kraken-api-secret" name="api_secret" class="form-control" value="{{ kraken_api_secret|default("") }}" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Save Kraken API Keys</button>
                 </form>
@@ -503,15 +503,15 @@
                 <div class="grid">
                     <div class="card">
                         <h2>Operating Mode</h2>
-                        <p>Current Mode: <span class="mode-badge mode-{{ current_mode }}">{{ current_mode|upper }}</span></p>
+                        <p>Current Mode: <span class="mode-badge mode-{{ current_mode|default("") }}">{{ current_mode|upper }}</span></p>
                         <p>Auto-switching: <span class="status-indicator {% if auto_switching %}status-active{% else %}status-inactive{% endif %}"></span> {{ 'Enabled' if auto_switching else 'Disabled' }}</p>
                         <p>Always Ghost: <span class="status-indicator {% if always_ghost %}status-active{% else %}status-inactive{% endif %}"></span> {{ 'Enabled' if always_ghost else 'Disabled' }}</p>
                     </div>
                     
                     <div class="card">
                         <h2>Instance Information</h2>
-                        <p>Active Instances: {{ active_instances }}</p>
-                        <p>New Instances: {{ new_instances }}</p>
+                        <p>Active Instances: {{ active_instances|default("") }}</p>
+                        <p>New Instances: {{ new_instances|default("") }}</p>
                         <p>Balance per Instance: ${{ balance_per_instance|default('0.00') }}</p>
                     </div>
                     
