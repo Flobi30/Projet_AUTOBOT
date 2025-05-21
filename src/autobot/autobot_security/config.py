@@ -1,20 +1,17 @@
 # Configuration for AUTOBOT Security Module
 import os
-import json
 import logging
+from dotenv import load_dotenv
 
-AUTH_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'config', 'auth_config.json')
+load_dotenv()
 
-SECRET_KEY = 'your-secret-key'
-ALGORITHM = 'HS256'
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
-try:
-    if os.path.exists(AUTH_CONFIG_PATH):
-        with open(AUTH_CONFIG_PATH, 'r') as f:
-            auth_config = json.load(f)
-            SECRET_KEY = auth_config.get('jwt_secret', SECRET_KEY)
-            ALGORITHM = auth_config.get('jwt_algorithm', ALGORITHM)
-except Exception as e:
-    logging.error(f"Error loading auth_config.json: {str(e)}")
-    logging.warning("Using default SECRET_KEY and ALGORITHM values")
+if SECRET_KEY == "your-secret-key":
+    logging.warning("Using default SECRET_KEY value. This is insecure for production!")
+
+if ALGORITHM != "HS256":
+    logging.info(f"Using non-default JWT algorithm: {ALGORITHM}")
 

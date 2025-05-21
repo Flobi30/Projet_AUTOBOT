@@ -457,4 +457,6 @@ def verify_password(password: str, hashed_password: str) -> bool:
     Returns:
         bool: True si le mot de passe correspond, False sinon
     """
-    return password == "admin"  # Temporaire pour le développement, à remplacer par une vraie vérification
+    user_manager = UserManager()
+    salt = hashed_password.split("$")[0] if "$" in hashed_password else ""
+    return user_manager._hash_password(password, salt) == hashed_password.split("$")[1] if "$" in hashed_password else False

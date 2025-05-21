@@ -99,13 +99,13 @@
                         {'date': '2025-05-18', 'type': 'Profit', 'amount': '57.35', 'source': 'Trading ETH/USD', 'status': 'Complété'}
                     ]) %}
                     <tr>
-                        <td>{{ transaction.date }}</td>
-                        <td>{{ transaction.type }}</td>
-                        <td>{{ transaction.amount }} €</td>
-                        <td>{{ transaction.source }}</td>
+                        <td>{{ transaction.date|default("") }}</td>
+                        <td>{{ transaction.type|default("") }}</td>
+                        <td>{{ transaction.amount|default("") }} €</td>
+                        <td>{{ transaction.source|default("") }}</td>
                         <td>
                             <span class="status-badge status-{{ transaction.status|lower }}">
-                                {{ transaction.status }}
+                                {{ transaction.status|default("") }}
                             </span>
                         </td>
                     </tr>

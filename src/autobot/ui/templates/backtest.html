@@ -16,7 +16,7 @@
                 <h1>AUTOBOT</h1>
             </div>
             <div class="user-info">
-                <span>{{ user.username }}</span>
+                <span>{{ user.username|default("") }}</span>
                 <a href="/logout" class="btn btn-outline">Logout</a>
             </div>
         </header>
@@ -46,7 +46,7 @@
                             <select id="strategy" name="strategy" class="form-control">
                                 <option value="">Sélectionner une stratégie</option>
                                 {% for strategy in strategies %}
-                                <option value="{{ strategy.id }}">{{ strategy.name }}</option>
+                                <option value="{{ strategy.id|default("") }}">{{ strategy.name|default("") }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -56,7 +56,7 @@
                             <select id="symbol" name="symbol" class="form-control">
                                 <option value="">Sélectionner un symbole</option>
                                 {% for symbol in symbols %}
-                                <option value="{{ symbol }}">{{ symbol }}</option>
+                                <option value="{{ symbol|default("") }}">{{ symbol|default("") }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -206,15 +206,15 @@
                         <tbody>
                             {% for backtest in saved_backtests %}
                             <tr>
-                                <td>{{ backtest.date }}</td>
-                                <td>{{ backtest.strategy }}</td>
-                                <td>{{ backtest.symbol }}</td>
-                                <td>{{ backtest.timeframe }}</td>
-                                <td>{{ backtest.return }}%</td>
-                                <td>{{ backtest.sharpe }}</td>
+                                <td>{{ backtest.date|default("") }}</td>
+                                <td>{{ backtest.strategy|default("") }}</td>
+                                <td>{{ backtest.symbol|default("") }}</td>
+                                <td>{{ backtest.timeframe|default("") }}</td>
+                                <td>{{ backtest.return|default("") }}%</td>
+                                <td>{{ backtest.sharpe|default("") }}</td>
                                 <td>
-                                    <button class="btn btn-outline load-btn" data-id="{{ backtest.id }}">Charger</button>
-                                    <button class="btn btn-outline delete-btn" data-id="{{ backtest.id }}">Supprimer</button>
+                                    <button class="btn btn-outline load-btn" data-id="{{ backtest.id|default("") }}">Charger</button>
+                                    <button class="btn btn-outline delete-btn" data-id="{{ backtest.id|default("") }}">Supprimer</button>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -232,7 +232,7 @@
             // Strategy parameter templates
             const strategyParams = {
                 {% for strategy in strategies %}
-                "{{ strategy.id }}": {{ strategy.params|tojson }},
+                "{{ strategy.id|default("") }}": {{ strategy.params|tojson }},
                 {% endfor %}
             };
             

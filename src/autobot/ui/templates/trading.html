@@ -87,14 +87,14 @@
                             {'date': '16:15', 'pair': 'XRP/EUR', 'type': 'buy', 'price': '0.5423 €', 'amount': '1000 XRP', 'total': '542.30 €'}
                         ]) %}
                         <tr>
-                            <td>{{ trade.date }}</td>
-                            <td>{{ trade.pair }}</td>
+                            <td>{{ trade.date|default("") }}</td>
+                            <td>{{ trade.pair|default("") }}</td>
                             <td class="{% if trade.type == 'buy' %}positive{% else %}negative{% endif %}">
                                 {{ trade.type|upper }}
                             </td>
-                            <td>{{ trade.price }}</td>
-                            <td>{{ trade.amount }}</td>
-                            <td>{{ trade.total }}</td>
+                            <td>{{ trade.price|default("") }}</td>
+                            <td>{{ trade.amount|default("") }}</td>
+                            <td>{{ trade.total|default("") }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -126,19 +126,19 @@
                             {'date': '18:30', 'pair': 'ETH/EUR', 'type': 'sell', 'price': '2,400.00 €', 'amount': '2.0 ETH'}
                         ]) %}
                         <tr>
-                            <td>{{ order.date }}</td>
-                            <td>{{ order.pair }}</td>
+                            <td>{{ order.date|default("") }}</td>
+                            <td>{{ order.pair|default("") }}</td>
                             <td class="{% if order.type == 'buy' %}positive{% else %}negative{% endif %}">
                                 {{ order.type|upper }}
                             </td>
-                            <td>{{ order.price }}</td>
-                            <td>{{ order.amount }}</td>
+                            <td>{{ order.price|default("") }}</td>
+                            <td>{{ order.amount|default("") }}</td>
                             <td>
                                 <div class="action-buttons">
-                                    <button class="btn-icon edit-order" data-id="{{ loop.index }}">
+                                    <button class="btn-icon edit-order" data-id="{{ loop.index|default("") }}">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn-icon cancel-order" data-id="{{ loop.index }}">
+                                    <button class="btn-icon cancel-order" data-id="{{ loop.index|default("") }}">
                                         <i class="fas fa-times"></i>
                                     </button>
                                 </div>

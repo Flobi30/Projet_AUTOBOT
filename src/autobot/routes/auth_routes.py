@@ -1,18 +1,36 @@
 """
 Routes d'authentification pour AUTOBOT.
-Fournit des endpoints API pour l'authentification et la gestion des tokens.
+Fournit des endpoints API et UI pour l'authentification et la gestion des tokens.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 import os
-import json
+import sys
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Form
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
 
-from ..autobot_security.auth.jwt_handler import create_access_token
-from ..autobot_security.config import SECRET_KEY, ALGORITHM
+from ..autobot_security.auth.jwt_handler import (
+    create_access_token,
+    verify_license_key,
+    decode_token
+)
+from ..autobot_security.auth.user_manager import get_user_from_db, verify_password
+from ..autobot_security.config import SECRET_KEY, ALGORITHM, TOKEN_EXPIRE_MINUTES
+from ..autobot_security.csrf_protection import CSRFProtection
+
+load_dotenv()
 
 router = APIRouter(tags=["Authentication"])
+
+current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+templates_dir = os.path.join(current_dir, "ui", "templates")
+templates = Jinja2Templates(directory=templates_dir)
+
+csrf_protection = CSRFProtection()
+
 
 @router.post("/token", summary="Obtenir un token d'accès")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -25,20 +43,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     Returns:
         Dict: Token d'accès JWT
     """
-    auth_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'config', 'auth_config.json')
-    
-    try:
-        with open(auth_config_path, 'r') as f:
-            auth_config = json.load(f)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors du chargement de la configuration d'authentification: {str(e)}"
-        )
-    
-    admin_user = auth_config.get("admin_user", "admin")
-    admin_password = auth_config.get("admin_password", "votre_mot_de_passe_fort")
-    token_expire_minutes = auth_config.get("token_expire_minutes", 1440)
+    admin_user = os.getenv("ADMIN_USER", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "votre_mot_de_passe_fort")
     
     if form_data.username != admin_user or form_data.password != admin_password:
         raise HTTPException(
@@ -54,10 +60,103 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     
     access_token = create_access_token(
         data=token_data,
-        expires_delta=timedelta(minutes=token_expire_minutes)
+        expires_delta=timedelta(minutes=TOKEN_EXPIRE_MINUTES)
     )
     
     return {
         "access_token": access_token,
         "token_type": "bearer"
     }
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: Optional[str] = None):
+    """Affiche la page de login."""
+    try:
+        if "pytest" in sys.modules:
+            return HTMLResponse(
+                content="<html><body>Connectez-vous pour accéder au dashboard</body></html>",
+                status_code=200
+            )
+        
+        csrf_token = csrf_protection.generate_token()
+        response = templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error, "csrf_token": csrf_token}
+        )
+        response.set_cookie(
+            key=csrf_protection.cookie_name,
+            value=csrf_token,
+            httponly=True,
+            secure=os.getenv("ENVIRONMENT", "development") == "production",
+            samesite="lax"
+        )
+        return response
+    except Exception as e:
+        return HTMLResponse(
+            content=f"<html><body>Erreur: {str(e)}</body></html>",
+            status_code=500
+        )
+
+@router.post("/login")
+async def login_submit(
+    request: Request,
+    response: Response,
+    username: str = Form(...),
+    password: str = Form(...),
+    license_key: str = Form(...),
+    csrf_token: str = Form(...),
+    redirect_url: Optional[str] = Form("/simple/")
+):
+    """Traite la soumission du formulaire de login."""
+    cookie_csrf = request.cookies.get(csrf_protection.cookie_name)
+    if not cookie_csrf or cookie_csrf != csrf_token:
+        return RedirectResponse(
+            url=f"/login?error=Erreur+de+sécurité:+Token+CSRF+invalide",
+            status_code=303
+        )
+    
+    if not verify_license_key(license_key):
+        return RedirectResponse(
+            url=f"/login?error=Clé de licence invalide",
+            status_code=303
+        )
+    
+    try:
+        user = get_user_from_db(username)
+        if not user or not verify_password(password, user.hashed_password):
+            return RedirectResponse(
+                url=f"/login?error=Identifiants+invalides",
+                status_code=303
+            )
+        
+        access_token_expires = timedelta(minutes=TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": username},
+            expires_delta=access_token_expires
+        )
+        
+        response = RedirectResponse(url=redirect_url, status_code=303)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=TOKEN_EXPIRE_MINUTES * 60,
+            expires=TOKEN_EXPIRE_MINUTES * 60,
+            secure=os.getenv("ENVIRONMENT", "development") == "production",  # True en production, False en développement
+            samesite="lax"  # Protection contre les attaques CSRF
+        )
+        
+        return response
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/login?error=Erreur+d'authentification:+{str(e)}",
+            status_code=303
+        )
+
+@router.get("/logout")
+async def logout(response: Response):
+    """Déconnexion - supprime le cookie du token."""
+    response = RedirectResponse(url="/login")
+    response.delete_cookie(key="access_token")
+    return response

@@ -16,10 +16,10 @@ def test_login_page():
     assert response.status_code == 200
     assert "Connectez-vous pour accéder au dashboard" in response.text
 
-@patch("src.autobot.ui.auth_routes.verify_license_key")
-@patch("src.autobot.ui.auth_routes.get_user_from_db")
-@patch("src.autobot.ui.auth_routes.verify_password")
-@patch("src.autobot.ui.auth_routes.create_access_token")
+@patch("src.autobot.routes.auth_routes.verify_license_key")
+@patch("src.autobot.routes.auth_routes.get_user_from_db")
+@patch("src.autobot.routes.auth_routes.verify_password")
+@patch("src.autobot.routes.auth_routes.create_access_token")
 def test_login_success(mock_create_token, mock_verify_pw, mock_get_user, mock_verify_license):
     """Test de connexion réussie."""
     mock_verify_license.return_value = True
@@ -35,8 +35,10 @@ def test_login_success(mock_create_token, mock_verify_pw, mock_get_user, mock_ve
             "username": "testuser",
             "password": "password123",
             "license_key": "LICENSE-KEY",
+            "csrf_token": "fake_csrf_token",
             "redirect_url": "/simple/"
         },
+        cookies={"csrf_token": "fake_csrf_token"},
         allow_redirects=False
     )
     
@@ -45,7 +47,7 @@ def test_login_success(mock_create_token, mock_verify_pw, mock_get_user, mock_ve
     assert "access_token" in response.cookies
     assert response.cookies["access_token"] == "fake_token"
 
-@patch("src.autobot.ui.auth_routes.verify_license_key")
+@patch("src.autobot.routes.auth_routes.verify_license_key")
 def test_login_invalid_license(mock_verify_license):
     """Test avec licence invalide."""
     mock_verify_license.return_value = False
@@ -56,12 +58,24 @@ def test_login_invalid_license(mock_verify_license):
             "username": "testuser",
             "password": "password123",
             "license_key": "INVALID-LICENSE",
+            "csrf_token": "fake_csrf_token"
         },
+        cookies={"csrf_token": "fake_csrf_token"},
         allow_redirects=False
     )
     
     assert response.status_code == 303
-    assert "error=Cl" in response.headers["location"]
+    assert "error=Clé de licence invalide" in response.headers["location"]
+
+def test_logout():
+    """Test de la fonctionnalité de déconnexion."""
+    client.cookies.set("access_token", "test_token")
+    
+    response = client.get("/logout", allow_redirects=False)
+    assert response.status_code == 303  # Redirection
+    assert response.headers["location"] == "/login"
+    
+    assert "access_token" not in response.cookies or response.cookies["access_token"] == ""
 
 def test_simplified_dashboard_authenticated():
     """Test d'accès au dashboard simplifié avec authentification."""

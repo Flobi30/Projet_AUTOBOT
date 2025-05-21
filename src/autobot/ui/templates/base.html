@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="dark-theme" data-role="{{ user_role }}">
+<body class="dark-theme" data-role="{{ user_role|default("") }}">
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <div class="sidebar">
@@ -62,8 +62,8 @@
                     <i class="fas fa-user"></i>
                 </div>
                 <div class="user-details">
-                    <span class="user-name">{{ username }}</span>
-                    <span class="user-role">{{ user_role_display }}</span>
+                    <span class="user-name">{{ username|default("") }}</span>
+                    <span class="user-role">{{ user_role_display|default("") }}</span>
                 </div>
             </div>
         </div>

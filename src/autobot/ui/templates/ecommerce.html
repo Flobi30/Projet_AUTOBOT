@@ -87,20 +87,20 @@
                         {'name': 'T-shirt Premium', 'sku': 'TS-PRE-101', 'category': 'clothing', 'original_price': '39.99 €', 'optimized_price': '29.99 €', 'stock': 45, 'days': 90},
                         {'name': 'Lampe Design', 'sku': 'LD-202', 'category': 'home', 'original_price': '89.99 €', 'optimized_price': '69.99 €', 'stock': 12, 'days': 75}
                     ]) %}
-                    <tr data-category="{{ product.category }}">
-                        <td>{{ product.name }}</td>
-                        <td>{{ product.sku }}</td>
+                    <tr data-category="{{ product.category|default("") }}">
+                        <td>{{ product.name|default("") }}</td>
+                        <td>{{ product.sku|default("") }}</td>
                         <td>{{ product.category|capitalize }}</td>
-                        <td>{{ product.original_price }}</td>
-                        <td>{{ product.optimized_price }}</td>
-                        <td>{{ product.stock }}</td>
-                        <td>{{ product.days }}</td>
+                        <td>{{ product.original_price|default("") }}</td>
+                        <td>{{ product.optimized_price|default("") }}</td>
+                        <td>{{ product.stock|default("") }}</td>
+                        <td>{{ product.days|default("") }}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="btn-icon apply-price" data-sku="{{ product.sku }}">
+                                <button class="btn-icon apply-price" data-sku="{{ product.sku|default("") }}">
                                     <i class="fas fa-check"></i>
                                 </button>
-                                <button class="btn-icon edit-product" data-sku="{{ product.sku }}">
+                                <button class="btn-icon edit-product" data-sku="{{ product.sku|default("") }}">
                                     <i class="fas fa-edit"></i>
                                 </button>
                             </div>
@@ -126,11 +126,11 @@
                 {'title': 'Reconditionnement', 'description': 'Reconditionner les produits électroniques en stock depuis plus de 60 jours', 'savings': '2,100 €', 'complexity': 'Élevée'}
             ]) %}
             <div class="suggestion-card">
-                <h4>{{ suggestion.title }}</h4>
-                <p>{{ suggestion.description }}</p>
+                <h4>{{ suggestion.title|default("") }}</h4>
+                <p>{{ suggestion.description|default("") }}</p>
                 <div class="suggestion-details">
-                    <span class="suggestion-savings">Économies: {{ suggestion.savings }}</span>
-                    <span class="suggestion-complexity">Complexité: {{ suggestion.complexity }}</span>
+                    <span class="suggestion-savings">Économies: {{ suggestion.savings|default("") }}</span>
+                    <span class="suggestion-complexity">Complexité: {{ suggestion.complexity|default("") }}</span>
                 </div>
                 <button class="btn btn-outline btn-sm">Appliquer</button>
             </div>

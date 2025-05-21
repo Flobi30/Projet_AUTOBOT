@@ -16,7 +16,7 @@
                 <h1>AUTOBOT</h1>
             </div>
             <div class="user-info">
-                <span>{{ user.username }}</span>
+                <span>{{ user.username|default("") }}</span>
                 <a href="/logout" class="btn btn-outline">Logout</a>
             </div>
         </header>
@@ -148,10 +148,10 @@
                         <tbody>
                             {% for transaction in transactions %}
                             <tr>
-                                <td>{{ transaction.date }}</td>
-                                <td>{{ transaction.type }}</td>
-                                <td>${{ transaction.amount }}</td>
-                                <td><span class="status {{ transaction.status_class }}">{{ transaction.status }}</span></td>
+                                <td>{{ transaction.date|default("") }}</td>
+                                <td>{{ transaction.type|default("") }}</td>
+                                <td>${{ transaction.amount|default("") }}</td>
+                                <td><span class="status {{ transaction.status_class|default("") }}">{{ transaction.status|default("") }}</span></td>
                             </tr>
                             {% endfor %}
                         </tbody>
