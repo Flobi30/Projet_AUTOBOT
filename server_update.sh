@@ -16,11 +16,11 @@ fi
 cd /home/autobot/Projet_AUTOBOT
 
 echo -e "${YELLOW}Sauvegarde des fichiers importants...${NC}"
-cp -f config/auth_config.json config/auth_config.json.bak
 cp -f main.py main.py.bak
 cp -f src/autobot/main_enhanced.py src/autobot/main_enhanced.py.bak
 cp -f src/autobot/autobot_security/config.py src/autobot/autobot_security/config.py.bak
 cp -f src/autobot/autobot_security/auth/__init__.py src/autobot/autobot_security/auth/__init__.py.bak
+cp -f .env .env.bak
 
 echo -e "${YELLOW}Mise à jour depuis GitHub...${NC}"
 git fetch origin
@@ -33,36 +33,33 @@ echo -e "${YELLOW}Création du fichier ModifiedUserManager.py...${NC}"
 cat > src/autobot/autobot_security/auth/modified_user_manager.py << 'EOF'
 """
 Version améliorée du UserManager qui initialise un utilisateur administrateur
-par défaut à partir du fichier auth_config.json.
+par défaut à partir des variables d'environnement.
 """
 
 import os
-import json
 import logging
 from typing import Dict, Any, Optional, List
+from dotenv import load_dotenv
 
 from autobot.autobot_security.auth.user_manager import UserManager
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class ModifiedUserManager(UserManager):
     """
     Version modifiée de UserManager qui crée automatiquement un utilisateur
-    administrateur par défaut à partir de auth_config.json.
+    administrateur par défaut à partir des variables d'environnement.
     """
     
-    def __init__(self, users_file: str = None, auth_config_file: str = None):
+    def __init__(self, users_file: str = None):
         """
         Initialise le UserManager modifié.
         
         Args:
             users_file: Chemin vers le fichier users.json
-            auth_config_file: Chemin vers le fichier auth_config.json
         """
-        if auth_config_file is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-            auth_config_file = os.path.join(base_dir, "config", "auth_config.json")
-            
         if users_file is None:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
             users_file = os.path.join(base_dir, "config", "users.json")
@@ -70,33 +67,24 @@ class ModifiedUserManager(UserManager):
         super().__init__(users_file)
         
         if not self.users.get("users"):
-            self._create_default_admin_user(auth_config_file)
+            self._create_default_admin_user()
     
-    def _create_default_admin_user(self, auth_config_file: str):
+    def _create_default_admin_user(self):
         """
-        Crée un utilisateur administrateur par défaut à partir de auth_config.json.
-        
-        Args:
-            auth_config_file: Chemin vers le fichier auth_config.json
+        Crée un utilisateur administrateur par défaut à partir des variables d'environnement.
         """
         try:
-            if os.path.exists(auth_config_file):
-                with open(auth_config_file, 'r') as f:
-                    auth_config = json.load(f)
-                
-                admin_user = auth_config.get("admin_user", "admin")
-                admin_password = auth_config.get("admin_password", "votre_mot_de_passe_fort")
-                
-                logger.info(f"Création de l'utilisateur administrateur par défaut : {admin_user}")
-                self.register_user(
-                    username=admin_user,
-                    password=admin_password,
-                    email="admin@autobot.local",
-                    role="admin"
-                )
-                logger.info("Utilisateur administrateur créé avec succès.")
-            else:
-                logger.error(f"Fichier de configuration d'authentification introuvable : {auth_config_file}")
+            admin_user = os.getenv("ADMIN_USER", "admin")
+            admin_password = os.getenv("ADMIN_PASSWORD", "votre_mot_de_passe_fort")
+            
+            logger.info(f"Création de l'utilisateur administrateur par défaut : {admin_user}")
+            self.register_user(
+                username=admin_user,
+                password=admin_password,
+                email="admin@autobot.local",
+                role="admin"
+            )
+            logger.info("Utilisateur administrateur créé avec succès.")
         except Exception as e:
             logger.error(f"Erreur lors de la création de l'utilisateur administrateur par défaut : {str(e)}")
 EOF
@@ -125,23 +113,20 @@ EOF
 echo -e "${YELLOW}Mise à jour de config.py...${NC}"
 cat > src/autobot/autobot_security/config.py << 'EOF'
 import os
-import json
 import logging
+from dotenv import load_dotenv
 
-AUTH_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'config', 'auth_config.json')
+load_dotenv()
 
-SECRET_KEY = 'your-secret-key'
-ALGORITHM = 'HS256'
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
-try:
-    if os.path.exists(AUTH_CONFIG_PATH):
-        with open(AUTH_CONFIG_PATH, 'r') as f:
-            auth_config = json.load(f)
-            SECRET_KEY = auth_config.get('jwt_secret', SECRET_KEY)
-            ALGORITHM = auth_config.get('jwt_algorithm', ALGORITHM)
-except Exception as e:
-    logging.error(f"Error loading auth_config.json: {str(e)}")
-    logging.warning("Using default SECRET_KEY and ALGORITHM values")
+if SECRET_KEY == "your-secret-key":
+    logging.warning("Using default SECRET_KEY value. This is insecure for production!")
+
+if ALGORITHM != "HS256":
+    logging.info(f"Using non-default JWT algorithm: {ALGORITHM}")
 EOF
 
 echo -e "${YELLOW}Mise à jour de main_enhanced.py...${NC}"
@@ -207,39 +192,57 @@ if __name__ == "__main__":
     main()
 EOF
 
-echo -e "${YELLOW}Vérification de auth_config.json...${NC}"
-if [ ! -f "config/auth_config.json" ]; then
-  echo -e "${YELLOW}Le fichier auth_config.json n'existe pas, nous allons le créer${NC}"
-  mkdir -p config
-  cat > config/auth_config.json << 'EOF'
-{
-  "admin_user": "admin",
-  "admin_password": "votre_mot_de_passe_fort",
-  "jwt_secret": "your-secret-key",
-  "jwt_algorithm": "HS256",
-  "token_expire_minutes": 1440
-}
-EOF
-  echo -e "${YELLOW}IMPORTANT: Veuillez modifier le mot de passe dans auth_config.json${NC}"
-  echo -e "${YELLOW}Exécutez: sudo nano config/auth_config.json${NC}"
-else
-  echo -e "${GREEN}✓ Le fichier auth_config.json existe déjà${NC}"
-fi
-
 echo -e "${YELLOW}Création ou mise à jour du fichier .env...${NC}"
 if [ ! -f ".env" ]; then
     cat > .env << 'EOF'
 PYTHONPATH=src
+
+ALPHA_KEY=ta_cle_alpha
+TWELVE_KEY=ta_cle_twelve
+FRED_KEY=ta_cle_fred
+NEWSAPI_KEY=ta_cle_news
+SHOPIFY_KEY=ta_cle_shopify
+SHOPIFY_SHOP_NAME=nom_de_ton_shop
+
 LICENSE_KEY=<votre_clé_de_licence>
+
+JWT_SECRET_KEY=your-secret-key
+JWT_ALGORITHM=HS256
+TOKEN_EXPIRE_MINUTES=1440
+
+ADMIN_USER=admin
+ADMIN_PASSWORD=votre_mot_de_passe_fort
+
+ENVIRONMENT=development
 EOF
-    echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
+    echo -e "${YELLOW}IMPORTANT: Veuillez modifier les valeurs sensibles dans .env${NC}"
     echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
 else
-    if ! grep -q "LICENSE_KEY" .env; then
-        echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
-        echo -e "${YELLOW}IMPORTANT: Veuillez modifier la clé de licence dans .env${NC}"
-        echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
+    if ! grep -q "JWT_SECRET_KEY" .env; then
+        echo -e "\n# JWT Authentication" >> .env
+        echo "JWT_SECRET_KEY=your-secret-key" >> .env
+        echo "JWT_ALGORITHM=HS256" >> .env
+        echo "TOKEN_EXPIRE_MINUTES=1440" >> .env
     fi
+    
+    if ! grep -q "ADMIN_USER" .env; then
+        echo -e "\n# Admin Credentials" >> .env
+        echo "ADMIN_USER=admin" >> .env
+        echo "ADMIN_PASSWORD=votre_mot_de_passe_fort" >> .env
+    fi
+    
+    if ! grep -q "ENVIRONMENT" .env; then
+        echo -e "\n# Environment" >> .env
+        echo "ENVIRONMENT=development" >> .env
+    fi
+    
+    if ! grep -q "LICENSE_KEY" .env; then
+        echo -e "\n# License" >> .env
+        echo "LICENSE_KEY=<votre_clé_de_licence>" >> .env
+    fi
+    
+    echo -e "${YELLOW}IMPORTANT: Veuillez vérifier et modifier les valeurs sensibles dans .env${NC}"
+    echo -e "${YELLOW}Exécutez: sudo nano .env${NC}"
 fi
 
 echo -e "${YELLOW}Installation de python-dotenv...${NC}"
@@ -251,7 +254,6 @@ chmod 644 src/autobot/autobot_security/auth/__init__.py
 chmod 644 src/autobot/autobot_security/config.py
 chmod 644 src/autobot/main_enhanced.py
 chmod 644 main.py
-chmod 644 config/auth_config.json
 chmod 644 .env
 
 echo -e "${GREEN}=== Redémarrage du service AUTOBOT ===${NC}"

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request, Response, Form, HTTPException, Depends, 
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import OAuth2PasswordRequestForm
+from dotenv import load_dotenv
 
 from src.autobot.autobot_security.auth.jwt_handler import (
     create_access_token,
@@ -16,6 +17,9 @@ from src.autobot.autobot_security.auth.jwt_handler import (
     decode_token
 )
 from src.autobot.autobot_security.auth.user_manager import get_user_from_db, verify_password
+from src.autobot.autobot_security.config import TOKEN_EXPIRE_MINUTES
+
+load_dotenv()
 
 router = APIRouter(tags=["Authentication"])
 
@@ -54,7 +58,7 @@ async def login_submit(
     """Traite la soumission du formulaire de login."""
     if not verify_license_key(license_key):
         return RedirectResponse(
-            url=f"/login?error=Cl",
+            url=f"/login?error=Clé de licence invalide",
             status_code=303
         )
     
@@ -66,7 +70,7 @@ async def login_submit(
                 status_code=303
             )
         
-        access_token_expires = timedelta(minutes=60)
+        access_token_expires = timedelta(minutes=TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": username},
             expires_delta=access_token_expires
@@ -77,9 +81,10 @@ async def login_submit(
             key="access_token",
             value=access_token,
             httponly=True,
-            max_age=3600,
-            expires=3600,
-            secure=False  # À modifier en True en production avec HTTPS
+            max_age=TOKEN_EXPIRE_MINUTES * 60,
+            expires=TOKEN_EXPIRE_MINUTES * 60,
+            secure=os.getenv("ENVIRONMENT", "development") == "production",  # True en production, False en développement
+            samesite="lax"  # Protection contre les attaques CSRF
         )
         
         return response

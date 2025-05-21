@@ -5,12 +5,14 @@ Fournit des endpoints API pour l'authentification et la gestion des tokens.
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 import os
-import json
 from datetime import timedelta
 from typing import Dict, Any
+from dotenv import load_dotenv
 
 from ..autobot_security.auth.jwt_handler import create_access_token
-from ..autobot_security.config import SECRET_KEY, ALGORITHM
+from ..autobot_security.config import SECRET_KEY, ALGORITHM, TOKEN_EXPIRE_MINUTES
+
+load_dotenv()
 
 router = APIRouter(tags=["Authentication"])
 
@@ -25,20 +27,9 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     Returns:
         Dict: Token d'accès JWT
     """
-    auth_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'config', 'auth_config.json')
-    
-    try:
-        with open(auth_config_path, 'r') as f:
-            auth_config = json.load(f)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors du chargement de la configuration d'authentification: {str(e)}"
-        )
-    
-    admin_user = auth_config.get("admin_user", "admin")
-    admin_password = auth_config.get("admin_password", "votre_mot_de_passe_fort")
-    token_expire_minutes = auth_config.get("token_expire_minutes", 1440)
+    admin_user = os.getenv("ADMIN_USER", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "votre_mot_de_passe_fort")
+    token_expire_minutes = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
     
     if form_data.username != admin_user or form_data.password != admin_password:
         raise HTTPException(
