@@ -74,12 +74,18 @@ if 'pytest' in sys.modules:
     sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
     
     try:
-        import src.autobot.ui.simplified_dashboard_routes
-        import src.autobot.ui.mobile_routes
+        def patch_ui_modules():
+            try:
+                import src.autobot.ui.simplified_dashboard_routes
+                import src.autobot.ui.mobile_routes
+                
+                src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
+                src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
+                src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
+                src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
+            except ImportError as e:
+                print(f"Warning: Could not patch UI routes: {e}")
         
-        src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
-        src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
-        src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
-        src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
-    except ImportError as e:
-        print(f"Warning: Could not patch UI routes: {e}")
+        patch_ui_modules()
+    except Exception as e:
+        print(f"Warning: Error in UI module patching: {e}")

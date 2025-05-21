@@ -6,12 +6,14 @@ from fastapi.testclient import TestClient
 from fastapi.responses import RedirectResponse
 from unittest.mock import patch, MagicMock
 
-from src.autobot.main import app
-
-client = TestClient(app)
+def get_test_client():
+    """Retourne un TestClient avec app importé à l'intérieur pour éviter les imports circulaires."""
+    from src.autobot.main import app
+    return TestClient(app)
 
 def test_login_page():
     """Test de la page de login."""
+    client = get_test_client()
     response = client.get("/login")
     assert response.status_code == 200
     assert "Connectez-vous pour accéder au dashboard" in response.text
@@ -29,6 +31,7 @@ def test_login_success(mock_create_token, mock_verify_pw, mock_get_user, mock_ve
     mock_verify_pw.return_value = True
     mock_create_token.return_value = "fake_token"
     
+    client = get_test_client()
     response = client.post(
         "/login",
         data={
@@ -50,6 +53,7 @@ def test_login_invalid_license(mock_verify_license):
     """Test avec licence invalide."""
     mock_verify_license.return_value = False
     
+    client = get_test_client()
     response = client.post(
         "/login",
         data={
@@ -70,6 +74,7 @@ def test_simplified_dashboard_authenticated():
             mock_user.return_value = {"sub": "testuser"}
             mock_license.return_value = True
             
+            client = get_test_client()
             client.cookies.set("access_token", "fake_token")
             
             response = client.get("/simple/")
@@ -84,6 +89,7 @@ def test_mobile_dashboard_authenticated():
             mock_user.return_value = {"sub": "testuser"}
             mock_license.return_value = True
             
+            client = get_test_client()
             client.cookies.set("access_token", "fake_token")
             
             response = client.get("/mobile")
@@ -120,6 +126,7 @@ def test_redirect_to_login_when_not_authenticated():
 
 def test_root_redirect_to_mobile_for_mobile_device():
     """Test de redirection vers mobile pour les appareils mobiles."""
+    client = get_test_client()
     response = client.get(
         "/",
         headers={"user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)"},
@@ -131,6 +138,7 @@ def test_root_redirect_to_mobile_for_mobile_device():
 
 def test_root_redirect_to_simple_for_desktop():
     """Test de redirection vers simple pour les ordinateurs de bureau."""
+    client = get_test_client()
     response = client.get(
         "/",
         headers={"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
