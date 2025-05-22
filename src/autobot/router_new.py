@@ -24,6 +24,7 @@ try:
     from autobot.backtest_engine import run_backtest
     
     from autobot.api.routes import api_router
+    from autobot.api.orchestration_routes import router as orchestration_router
     from autobot.routes.health_routes import router as health_router
     from autobot.routes.prediction_routes import router as prediction_router
     from autobot.routes.auth_routes import router as auth_router
@@ -37,6 +38,7 @@ try:
 except ImportError as e:
     print(f"Warning: Could not import all routers: {e}")
     api_router = APIRouter()
+    orchestration_router = APIRouter()
     health_router = APIRouter()
     prediction_router = APIRouter()
     auth_router = APIRouter()
@@ -105,6 +107,7 @@ def health():
     return {"status": "ok"}
 
 router.include_router(api_router)
+router.include_router(orchestration_router)
 router.include_router(health_router)
 router.include_router(prediction_router)
 router.include_router(auth_router)

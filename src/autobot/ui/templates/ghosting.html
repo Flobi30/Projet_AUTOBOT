@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+
+{% block title %}Ghosting AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="main-title">Gestion du Ghosting</h1>
+    
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Configuration</h2>
+                </div>
+                <div class="card-body">
+                    <form id="ghosting-config-form">
+                        <div class="form-group">
+                            <label for="max_instances">Nombre maximum d'instances</label>
+                            <input type="range" class="form-range" id="max_instances" name="max_instances" 
+                                   min="1" max="10" value="3" oninput="this.nextElementSibling.value = this.value">
+                            <output>3</output>
+                        </div>
+                        
+                        <div class="form-group mt-3">
+                            <label for="evasion_mode">Mode d'évasion</label>
+                            <select class="form-select" id="evasion_mode" name="evasion_mode">
+                                <option value="user_agent">Rotation User-Agent</option>
+                                <option value="ip_rotation">Rotation IP</option>
+                                <option value="delay_random">Délais Aléatoires</option>
+                                <option value="combined">Combiné (Tous)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group mt-3">
+                            <label for="instance_type">Type d'instance</label>
+                            <select class="form-select" id="instance_type" name="instance_type">
+                                <option value="trading">Trading</option>
+                                <option value="backtest">Backtest</option>
+                                <option value="ecommerce">E-commerce</option>
+                                <option value="all">Tous</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary mt-4 w-100">Appliquer la Configuration</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Statistiques</h2>
+                </div>
+                <div class="card-body">
+                    <div class="ghosting-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Instances Actives</span>
+                            <span class="stat-value" id="active-instances">0/0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Utilisation CPU</span>
+                            <span class="stat-value" id="cpu-usage">0%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Utilisation Mémoire</span>
+                            <span class="stat-value" id="memory-usage">0%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Statut Licence</span>
+                            <span class="stat-value" id="license-status">Valide</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2>Instances</h2>
+                    <button id="refresh-instances" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-sync-alt"></i> Rafraîchir
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="instances-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Mode</th>
+                                    <th>Statut</th>
+                                    <th>Uptime</th>
+                                    <th>Performance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Données dynamiques des instances -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Activité des Instances</h2>
+                </div>
+                <div class="card-body">
+                    <canvas id="activity-chart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let activityChart;
+    let instancesData = [];
+    
+    // Configuration du ghosting
+    const ghostingConfigForm = document.getElementById('ghosting-config-form');
+    ghostingConfigForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(ghostingConfigForm);
+        const jsonData = {};
+        
+        formData.forEach((value, key) => {
+            jsonData[key] = key === 'max_instances' ? parseInt(value) : value;
+        });
+        
+        fetch('/api/ghosting/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(jsonData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Configuration mise à jour avec succès');
+                fetchGhostingStatus();
+            } else {
+                alert('Erreur: ' + (data.message || 'Mise à jour impossible'));
+            }
+        });
+    });
+    
+    // Rafraîchir les instances
+    document.getElementById('refresh-instances').addEventListener('click', function() {
+        fetchGhostingStatus();
+    });
+    
+    // Mise à jour périodique des données
+    function fetchGhostingStatus() {
+        fetch('/api/ghosting/status')
+        .then(response => response.json())
+        .then(data => {
+            // Mise à jour des statistiques
+            document.getElementById('active-instances').textContent = 
+                `${data.active_instances}/${data.max_instances}`;
+            document.getElementById('cpu-usage').textContent = `${data.cpu_usage.toFixed(1)}%`;
+            document.getElementById('memory-usage').textContent = `${data.memory_usage.toFixed(1)}%`;
+            document.getElementById('license-status').textContent = data.license_valid ? 'Valide' : 'Invalide';
+            
+            // Mise à jour du tableau d'instances
+            instancesData = data.instances;
+            updateInstancesTable();
+            
+            // Mise à jour du graphique d'activité
+            updateActivityChart(data.activity_history);
+        })
+        .catch(error => console.error('Erreur:', error));
+    }
+    
+    function updateInstancesTable() {
+        const tbody = document.querySelector('#instances-table tbody');
+        tbody.innerHTML = '';
+        
+        instancesData.forEach(instance => {
+            const tr = document.createElement('tr');
+            
+            // Status class
+            const statusClass = instance.status === 'active' 
+                ? 'success' : instance.status === 'error' 
+                ? 'danger' : instance.status === 'paused'
+                ? 'warning' : 'secondary';
+            
+            // Performance display
+            const performanceDisplay = instance.performance !== null 
+                ? `${instance.performance > 0 ? '+' : ''}${instance.performance.toFixed(2)}%` 
+                : 'N/A';
+            
+            tr.innerHTML = `
+                <td>${instance.id}</td>
+                <td>${instance.type}</td>
+                <td>${instance.evasion_mode}</td>
+                <td><span class="badge badge-${statusClass}">${instance.status}</span></td>
+                <td>${instance.uptime}</td>
+                <td>${performanceDisplay}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        ${instance.status === 'active' ? 
+                            `<button class="btn btn-warning pause-instance" data-id="${instance.id}">
+                                <i class="fas fa-pause"></i>
+                            </button>` : 
+                        instance.status === 'paused' ?
+                            `<button class="btn btn-success resume-instance" data-id="${instance.id}">
+                                <i class="fas fa-play"></i>
+                            </button>` : ''}
+                        
+                        ${instance.status !== 'stopped' ? 
+                            `<button class="btn btn-danger stop-instance" data-id="${instance.id}">
+                                <i class="fas fa-stop"></i>
+                            </button>` : ''}
+                        
+                        <button class="btn btn-info view-instance" data-id="${instance.id}">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+        
+        // Ajouter les event listeners pour les boutons d'action
+        document.querySelectorAll('.pause-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                controlInstance(instanceId, 'pause');
+            });
+        });
+        
+        document.querySelectorAll('.resume-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                controlInstance(instanceId, 'resume');
+            });
+        });
+        
+        document.querySelectorAll('.stop-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                controlInstance(instanceId, 'stop');
+            });
+        });
+        
+        document.querySelectorAll('.view-instance').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const instanceId = this.getAttribute('data-id');
+                window.location.href = `/ghosting/instance/${instanceId}`;
+            });
+        });
+    }
+    
+    function controlInstance(instanceId, action) {
+        fetch(`/api/ghosting/instance/${instanceId}/${action}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                fetchGhostingStatus();
+            } else {
+                alert(`Erreur: ${data.message || 'Action impossible'}`);
+            }
+        })
+        .catch(error => console.error('Erreur:', error));
+    }
+    
+    function updateActivityChart(activityHistory) {
+        const ctx = document.getElementById('activity-chart').getContext('2d');
+        
+        if (activityChart) {
+            activityChart.destroy();
+        }
+        
+        // Préparation des données pour le graphique
+        const datasets = [
+            {
+                label: 'Instances Actives',
+                data: activityHistory.active,
+                borderColor: 'rgb(40, 167, 69)',
+                backgroundColor: 'rgba(40, 167, 69, 0.2)',
+                fill: true
+            },
+            {
+                label: 'Utilisation CPU',
+                data: activityHistory.cpu,
+                borderColor: 'rgb(0, 123, 255)',
+                backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                fill: true,
+                yAxisID: 'y1'
+            }
+        ];
+        
+        activityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: activityHistory.timestamps,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Temps'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Instances'
+                        },
+                        min: 0
+                    },
+                    y1: {
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'CPU %'
+                        },
+                        min: 0,
+                        max: 100,
+                        grid: {
+                            drawOnChartArea: false
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Initialiser les données et mettre à jour périodiquement
+    fetchGhostingStatus();
+    setInterval(fetchGhostingStatus, 10000);
+});
+</script>
+
+<style>
+.ghosting-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.stat-item {
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 15px;
+    text-align: center;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: bold;
+}
+</style>
+{% endblock %}

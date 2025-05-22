@@ -321,6 +321,18 @@ order = inventory_manager.place_order(
 )
 ```
 
+## Orchestration 100% UI
+
+AUTOBOT propose désormais une orchestration 100% UI qui ne nécessite aucune interaction avec le terminal. Cette fonctionnalité permet :
+
+- Une configuration initiale simplifiée via un formulaire unique
+- Des backtests automatiques avec suivi en temps réel
+- Un passage automatique en production basé sur des seuils configurables
+- Des backtests continus pour affiner les stratégies en permanence
+- Une gestion simplifiée du ghosting (duplication d'instances)
+
+Pour plus de détails, consultez la section "Orchestration 100% UI" dans le [Guide de Connexion](GUIDE_CONNEXION.md).
+
 ## Licence
 
 Ce projet est sous licence propriétaire. Tous droits réservés.

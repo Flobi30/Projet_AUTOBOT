@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Licence AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="main-title">Gestion de Licence</h1>
+    
+    <div class="row">
+        <div class="col-md-6 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Statut de Licence</h2>
+                </div>
+                <div class="card-body">
+                    <div class="license-status text-center mb-4">
+                        <div class="status-icon">
+                            <i class="fas fa-check-circle text-success" id="license-icon-valid" style="display: none;"></i>
+                            <i class="fas fa-times-circle text-danger" id="license-icon-invalid" style="display: none;"></i>
+                            <i class="fas fa-question-circle text-warning" id="license-icon-unknown"></i>
+                        </div>
+                        <div class="status-text">
+                            <h3 id="license-status-text">Statut inconnu</h3>
+                            <p id="license-message">Veuillez vérifier votre licence</p>
+                        </div>
+                    </div>
+                    
+                    <div class="license-details" id="license-details" style="display: none;">
+                        <div class="detail-item">
+                            <span class="detail-label">Licence</span>
+                            <span class="detail-value" id="license-key">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Type</span>
+                            <span class="detail-value" id="license-type">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Instances autorisées</span>
+                            <span class="detail-value" id="license-instances">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Date d'expiration</span>
+                            <span class="detail-value" id="license-expiry">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Propriétaire</span>
+                            <span class="detail-value" id="license-owner">-</span>
+                        </div>
+                    </div>
+                    
+                    <form id="license-form" class="mt-4">
+                        <div class="form-group">
+                            <label for="license_key">Clé de Licence</label>
+                            <input type="text" class="form-control" id="license_key" name="license_key" placeholder="XXXX-XXXX-XXXX-XXXX" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 mt-3">Valider la Licence</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Historique des Validations</h2>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm" id="validation-history">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Licence</th>
+                                    <th>Résultat</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Données dynamiques de l'historique -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const licenseForm = document.getElementById('license-form');
+    
+    // Vérifier le statut de la licence au chargement
+    checkLicenseStatus();
+    
+    // Validation de la licence
+    licenseForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const licenseKey = document.getElementById('license_key').value;
+        
+        fetch('/api/license/apply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ license_key: licenseKey })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateLicenseStatus(data);
+                fetchValidationHistory();
+            } else {
+                showLicenseError(data.message || 'Licence invalide');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            showLicenseError('Erreur de connexion');
+        });
+    });
+    
+    function checkLicenseStatus() {
+        fetch('/api/license/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateLicenseStatus(data);
+            } else {
+                showLicenseError(data.message || 'Aucune licence active');
+            }
+            
+            fetchValidationHistory();
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            showLicenseError('Erreur de connexion');
+        });
+    }
+    
+    function updateLicenseStatus(data) {
+        // Mise à jour des icônes
+        document.getElementById('license-icon-valid').style.display = 'inline-block';
+        document.getElementById('license-icon-invalid').style.display = 'none';
+        document.getElementById('license-icon-unknown').style.display = 'none';
+        
+        // Mise à jour du texte
+        document.getElementById('license-status-text').textContent = 'Licence Valide';
+        document.getElementById('license-message').textContent = data.message || 'Votre licence est active et valide';
+        
+        // Afficher les détails
+        document.getElementById('license-details').style.display = 'block';
+        document.getElementById('license-key').textContent = maskLicenseKey(data.license.key);
+        document.getElementById('license-type').textContent = data.license.type;
+        document.getElementById('license-instances').textContent = data.license.max_instances;
+        document.getElementById('license-expiry').textContent = data.license.expiry_date;
+        document.getElementById('license-owner').textContent = data.license.owner;
+    }
+    
+    function showLicenseError(message) {
+        // Mise à jour des icônes
+        document.getElementById('license-icon-valid').style.display = 'none';
+        document.getElementById('license-icon-invalid').style.display = 'inline-block';
+        document.getElementById('license-icon-unknown').style.display = 'none';
+        
+        // Mise à jour du texte
+        document.getElementById('license-status-text').textContent = 'Licence Invalide';
+        document.getElementById('license-message').textContent = message;
+        
+        // Cacher les détails
+        document.getElementById('license-details').style.display = 'none';
+    }
+    
+    function maskLicenseKey(key) {
+        if (!key) return '-';
+        const parts = key.split('-');
+        if (parts.length >= 4) {
+            return `${parts[0]}-XXXX-XXXX-${parts[3]}`;
+        }
+        return key.substring(0, 4) + '...' + key.substring(key.length - 4);
+    }
+    
+    function fetchValidationHistory() {
+        fetch('/api/license/history')
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.querySelector('#validation-history tbody');
+            tbody.innerHTML = '';
+            
+            data.history.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                const resultClass = item.success ? 'success' : 'danger';
+                const resultText = item.success ? 'Valide' : 'Invalide';
+                
+                tr.innerHTML = `
+                    <td>${item.date}</td>
+                    <td>${maskLicenseKey(item.license_key)}</td>
+                    <td><span class="badge badge-${resultClass}">${resultText}</span></td>
+                `;
+                
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(error => console.error('Erreur:', error));
+    }
+});
+</script>
+
+<style>
+.license-status {
+    padding: 20px;
+    border-radius: 10px;
+    background-color: #f8f9fa;
+}
+
+.status-icon {
+    font-size: 3rem;
+    margin-bottom: 15px;
+}
+
+.license-details {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.detail-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.detail-label {
+    font-weight: bold;
+    color: #495057;
+}
+
+.detail-value {
+    color: #212529;
+}
+</style>
+{% endblock %}

@@ -137,3 +137,78 @@ async def get_parametres(request: Request, current_user: User = Depends(get_curr
         "user_role": current_user.role,
         "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
     })
+
+@router.get("/setup", response_class=HTMLResponse)
+async def get_setup(request: Request):
+    """
+    Page de configuration initiale.
+    """
+    return templates.TemplateResponse("setup.html", {
+        "request": request,
+        "active_page": "setup"
+    })
+
+@router.get("/backtests", response_class=HTMLResponse)
+async def get_backtests(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page de backtests automatiques.
+    """
+    return templates.TemplateResponse("backtests.html", {
+        "request": request,
+        "active_page": "backtests",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })
+
+@router.get("/operations", response_class=HTMLResponse)
+async def get_operations(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page d'opérations (trading live + backtests continus).
+    """
+    return templates.TemplateResponse("operations.html", {
+        "request": request,
+        "active_page": "operations",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })
+
+@router.get("/ghosting", response_class=HTMLResponse)
+async def get_ghosting(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page de gestion du ghosting.
+    """
+    return templates.TemplateResponse("ghosting.html", {
+        "request": request,
+        "active_page": "ghosting",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })
+
+@router.get("/licence", response_class=HTMLResponse)
+async def get_licence(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page de gestion de licence.
+    """
+    return templates.TemplateResponse("licence.html", {
+        "request": request,
+        "active_page": "licence",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })
+
+@router.get("/logs", response_class=HTMLResponse)
+async def get_logs(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page de logs et monitoring.
+    """
+    return templates.TemplateResponse("logs.html", {
+        "request": request,
+        "active_page": "logs",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })

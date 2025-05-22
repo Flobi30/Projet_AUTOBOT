@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}Opérations AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="main-title">Opérations</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2>Trading Live</h2>
+                    <span class="badge badge-success">🚀 Actif</span>
+                </div>
+                <div class="card-body">
+                    <div class="metrics-panel">
+                        <div class="metric-item">
+                            <span class="metric-label">P&L Journalier</span>
+                            <span class="metric-value" id="daily-pnl">+0.00%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Positions Ouvertes</span>
+                            <span class="metric-value" id="open-positions">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Ordres en Attente</span>
+                            <span class="metric-value" id="pending-orders">0</span>
+                        </div>
+                    </div>
+                    
+                    <h3 class="mt-4">Journal des Ordres</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm" id="orders-table">
+                            <thead>
+                                <tr>
+                                    <th>Heure</th>
+                                    <th>Symbole</th>
+                                    <th>Type</th>
+                                    <th>Prix</th>
+                                    <th>Taille</th>
+                                    <th>Statut</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Données dynamiques des ordres -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2>Backtests Continus</h2>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="toggle-backtest" checked>
+                        <label class="form-check-label" for="toggle-backtest">Actif</label>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="metrics-panel">
+                        <div class="metric-item">
+                            <span class="metric-label">Backtests Terminés</span>
+                            <span class="metric-value" id="completed-backtests">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Backtests en Cours</span>
+                            <span class="metric-value" id="running-backtests">0</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Amélioration</span>
+                            <span class="metric-value" id="improvement">+0.00%</span>
+                        </div>
+                    </div>
+                    
+                    <h3 class="mt-4">Dernières Améliorations</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm" id="improvements-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Stratégie</th>
+                                    <th>Métrique</th>
+                                    <th>Ancienne</th>
+                                    <th>Nouvelle</th>
+                                    <th>Diff</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Données dynamiques des améliorations -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Performance en Temps Réel</h2>
+                </div>
+                <div class="card-body">
+                    <canvas id="performance-chart" height="250"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let performanceChart;
+    let ordersData = [];
+    let backtestsData = [];
+    let improvementsData = [];
+    
+    // Toggle backtests continus
+    const toggleBacktest = document.getElementById('toggle-backtest');
+    toggleBacktest.addEventListener('change', function() {
+        fetch('/api/backtest/continuous', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ enabled: this.checked })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Erreur: ' + (data.message || 'Opération impossible'));
+                // Remettre le toggle dans son état précédent
+                this.checked = !this.checked;
+            }
+        });
+    });
+    
+    // Mise à jour périodique des données
+    function fetchOperationsData() {
+        Promise.all([
+            fetch('/api/trading/status').then(r => r.json()),
+            fetch('/api/backtest/continuous/status').then(r => r.json())
+        ])
+        .then(([tradingData, backtestData]) => {
+            // Mise à jour des métriques de trading
+            document.getElementById('daily-pnl').textContent = 
+                (tradingData.daily_pnl >= 0 ? '+' : '') + tradingData.daily_pnl.toFixed(2) + '%';
+            document.getElementById('open-positions').textContent = tradingData.open_positions;
+            document.getElementById('pending-orders').textContent = tradingData.pending_orders;
+            
+            // Mise à jour des métriques de backtest
+            document.getElementById('completed-backtests').textContent = backtestData.completed;
+            document.getElementById('running-backtests').textContent = backtestData.running;
+            document.getElementById('improvement').textContent = 
+                (backtestData.improvement >= 0 ? '+' : '') + backtestData.improvement.toFixed(2) + '%';
+            
+            // Mise à jour des tableaux
+            ordersData = tradingData.recent_orders;
+            updateOrdersTable();
+            
+            improvementsData = backtestData.recent_improvements;
+            updateImprovementsTable();
+            
+            // Mise à jour du graphique
+            updatePerformanceChart(tradingData.equity_curve);
+        })
+        .catch(error => console.error('Erreur:', error));
+    }
+    
+    function updateOrdersTable() {
+        const tbody = document.querySelector('#orders-table tbody');
+        tbody.innerHTML = '';
+        
+        ordersData.forEach(order => {
+            const tr = document.createElement('tr');
+            
+            // Status class
+            const statusClass = order.status === 'filled' 
+                ? 'success' : order.status === 'rejected' 
+                ? 'danger' : 'info';
+            
+            tr.innerHTML = `
+                <td>${order.time}</td>
+                <td>${order.symbol}</td>
+                <td>${order.type}</td>
+                <td>${order.price}</td>
+                <td>${order.size}</td>
+                <td><span class="badge badge-${statusClass}">${order.status}</span></td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+    }
+    
+    function updateImprovementsTable() {
+        const tbody = document.querySelector('#improvements-table tbody');
+        tbody.innerHTML = '';
+        
+        improvementsData.forEach(improvement => {
+            const tr = document.createElement('tr');
+            
+            // Diff class
+            const diffClass = improvement.diff > 0 ? 'success' : 'danger';
+            const diffPrefix = improvement.diff > 0 ? '+' : '';
+            
+            tr.innerHTML = `
+                <td>${improvement.date}</td>
+                <td>${improvement.strategy}</td>
+                <td>${improvement.metric}</td>
+                <td>${improvement.old_value.toFixed(2)}</td>
+                <td>${improvement.new_value.toFixed(2)}</td>
+                <td class="text-${diffClass}">${diffPrefix}${improvement.diff.toFixed(2)}</td>
+            `;
+            
+            tbody.appendChild(tr);
+        });
+    }
+    
+    function updatePerformanceChart(equityCurve) {
+        const ctx = document.getElementById('performance-chart').getContext('2d');
+        
+        if (performanceChart) {
+            performanceChart.destroy();
+        }
+        
+        performanceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: equityCurve.dates,
+                datasets: [{
+                    label: 'Performance',
+                    data: equityCurve.values,
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Valeur'
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Initialiser les données et mettre à jour périodiquement
+    fetchOperationsData();
+    setInterval(fetchOperationsData, 5000);
+});
+</script>
+
+<style>
+.metrics-panel {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.metric-item {
+    text-align: center;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    flex: 1;
+    margin: 0 5px;
+}
+
+.metric-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.metric-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+</style>
+{% endblock %}

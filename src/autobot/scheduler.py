@@ -219,3 +219,173 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+orchestration_tasks = {}
+
+def add_scheduled_task(task_id, task_func, interval_minutes=60, **kwargs):
+    """
+    Ajoute une tâche planifiée à exécuter périodiquement pour l'orchestration UI.
+    
+    Args:
+        task_id (str): Identifiant unique de la tâche
+        task_func (callable): Fonction à exécuter
+        interval_minutes (int): Intervalle en minutes entre les exécutions
+        **kwargs: Arguments supplémentaires à passer à la fonction
+    
+    Returns:
+        str: L'identifiant de la tâche
+    """
+    next_run = datetime.now() + timedelta(minutes=interval_minutes)
+    
+    orchestration_tasks[task_id] = {
+        "func": task_func,
+        "interval": timedelta(minutes=interval_minutes),
+        "next_run": next_run,
+        "last_run": None,
+        "kwargs": kwargs,
+        "enabled": True
+    }
+    
+    logger.info(f"Tâche d'orchestration planifiée ajoutée: {task_id}, prochaine exécution: {next_run}")
+    return task_id
+
+def remove_scheduled_task(task_id):
+    """
+    Supprime une tâche planifiée de l'orchestration UI.
+    
+    Args:
+        task_id (str): Identifiant unique de la tâche
+    
+    Returns:
+        bool: True si la tâche a été supprimée, False sinon
+    """
+    if task_id in orchestration_tasks:
+        del orchestration_tasks[task_id]
+        logger.info(f"Tâche d'orchestration planifiée supprimée: {task_id}")
+        return True
+    return False
+
+def run_scheduled_tasks():
+    """
+    Exécute les tâches planifiées de l'orchestration UI dont l'heure d'exécution est arrivée.
+    
+    Returns:
+        list: Liste des identifiants des tâches exécutées
+    """
+    now = datetime.now()
+    executed_tasks = []
+    
+    for task_id, task in list(orchestration_tasks.items()):
+        if not task["enabled"]:
+            continue
+            
+        if now >= task["next_run"]:
+            logger.info(f"Exécution de la tâche d'orchestration planifiée: {task_id}")
+            
+            try:
+                task["func"](**task["kwargs"])
+                task["last_run"] = now
+                task["next_run"] = now + task["interval"]
+                logger.info(f"Tâche {task_id} exécutée avec succès, prochaine exécution: {task['next_run']}")
+                executed_tasks.append(task_id)
+            except Exception as e:
+                logger.error(f"Erreur lors de l'exécution de la tâche {task_id}: {str(e)}")
+    
+    return executed_tasks
+
+def enable_scheduled_task(task_id, enabled=True):
+    """
+    Active ou désactive une tâche planifiée de l'orchestration UI.
+    
+    Args:
+        task_id (str): Identifiant unique de la tâche
+        enabled (bool): True pour activer, False pour désactiver
+    
+    Returns:
+        bool: True si l'état a été modifié, False sinon
+    """
+    if task_id in orchestration_tasks:
+        orchestration_tasks[task_id]["enabled"] = enabled
+        status = "activée" if enabled else "désactivée"
+        logger.info(f"Tâche d'orchestration {task_id} {status}")
+        return True
+    return False
+
+def get_scheduled_task(task_id):
+    """
+    Récupère les informations d'une tâche planifiée de l'orchestration UI.
+    
+    Args:
+        task_id (str): Identifiant unique de la tâche
+    
+    Returns:
+        dict: Informations sur la tâche ou None si la tâche n'existe pas
+    """
+    if task_id in orchestration_tasks:
+        task = orchestration_tasks[task_id].copy()
+        task.pop("func", None)
+        return task
+    return None
+
+def get_all_scheduled_tasks():
+    """
+    Récupère la liste de toutes les tâches planifiées de l'orchestration UI.
+    
+    Returns:
+        dict: Dictionnaire des tâches planifiées (sans les fonctions)
+    """
+    tasks = {}
+    for task_id, task_data in orchestration_tasks.items():
+        task_info = task_data.copy()
+        task_info.pop("func", None)
+        tasks[task_id] = task_info
+    
+    return tasks
+
+def schedule_continuous_backtest(strategy, symbol, timeframe, interval_minutes=60):
+    """
+    Planifie un backtest continu pour une stratégie donnée.
+    
+    Args:
+        strategy (str): Nom de la stratégie
+        symbol (str): Symbole de trading
+        timeframe (str): Timeframe pour le backtest
+        interval_minutes (int): Intervalle en minutes entre les exécutions
+    
+    Returns:
+        str: L'identifiant de la tâche
+    """
+    from .worker import add_task
+    
+    def run_backtest():
+        task_id = add_task('backtest', {
+            'strategy': strategy,
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'continuous': True
+        })
+        logger.info(f"Backtest continu démarré pour {strategy} sur {symbol} ({timeframe}), task_id: {task_id}")
+        return task_id
+    
+    task_id = f"continuous_backtest_{strategy}_{symbol}_{timeframe}_{int(time.time())}"
+    return add_scheduled_task(task_id, run_backtest, interval_minutes)
+
+def schedule_ghosting_rotation(max_instances, evasion_mode, interval_minutes=120):
+    """
+    Planifie la rotation des instances de ghosting.
+    
+    Args:
+        max_instances (int): Nombre maximum d'instances
+        evasion_mode (str): Mode d'évasion
+        interval_minutes (int): Intervalle en minutes entre les rotations
+    
+    Returns:
+        str: L'identifiant de la tâche
+    """
+    from .trading.ghosting_manager import rotate_instances
+    
+    def run_rotation():
+        return rotate_instances(max_instances, evasion_mode)
+    
+    task_id = f"ghosting_rotation_{evasion_mode}_{int(time.time())}"
+    return add_scheduled_task(task_id, run_rotation, interval_minutes)
