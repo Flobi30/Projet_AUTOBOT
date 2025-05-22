@@ -8,7 +8,7 @@ echo "Token CSRF récupéré: $CSRF"
 curl -v -X POST http://127.0.0.1:8000/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -b /tmp/cookies.txt \
-  --data-urlencode "username=MON_USER" \
-  --data-urlencode "password=MON_PASS" \
-  --data-urlencode "license_key=MA_CLE" \
+  --data-urlencode "username=AUTOBOT" \
+  --data-urlencode "password=333333Aesnpr54&" \
+  --data-urlencode "license_key=AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx" \
   --data-urlencode "csrf_token=$CSRF"
