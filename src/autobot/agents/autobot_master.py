@@ -236,19 +236,23 @@ class AutobotMasterAgent(SuperAGIAgent):
             if not strategies:
                 strategies = ["momentum", "mean_reversion"]
             
+            auto_scaling_config = {
+                "auto_scale": True,
+                "performance_threshold": 0.08,  # 8% de performance pour déclencher une duplication
+                "scale_factor": 1.5,            # Facteur d'échelle pour la duplication
+                "max_instances_per_market": 5,  # Maximum d'instances par marché
+                "interval": 1,
+                "order_frequency": 0.15,
+                "fill_rate": 0.85,
+                "mean_profit": 0.015
+            }
+            
             instance_ids = []
             for _ in range(count):
-                config = {
-                    "interval": 1,
-                    "order_frequency": 0.15,
-                    "fill_rate": 0.85,
-                    "mean_profit": 0.015
-                }
-                
                 instance_id = self.ghosting_manager.create_instance(
                     markets=markets,
                     strategies=strategies,
-                    config=config
+                    config=auto_scaling_config
                 )
                 
                 if instance_id:
@@ -257,7 +261,8 @@ class AutobotMasterAgent(SuperAGIAgent):
             return {
                 "success": True,
                 "count": len(instance_ids),
-                "instance_ids": instance_ids
+                "instance_ids": instance_ids,
+                "auto_scaling": True
             }
         except Exception as e:
             logger.error(f"Error starting ghosting instances: {str(e)}")
