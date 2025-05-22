@@ -140,6 +140,37 @@ curl -X POST "http://[adresse-du-serveur]/login" \
   -d "username=votre_utilisateur&password=votre_mot_de_passe&license_key=votre_cle_licence&csrf_token=$(grep csrf_token cookies.txt | awk '{print $7}')"
 ```
 
+### 5.1 Connexion automatisée via script
+
+Pour automatiser le processus de connexion, vous pouvez utiliser le script `login.sh` fourni dans le répertoire `scripts/` :
+
+```bash
+# Configurer les variables dans le script
+nano scripts/login.sh
+
+# Rendre le script exécutable
+chmod +x scripts/login.sh
+
+# Exécuter le script
+./scripts/login.sh
+```
+
+Le script effectue automatiquement les opérations suivantes :
+1. Récupère la page de login et sauvegarde les cookies
+2. Extrait le token CSRF de la page HTML
+3. Soumet le formulaire avec tous les champs requis, y compris le token CSRF
+4. Vérifie la redirection et l'accès au dashboard
+
+### 5.2 Connexion via API
+
+Pour les appels API, vous pouvez utiliser l'en-tête `Content-Type: application/json` pour contourner la validation CSRF :
+
+```bash
+curl -X POST "http://[adresse-du-serveur]/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"votre_utilisateur","password":"votre_mot_de_passe","license_key":"votre_cle_licence"}'
+```
+
 ## 6. Résolution des Problèmes Courants
 
 ### Erreur "Not authenticated"
