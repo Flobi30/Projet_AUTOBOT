@@ -1,12 +1,13 @@
 #!/bin/bash
 
-CSRF=$(curl -s http://127.0.0.1:8000/login \
-  | grep -oP 'name="csrf_token" value="\K[^"]+')
+RESPONSE=$(curl -s -c /tmp/cookies.txt http://127.0.0.1:8000/login)
+CSRF=$(echo "$RESPONSE" | grep -oP 'name="csrf_token" value="\K[^"]+')
 
 echo "Token CSRF récupéré: $CSRF"
 
 curl -v -X POST http://127.0.0.1:8000/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
+  -b /tmp/cookies.txt \
   --data-urlencode "username=MON_USER" \
   --data-urlencode "password=MON_PASS" \
   --data-urlencode "license_key=MA_CLE" \
