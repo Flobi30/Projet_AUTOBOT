@@ -109,6 +109,8 @@ async def login_submit(
     redirect_url: Optional[str] = Form("/simple/")
 ):
     """Traite la soumission du formulaire de login."""
+    data = await request.form()
+    print("▶️ [DEBUG] login_submit form data:", data)
     
     content_type = request.headers.get("Content-Type", "")
     is_api_request = "application/json" in content_type
