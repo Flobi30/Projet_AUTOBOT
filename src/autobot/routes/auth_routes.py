@@ -130,8 +130,10 @@ async def login_submit(
         )
     
     try:
-        user = get_user_from_db(username)
-        if not user or not verify_password(password, user.hashed_password):
+        admin_user = os.getenv("ADMIN_USER", "admin")
+        admin_password = os.getenv("ADMIN_PASSWORD", "votre_mot_de_passe_fort")
+        
+        if username != admin_user or password != admin_password:
             return RedirectResponse(
                 url=f"/login?error=Identifiants+invalides",
                 status_code=303
