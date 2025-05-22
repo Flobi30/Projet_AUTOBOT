@@ -17,11 +17,14 @@ from src.autobot.routes.auth_routes import router as auth_router
 from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
 from src.autobot.ui.mobile_routes import router as mobile_router
 
+from src.autobot.autobot_security.security_init import initialize_security
+
 app = FastAPI(
     title="Autobot API",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    on_startup=[initialize_security]
 )
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -63,6 +66,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
     app.add_middleware(AuthMiddleware)
+    
+    from src.autobot.autobot_security.waf import WAFMiddleware
+    app.add_middleware(WAFMiddleware)
+    
+    from src.autobot.autobot_security.rate_limiting import RateLimitingMiddleware
+    app.add_middleware(RateLimitingMiddleware, paths_to_limit=["/login", "/token"])
 
 app.include_router(router)
 # app.include_router(auth_router)

@@ -1,8 +1,35 @@
+import os
+import time
+import json
+from datetime import datetime
+from typing import Dict, List, Set, Optional, Any
+
 class AutobotGuardian:
     def __init__(self):
         self.logs = {}
         self.alerts = []
         self.status = "ok"
+        self.suspicious_ips: Set[str] = set()
+        self.security_events: List[Dict[str, Any]] = []
+        self.log_file = os.getenv("AUTOBOT_LOG_FILE", "/var/log/autobot/security.log")
+        
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+    
+    def log_security_event(self, event_type: str, ip: str, details: Dict[str, Any]) -> None:
+        """Enregistre un événement de sécurité."""
+        event = {
+            "timestamp": datetime.now().isoformat(),
+            "type": event_type,
+            "ip": ip,
+            "details": details
+        }
+        self.security_events.append(event)
+        
+        if event_type in ["attack", "bruteforce", "blocked"]:
+            self.suspicious_ips.add(ip)
+        
+        with open(self.log_file, "a") as f:
+            f.write(json.dumps(event) + "\n")
     
     @staticmethod
     def get_logs() -> list:
@@ -15,6 +42,10 @@ class AutobotGuardian:
     def monitor(self) -> bool:
         """Monitor system health and performance."""
         return True
+    
+    def get_suspicious_ips(self) -> Set[str]:
+        """Retourne la liste des IPs suspectes."""
+        return self.suspicious_ips
 
 def get_logs() -> list:
     """
