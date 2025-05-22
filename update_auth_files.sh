@@ -227,10 +227,10 @@ if [ ! -f "/home/autobot/Projet_AUTOBOT/config/auth_config.json" ]; then
   echo -e "${YELLOW}Le fichier auth_config.json n'existe pas, nous allons le créer${NC}"
   create_file "/home/autobot/Projet_AUTOBOT/config/auth_config.json" << 'EOF'
 {
-  "admin_user": "admin",
-  "admin_password": "votre_mot_de_passe_fort",
-  "jwt_secret": "your-secret-key",
-  "jwt_algorithm": "HS256",
+  "admin_user": "AUTOBOT",
+  "admin_password": "your_admin_password",
+  "jwt_secret": "your_jwt_secret_key",
+  "jwt_algorithm": "HS512",
   "token_expire_minutes": 1440
 }
 EOF
