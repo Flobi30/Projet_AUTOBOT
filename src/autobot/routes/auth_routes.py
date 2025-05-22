@@ -105,16 +105,21 @@ async def login_submit(
     username: str = Form(...),
     password: str = Form(...),
     license_key: str = Form(...),
-    csrf_token: str = Form(...),
+    csrf_token: str = Form(None),  # Rendre le token CSRF optionnel
     redirect_url: Optional[str] = Form("/simple/")
 ):
     """Traite la soumission du formulaire de login."""
-    cookie_csrf = request.cookies.get(csrf_protection.cookie_name)
-    if not cookie_csrf or cookie_csrf != csrf_token:
-        return RedirectResponse(
-            url=f"/login?error=Erreur+de+sécurité:+Token+CSRF+invalide",
-            status_code=303
-        )
+    
+    content_type = request.headers.get("Content-Type", "")
+    is_api_request = "application/json" in content_type
+    
+    if not is_api_request:
+        cookie_csrf = request.cookies.get(csrf_protection.cookie_name)
+        if not cookie_csrf or cookie_csrf != csrf_token:
+            return RedirectResponse(
+                url=f"/login?error=Erreur+de+sécurité:+Token+CSRF+invalide",
+                status_code=303
+            )
     
     if not verify_license_key(license_key):
         return RedirectResponse(
