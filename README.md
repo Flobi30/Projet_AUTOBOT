@@ -157,7 +157,7 @@ enabled: true
 
 Une fois SuperAGI configuré, vous pouvez interagir avec AUTOBOT via l'interface de chat :
 
-1. Accédez à l'interface web d'AUTOBOT (http://localhost:8000/simple)
+1. Accédez à l'interface web d'AUTOBOT (http://localhost:8000/dashboard)
 2. Cliquez sur l'onglet "Chat"
 3. Entrez vos commandes en langage naturel
 
@@ -379,9 +379,9 @@ curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>
 curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -d '{"data":[{"text":"Nouveau texte à prédire"}]}' http://localhost:8000/api/prediction/predict?model_name=text_model
 ```
 
-#### Accéder au dashboard simplifié avec authentification
+#### Accéder au dashboard complet avec authentification
 ```bash
-curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -H "Accept: text/html" http://localhost:8000/simple/
+curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -H "Accept: text/html" http://localhost:8000/dashboard/
 ```
 
 ## Auteur

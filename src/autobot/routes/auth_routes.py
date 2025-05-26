@@ -106,7 +106,7 @@ async def login_submit(
     password: str = Form(...),
     license_key: str = Form(...),
     csrf_token: str = Form(None),  # Rendre le token CSRF optionnel
-    redirect_url: Optional[str] = Form("/simple/")
+    redirect_url: Optional[str] = Form("/dashboard/")
 ):
     """Traite la soumission du formulaire de login."""
     data = await request.form()

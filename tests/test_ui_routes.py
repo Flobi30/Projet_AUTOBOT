@@ -36,14 +36,14 @@ def test_login_success(mock_create_token, mock_verify_pw, mock_get_user, mock_ve
             "password": "password123",
             "license_key": "LICENSE-KEY",
             "csrf_token": "fake_csrf_token",
-            "redirect_url": "/simple/"
+            "redirect_url": "/dashboard/"
         },
         cookies={"csrf_token": "fake_csrf_token"},
         allow_redirects=False
     )
     
     assert response.status_code == 303
-    assert response.headers["location"] == "/simple/"
+    assert response.headers["location"] == "/dashboard/"
     assert "access_token" in response.cookies
     assert response.cookies["access_token"] == "fake_token"
 
@@ -77,16 +77,16 @@ def test_logout():
     
     assert "access_token" not in response.cookies or response.cookies["access_token"] == ""
 
-def test_simplified_dashboard_authenticated():
-    """Test d'accès au dashboard simplifié avec authentification."""
-    with patch("src.autobot.ui.simplified_dashboard_routes.get_current_user") as mock_user:
-        with patch("src.autobot.ui.simplified_dashboard_routes.verify_license_key") as mock_license:
+def test_dashboard_authenticated():
+    """Test d'accès au dashboard complet avec authentification."""
+    with patch("src.autobot.ui.dashboard_routes.get_current_user") as mock_user:
+        with patch("src.autobot.ui.dashboard_routes.verify_license_key") as mock_license:
             mock_user.return_value = {"sub": "testuser"}
             mock_license.return_value = True
             
             client.cookies.set("access_token", "fake_token")
             
-            response = client.get("/simple/")
+            response = client.get("/dashboard/")
             
             assert response.status_code == 200
             assert "<html" in response.text
@@ -117,17 +117,17 @@ def test_redirect_to_login_when_not_authenticated():
     
     @test_app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        if request.url.path.startswith("/simple/") and not request.cookies.get("access_token"):
+        if request.url.path.startswith("/dashboard/") and not request.cookies.get("access_token"):
             return RedirectResponse(url="/login", status_code=307)
         return await call_next(request)
     
-    @test_app.get("/simple/")
-    def simple_route():
-        return {"message": "Simple dashboard"}
+    @test_app.get("/dashboard/")
+    def dashboard_route():
+        return {"message": "Complete dashboard"}
     
     test_client = TestClient(test_app)
     
-    response = test_client.get("/simple/", allow_redirects=False)
+    response = test_client.get("/dashboard/", allow_redirects=False)
     
     assert response.status_code == 307
     assert response.headers["location"] == "/login"
@@ -143,8 +143,8 @@ def test_root_redirect_to_mobile_for_mobile_device():
     assert response.status_code == 307
     assert response.headers["location"] == "/mobile"
 
-def test_root_redirect_to_simple_for_desktop():
-    """Test de redirection vers simple pour les ordinateurs de bureau."""
+def test_root_redirect_to_dashboard_for_desktop():
+    """Test de redirection vers dashboard pour les ordinateurs de bureau."""
     response = client.get(
         "/",
         headers={"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
@@ -152,4 +152,4 @@ def test_root_redirect_to_simple_for_desktop():
     )
     
     assert response.status_code == 307
-    assert response.headers["location"] == "/simple"
+    assert response.headers["location"] == "/dashboard"

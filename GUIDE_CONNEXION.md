@@ -55,13 +55,13 @@ La méthode la plus simple pour accéder à AUTOBOT est d'utiliser l'interface d
 
 3. Cliquez sur le bouton "Se connecter"
 
-4. Vous serez automatiquement redirigé vers le dashboard simplifié
+4. Vous serez automatiquement redirigé vers le dashboard complet
 
 ### 3.2 Accès aux Différentes Interfaces
 
 Une fois connecté, vous pouvez accéder aux différentes interfaces :
 
-- **Dashboard Simplifié** : `/simple/`
+- **Dashboard Complet** : `/dashboard/`
 - **Dashboard Mobile** : `/mobile/`
 - **Documentation API** : `/docs/`
 

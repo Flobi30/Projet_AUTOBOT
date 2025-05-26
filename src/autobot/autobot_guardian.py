@@ -54,3 +54,20 @@ def get_logs() -> list:
         list: Logs du système
     """
     return AutobotGuardian.get_logs()
+
+def get_health() -> dict:
+    """
+    Vérifie l'état de santé du système
+    Returns:
+        dict: État de santé du système avec statut et détails
+    """
+    guardian = AutobotGuardian()
+    status = "healthy" if guardian.monitor() else "unhealthy"
+    return {
+        "status": status,
+        "timestamp": datetime.now().isoformat(),
+        "details": {
+            "logs_ok": guardian.check_logs(),
+            "suspicious_ips_count": len(guardian.get_suspicious_ips())
+        }
+    }

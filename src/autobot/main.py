@@ -14,8 +14,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.autobot.router_new import router
 from src.autobot.routes.auth_routes import router as auth_router
-from src.autobot.ui.simplified_dashboard_routes import router as simplified_dashboard_router
+from src.autobot.ui.dashboard_routes import include_dashboard_router
 from src.autobot.ui.mobile_routes import router as mobile_router
+from src.autobot.api.orchestration_routes import router as orchestration_router
 
 from src.autobot.autobot_security.security_init import initialize_security
 
@@ -44,7 +45,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
             if "test_redirect_to_login_when_not_authenticated" in str(sys.modules):
                 path = request.url.path
-                if path.startswith("/simple/") and not request.cookies.get("access_token"):
+                if path.startswith("/dashboard/") and not request.cookies.get("access_token"):
                     return RedirectResponse(url="/login", status_code=307)
             return await call_next(request)
             
@@ -59,7 +60,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         
         token = request.cookies.get("access_token")
-        if not token and (path.startswith("/simple") or path.startswith("/mobile")):
+        if not token and (path.startswith("/dashboard") or path.startswith("/mobile")):
             return RedirectResponse(url="/login", status_code=307)
         
         return await call_next(request)
@@ -74,9 +75,10 @@ if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
     app.add_middleware(RateLimitingMiddleware, paths_to_limit=["/login", "/token"])
 
 app.include_router(router)
-# app.include_router(auth_router)
-app.include_router(simplified_dashboard_router)
+app.include_router(auth_router)
+include_dashboard_router(app)
 app.include_router(mobile_router)
+app.include_router(orchestration_router)
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
@@ -96,7 +98,7 @@ async def root(request: Request):
         if is_mobile:
             return RedirectResponse(url="/mobile")
         else:
-            return RedirectResponse(url="/simple")
+            return RedirectResponse(url="/dashboard")
     
     token = request.cookies.get("access_token")
     if not token:
@@ -105,4 +107,4 @@ async def root(request: Request):
     if is_mobile:
         return RedirectResponse(url="/mobile")
     else:
-        return RedirectResponse(url="/simple")
+        return RedirectResponse(url="/dashboard")
