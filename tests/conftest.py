@@ -31,16 +31,16 @@ logging.basicConfig(
 mock_get_current_user = MagicMock(return_value={"sub": "testuser"})
 mock_verify_license_key = MagicMock(return_value=True)
 
-sys.modules['src.autobot.ui.simplified_dashboard_routes.get_current_user'] = mock_get_current_user
-sys.modules['src.autobot.ui.simplified_dashboard_routes.verify_license_key'] = mock_verify_license_key
+sys.modules['src.autobot.ui.dashboard_routes.get_current_user'] = mock_get_current_user
+sys.modules['src.autobot.ui.dashboard_routes.verify_license_key'] = mock_verify_license_key
 sys.modules['src.autobot.ui.mobile_routes.get_current_user'] = mock_get_current_user
 sys.modules['src.autobot.ui.mobile_routes.verify_license_key'] = mock_verify_license_key
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Configure l'environnement de test avec les mocks nécessaires."""
-    with patch('src.autobot.ui.simplified_dashboard_routes.get_current_user', return_value={"sub": "testuser"}):
-        with patch('src.autobot.ui.simplified_dashboard_routes.verify_license_key', return_value=True):
+    with patch('src.autobot.ui.dashboard_routes.get_current_user', return_value={"sub": "testuser"}):
+        with patch('src.autobot.ui.dashboard_routes.verify_license_key', return_value=True):
             with patch('src.autobot.ui.mobile_routes.get_current_user', return_value={"sub": "testuser"}):
                 with patch('src.autobot.ui.mobile_routes.verify_license_key', return_value=True):
                     yield
@@ -73,11 +73,11 @@ if 'pytest' in sys.modules:
     sys.modules['autobot.autobot_security.auth.user_manager'].get_current_user_ws = mock_get_current_user_ws
     
     try:
-        import src.autobot.ui.simplified_dashboard_routes
+        import src.autobot.ui.dashboard_routes
         import src.autobot.ui.mobile_routes
         
-        src.autobot.ui.simplified_dashboard_routes.get_current_user = mock_get_current_user
-        src.autobot.ui.simplified_dashboard_routes.verify_license_key = mock_verify_license_key
+        src.autobot.ui.dashboard_routes.get_current_user = mock_get_current_user
+        src.autobot.ui.dashboard_routes.verify_license_key = mock_verify_license_key
         src.autobot.ui.mobile_routes.get_current_user = mock_get_current_user
         src.autobot.ui.mobile_routes.verify_license_key = mock_verify_license_key
     except ImportError as e:

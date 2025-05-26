@@ -12,7 +12,7 @@ Les maquettes partagées montrent une interface avec les caractéristiques suiva
 
 ## Pages HTML existantes
 
-1. **simplified_dashboard.html** - Dashboard principal avec onglets
+1. **dashboard.html** - Dashboard principal avec onglets
 2. **arbitrage.html** - Page d'arbitrage avec graphiques et tableaux
 3. **backtest.html** - Page de backtest avec formulaires et résultats
 4. **mobile_dashboard.html** - Version mobile du dashboard
@@ -61,7 +61,7 @@ body {
 }
 ```
 
-### 2. Modifications du Dashboard (simplified_dashboard.html)
+### 2. Modifications du Dashboard (dashboard.html)
 
 - Remplacer le header par la version avec logo AUTOBOT et bouton Ghost Mode
 - Ajouter les cartes Capital Total, Duplication, Performance
@@ -87,7 +87,7 @@ body {
 
 ### 5. Intégration du Chat SuperAGI
 
-- Ajouter un onglet "Chat" dans simplified_dashboard.html
+- Ajouter un onglet "Chat" dans dashboard.html
 - Créer l'interface de chat avec zone de saisie et historique des messages
 - Connecter l'interface aux WebSockets pour la communication en temps réel
 
@@ -109,7 +109,7 @@ body {
 ## Plan d'implémentation
 
 1. Modifier les fichiers CSS globaux pour appliquer le thème sombre et les couleurs néon
-2. Mettre à jour simplified_dashboard.html pour correspondre à la maquette principale
+2. Mettre à jour dashboard.html pour correspondre à la maquette principale
 3. Adapter les pages existantes (arbitrage.html, backtest.html) au nouveau style
 4. Créer les nouvelles pages (trading.html, capital.html, performance.html)
 5. Intégrer l'interface de chat pour SuperAGI

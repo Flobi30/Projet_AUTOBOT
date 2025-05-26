@@ -379,9 +379,9 @@ curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>
 curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -d '{"data":[{"text":"Nouveau texte à prédire"}]}' http://localhost:8000/api/prediction/predict?model_name=text_model
 ```
 
-#### Accéder au dashboard simplifié avec authentification
+#### Accéder au dashboard complet avec authentification
 ```bash
-curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -H "Accept: text/html" http://localhost:8000/simple/
+curl -H "Authorization: Bearer <jwt>" -H "X-License-Key: <votre_clé_de_licence>" -H "Accept: text/html" http://localhost:8000/dashboard/
 ```
 
 ## Auteur
