@@ -28,13 +28,13 @@ RESPONSE=$(curl -s -i -b "$COOKIE_FILE" -c "$COOKIE_FILE" \
     -d "password=$PASSWORD" \
     -d "license_key=$LICENSE_KEY" \
     -d "csrf_token=$CSRF_TOKEN" \
-    -d "redirect_url=/simple/" \
+    -d "redirect_url=/dashboard/" \
     "$SERVER_URL/login")
 
 if echo "$RESPONSE" | grep -q "302\|303"; then
     log "Authentification réussie! Redirection vers le dashboard."
     
-    DASHBOARD=$(curl -s -b "$COOKIE_FILE" "$SERVER_URL/simple/")
+    DASHBOARD=$(curl -s -b "$COOKIE_FILE" "$SERVER_URL/dashboard/")
     
     if [ $? -eq 0 ]; then
         log "Accès au dashboard réussi."
