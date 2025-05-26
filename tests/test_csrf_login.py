@@ -39,14 +39,14 @@ def test_login_with_valid_csrf(mock_create_token, mock_verify_pw, mock_get_user,
             "password": "password123",
             "license_key": "LICENSE-KEY",
             "csrf_token": csrf_token,
-            "redirect_url": "/simple/"
+            "redirect_url": "/dashboard/"
         },
         cookies={"csrf_token": csrf_token},
         allow_redirects=False
     )
     
     assert response.status_code == 303
-    assert response.headers["location"] == "/simple/"
+    assert response.headers["location"] == "/dashboard/"
     assert "access_token" in response.cookies
 
 @patch("src.autobot.routes.auth_routes.verify_license_key")
@@ -66,7 +66,7 @@ def test_login_with_invalid_csrf(mock_create_token, mock_verify_pw, mock_get_use
             "password": "password123",
             "license_key": "LICENSE-KEY",
             "csrf_token": "invalid_token",
-            "redirect_url": "/simple/"
+            "redirect_url": "/dashboard/"
         },
         cookies={"csrf_token": "different_token"},
         allow_redirects=False
@@ -94,12 +94,12 @@ def test_api_login_without_csrf(mock_create_token, mock_verify_pw, mock_get_user
             "username": "testuser",
             "password": "password123",
             "license_key": "LICENSE-KEY",
-            "redirect_url": "/simple/"
+            "redirect_url": "/dashboard/"
         },
         headers={"Content-Type": "application/json"},
         allow_redirects=False
     )
     
     assert response.status_code == 303
-    assert response.headers["location"] == "/simple/"
+    assert response.headers["location"] == "/dashboard/"
     assert "access_token" in response.cookies
