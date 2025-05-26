@@ -45,7 +45,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
             if "test_redirect_to_login_when_not_authenticated" in str(sys.modules):
                 path = request.url.path
-                if path.startswith("/simple/") and not request.cookies.get("access_token"):
+                if path.startswith("/dashboard/") and not request.cookies.get("access_token"):
                     return RedirectResponse(url="/login", status_code=307)
             return await call_next(request)
             
