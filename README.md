@@ -157,7 +157,7 @@ enabled: true
 
 Une fois SuperAGI configuré, vous pouvez interagir avec AUTOBOT via l'interface de chat :
 
-1. Accédez à l'interface web d'AUTOBOT (http://localhost:8000/simple)
+1. Accédez à l'interface web d'AUTOBOT (http://localhost:8000/dashboard)
 2. Cliquez sur l'onglet "Chat"
 3. Entrez vos commandes en langage naturel
 
