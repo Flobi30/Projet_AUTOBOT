@@ -4,11 +4,15 @@ import uuid
 import logging
 import hashlib
 import time
+import base64
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status, WebSocket
 from starlette.websockets import WebSocketDisconnect
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
 from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key, get_current_user
@@ -31,15 +35,81 @@ class UserManager:
     Handles user authentication, registration, and license management.
     """
     
-    def __init__(self, users_file: str = "users.json"):
+    def __init__(self, users_file: str = "users.json", encryption_key: str = None):
         """
         Initialize the user manager.
         
         Args:
             users_file: Path to the users database file
+            encryption_key: Key for encrypting sensitive data. If None, a key will be derived from SECRET_KEY
         """
         self.users_file = users_file
+        self._setup_encryption(encryption_key)
         self.users = self._load_users()
+        
+    def _setup_encryption(self, encryption_key: str = None):
+        """
+        Set up encryption for sensitive data.
+        
+        Args:
+            encryption_key: Key for encryption. If None, derive from SECRET_KEY
+        """
+        if encryption_key:
+            key_bytes = encryption_key.encode()
+        else:
+            # Derive key from SECRET_KEY
+            salt = b'autobot_salt_for_key_derivation'
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            key_bytes = kdf.derive(SECRET_KEY.encode())
+            
+        self.encryption_key = base64.urlsafe_b64encode(key_bytes)
+        self.cipher = Fernet(self.encryption_key)
+        
+    def _encrypt_data(self, data: str) -> str:
+        """
+        Encrypt sensitive data.
+        
+        Args:
+            data: Data to encrypt
+            
+        Returns:
+            str: Encrypted data as base64 string
+        """
+        if not data:
+            return data
+            
+        try:
+            encrypted = self.cipher.encrypt(data.encode())
+            return base64.urlsafe_b64encode(encrypted).decode()
+        except Exception as e:
+            logger.error(f"Encryption error: {str(e)}")
+            return data
+            
+    def _decrypt_data(self, encrypted_data: str) -> str:
+        """
+        Decrypt sensitive data.
+        
+        Args:
+            encrypted_data: Encrypted data as base64 string
+            
+        Returns:
+            str: Decrypted data
+        """
+        if not encrypted_data:
+            return encrypted_data
+            
+        try:
+            decoded = base64.urlsafe_b64decode(encrypted_data.encode())
+            decrypted = self.cipher.decrypt(decoded)
+            return decrypted.decode()
+        except Exception as e:
+            logger.error(f"Decryption error: {str(e)}")
+            return encrypted_data
         
     def _load_users(self) -> Dict[str, Any]:
         """
@@ -61,10 +131,23 @@ class UserManager:
     def _save_users(self):
         """
         Save users to the database file.
+        Ensures sensitive data is encrypted before saving.
         """
         try:
+            users_to_save = json.loads(json.dumps(self.users))
+            
+            # Encrypt sensitive data in the copy
+            for username, user in users_to_save["users"].items():
+                if "api_keys" in user:
+                    for key_data in user["api_keys"]:
+                        if not key_data.get("encrypted", False) and "key" in key_data:
+                            key_data["key"] = self._encrypt_data(key_data["key"])
+                            key_data["encrypted"] = True
+            
+            # Save the encrypted data
             with open(self.users_file, 'w') as f:
-                json.dump(self.users, f, indent=2)
+                json.dump(users_to_save, f, indent=2)
+                
         except Exception as e:
             logger.error(f"Error saving users file: {str(e)}")
     
@@ -294,17 +377,20 @@ class UserManager:
             if user["id"] == user_id:
                 api_key = f"autobot_{uuid.uuid4().hex}"
                 
+                encrypted_key = self._encrypt_data(api_key)
+                
                 api_key_data = {
-                    "key": api_key,
+                    "key": encrypted_key,
                     "name": name,
                     "permissions": permissions,
                     "created_at": int(time.time()),
-                    "last_used": None
+                    "last_used": None,
+                    "encrypted": True
                 }
                 
                 user["api_keys"].append(api_key_data)
                 self._save_users()
-                return api_key
+                return api_key  # Return unencrypted key to user
         
         return None
     
@@ -320,7 +406,21 @@ class UserManager:
         """
         for username, user in self.users["users"].items():
             for key_data in user["api_keys"]:
-                if key_data["key"] == api_key:
+                stored_key = key_data["key"]
+                
+                if key_data.get("encrypted", False):
+                    decrypted_key = self._decrypt_data(stored_key)
+                    if decrypted_key == api_key:
+                        key_data["last_used"] = int(time.time())
+                        self._save_users()
+                        
+                        return {
+                            "user": self._clean_user_data(user),
+                            "permissions": key_data["permissions"]
+                        }
+                elif stored_key == api_key:
+                    key_data["key"] = self._encrypt_data(api_key)
+                    key_data["encrypted"] = True
                     key_data["last_used"] = int(time.time())
                     self._save_users()
                     
@@ -393,7 +493,17 @@ class UserManager:
             api_keys = []
             for key_data in user_copy["api_keys"]:
                 key_data_copy = key_data.copy()
-                key_data_copy["key"] = key_data_copy["key"][:8] + "..." + key_data_copy["key"][-4:]
+                
+                if key_data.get("encrypted", False):
+                    try:
+                        full_key = self._decrypt_data(key_data_copy["key"])
+                        key_data_copy["key"] = full_key[:8] + "..." + full_key[-4:]
+                    except Exception as e:
+                        logger.error(f"Error decrypting API key for display: {str(e)}")
+                        key_data_copy["key"] = "********"
+                else:
+                    key_data_copy["key"] = key_data_copy["key"][:8] + "..." + key_data_copy["key"][-4:]
+                
                 api_keys.append(key_data_copy)
             
             user_copy["api_keys"] = api_keys

@@ -57,27 +57,104 @@ class WithdrawalImpact:
 
 class WithdrawalAnalyzer:
     def __init__(self):
-        self.total_balance = 10000.0  # Example initial balance
-        self.active_instances = 5
-        self.instance_age_days = 30
-        self.profit_per_day = 100.0
-        self.transactions = []
+        self.transactions_file = "transactions.json"
+        self.transactions = self._load_transactions()
+        
+    def _load_transactions(self) -> List[Dict[str, Any]]:
+        """Load transactions from file if it exists."""
+        import json
+        if os.path.exists(self.transactions_file):
+            try:
+                with open(self.transactions_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading transactions: {str(e)}")
+                return []
+        return []
+        
+    def _save_transactions(self) -> None:
+        """Save transactions to file."""
+        import json
+        try:
+            with open(self.transactions_file, 'w') as f:
+                json.dump(self.transactions, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving transactions: {str(e)}")
     
-    def get_system_metrics(self) -> Dict[str, Any]:
+    def get_system_metrics(self, user_id: str = None) -> Dict[str, Any]:
+        """
+        Get system metrics for a specific user or default metrics if user_id is None.
+        
+        Args:
+            user_id: Optional user ID to get metrics for
+            
+        Returns:
+            Dict: System metrics
+        """
+        default_metrics = {
+            "total_balance": 0.0,
+            "active_instances": 0,
+            "instance_age_days": 0,
+            "profit_per_day": 0.0
+        }
+        
+        if not user_id:
+            return default_metrics
+            
+        # Calculate user balance from transactions
+        user_transactions = [t for t in self.transactions if t.get("user_id") == user_id]
+        
+        total_balance = 0.0
+        for transaction in user_transactions:
+            if transaction["type"] == "deposit":
+                total_balance += transaction["amount"]
+            elif transaction["type"] == "withdrawal":
+                total_balance -= transaction["amount"]
+        
+        profit_transactions = [t for t in user_transactions if t.get("profit", 0) > 0]
+        
+        import datetime
+        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        recent_profits = [
+            t.get("profit", 0) for t in profit_transactions 
+            if t.get("date", "").split()[0] >= thirty_days_ago
+        ]
+        
+        daily_profit = sum(recent_profits) / 30 if recent_profits else 0
+        
+        active_instances = len(set([t.get("instance_id") for t in user_transactions if t.get("instance_id")]))
+        
+        instance_age_days = 30  # Default to 30 days if no instance data
+        
+        if active_instances > 0:
+            instance_dates = [
+                datetime.datetime.strptime(t.get("date", ""), "%Y-%m-%d %H:%M:%S")
+                for t in user_transactions 
+                if t.get("instance_id") and t.get("date")
+            ]
+            
+            if instance_dates:
+                oldest_date = min(instance_dates)
+                instance_age_days = (datetime.datetime.now() - oldest_date).days
+        
         return {
-            "total_balance": self.total_balance,
-            "active_instances": self.active_instances,
-            "instance_age_days": self.instance_age_days,
-            "profit_per_day": self.profit_per_day
+            "total_balance": total_balance,
+            "active_instances": active_instances,
+            "instance_age_days": instance_age_days,
+            "profit_per_day": daily_profit
         }
     
-    def update_system_metrics(self, total_balance: float, active_instances: int, 
-                             new_instance_count: int, instance_age_days: int,
-                             profit_per_day: float) -> None:
-        self.total_balance = total_balance
-        self.active_instances = active_instances
-        self.instance_age_days = instance_age_days
-        self.profit_per_day = profit_per_day
+    def update_system_metrics(self, user_id: str, total_balance: float = None, 
+                             active_instances: int = None, new_instance_count: int = None, 
+                             instance_age_days: int = None, profit_per_day: float = None) -> None:
+        """
+        Update system metrics is no longer needed as metrics are calculated from transactions.
+        This method is kept for backward compatibility.
+        """
+        # System metrics are now calculated from transactions
+        # This method doesn't need to do anything as metrics are derived from transactions
+        pass
     
     def analyze_withdrawal(self, amount: float) -> WithdrawalImpact:
         """Analyze the impact of a withdrawal on the system."""
@@ -108,29 +185,73 @@ class WithdrawalAnalyzer:
             "message": "Recommended withdrawal amount based on current system metrics."
         }
     
-    def record_withdrawal(self, amount: float, impact: WithdrawalImpact) -> None:
-        """Record a withdrawal and its impact."""
-        self.total_balance -= amount
+    def record_withdrawal(self, user_id: str, amount: float, impact: WithdrawalImpact) -> None:
+        """
+        Record a withdrawal and its impact for a specific user.
         
-        import datetime
-        self.transactions.append({
-            "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "type": "withdrawal",
-            "amount": amount,
-            "status": "completed",
-            "status_class": "success"
-        })
+        Args:
+            user_id: User ID
+            amount: Withdrawal amount
+            impact: Withdrawal impact analysis
+        """
+        if not user_id:
+            logger.error("Cannot record withdrawal: Missing user ID")
+            return
+            
+        if amount <= 0:
+            logger.error(f"Cannot record withdrawal: Invalid amount {amount}")
+            return
+            
+        metrics = self.get_system_metrics(user_id)
+        if amount > metrics["total_balance"]:
+            logger.error(f"Cannot record withdrawal: Insufficient funds (requested: {amount}, available: {metrics['total_balance']})")
+            return
+            
+        self.record_transaction(
+            user_id=user_id,
+            transaction_type="withdrawal",
+            amount=amount
+        )
     
-    def record_transaction(self, transaction_type: str, amount: float) -> None:
-        """Record a transaction."""
+    def record_transaction(self, user_id: str, transaction_type: str, amount: float, 
+                           instance_id: str = None, profit: float = 0.0) -> None:
+        """
+        Record a transaction for a specific user.
+        
+        Args:
+            user_id: User ID
+            transaction_type: Type of transaction (deposit, withdrawal)
+            amount: Transaction amount
+            instance_id: Optional instance ID for tracking
+            profit: Optional profit amount
+        """
         import datetime
-        self.transactions.append({
+        
+        if not user_id:
+            logger.error("Cannot record transaction: Missing user ID")
+            return
+            
+        if amount <= 0:
+            logger.error(f"Cannot record transaction: Invalid amount {amount}")
+            return
+            
+        transaction = {
+            "user_id": user_id,
             "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "type": transaction_type,
             "amount": amount,
             "status": "completed",
             "status_class": "success"
-        })
+        }
+        
+        if instance_id:
+            transaction["instance_id"] = instance_id
+            
+        if profit > 0:
+            transaction["profit"] = profit
+            
+        self.transactions.append(transaction)
+        self._save_transactions()
     
     def get_transaction_history(self) -> List[Dict[str, Any]]:
         """Get transaction history."""
@@ -179,83 +300,141 @@ async def deposit_withdrawal_page(request: Request, user: User = Depends(get_cur
 
 @router.post("/api/deposit")
 async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):
-    """Deposit funds."""
+    """
+    Deposit funds to user account.
+    
+    Args:
+        deposit: Deposit request with amount
+        user: Authenticated user
+        
+    Returns:
+        TransactionResponse: Transaction result
+    """
     if deposit.amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
     
     analyzer = get_withdrawal_analyzer()
     
-    system_metrics = analyzer.get_system_metrics()
-    new_balance = system_metrics["total_balance"] + deposit.amount
-    
-    analyzer.update_system_metrics(
-        total_balance=new_balance,
-        active_instances=system_metrics["active_instances"],
-        new_instance_count=0,
-        instance_age_days=analyzer.instance_age_days,
-        profit_per_day=system_metrics["profit_per_day"]
-    )
-    
-    analyzer.record_transaction("deposit", deposit.amount)
-    
-    return TransactionResponse(
-        success=True,
-        message=f"Successfully deposited ${deposit.amount:.2f}",
-        new_balance=new_balance
-    )
+    try:
+        analyzer.record_transaction(
+            user_id=user.id,
+            transaction_type="deposit",
+            amount=deposit.amount
+        )
+        
+        system_metrics = analyzer.get_system_metrics(user_id=user.id)
+        
+        return TransactionResponse(
+            success=True,
+            message=f"Successfully deposited ${deposit.amount:.2f}",
+            new_balance=system_metrics["total_balance"]
+        )
+    except Exception as e:
+        logger.error(f"Deposit error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing deposit: {str(e)}")
+
 
 @router.post("/api/withdraw")
 async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get_current_user)):
-    """Withdraw funds."""
+    """
+    Withdraw funds from user account.
+    
+    Args:
+        withdrawal: Withdrawal request with amount
+        user: Authenticated user
+        
+    Returns:
+        TransactionResponse: Transaction result with impact analysis
+    """
+    # Validate withdrawal amount
     if withdrawal.amount <= 0: 
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
     
     analyzer = get_withdrawal_analyzer()
     
-    system_metrics = analyzer.get_system_metrics()
+    system_metrics = analyzer.get_system_metrics(user_id=user.id)
     
     if withdrawal.amount > system_metrics["total_balance"]:
         raise HTTPException(status_code=400, detail="Insufficient funds")
     
-    impact = analyzer.analyze_withdrawal(withdrawal.amount)
-    
-    analyzer.record_withdrawal(withdrawal.amount, impact)
-    
-    updated_metrics = analyzer.get_system_metrics()
-    
-    return TransactionResponse(
-        success=True,
-        message=f"Successfully withdrew ${withdrawal.amount:.2f}",
-        new_balance=updated_metrics["total_balance"],
-        impact=impact.to_dict()
-    )
+    try:
+        impact = analyzer.analyze_withdrawal(withdrawal.amount)
+        
+        analyzer.record_withdrawal(user_id=user.id, amount=withdrawal.amount, impact=impact)
+        
+        updated_metrics = analyzer.get_system_metrics(user_id=user.id)
+        
+        return TransactionResponse(
+            success=True,
+            message=f"Successfully withdrew ${withdrawal.amount:.2f}",
+            new_balance=updated_metrics["total_balance"],
+            impact=impact.to_dict()
+        )
+    except Exception as e:
+        logger.error(f"Withdrawal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing withdrawal: {str(e)}")
+
 
 @router.get("/api/analyze-withdrawal")
 async def analyze_withdrawal_route(amount: float, user: User = Depends(get_current_user)):
-    """Analyze withdrawal impact."""
+    """
+    Analyze withdrawal impact for a specific user.
+    
+    Args:
+        amount: Withdrawal amount to analyze
+        user: Authenticated user
+        
+    Returns:
+        Dict: Analysis result with impact metrics
+    """
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
     
     analyzer = get_withdrawal_analyzer()
     
-    system_metrics = analyzer.get_system_metrics()
+    system_metrics = analyzer.get_system_metrics(user_id=user.id)
     
     if amount > system_metrics["total_balance"]:
         raise HTTPException(status_code=400, detail="Insufficient funds")
     
-    impact = analyzer.analyze_withdrawal(amount)
-    
-    return {
-        "amount": amount,
-        "impact": impact.to_dict()
-    }
+    try:
+        impact = analyzer.analyze_withdrawal(amount)
+        
+        return {
+            "amount": amount,
+            "impact": impact.to_dict(),
+            "current_balance": system_metrics["total_balance"]
+        }
+    except Exception as e:
+        logger.error(f"Withdrawal analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing withdrawal: {str(e)}")
+
 
 @router.get("/api/transaction-history")
 async def get_transaction_history(user: User = Depends(get_current_user)):
-    """Get transaction history."""
-    analyzer = get_withdrawal_analyzer()
-    transactions = analyzer.get_transaction_history()
+    """
+    Get transaction history for the authenticated user.
     
-    return {
-        "transactions": transactions
-    }
+    Args:
+        user: Authenticated user
+        
+    Returns:
+        Dict: User's transaction history
+    """
+    analyzer = get_withdrawal_analyzer()
+    
+    try:
+        # Get all transactions
+        all_transactions = analyzer.get_transaction_history()
+        
+        user_transactions = [
+            t for t in all_transactions 
+            if t.get("user_id") == user.id
+        ]
+        
+        return {
+            "transactions": user_transactions
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving transaction history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving transaction history: {str(e)}")

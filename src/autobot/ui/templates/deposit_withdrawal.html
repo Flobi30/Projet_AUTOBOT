@@ -62,22 +62,24 @@
             <div class="grid">
                 <div class="card">
                     <h2>Dépôt de Fonds</h2>
-                    <form id="deposit-form" action="/api/deposit" method="POST">
+                    <form id="deposit-form">
                         <div class="form-group">
                             <label for="deposit-amount">Montant</label>
                             <input type="number" id="deposit-amount" name="amount" class="form-control" min="1" step="0.01" required>
                         </div>
+                        <div class="form-feedback" id="deposit-feedback" style="display: none;"></div>
                         <button type="submit" class="btn btn-primary">Déposer</button>
                     </form>
                 </div>
                 
                 <div class="card">
                     <h2>Retrait de Fonds</h2>
-                    <form id="withdrawal-form" action="/api/withdraw" method="POST">
+                    <form id="withdrawal-form">
                         <div class="form-group">
                             <label for="withdrawal-amount">Montant</label>
                             <input type="number" id="withdrawal-amount" name="amount" class="form-control" min="1" step="0.01" required>
                         </div>
+                        <div class="form-feedback" id="withdrawal-feedback" style="display: none;"></div>
                         <button type="submit" class="btn btn-primary">Retirer</button>
                     </form>
                     
@@ -166,6 +168,10 @@
             // Use optimal withdrawal amount
             const useOptimalBtn = document.getElementById('use-optimal');
             const withdrawalAmountInput = document.getElementById('withdrawal-amount');
+            const depositForm = document.getElementById('deposit-form');
+            const withdrawalForm = document.getElementById('withdrawal-form');
+            const depositFeedback = document.getElementById('deposit-feedback');
+            const withdrawalFeedback = document.getElementById('withdrawal-feedback');
             
             if (useOptimalBtn && withdrawalAmountInput) {
                 useOptimalBtn.addEventListener('click', function(e) {
@@ -178,10 +184,120 @@
                 });
             }
             
-            // Analyze withdrawal impact
-            const withdrawalForm = document.getElementById('withdrawal-form');
+            // Handle deposit form submission
+            if (depositForm) {
+                depositForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const amount = parseFloat(document.getElementById('deposit-amount').value);
+                    
+                    // Validate amount
+                    if (isNaN(amount) || amount <= 0) {
+                        showFormFeedback(depositFeedback, 'Veuillez entrer un montant valide supérieur à 0', 'error');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const submitBtn = depositForm.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Traitement...';
+                    submitBtn.disabled = true;
+                    
+                    // Submit deposit request
+                    fetch('/api/deposit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ amount: amount })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Erreur HTTP: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showFormFeedback(depositFeedback, data.message || 'Dépôt effectué avec succès', 'success');
+                            depositForm.reset();
+                            
+                            // Refresh transaction history after successful deposit
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        } else {
+                            showFormFeedback(depositFeedback, data.message || 'Erreur lors du dépôt', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showFormFeedback(depositFeedback, `Erreur: ${error.message}`, 'error');
+                    })
+                    .finally(() => {
+                        // Restore button state
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    });
+                });
+            }
             
+            // Handle withdrawal form submission
             if (withdrawalForm) {
+                withdrawalForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const amount = parseFloat(document.getElementById('withdrawal-amount').value);
+                    
+                    // Validate amount
+                    if (isNaN(amount) || amount <= 0) {
+                        showFormFeedback(withdrawalFeedback, 'Veuillez entrer un montant valide supérieur à 0', 'error');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const submitBtn = withdrawalForm.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Traitement...';
+                    submitBtn.disabled = true;
+                    
+                    // Submit withdrawal request
+                    fetch('/api/withdraw', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ amount: amount })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Erreur HTTP: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showFormFeedback(withdrawalFeedback, data.message || 'Retrait effectué avec succès', 'success');
+                            withdrawalForm.reset();
+                            
+                            // Refresh transaction history after successful withdrawal
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        } else {
+                            showFormFeedback(withdrawalFeedback, data.message || 'Erreur lors du retrait', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showFormFeedback(withdrawalFeedback, `Erreur: ${error.message}`, 'error');
+                    })
+                    .finally(() => {
+                        // Restore button state
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    });
+                });
+                
+                // Analyze withdrawal impact on input change
                 withdrawalAmountInput.addEventListener('input', function() {
                     const amount = parseFloat(this.value);
                     if (!isNaN(amount) && amount > 0) {
@@ -192,10 +308,31 @@
                 });
             }
             
+            // Function to show form feedback
+            function showFormFeedback(element, message, type) {
+                if (!element) return;
+                
+                element.textContent = message;
+                element.className = `form-feedback ${type}`;
+                element.style.display = 'block';
+                
+                // Auto-hide success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        element.style.display = 'none';
+                    }, 5000);
+                }
+            }
+            
             // Function to analyze withdrawal impact
             function analyzeWithdrawal(amount) {
                 fetch(`/api/analyze-withdrawal?amount=${amount}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Erreur HTTP: ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(data => {
                         document.getElementById('withdrawal-impact').style.display = 'block';
                         
@@ -208,6 +345,7 @@
                     })
                     .catch(error => {
                         console.error('Error analyzing withdrawal:', error);
+                        showFormFeedback(withdrawalFeedback, `Erreur d'analyse: ${error.message}`, 'error');
                     });
             }
             

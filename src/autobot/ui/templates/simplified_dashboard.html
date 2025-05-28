@@ -362,22 +362,24 @@
                 <div class="grid">
                     <div class="card">
                         <h2>Deposit Funds</h2>
-                        <form id="deposit-form" action="/api/deposit" method="POST">
+                        <form id="deposit-form">
                             <div class="form-group">
                                 <label for="deposit-amount">Amount</label>
                                 <input type="number" id="deposit-amount" name="amount" class="form-control" min="1" step="0.01" required>
                             </div>
+                            <div class="form-feedback" id="deposit-feedback" style="display: none;"></div>
                             <button type="submit" class="btn btn-primary">Deposit</button>
                         </form>
                     </div>
                     
                     <div class="card">
                         <h2>Withdraw Funds</h2>
-                        <form id="withdrawal-form" action="/api/withdraw" method="POST">
+                        <form id="withdrawal-form">
                             <div class="form-group">
                                 <label for="withdrawal-amount">Amount</label>
                                 <input type="number" id="withdrawal-amount" name="amount" class="form-control" min="1" step="0.01" required>
                             </div>
+                            <div class="form-feedback" id="withdrawal-feedback" style="display: none;"></div>
                             <button type="submit" class="btn btn-primary">Withdraw</button>
                         </form>
                         
@@ -444,7 +446,7 @@
                     <span class="api-status-text">Binance: {% if binance_connected %}Connected{% else %}Not Connected{% endif %}</span>
                 </div>
                 
-                <form id="binance-api-form" action="/api/keys/binance" method="POST">
+                <form id="binance-api-form">
                     <div class="form-group">
                         <label for="binance-api-key">API Key</label>
                         <input type="text" id="binance-api-key" name="api_key" class="form-control" value="{{ binance_api_key }}" required>
@@ -453,6 +455,7 @@
                         <label for="binance-api-secret">API Secret</label>
                         <input type="password" id="binance-api-secret" name="api_secret" class="form-control" value="{{ binance_api_secret }}" required>
                     </div>
+                    <div class="form-feedback" id="binance-api-feedback" style="display: none;"></div>
                     <button type="submit" class="btn btn-primary">Save Binance API Keys</button>
                 </form>
                 
@@ -463,7 +466,7 @@
                     <span class="api-status-text">Coinbase: {% if coinbase_connected %}Connected{% else %}Not Connected{% endif %}</span>
                 </div>
                 
-                <form id="coinbase-api-form" action="/api/keys/coinbase" method="POST">
+                <form id="coinbase-api-form">
                     <div class="form-group">
                         <label for="coinbase-api-key">API Key</label>
                         <input type="text" id="coinbase-api-key" name="api_key" class="form-control" value="{{ coinbase_api_key }}" required>
@@ -472,6 +475,7 @@
                         <label for="coinbase-api-secret">API Secret</label>
                         <input type="password" id="coinbase-api-secret" name="api_secret" class="form-control" value="{{ coinbase_api_secret }}" required>
                     </div>
+                    <div class="form-feedback" id="coinbase-api-feedback" style="display: none;"></div>
                     <button type="submit" class="btn btn-primary">Save Coinbase API Keys</button>
                 </form>
                 
@@ -482,7 +486,7 @@
                     <span class="api-status-text">Kraken: {% if kraken_connected %}Connected{% else %}Not Connected{% endif %}</span>
                 </div>
                 
-                <form id="kraken-api-form" action="/api/keys/kraken" method="POST">
+                <form id="kraken-api-form">
                     <div class="form-group">
                         <label for="kraken-api-key">API Key</label>
                         <input type="text" id="kraken-api-key" name="api_key" class="form-control" value="{{ kraken_api_key }}" required>
@@ -491,6 +495,7 @@
                         <label for="kraken-api-secret">API Secret</label>
                         <input type="password" id="kraken-api-secret" name="api_secret" class="form-control" value="{{ kraken_api_secret }}" required>
                     </div>
+                    <div class="form-feedback" id="kraken-api-feedback" style="display: none;"></div>
                     <button type="submit" class="btn btn-primary">Save Kraken API Keys</button>
                 </form>
             </div>
@@ -689,6 +694,232 @@
                 if (value < 0.6) return '#ffd600';  // Yellow
                 if (value < 0.8) return '#ff6d00';  // Orange
                 return '#d50000';  // Red
+            }
+            
+            // API form submission handlers
+            const binanceApiForm = document.getElementById('binance-api-form');
+            const coinbaseApiForm = document.getElementById('coinbase-api-form');
+            const krakenApiForm = document.getElementById('kraken-api-form');
+            
+            if (binanceApiForm) {
+                binanceApiForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    submitApiForm('binance', this);
+                });
+            }
+            
+            if (coinbaseApiForm) {
+                coinbaseApiForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    submitApiForm('coinbase', this);
+                });
+            }
+            
+            if (krakenApiForm) {
+                krakenApiForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    submitApiForm('kraken', this);
+                });
+            }
+            
+            function submitApiForm(exchange, form) {
+                const apiKey = document.getElementById(`${exchange}-api-key`).value;
+                const apiSecret = document.getElementById(`${exchange}-api-secret`).value;
+                const feedbackElement = document.getElementById(`${exchange}-api-feedback`);
+                
+                // Validate inputs
+                if (!apiKey || !apiSecret) {
+                    showFormFeedback(feedbackElement, 'API Key and Secret are required', 'error');
+                    return;
+                }
+                
+                // Show loading state
+                const submitBtn = form.querySelector('button[type="submit"]');
+                const originalText = submitBtn.textContent;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+                submitBtn.disabled = true;
+                
+                // Submit to server
+                fetch(`/api/keys/${exchange}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        api_key: apiKey,
+                        api_secret: apiSecret
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showFormFeedback(feedbackElement, data.message || `${exchange.charAt(0).toUpperCase() + exchange.slice(1)} API keys saved successfully`, 'success');
+                        
+                        // Update status indicator
+                        const statusIndicator = document.querySelector(`.api-status:has(.api-status-text:contains('${exchange.charAt(0).toUpperCase() + exchange.slice(1)}')) .status-indicator`);
+                        if (statusIndicator) {
+                            statusIndicator.className = 'status-indicator status-active';
+                        }
+                        
+                        const statusText = document.querySelector(`.api-status-text:contains('${exchange.charAt(0).toUpperCase() + exchange.slice(1)}')`);
+                        if (statusText) {
+                            statusText.textContent = `${exchange.charAt(0).toUpperCase() + exchange.slice(1)}: Connected`;
+                        }
+                    } else {
+                        showFormFeedback(feedbackElement, data.message || 'Error saving API keys', 'error');
+                    }
+                })
+                .catch(error => {
+                    showFormFeedback(feedbackElement, `Error: ${error.message}`, 'error');
+                })
+                .finally(() => {
+                    // Restore button state
+                    submitBtn.innerHTML = originalText;
+                    submitBtn.disabled = false;
+                });
+            }
+            
+            // Deposit form handler
+            const depositForm = document.getElementById('deposit-form');
+            if (depositForm) {
+                depositForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const amount = parseFloat(document.getElementById('deposit-amount').value);
+                    const feedbackElement = document.getElementById('deposit-feedback');
+                    
+                    // Validate amount
+                    if (isNaN(amount) || amount <= 0) {
+                        showFormFeedback(feedbackElement, 'Please enter a valid amount greater than 0', 'error');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const submitBtn = this.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                    submitBtn.disabled = true;
+                    
+                    // Submit to server
+                    fetch('/api/deposit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            amount: amount
+                        })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showFormFeedback(feedbackElement, data.message || 'Deposit successful', 'success');
+                            this.reset();
+                            
+                            // Refresh page after successful deposit
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        } else {
+                            showFormFeedback(feedbackElement, data.message || 'Error processing deposit', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showFormFeedback(feedbackElement, `Error: ${error.message}`, 'error');
+                    })
+                    .finally(() => {
+                        // Restore button state
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    });
+                });
+            }
+            
+            // Withdrawal form handler
+            const withdrawalForm = document.getElementById('withdrawal-form');
+            if (withdrawalForm) {
+                withdrawalForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    const amount = parseFloat(document.getElementById('withdrawal-amount').value);
+                    const feedbackElement = document.getElementById('withdrawal-feedback');
+                    
+                    // Validate amount
+                    if (isNaN(amount) || amount <= 0) {
+                        showFormFeedback(feedbackElement, 'Please enter a valid amount greater than 0', 'error');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const submitBtn = this.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                    submitBtn.disabled = true;
+                    
+                    // Submit to server
+                    fetch('/api/withdraw', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            amount: amount
+                        })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            showFormFeedback(feedbackElement, data.message || 'Withdrawal successful', 'success');
+                            this.reset();
+                            
+                            // Refresh page after successful withdrawal
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        } else {
+                            showFormFeedback(feedbackElement, data.message || 'Error processing withdrawal', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showFormFeedback(feedbackElement, `Error: ${error.message}`, 'error');
+                    })
+                    .finally(() => {
+                        // Restore button state
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                    });
+                });
+            }
+            
+            // Function to show form feedback
+            function showFormFeedback(element, message, type) {
+                if (!element) return;
+                
+                element.textContent = message;
+                element.className = `form-feedback ${type}`;
+                element.style.display = 'block';
+                
+                // Auto-hide success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        element.style.display = 'none';
+                    }, 5000);
+                }
             }
             
             // Chat functionality

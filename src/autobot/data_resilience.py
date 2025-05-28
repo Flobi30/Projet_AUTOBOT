@@ -13,10 +13,14 @@ import os
 import hashlib
 import random
 import shutil
+import base64
 from typing import Dict, List, Any, Optional, Tuple, Callable, Union
 from datetime import datetime, timedelta
 import numpy as np
 from collections import deque
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,7 @@ class DataResilience:
         auto_recovery: bool = True,
         compression_level: int = 6,
         encryption_enabled: bool = False,
+        encryption_key: str = None,
         visible_interface: bool = True
     ):
         """
@@ -54,6 +59,7 @@ class DataResilience:
             auto_recovery: Whether to automatically recover corrupted data
             compression_level: Compression level for backups (0-9)
             encryption_enabled: Whether to encrypt backups
+            encryption_key: Key for encryption. If None, a key will be derived
             visible_interface: Whether to show data messages in the interface
         """
         self.data_dir = os.path.abspath(data_dir)
@@ -73,6 +79,7 @@ class DataResilience:
         self._backup_registry = {}
         self._integrity_registry = {}
         self._lock = threading.Lock()
+        self._cipher = None
         
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.backup_dir, exist_ok=True)
@@ -81,8 +88,83 @@ class DataResilience:
             os.makedirs(os.path.join(self.data_dir, subdir), exist_ok=True)
             os.makedirs(os.path.join(self.backup_dir, subdir), exist_ok=True)
         
+        if self.encryption_enabled:
+            self._setup_encryption(encryption_key)
+            
         if auto_backup:
             self.start_monitoring()
+            
+    def _setup_encryption(self, encryption_key: str = None) -> None:
+        """
+        Set up encryption for sensitive data.
+        
+        Args:
+            encryption_key: Key for encryption. If None, a key will be derived
+        """
+        try:
+            if encryption_key:
+                key_bytes = encryption_key.encode()
+                if len(key_bytes) != 32:
+                    salt = b'autobot_data_resilience_salt'
+                    kdf = PBKDF2HMAC(
+                        algorithm=hashes.SHA256(),
+                        length=32,
+                        salt=salt,
+                        iterations=100000,
+                    )
+                    key_bytes = kdf.derive(key_bytes)
+            else:
+                key_bytes = Fernet.generate_key()
+                
+                key_path = os.path.join(self.data_dir, "system", ".encryption_key")
+                with open(key_path, 'wb') as f:
+                    f.write(key_bytes)
+                os.chmod(key_path, 0o600)  # Restrict permissions
+                
+            self._cipher = Fernet(base64.urlsafe_b64encode(key_bytes[:32]))
+            logger.info("Encryption initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error setting up encryption: {str(e)}")
+            self.encryption_enabled = False
+            
+    def _encrypt_data(self, data: bytes) -> bytes:
+        """
+        Encrypt data.
+        
+        Args:
+            data: Data to encrypt
+            
+        Returns:
+            bytes: Encrypted data
+        """
+        if not self.encryption_enabled or self._cipher is None:
+            return data
+            
+        try:
+            return self._cipher.encrypt(data)
+        except Exception as e:
+            logger.error(f"Encryption error: {str(e)}")
+            return data
+            
+    def _decrypt_data(self, encrypted_data: bytes) -> bytes:
+        """
+        Decrypt data.
+        
+        Args:
+            encrypted_data: Encrypted data
+            
+        Returns:
+            bytes: Decrypted data
+        """
+        if not self.encryption_enabled or self._cipher is None:
+            return encrypted_data
+            
+        try:
+            return self._cipher.decrypt(encrypted_data)
+        except Exception as e:
+            logger.error(f"Decryption error: {str(e)}")
+            return encrypted_data
     
     def register_data(
         self,
@@ -274,10 +356,28 @@ class DataResilience:
                 backup_filename = f"{name}_{timestamp}"
                 
                 backup_path = os.path.join(self.backup_dir, data["type"], backup_filename)
+                encrypted = False
                 
                 if os.path.isfile(data["path"]):
-                    shutil.copy2(data["path"], backup_path)
+                    if self.encryption_enabled and self._cipher is not None and data["type"] in ["user", "system"]:
+                        try:
+                            with open(data["path"], 'rb') as f:
+                                file_data = f.read()
+                            
+                            encrypted_data = self._encrypt_data(file_data)
+                            
+                            with open(backup_path, 'wb') as f:
+                                f.write(encrypted_data)
+                                
+                            encrypted = True
+                            logger.debug(f"Encrypted backup created for {name}")
+                        except Exception as e:
+                            logger.error(f"Error encrypting backup for {name}: {str(e)}")
+                            shutil.copy2(data["path"], backup_path)
+                    else:
+                        shutil.copy2(data["path"], backup_path)
                 elif os.path.isdir(data["path"]):
+                    # For directories, we currently don't encrypt the entire directory
                     shutil.copytree(data["path"], backup_path)
                 
                 self._backup_registry[backup_filename] = {
@@ -287,7 +387,8 @@ class DataResilience:
                     "original_path": data["path"],
                     "timestamp": time.time(),
                     "checksum": self._calculate_checksum(backup_path),
-                    "size": self._get_size(backup_path)
+                    "size": self._get_size(backup_path),
+                    "encrypted": encrypted
                 }
                 
                 data["last_backup"] = time.time()
@@ -425,7 +526,22 @@ class DataResilience:
                     recovery_path = data["path"] + ".recovered"
                     
                     if os.path.isfile(backup["path"]):
-                        shutil.copy2(backup["path"], recovery_path)
+                        if backup.get("encrypted", False) and self.encryption_enabled and self._cipher is not None:
+                            try:
+                                with open(backup["path"], 'rb') as f:
+                                    encrypted_data = f.read()
+                                
+                                decrypted_data = self._decrypt_data(encrypted_data)
+                                
+                                with open(recovery_path, 'wb') as f:
+                                    f.write(decrypted_data)
+                                    
+                                logger.debug(f"Decrypted backup for recovery: {name}")
+                            except Exception as e:
+                                logger.error(f"Error decrypting backup for {name}: {str(e)}")
+                                shutil.copy2(backup["path"], recovery_path)
+                        else:
+                            shutil.copy2(backup["path"], recovery_path)
                     elif os.path.isdir(backup["path"]):
                         if os.path.exists(recovery_path):
                             shutil.rmtree(recovery_path)
@@ -433,7 +549,9 @@ class DataResilience:
                     
                     recovery_checksum = self._calculate_checksum(recovery_path)
                     
-                    if recovery_checksum == backup["checksum"]:
+                    checksum_valid = (recovery_checksum == backup["checksum"]) or backup.get("encrypted", False)
+                    
+                    if checksum_valid:
                         corrupted_path = data["path"] + ".corrupted"
                         
                         if os.path.exists(corrupted_path):
@@ -452,7 +570,7 @@ class DataResilience:
                         elif os.path.isdir(recovery_path):
                             shutil.move(recovery_path, data["path"])
                         
-                        data["checksum"] = recovery_checksum
+                        data["checksum"] = self._calculate_checksum(data["path"])
                         data["status"] = "recovered"
                         
                         if self.visible_interface:
@@ -594,6 +712,8 @@ def create_data_resilience(
     backup_dir: str = "backups",
     auto_backup: bool = True,
     auto_recovery: bool = True,
+    encryption_enabled: bool = True,
+    encryption_key: str = None,
     visible_interface: bool = True
 ) -> DataResilience:
     """
@@ -604,6 +724,8 @@ def create_data_resilience(
         backup_dir: Directory for storing backups
         auto_backup: Whether to automatically backup data
         auto_recovery: Whether to automatically recover corrupted data
+        encryption_enabled: Whether to encrypt sensitive data
+        encryption_key: Key for encryption. If None, a key will be derived
         visible_interface: Whether to show data messages in the interface
         
     Returns:
@@ -614,5 +736,7 @@ def create_data_resilience(
         backup_dir=backup_dir,
         auto_backup=auto_backup,
         auto_recovery=auto_recovery,
+        encryption_enabled=encryption_enabled,
+        encryption_key=encryption_key,
         visible_interface=visible_interface
     )

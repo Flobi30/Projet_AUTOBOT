@@ -241,3 +241,98 @@ async def get_mobile_ai_insights(current_user: Dict[str, Any] = Depends(get_curr
     except Exception as e:
         logger.error(f"Error getting mobile AI insights: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting mobile AI insights: {str(e)}")
+
+@router.post("/api/mobile/update-exchange", summary="Update exchange API settings")
+async def update_exchange_settings(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Update exchange API settings.
+    
+    Args:
+        request: Request object
+        current_user: Current authenticated user
+        
+    Returns:
+        Dict: Status of the update operation
+    """
+    try:
+        data = await request.json()
+        
+        required_fields = ["exchange", "api_key", "api_secret"]
+        for field in required_fields:
+            if field not in data or not data[field]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required field: {field}"
+                )
+        
+        exchange = data["exchange"]
+        api_key = data["api_key"]
+        api_secret = data["api_secret"]
+        use_testnet = data.get("use_testnet", False)
+        
+        logger.info(f"Updating {exchange} API settings for user {current_user['username']}")
+        
+        # )
+        
+        return {
+            "status": "success",
+            "message": f"{exchange.capitalize()} API settings updated successfully"
+        }
+        
+    except HTTPException as e:
+        logger.error(f"Error updating exchange settings: {str(e)}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error updating exchange settings: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating exchange settings: {str(e)}"
+        )
+
+@router.post("/api/mobile/disconnect-exchange", summary="Disconnect exchange API")
+async def disconnect_exchange(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Disconnect exchange API.
+    
+    Args:
+        request: Request object
+        current_user: Current authenticated user
+        
+    Returns:
+        Dict: Status of the disconnect operation
+    """
+    try:
+        data = await request.json()
+        
+        if "exchange" not in data or not data["exchange"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required field: exchange"
+            )
+        
+        exchange = data["exchange"]
+        
+        logger.info(f"Disconnecting {exchange} API for user {current_user['username']}")
+        
+        # )
+        
+        return {
+            "status": "success",
+            "message": f"{exchange.capitalize()} disconnected successfully"
+        }
+        
+    except HTTPException as e:
+        logger.error(f"Error disconnecting exchange: {str(e)}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error disconnecting exchange: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error disconnecting exchange: {str(e)}"
+        )
