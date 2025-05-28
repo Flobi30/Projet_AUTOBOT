@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Dashboard</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #1eff00;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            min-height: 100vh;
+        }
+        .sidebar {
+            background-color: #111;
+            padding: 20px;
+            border-right: 1px solid #1eff00;
+        }
+        .logo-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            width: 150px;
+            margin-bottom: 10px;
+        }
+        .nav-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .nav-item {
+            margin-bottom: 10px;
+        }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            color: #1eff00;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .nav-link:hover, .nav-link.active {
+            background-color: #1eff0022;
+        }
+        .nav-icon {
+            margin-right: 10px;
+            font-size: 18px;
+        }
+        .main-content {
+            padding: 30px;
+            overflow-y: auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .page-title {
+            font-size: 28px;
+            margin: 0;
+        }
+        .user-menu {
+            display: flex;
+            align-items: center;
+        }
+        .notification-icon {
+            margin-right: 20px;
+            font-size: 20px;
+            position: relative;
+        }
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background-color: #ff3e3e;
+            color: white;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .user-profile {
+            display: flex;
+            align-items: center;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #1eff00;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: auto auto;
+            gap: 20px;
+        }
+        .dashboard-card {
+            background-color: #111;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 3px solid #1eff00;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .card-title {
+            font-size: 18px;
+            margin: 0;
+        }
+        .card-actions {
+            font-size: 16px;
+        }
+        .portfolio-summary {
+            grid-column: span 2;
+        }
+        .portfolio-value {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .portfolio-change {
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        .portfolio-chart {
+            height: 200px;
+            background-color: #0a0a0a;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .positive {
+            color: #1eff00;
+        }
+        .negative {
+            color: #ff3e3e;
+        }
+        .asset-distribution {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+        }
+        .asset-item {
+            flex: 1;
+            text-align: center;
+        }
+        .asset-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .asset-name {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        .recent-trades {
+            grid-column: span 3;
+        }
+        .trade-list {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+        }
+        .trade-header {
+            font-weight: bold;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+        .trade-row {
+            padding: 10px 0;
+            border-bottom: 1px solid #222;
+        }
+        .trade-buy {
+            color: #1eff00;
+        }
+        .trade-sell {
+            color: #ff3e3e;
+        }
+        .ai-insights {
+            grid-column: span 2;
+        }
+        .insight-item {
+            padding: 10px 0;
+            border-bottom: 1px solid #222;
+        }
+        .insight-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .ecommerce-opportunities {
+            grid-column: span 1;
+        }
+        .opportunity-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #222;
+        }
+        .opportunity-icon {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+        .opportunity-details {
+            flex: 1;
+        }
+        .opportunity-title {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        .opportunity-profit {
+            color: #1eff00;
+        }
+        .deposit-withdraw {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .action-button {
+            flex: 1;
+            background-color: #111;
+            color: #1eff00;
+            border: 1px solid #1eff00;
+            border-radius: 4px;
+            padding: 12px;
+            text-align: center;
+            font-weight: bold;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        .action-button:hover {
+            background-color: #1eff0022;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo-container">
+                <img src="logo.png" alt="AUTOBOT Logo" class="logo">
+                <h2>AUTOBOT</h2>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="/dashboard" class="nav-link active">
+                        <span class="nav-icon">📊</span>
+                        Dashboard
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/trading" class="nav-link">
+                        <span class="nav-icon">📈</span>
+                        Trading
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/ecommerce" class="nav-link">
+                        <span class="nav-icon">🛒</span>
+                        E-commerce
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/rl-training" class="nav-link">
+                        <span class="nav-icon">🧠</span>
+                        IA & Apprentissage
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/agents" class="nav-link">
+                        <span class="nav-icon">🤖</span>
+                        Agents
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/performance" class="nav-link">
+                        <span class="nav-icon">📉</span>
+                        Performance
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/settings" class="nav-link">
+                        <span class="nav-icon">⚙️</span>
+                        Paramètres
+                    </a>
+                </li>
+            </ul>
+        </div>
+        
+        <div class="main-content">
+            <div class="header">
+                <h1 class="page-title">Dashboard</h1>
+                <div class="user-menu">
+                    <div class="notification-icon">
+                        🔔
+                        <span class="notification-badge">3</span>
+                    </div>
+                    <div class="user-profile">
+                        <div class="user-avatar">F</div>
+                        <div>Florent B.</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="deposit-withdraw">
+                <a href="/deposit" class="action-button">DÉPÔT</a>
+                <a href="/withdraw" class="action-button">RETRAIT</a>
+            </div>
+            
+            <div class="dashboard-grid">
+                <div class="dashboard-card portfolio-summary">
+                    <div class="card-header">
+                        <h2 class="card-title">Portfolio</h2>
+                        <div class="card-actions">⋮</div>
+                    </div>
+                    <div class="portfolio-value">12,450.78 €</div>
+                    <div class="portfolio-change positive">+2.4% (+290.45 €) aujourd'hui</div>
+                    <div class="portfolio-chart">[Graphique Portfolio]</div>
+                    <div class="asset-distribution">
+                        <div class="asset-item">
+                            <div class="asset-value">5,230.45 €</div>
+                            <div class="asset-name">BTC (42%)</div>
+                        </div>
+                        <div class="asset-item">
+                            <div class="asset-value">3,120.33 €</div>
+                            <div class="asset-name">ETH (25%)</div>
+                        </div>
+                        <div class="asset-item">
+                            <div class="asset-value">4,100.00 €</div>
+                            <div class="asset-name">EUR (33%)</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Statistiques</h2>
+                        <div class="card-actions">⋮</div>
+                    </div>
+                    <div>
+                        <div>Profit Mensuel: <span class="positive">+1,245.30 €</span></div>
+                        <div>ROI: <span class="positive">+24.9%</span></div>
+                        <div>Drawdown Max: <span class="negative">-3.2%</span></div>
+                        <div>Trades Gagnants: <span>68%</span></div>
+                        <div>Ratio Sharpe: <span>2.4</span></div>
+                        <div>Ratio Sortino: <span>3.1</span></div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-card recent-trades">
+                    <div class="card-header">
+                        <h2 class="card-title">Transactions Récentes</h2>
+                        <div class="card-actions">⋮</div>
+                    </div>
+                    <div class="trade-list">
+                        <div class="trade-header">Paire</div>
+                        <div class="trade-header">Type</div>
+                        <div class="trade-header">Prix</div>
+                        <div class="trade-header">Montant</div>
+                        <div class="trade-header">Heure</div>
+                        
+                        <div class="trade-row">BTC/EUR</div>
+                        <div class="trade-row trade-buy">ACHAT</div>
+                        <div class="trade-row">28,450.00 €</div>
+                        <div class="trade-row">0.05 BTC</div>
+                        <div class="trade-row">15:30</div>
+                        
+                        <div class="trade-row">ETH/EUR</div>
+                        <div class="trade-row trade-sell">VENTE</div>
+                        <div class="trade-row">1,820.75 €</div>
+                        <div class="trade-row">1.2 ETH</div>
+                        <div class="trade-row">14:45</div>
+                        
+                        <div class="trade-row">XRP/EUR</div>
+                        <div class="trade-row trade-buy">ACHAT</div>
+                        <div class="trade-row">0.52 €</div>
+                        <div class="trade-row">500 XRP</div>
+                        <div class="trade-row">13:15</div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-card ai-insights">
+                    <div class="card-header">
+                        <h2 class="card-title">Insights IA</h2>
+                        <div class="card-actions">⋮</div>
+                    </div>
+                    <div class="insight-item">
+                        <div class="insight-title">Tendance du Marché</div>
+                        <div>BTC montre un pattern haussier avec un support fort à 27,800€. Envisagez d'augmenter votre position si le prix se maintient au-dessus de ce niveau.</div>
+                    </div>
+                    <div class="insight-item">
+                        <div class="insight-title">Suggestion Portfolio</div>
+                        <div>L'allocation actuelle est trop concentrée en BTC (42%). Envisagez de diversifier en ajoutant SOL et ADA pour réduire la volatilité.</div>
+                    </div>
+                    <div class="insight-item">
+                        <div class="insight-title">Alerte Technique</div>
+                        <div>ETH approche d'un niveau de résistance majeur à 1,850€. Préparez-vous à prendre des bénéfices partiels si le prix atteint ce niveau.</div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-card ecommerce-opportunities">
+                    <div class="card-header">
+                        <h2 class="card-title">E-commerce</h2>
+                        <div class="card-actions">⋮</div>
+                    </div>
+                    <div class="opportunity-item">
+                        <div class="opportunity-icon">📱</div>
+                        <div class="opportunity-details">
+                            <div class="opportunity-title">Smartphones (5)</div>
+                            <div>Prix moyen: 120€</div>
+                            <div class="opportunity-profit">Profit potentiel: +40%</div>
+                        </div>
+                    </div>
+                    <div class="opportunity-item">
+                        <div class="opportunity-icon">💻</div>
+                        <div class="opportunity-details">
+                            <div class="opportunity-title">Laptops (3)</div>
+                            <div>Prix moyen: 350€</div>
+                            <div class="opportunity-profit">Profit potentiel: +35%</div>
+                        </div>
+                    </div>
+                    <div class="opportunity-item">
+                        <div class="opportunity-icon">🎧</div>
+                        <div class="opportunity-details">
+                            <div class="opportunity-title">Écouteurs (8)</div>
+                            <div>Prix moyen: 45€</div>
+                            <div class="opportunity-profit">Profit potentiel: +50%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

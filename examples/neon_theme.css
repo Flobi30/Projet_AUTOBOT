@@ -1,0 +1,321 @@
+/* AUTOBOT Neon Theme CSS */
+:root {
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+    --primary-color: #00ff9d;
+    --secondary-color: #00cc7d;
+    --accent-color: #00aa5d;
+    --border-color: #333333;
+    --success-color: #00ff9d;
+    --warning-color: #ffcc00;
+    --danger-color: #ff3333;
+    --info-color: #00ccff;
+}
+
+/* Base Styles */
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+}
+
+/* Neon Text Effect */
+.neon-text {
+    color: var(--primary-color);
+    text-shadow: 0 0 5px rgba(0, 255, 157, 0.5), 0 0 10px rgba(0, 255, 157, 0.3);
+}
+
+/* Card Styles */
+.card {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    border: 1px solid #333;
+}
+
+/* Header Styles */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background-color: rgba(30, 30, 30, 0.7);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+}
+
+.logo img {
+    height: 50px;
+    margin-right: 15px;
+}
+
+.logo h1 {
+    font-size: 28px;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+/* Dashboard Grid Layout */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Metric Cards */
+.metric-card {
+    grid-column: span 4;
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.metric-title {
+    font-size: 16px;
+    color: var(--text-color);
+    margin-bottom: 10px;
+}
+
+.metric-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.metric-change {
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.metric-change.positive {
+    color: var(--success-color);
+}
+
+.metric-change.negative {
+    color: var(--danger-color);
+}
+
+/* Navigation Icons */
+.nav-icons {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.nav-icon {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.nav-icon:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
+    border-color: var(--primary-color);
+}
+
+.nav-icon i {
+    font-size: 32px;
+    color: var(--primary-color);
+    margin-bottom: 10px;
+}
+
+.nav-icon span {
+    font-size: 16px;
+    color: var(--text-color);
+}
+
+/* System Logs */
+.logs-section {
+    grid-column: span 6;
+}
+
+.log-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.log-item:last-child {
+    border-bottom: none;
+}
+
+.log-system {
+    color: var(--primary-color);
+    font-weight: bold;
+}
+
+/* Performance Chart */
+.chart-section {
+    grid-column: span 6;
+}
+
+.chart-container {
+    height: 300px;
+    position: relative;
+}
+
+/* Ghost Mode Button */
+.ghost-mode-btn {
+    background-color: rgba(30, 30, 30, 0.7);
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 20px;
+    padding: 8px 15px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.ghost-mode-btn:hover {
+    background-color: rgba(0, 255, 157, 0.1);
+    box-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+}
+
+.ghost-mode-btn i {
+    margin-right: 8px;
+}
+
+/* Buttons */
+.btn {
+    padding: 10px 15px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+}
+
+.btn-primary:hover {
+    background-color: var(--secondary-color);
+    box-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+}
+
+.btn-outline {
+    background-color: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+}
+
+.btn-outline:hover {
+    background-color: rgba(0, 255, 157, 0.1);
+    box-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+}
+
+/* Chat Interface */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 500px;
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chat-messages {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.message {
+    margin-bottom: 15px;
+    max-width: 80%;
+}
+
+.message-user {
+    align-self: flex-end;
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border-radius: 18px 18px 0 18px;
+    padding: 10px 15px;
+    margin-left: auto;
+}
+
+.message-bot {
+    align-self: flex-start;
+    background-color: #333;
+    color: var(--text-color);
+    border-radius: 18px 18px 18px 0;
+    padding: 10px 15px;
+}
+
+.chat-input {
+    display: flex;
+    padding: 10px;
+    background-color: #252525;
+    border-top: 1px solid var(--border-color);
+}
+
+.chat-input input {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 20px;
+    background-color: #333;
+    color: var(--text-color);
+    margin-right: 10px;
+}
+
+.chat-input input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.chat-input button {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.chat-input button:hover {
+    background-color: var(--secondary-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .metric-card, .logs-section, .chart-section {
+        grid-column: span 1;
+    }
+    
+    .nav-icons {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

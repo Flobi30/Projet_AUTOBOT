@@ -1,0 +1,4 @@
+{
+    "monitoring_interval": 60,
+    "log_level": "INFO"
+}

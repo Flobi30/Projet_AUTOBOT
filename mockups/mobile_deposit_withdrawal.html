@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Dépôt/Retrait Mobile</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #1eff00;
+        }
+        .container {
+            padding: 15px;
+        }
+        .header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #1eff00;
+            margin-bottom: 15px;
+        }
+        .logo {
+            width: 120px;
+            margin-bottom: 10px;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #1eff00;
+        }
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background-color: #1eff0022;
+            border-bottom: 2px solid #1eff00;
+        }
+        .form-container {
+            background-color: #111;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 3px solid #1eff00;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            background-color: #222;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        .form-select {
+            width: 100%;
+            padding: 10px;
+            background-color: #222;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        .form-button {
+            width: 100%;
+            padding: 12px;
+            background-color: #1eff00;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .info-box {
+            background-color: #1eff0022;
+            border: 1px solid #1eff00;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .info-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .method-selector {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .method-option {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            background-color: #222;
+            border: 1px solid #333;
+            cursor: pointer;
+        }
+        .method-option.active {
+            background-color: #1eff0022;
+            border: 1px solid #1eff00;
+        }
+        .qr-container {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .qr-code {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+            background-color: #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .address-container {
+            background-color: #222;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            word-break: break-all;
+        }
+        .copy-button {
+            background-color: #333;
+            color: #1eff00;
+            border: 1px solid #1eff00;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        .transaction-history {
+            margin-top: 20px;
+        }
+        .transaction-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #222;
+        }
+        .transaction-status {
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        .status-completed {
+            background-color: #1eff0022;
+            color: #1eff00;
+        }
+        .status-pending {
+            background-color: #ffaa0022;
+            color: #ffaa00;
+        }
+        .bottom-nav {
+            display: flex;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #111;
+            border-top: 1px solid #1eff00;
+        }
+        .nav-item {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            color: #1eff00;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .nav-item.active {
+            background-color: #1eff0022;
+            border-top: 2px solid #1eff00;
+        }
+        .nav-icon {
+            font-size: 18px;
+            margin-bottom: 3px;
+        }
+        .main-content {
+            padding-bottom: 60px;
+        }
+        .security-notice {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="logo.png" alt="AUTOBOT Logo" class="logo">
+            <h1>Dépôt & Retrait</h1>
+        </div>
+        
+        <div class="main-content">
+            <div class="tabs">
+                <div class="tab active" id="deposit-tab">Dépôt</div>
+                <div class="tab" id="withdraw-tab">Retrait</div>
+            </div>
+            
+            <!-- Deposit Section -->
+            <div id="deposit-section">
+                <div class="info-box">
+                    <div class="info-title">Information</div>
+                    <div>Sélectionnez une méthode de dépôt et suivez les instructions. Les dépôts sont généralement crédités dans les 10-30 minutes suivant la confirmation.</div>
+                </div>
+                
+                <div class="form-container">
+                    <div class="form-group">
+                        <label class="form-label">Méthode de Dépôt</label>
+                        <select class="form-select">
+                            <option value="crypto">Crypto (BTC, ETH, USDT)</option>
+                            <option value="sepa">Virement SEPA</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Devise</label>
+                        <select class="form-select">
+                            <option value="btc">Bitcoin (BTC)</option>
+                            <option value="eth">Ethereum (ETH)</option>
+                            <option value="usdt">Tether (USDT)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="qr-container">
+                        <div class="qr-code">[QR Code]</div>
+                    </div>
+                    
+                    <div class="address-container">
+                        bc1q8z5p9t7v3emd64f8zj0qltajv3tkr4fwg3vqd5
+                        <button class="copy-button">Copier</button>
+                    </div>
+                    
+                    <div class="info-box">
+                        <div class="info-title">Instructions</div>
+                        <div>
+                            1. Envoyez uniquement du BTC à cette adresse<br>
+                            2. Le dépôt sera crédité après 2 confirmations<br>
+                            3. Montant minimum: 0.0001 BTC
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="transaction-history">
+                    <h3>Historique des Dépôts</h3>
+                    <div class="transaction-item">
+                        <div>
+                            <div>BTC Dépôt</div>
+                            <div>0.05 BTC</div>
+                        </div>
+                        <div>
+                            <div>12/05/2025</div>
+                            <div class="transaction-status status-completed">Complété</div>
+                        </div>
+                    </div>
+                    <div class="transaction-item">
+                        <div>
+                            <div>ETH Dépôt</div>
+                            <div>1.2 ETH</div>
+                        </div>
+                        <div>
+                            <div>10/05/2025</div>
+                            <div class="transaction-status status-completed">Complété</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Withdrawal Section (hidden by default) -->
+            <div id="withdraw-section" style="display: none;">
+                <div class="info-box">
+                    <div class="info-title">Information</div>
+                    <div>Les retraits sont traités dans les 24 heures. Des frais peuvent s'appliquer selon la méthode choisie.</div>
+                </div>
+                
+                <div class="form-container">
+                    <div class="form-group">
+                        <label class="form-label">Méthode de Retrait</label>
+                        <select class="form-select">
+                            <option value="crypto">Crypto (BTC, ETH, USDT)</option>
+                            <option value="sepa">Virement SEPA</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Devise</label>
+                        <select class="form-select">
+                            <option value="btc">Bitcoin (BTC)</option>
+                            <option value="eth">Ethereum (ETH)</option>
+                            <option value="usdt">Tether (USDT)</option>
+                            <option value="eur">Euro (EUR)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Adresse de Destination</label>
+                        <input type="text" class="form-input" placeholder="Entrez l'adresse de destination">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Montant</label>
+                        <input type="number" class="form-input" placeholder="0.00">
+                    </div>
+                    
+                    <div class="info-box">
+                        <div>Solde disponible: 0.15 BTC</div>
+                        <div>Frais de retrait: 0.0005 BTC</div>
+                        <div>Montant net: 0.1495 BTC</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Code d'Authentification 2FA</label>
+                        <input type="text" class="form-input" placeholder="Entrez le code 2FA">
+                    </div>
+                    
+                    <button class="form-button">CONFIRMER LE RETRAIT</button>
+                </div>
+                
+                <div class="transaction-history">
+                    <h3>Historique des Retraits</h3>
+                    <div class="transaction-item">
+                        <div>
+                            <div>BTC Retrait</div>
+                            <div>0.03 BTC</div>
+                        </div>
+                        <div>
+                            <div>08/05/2025</div>
+                            <div class="transaction-status status-completed">Complété</div>
+                        </div>
+                    </div>
+                    <div class="transaction-item">
+                        <div>
+                            <div>EUR Retrait</div>
+                            <div>500 EUR</div>
+                        </div>
+                        <div>
+                            <div>05/05/2025</div>
+                            <div class="transaction-status status-pending">En cours</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="security-notice">
+                Toutes les transactions sont protégées par authentification à deux facteurs et chiffrement de bout en bout. Pour plus de sécurité, activez les notifications de transaction dans les paramètres.
+            </div>
+        </div>
+        
+        <div class="bottom-nav">
+            <a href="/mobile" class="nav-item">
+                <div class="nav-icon">📊</div>
+                Dashboard
+            </a>
+            <a href="/mobile/trading" class="nav-item">
+                <div class="nav-icon">📈</div>
+                Trading
+            </a>
+            <a href="/mobile/ecommerce" class="nav-item">
+                <div class="nav-icon">🛒</div>
+                E-commerce
+            </a>
+            <a href="/mobile/rl-training" class="nav-item">
+                <div class="nav-icon">🧠</div>
+                IA
+            </a>
+            <a href="/mobile/settings" class="nav-item">
+                <div class="nav-icon">⚙️</div>
+                Réglages
+            </a>
+        </div>
+    </div>
+    
+    <script>
+        // Simple tab switching functionality
+        document.getElementById('deposit-tab').addEventListener('click', function() {
+            document.getElementById('deposit-tab').classList.add('active');
+            document.getElementById('withdraw-tab').classList.remove('active');
+            document.getElementById('deposit-section').style.display = 'block';
+            document.getElementById('withdraw-section').style.display = 'none';
+        });
+        
+        document.getElementById('withdraw-tab').addEventListener('click', function() {
+            document.getElementById('withdraw-tab').classList.add('active');
+            document.getElementById('deposit-tab').classList.remove('active');
+            document.getElementById('withdraw-section').style.display = 'block';
+            document.getElementById('deposit-section').style.display = 'none';
+        });
+    </script>
+</body>
+</html>
