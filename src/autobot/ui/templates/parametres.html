@@ -653,37 +653,64 @@
         }
     });
     
-    function saveSettings() {
-        // Simuler la sauvegarde des paramètres
-        console.log('Saving settings...');
-        
-        // Collecter les données de tous les formulaires
-        const generalSettings = collectFormData('general-settings-form');
-        const apiSettings = collectFormData('api-settings-form');
-        const tradingSettings = collectFormData('trading-settings-form');
-        const ecommerceSettings = collectFormData('ecommerce-settings-form');
-        const securitySettings = collectFormData('security-settings-form');
-        const notificationSettings = collectFormData('notification-settings-form');
-        const superagiSettings = collectFormData('superagi-settings-form');
-        const advancedSettings = collectFormData('advanced-settings-form');
-        
-        const allSettings = {
-            general: generalSettings,
-            api: apiSettings,
-            trading: tradingSettings,
-            ecommerce: ecommerceSettings,
-            security: securitySettings,
-            notification: notificationSettings,
-            superagi: superagiSettings,
-            advanced: advancedSettings
-        };
-        
-        console.log('Settings to save:', allSettings);
-        
-        // Simuler une requête API
-        setTimeout(() => {
-            showNotification('Paramètres enregistrés avec succès', 'success');
-        }, 1000);
+    async function saveSettings() {
+        try {
+            // Afficher un indicateur de chargement
+            const saveButton = document.getElementById('save-settings-btn');
+            const originalText = saveButton.innerHTML;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement...';
+            saveButton.disabled = true;
+            
+            // Collecter les données de tous les formulaires
+            const generalSettings = collectFormData('general-settings-form');
+            const apiSettings = collectFormData('api-settings-form');
+            const tradingSettings = collectFormData('trading-settings-form');
+            const ecommerceSettings = collectFormData('ecommerce-settings-form');
+            const securitySettings = collectFormData('security-settings-form');
+            const notificationSettings = collectFormData('notification-settings-form');
+            const superagiSettings = collectFormData('superagi-settings-form');
+            const advancedSettings = collectFormData('advanced-settings-form');
+            
+            const allSettings = {
+                general: generalSettings,
+                api: apiSettings,
+                trading: tradingSettings,
+                ecommerce: ecommerceSettings,
+                security: securitySettings,
+                notification: notificationSettings,
+                superagi: superagiSettings,
+                advanced: advancedSettings
+            };
+            
+            // Envoyer les données au serveur
+            const response = await fetch('/api/save-settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(allSettings)
+            });
+            
+            // Restaurer le bouton
+            saveButton.innerHTML = originalText;
+            saveButton.disabled = false;
+            
+            if (response.ok) {
+                const data = await response.json();
+                showNotification(data.message || 'Paramètres enregistrés avec succès', 'success');
+            } else {
+                const errorData = await response.json().catch(() => ({ message: 'Erreur lors de la sauvegarde des paramètres' }));
+                showNotification(errorData.message || 'Erreur lors de la sauvegarde des paramètres', 'error');
+            }
+        } catch (error) {
+            console.error('Erreur lors de la sauvegarde des paramètres:', error);
+            showNotification('Erreur lors de la sauvegarde des paramètres', 'error');
+            
+            // Restaurer le bouton en cas d'erreur
+            const saveButton = document.getElementById('save-settings-btn');
+            saveButton.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
+            saveButton.disabled = false;
+        }
     }
     
     function collectFormData(formId) {

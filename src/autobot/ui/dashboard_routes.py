@@ -15,8 +15,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import RedirectResponse
 
-from autobot.autobot_security.auth.jwt_handler import decode_token, verify_license_key
+from autobot.autobot_security.auth.jwt_handler import decode_token, verify_license_key, get_current_user
 from autobot.autobot_security.auth.user_manager import UserManager
+from autobot.autobot_security.auth.models import User
 from autobot.trading.strategy import Strategy, MovingAverageStrategy
 from autobot.rl.train import get_training_status
 from autobot.agents.orchestrator import AgentOrchestrator
@@ -328,14 +329,96 @@ async def create_agent(request: Request):
     return {"id": agent_id, "status": "created"}
 
 @router.post("/settings", response_class=JSONResponse)
-async def update_settings(request: Request):
+async def update_settings(request: Request, current_user: User = Depends(get_current_user)):
     """
     Update user settings.
+    
+    Args:
+        request: Request object
+        current_user: Authenticated user
+        
+    Returns:
+        JSONResponse: Status of the update operation
     """
-    data = await request.json()
-    
-    
-    return {"status": "updated"}
+    try:
+        data = await request.json()
+        
+        required_sections = ["general", "api", "trading", "security"]
+        for section in required_sections:
+            if section not in data:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Missing required settings section: {section}"
+                )
+        
+        if "api" in data:
+            api_settings = data["api"]
+            user_manager = UserManager()
+            
+            if "binance-api-key" in api_settings and api_settings["binance-api-key"]:
+                user_manager.update_user_data(
+                    user_id=current_user.id,
+                    field="binance_api_key",
+                    value=api_settings["binance-api-key"]
+                )
+                
+            if "binance-api-secret" in api_settings and api_settings["binance-api-secret"]:
+                user_manager.update_user_data(
+                    user_id=current_user.id,
+                    field="binance_api_secret",
+                    value=api_settings["binance-api-secret"]
+                )
+                
+            if "openai-api-key" in api_settings and api_settings["openai-api-key"]:
+                user_manager.update_user_data(
+                    user_id=current_user.id,
+                    field="openai_api_key",
+                    value=api_settings["openai-api-key"]
+                )
+                
+            if "superagi-api-key" in api_settings and api_settings["superagi-api-key"]:
+                user_manager.update_user_data(
+                    user_id=current_user.id,
+                    field="superagi_api_key",
+                    value=api_settings["superagi-api-key"]
+                )
+                
+            if "stripe-api-key" in api_settings and api_settings["stripe-api-key"]:
+                user_manager.update_user_data(
+                    user_id=current_user.id,
+                    field="stripe_api_key",
+                    value=api_settings["stripe-api-key"]
+                )
+        
+        user_manager = UserManager()
+        user_manager.update_user_data(
+            user_id=current_user.id,
+            field="preferences",
+            value=data
+        )
+        
+        await manager.broadcast_json({
+            "type": "settings_updated",
+            "user_id": current_user.id
+        })
+        
+        return {
+            "status": "success",
+            "message": "Paramètres enregistrés avec succès"
+        }
+        
+    except HTTPException as e:
+        logger.error(f"Settings update error: {str(e)}")
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail}
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error updating settings: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Erreur lors de la mise à jour des paramètres: {str(e)}"}
+        )
 
 @router.post("/ecommerce/sync", response_class=JSONResponse)
 async def sync_inventory(request: Request):
