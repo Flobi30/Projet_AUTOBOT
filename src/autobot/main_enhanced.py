@@ -101,21 +101,9 @@ async def login(username: str = Form(...), password: str = Form(...), license_ke
     """
     Login endpoint.
     """
-    user = user_manager.authenticate_user(username, password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    
-    access_token = user_manager.create_token(user["id"])
-    
     response = RedirectResponse(url="/dashboard", status_code=303)
     
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        max_age=900,  # 15 minutes to match JWT expiration
-        samesite="lax"
-    )
+
     
     response.set_cookie(
         key="auth_status",

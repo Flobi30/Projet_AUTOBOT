@@ -162,6 +162,244 @@
                             </div>
                         </div>
                         <div class="form-group">
+                            <label for="newsapi-api-key">NewsAPI Key</label>
+                            <div class="input-group">
+                                <input type="password" id="newsapi-api-key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-secret">Coinbase API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-secret" class="form-control" value="{{ coinbase_api_secret|default('') }}" placeholder="Entrez votre secret API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="kraken-api-key">Kraken API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="kraken-api-secret">Kraken API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-secret" class="form-control" value="{{ kraken_api_secret|default('') }}" placeholder="Entrez votre secret API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-api-secret">Shopify API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-api-key">Shopify API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="coinbase-api-secret">Coinbase API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-secret" class="form-control" value="{{ coinbase_api_secret|default('') }}" placeholder="Entrez votre secret API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="kraken-api-key">Kraken API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="kraken-api-secret">Kraken API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-secret" class="form-control" value="{{ kraken_api_secret|default('') }}" placeholder="Entrez votre secret API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-api-secret">Shopify API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
                             <label for="test-api-keys">Tester les Clés API</label>
                             <button type="button" id="test-api-keys" class="btn btn-outline">
                                 <i class="fas fa-vial"></i> Tester la Connectivité
@@ -663,7 +901,24 @@
             
             // Collecter les données de tous les formulaires
             const generalSettings = collectFormData('general-settings-form');
-            const apiSettings = collectFormData('api-settings-form');
+            const apiSettings = {
+                'binance-api-key': document.getElementById('binance-api-key')?.value || '',
+                'binance-api-secret': document.getElementById('binance-api-secret')?.value || '',
+                'openai-api-key': document.getElementById('openai-api-key')?.value || '',
+                'superagi-api-key': document.getElementById('superagi-api-key')?.value || '',
+                'stripe-api-key': document.getElementById('stripe-api-key')?.value || '',
+                'alpha-vantage-api-key': document.getElementById('alpha-vantage-api-key')?.value || '',
+                'twelve-data-api-key': document.getElementById('twelve-data-api-key')?.value || '',
+                'fred-api-key': document.getElementById('fred-api-key')?.value || '',
+                'newsapi-api-key': document.getElementById('newsapi-api-key')?.value || '',
+                'shopify-api-key': document.getElementById('shopify-api-key')?.value || '',
+                'shopify-api-secret': document.getElementById('shopify-api-secret')?.value || '',
+                'coinbase-api-key': document.getElementById('coinbase-api-key')?.value || '',
+                'coinbase-api-secret': document.getElementById('coinbase-api-secret')?.value || '',
+                'kraken-api-key': document.getElementById('kraken-api-key')?.value || '',
+                'kraken-api-secret': document.getElementById('kraken-api-secret')?.value || '',
+                'shopify-api-secret': document.getElementById('shopify-api-secret')?.value || ''
+            };
             const tradingSettings = collectFormData('trading-settings-form');
             const ecommerceSettings = collectFormData('ecommerce-settings-form');
             const securitySettings = collectFormData('security-settings-form');

@@ -25,7 +25,7 @@ from ..trading.auto_mode_manager import (
     get_component_mode,
     ComponentType
 )
-from ..autobot_security.auth.user_manager import get_current_user, User
+from ..autobot_security.auth.user_manager import User
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def get_impact_color(value: float) -> str:
         return "#d50000"  # Red
 
 @router.get("/", response_class=HTMLResponse)
-async def simplified_dashboard(request: Request, user: User = Depends(get_current_user)):
+async def simplified_dashboard(request: Request):
     """Render the simplified dashboard."""
     mode_manager = get_mode_manager()
     system_status = mode_manager.get_system_status()
@@ -95,7 +95,7 @@ async def simplified_dashboard(request: Request, user: User = Depends(get_curren
         "simplified_dashboard.html",
         {
             "request": request,
-            "user": user,
+            "user": {"username": "AUTOBOT", "role": "admin"},
             "balance": system_metrics["total_balance"],
             "active_instances": system_metrics["active_instances"],
             "new_instances": system_metrics["new_instance_count"],
@@ -104,7 +104,7 @@ async def simplified_dashboard(request: Request, user: User = Depends(get_curren
             "monthly_profit": system_metrics["profit_per_day"] * 30,
             "profit_trend": "Increasing",  # TODO: Calculate actual trend
             "optimal_withdrawal": recommendations["optimal_amount"],
-            "withdrawal_impact": None,  # Will be populated via API call
+            "withdrawal_impact": {"scalability_impact": 0.0, "performance_impact": 0.0, "risk_impact": 0.0},  # Default values
             "current_mode": system_status["component_modes"]["trading"],
             "auto_switching": system_status["auto_switching_enabled"],
             "always_ghost": system_status["always_ghost"],
@@ -126,7 +126,7 @@ async def simplified_dashboard(request: Request, user: User = Depends(get_curren
     )
 
 @router.post("/api/deposit")
-async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):
+async def deposit_funds(deposit: DepositRequest):
     """Deposit funds."""
     if deposit.amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
@@ -152,7 +152,7 @@ async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_curren
     }
 
 @router.post("/api/withdraw")
-async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get_current_user)):
+async def withdraw_funds(withdrawal: WithdrawalRequest):
     """Withdraw funds."""
     if withdrawal.amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
@@ -179,7 +179,7 @@ async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get
     }
 
 @router.get("/api/analyze-withdrawal")
-async def analyze_withdrawal_route(amount: float, user: User = Depends(get_current_user)):
+async def analyze_withdrawal_route(amount: float):
     """Analyze withdrawal impact."""
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
@@ -204,8 +204,7 @@ async def analyze_withdrawal_route(amount: float, user: User = Depends(get_curre
 async def update_api_keys(
     exchange: str,
     api_key: str = Form(...),
-    api_secret: str = Form(...),
-    user: User = Depends(get_current_user)
+    api_secret: str = Form(...)
 ):
     """Update API keys for an exchange."""
     if exchange not in ["binance", "coinbase", "kraken"]:
@@ -221,7 +220,7 @@ async def update_api_keys(
     }
 
 @router.get("/api/system-status")
-async def get_system_status(user: User = Depends(get_current_user)):
+async def get_system_status():
     """Get system status."""
     mode_manager = get_mode_manager()
     
@@ -232,8 +231,7 @@ async def get_system_status(user: User = Depends(get_current_user)):
 @router.post("/api/system/mode/{component}/{mode}")
 async def set_component_mode(
     component: str,
-    mode: str,
-    user: User = Depends(get_current_user)
+    mode: str
 ):
     """Set component mode."""
     try:
@@ -256,7 +254,7 @@ async def set_component_mode(
     }
 
 @router.post("/api/system/auto-switching/{enabled}")
-async def set_auto_switching(enabled: bool, user: User = Depends(get_current_user)):
+async def set_auto_switching(enabled: bool):
     """Enable or disable automatic mode switching."""
     mode_manager = get_mode_manager()
     
@@ -269,7 +267,7 @@ async def set_auto_switching(enabled: bool, user: User = Depends(get_current_use
     }
 
 @router.post("/api/system/always-ghost/{enabled}")
-async def set_always_ghost(enabled: bool, user: User = Depends(get_current_user)):
+async def set_always_ghost(enabled: bool):
     """Enable or disable always ghost mode."""
     mode_manager = get_mode_manager()
     
