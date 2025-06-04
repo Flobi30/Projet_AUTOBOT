@@ -55,8 +55,10 @@ body {
 }
 
 .logo img {
-    height: 50px;
+    height: 60px;
+    width: auto;
     margin-right: 15px;
+    max-height: 60px;
 }
 
 .logo h1 {

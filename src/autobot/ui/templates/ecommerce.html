@@ -138,9 +138,81 @@
         </div>
     </div>
 </div>
+<!-- Drawer Panel for Unsold Products Management -->
+<div id="drawer-panel" class="drawer-panel">
+    <div class="drawer-header">
+        <h3>Gestion des Produits Invendus</h3>
+        <button id="close-drawer" class="btn-icon">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <div class="drawer-content">
+        <div class="drawer-section">
+            <h4>Produits Sélectionnés</h4>
+            <div id="selected-products-container" class="selected-products-container">
+                <!-- Selected products will be displayed here -->
+            </div>
+        </div>
+        
+        <div class="drawer-section">
+            <h4>Options de Gestion</h4>
+            <div class="management-options">
+                <div class="option-group">
+                    <h5>Méthode d'Expédition</h5>
+                    <div class="shipping-options">
+                        <div class="shipping-option" data-cost="5.99">
+                            <i class="fas fa-truck"></i>
+                            <span>Standard (5.99€)</span>
+                        </div>
+                        <div class="shipping-option" data-cost="12.99">
+                            <i class="fas fa-shipping-fast"></i>
+                            <span>Express (12.99€)</span>
+                        </div>
+                        <div class="shipping-option" data-cost="0">
+                            <i class="fas fa-store"></i>
+                            <span>Retrait en magasin (Gratuit)</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="option-group">
+                    <h5>Trésorerie AUTOBOT</h5>
+                    <div class="treasury-info">
+                        <div class="balance-info">
+                            <span>Solde disponible:</span>
+                            <span id="treasury-balance" class="balance-amount">{{ treasury_balance|default('5,000.00') }} €</span>
+                        </div>
+                        <div class="cost-info">
+                            <span>Coût total:</span>
+                            <span id="total-cost" class="cost-amount">0.00 €</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="drawer-actions">
+            <button id="recycle-selected" class="btn btn-outline" disabled>
+                <i class="fas fa-recycle"></i> Recycler Sélection
+            </button>
+            <button id="order-selected" class="btn btn-primary" disabled>
+                <i class="fas fa-shopping-cart"></i> Commander Sélection
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Drawer Panel Trigger Button -->
+<div class="drawer-trigger">
+    <button id="open-drawer" class="btn btn-primary">
+        <i class="fas fa-tasks"></i> Gérer les Invendus
+    </button>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/drawer_panel.js"></script>
+<script src="/static/js/treasury_integration.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Optimization Chart
