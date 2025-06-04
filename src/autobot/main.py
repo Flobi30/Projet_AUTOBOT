@@ -3,9 +3,6 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 from autobot.router_clean import router
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router

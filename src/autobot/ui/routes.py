@@ -205,7 +205,7 @@ async def save_settings(request: Request):
         
         api_settings = data.get("api", {})
         
-        env_file_path = "/home/ubuntu/Projet_AUTOBOT/.env"
+        env_file_path = "/app/.env"
         
         env_vars = {}
         if os.path.exists(env_file_path):
