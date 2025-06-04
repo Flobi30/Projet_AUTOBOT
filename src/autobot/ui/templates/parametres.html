@@ -186,6 +186,18 @@
                         </div>
                         
                         <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
                             <label for="twelve-data-api-key">Twelve Data API Key</label>
                             <div class="input-group">
                                 <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
@@ -270,44 +282,11 @@
                         </div>
                         
                         <div class="form-group">
-                            <label for="kraken-api-secret">Kraken API Secret</label>
+                            <label for="shopify-shop-name">Shopify Shop Name</label>
                             <div class="input-group">
-                                <input type="password" id="kraken-api-secret" class="form-control" value="{{ kraken_api_secret|default('') }}" placeholder="Entrez votre secret API Kraken">
+                                <input type="text" id="shopify-shop-name" class="form-control" value="{{ shopify_shop_name|default('') }}" placeholder="Entrez le nom de votre boutique Shopify (ex: monshop)">
                                 <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-secret">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="kraken-api-key">Kraken API Key</label>
-                            <div class="input-group">
-                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
-                                <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="kraken-api-secret">Kraken API Secret</label>
-                            <div class="input-group">
-                                <input type="password" id="kraken-api-secret" class="form-control" value="{{ kraken_api_secret|default('') }}" placeholder="Entrez votre secret API Kraken">
-                                <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-secret">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="shopify-api-secret">Shopify API Secret</label>
-                            <div class="input-group">
-                                <input type="password" id="shopify-api-secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
-                                <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-shop-name">
                                         <i class="fas fa-eye"></i>
                                     </button>
                                 </div>
@@ -831,7 +810,7 @@
                 'coinbase-api-secret': document.getElementById('coinbase-api-secret')?.value || '',
                 'kraken-api-key': document.getElementById('kraken-api-key')?.value || '',
                 'kraken-api-secret': document.getElementById('kraken-api-secret')?.value || '',
-                'shopify-api-secret': document.getElementById('shopify-api-secret')?.value || ''
+                'shopify-shop-name': document.getElementById('shopify-shop-name')?.value || ''
             };
             const tradingSettings = collectFormData('trading-settings-form');
             const ecommerceSettings = collectFormData('ecommerce-settings-form');

@@ -9,7 +9,15 @@
       "role": "admin",
       "created_at": "2023-01-01T00:00:00",
       "last_login": "2025-06-04T20:38:54.369966",
-      "licenses": [],
+      "licenses": [
+        {
+          "key": "AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx",
+          "features": ["trading", "arbitrage", "ecommerce", "admin"],
+          "created_at": 1672531200,
+          "expires_at": 2019686400,
+          "active": true
+        }
+      ],
       "api_keys": [],
       "settings": {
         "theme": "dark",

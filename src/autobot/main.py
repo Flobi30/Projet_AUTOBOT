@@ -3,6 +3,9 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 from autobot.router_clean import router
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
@@ -14,6 +17,7 @@ from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_ro
 from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
 from .api.ghosting_routes import router as ghosting_router
+from .autobot_security.auth.user_manager import UserManager
 
 
 app = FastAPI(
@@ -30,6 +34,8 @@ templates_dir = os.path.join(current_dir, "ui", "templates")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 templates = Jinja2Templates(directory=templates_dir)
+
+user_manager = UserManager()
 
 app.include_router(router)
 app.include_router(health_router)
@@ -57,18 +63,26 @@ async def login_page(request: Request):
 @app.post("/login", tags=["auth"])
 async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
     """
-    Login endpoint.
+    Login endpoint with proper authentication.
     """
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    user = user_manager.authenticate_user(username, password)
     
-    response.set_cookie(
-        key="auth_status",
-        value="authenticated",
-        max_age=86400,  # 24 hours
-        samesite="lax"
-    )
-    
-    return response
+    if user and user_manager.verify_license(user["id"], license_key):
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        
+        token = user_manager.create_token(user["id"])
+        
+        response.set_cookie(
+            key="access_token",
+            value=token,
+            max_age=86400,
+            samesite="lax",
+            httponly=True
+        )
+        
+        return response
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
 @app.get("/dashboard", tags=["ui"])
 async def dashboard_page(request: Request):
