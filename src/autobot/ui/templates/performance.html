@@ -1,391 +1,151 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AUTOBOT - Performance Monitoring</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <link rel="stylesheet" href="/static/css/notification.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body class="dark-theme">
-    <div class="app-container">
-        <header class="app-header">
-            <div class="logo-container">
-                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
-                <h1>AUTOBOT</h1>
+{% extends "base.html" %}
+
+{% block title %}Performance{% endblock %}
+
+{% block content %}
+<div style="width: 100% !important; padding: 0 !important; margin: 0 !important;">
+    <header style="display: flex !important; align-items: center !important; gap: 15px !important; margin-bottom: 30px !important;">
+        <div style="width: 60px !important; height: 60px !important; background: linear-gradient(135deg, #00ff88, #00cc6a) !important; border-radius: 12px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 0 20px rgba(0, 255, 136, 0.3) !important;">
+            <i class="fas fa-chart-bar" style="font-size: 28px !important; color: #000 !important;"></i>
+        </div>
+        <h2 style="color: #00ff88 !important; margin: 0 !important; font-size: 32px !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.5) !important;">PERFORMANCE</h2>
+    </header>
+    
+    <div style="display: grid !important; grid-template-columns: 1fr 1fr 1fr 1fr !important; gap: 20px !important; margin-bottom: 30px !important;">
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">ROI Global</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">+84.2%</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Total</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Profit Journalier</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">+12.4%</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Aujourd'hui</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Trades Gagnants</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">87%</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Ratio</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Sharpe Ratio</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">2.47</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Score</div>
+        </div>
+    </div>
+    
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Performance par Module</h3>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Trading</h4>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important; margin-bottom: 10px !important;">+67.8%</div>
+                <div style="color: #888 !important; font-size: 14px !important;">247 trades</div>
             </div>
-            <nav class="main-nav">
-                <ul>
-                    <li><a href="/dashboard">Dashboard</a></li>
-                    <li><a href="/trading">Trading</a></li>
-                    <li><a href="/rl/training">RL Training</a></li>
-                    <li><a href="/ecommerce">E-commerce</a></li>
-                    <li><a href="/performance" class="active">Performance</a></li>
-                    <li><a href="/settings">Settings</a></li>
-                </ul>
-            </nav>
-            <div class="user-menu">
-                <span class="user-name">Admin</span>
-                <button class="btn-icon">
-                    <span class="material-icons">account_circle</span>
-                </button>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Arbitrage</h4>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important; margin-bottom: 10px !important;">+23.1%</div>
+                <div style="color: #888 !important; font-size: 14px !important;">89 opportunités</div>
             </div>
-        </header>
-
-        <main class="app-content">
-            <div class="page-header">
-                <h2>System Performance</h2>
-                <div class="actions">
-                    <button id="export-metrics" class="btn btn-secondary">
-                        <span class="material-icons">download</span>
-                        Export Metrics
-                    </button>
-                    <button id="refresh-metrics" class="btn btn-primary">
-                        <span class="material-icons">refresh</span>
-                        Refresh
-                    </button>
-                </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">E-commerce</h4>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important; margin-bottom: 10px !important;">+15.7%</div>
+                <div style="color: #888 !important; font-size: 14px !important;">34 produits</div>
             </div>
-
-            <div class="content-grid">
-                <!-- System Health Overview -->
-                <section class="card system-health">
-                    <div class="card-header">
-                        <h3>System Health</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="health-indicators">
-                            <div class="health-indicator">
-                                <div class="indicator-label">CPU</div>
-                                <div class="progress-bar">
-                                    <div class="progress" id="cpu-indicator" style="width: 45%"></div>
-                                </div>
-                                <div class="indicator-value" id="cpu-value">45%</div>
-                            </div>
-                            <div class="health-indicator">
-                                <div class="indicator-label">Memory</div>
-                                <div class="progress-bar">
-                                    <div class="progress" id="memory-indicator" style="width: 62%"></div>
-                                </div>
-                                <div class="indicator-value" id="memory-value">62%</div>
-                            </div>
-                            <div class="health-indicator">
-                                <div class="indicator-label">Disk</div>
-                                <div class="progress-bar">
-                                    <div class="progress" id="disk-indicator" style="width: 28%"></div>
-                                </div>
-                                <div class="indicator-value" id="disk-value">28%</div>
-                            </div>
-                            <div class="health-indicator">
-                                <div class="indicator-label">Network</div>
-                                <div class="progress-bar">
-                                    <div class="progress" id="network-indicator" style="width: 75%"></div>
-                                </div>
-                                <div class="indicator-value" id="network-value">75%</div>
-                            </div>
-                        </div>
-                        <div class="system-status">
-                            <div class="status-item">
-                                <span class="status-label">System Status:</span>
-                                <span class="status-value status-healthy">Healthy</span>
-                            </div>
-                            <div class="status-item">
-                                <span class="status-label">Uptime:</span>
-                                <span class="status-value" id="uptime-value">5d 12h 34m</span>
-                            </div>
-                            <div class="status-item">
-                                <span class="status-label">Last Restart:</span>
-                                <span class="status-value" id="last-restart">2023-05-10 08:15:22</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Performance Metrics -->
-                <section class="card performance-metrics">
-                    <div class="card-header">
-                        <h3>Performance Metrics</h3>
-                    </div>
-                    <div class="card-body" id="performance-metrics">
-                        <!-- Performance monitor will be initialized here -->
-                    </div>
-                </section>
-
-                <!-- Active Processes -->
-                <section class="card active-processes">
-                    <div class="card-header">
-                        <h3>Active Processes</h3>
-                        <div class="card-actions">
-                            <button class="btn-icon refresh-processes">
-                                <span class="material-icons">refresh</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Process</th>
-                                    <th>PID</th>
-                                    <th>CPU</th>
-                                    <th>Memory</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="processes-body">
-                                <tr>
-                                    <td>Trading Engine</td>
-                                    <td>1234</td>
-                                    <td>12.5%</td>
-                                    <td>256 MB</td>
-                                    <td><span class="status-badge status-running">Running</span></td>
-                                    <td>
-                                        <button class="btn-icon restart-process" data-pid="1234">
-                                            <span class="material-icons">restart_alt</span>
-                                        </button>
-                                        <button class="btn-icon stop-process" data-pid="1234">
-                                            <span class="material-icons">stop</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>RL Agent</td>
-                                    <td>1235</td>
-                                    <td>28.3%</td>
-                                    <td>512 MB</td>
-                                    <td><span class="status-badge status-running">Running</span></td>
-                                    <td>
-                                        <button class="btn-icon restart-process" data-pid="1235">
-                                            <span class="material-icons">restart_alt</span>
-                                        </button>
-                                        <button class="btn-icon stop-process" data-pid="1235">
-                                            <span class="material-icons">stop</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>API Server</td>
-                                    <td>1236</td>
-                                    <td>5.2%</td>
-                                    <td>128 MB</td>
-                                    <td><span class="status-badge status-running">Running</span></td>
-                                    <td>
-                                        <button class="btn-icon restart-process" data-pid="1236">
-                                            <span class="material-icons">restart_alt</span>
-                                        </button>
-                                        <button class="btn-icon stop-process" data-pid="1236">
-                                            <span class="material-icons">stop</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Database</td>
-                                    <td>1237</td>
-                                    <td>8.7%</td>
-                                    <td>384 MB</td>
-                                    <td><span class="status-badge status-running">Running</span></td>
-                                    <td>
-                                        <button class="btn-icon restart-process" data-pid="1237">
-                                            <span class="material-icons">restart_alt</span>
-                                        </button>
-                                        <button class="btn-icon stop-process" data-pid="1237">
-                                            <span class="material-icons">stop</span>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- System Logs -->
-                <section class="card system-logs">
-                    <div class="card-header">
-                        <h3>System Logs</h3>
-                        <div class="card-actions">
-                            <select id="log-level" class="form-select">
-                                <option value="all">All Levels</option>
-                                <option value="info">Info</option>
-                                <option value="warning">Warning</option>
-                                <option value="error">Error</option>
-                                <option value="critical">Critical</option>
-                            </select>
-                            <button class="btn-icon refresh-logs">
-                                <span class="material-icons">refresh</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="logs-container" id="logs-container">
-                            <div class="log-entry log-info">
-                                <span class="log-timestamp">2023-05-15 08:12:45</span>
-                                <span class="log-level">INFO</span>
-                                <span class="log-message">System started successfully</span>
-                            </div>
-                            <div class="log-entry log-info">
-                                <span class="log-timestamp">2023-05-15 08:12:47</span>
-                                <span class="log-level">INFO</span>
-                                <span class="log-message">Trading engine initialized</span>
-                            </div>
-                            <div class="log-entry log-warning">
-                                <span class="log-timestamp">2023-05-15 08:13:02</span>
-                                <span class="log-level">WARNING</span>
-                                <span class="log-message">API rate limit approaching threshold (80%)</span>
-                            </div>
-                            <div class="log-entry log-error">
-                                <span class="log-timestamp">2023-05-15 08:15:18</span>
-                                <span class="log-level">ERROR</span>
-                                <span class="log-message">Failed to connect to exchange API: Connection timeout</span>
-                            </div>
-                            <div class="log-entry log-info">
-                                <span class="log-timestamp">2023-05-15 08:15:23</span>
-                                <span class="log-level">INFO</span>
-                                <span class="log-message">Retrying connection to exchange API</span>
-                            </div>
-                            <div class="log-entry log-info">
-                                <span class="log-timestamp">2023-05-15 08:15:25</span>
-                                <span class="log-level">INFO</span>
-                                <span class="log-message">Successfully connected to exchange API</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            </div>
-        </main>
-
-        <footer class="app-footer">
-            <div class="footer-content">
-                <p>&copy; 2023 AUTOBOT. All rights reserved.</p>
-                <p>Version 1.0.0</p>
-            </div>
-        </footer>
+        </div>
     </div>
 
-    <script src="/static/js/performance-monitor.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize event listeners
-            document.querySelector('.refresh-processes').addEventListener('click', () => {
-                // Simulate refreshing processes
-                showNotification('Processes refreshed', 'success');
-            });
-            
-            document.querySelector('.refresh-logs').addEventListener('click', () => {
-                // Simulate refreshing logs
-                showNotification('Logs refreshed', 'success');
-            });
-            
-            document.getElementById('export-metrics').addEventListener('click', () => {
-                // Simulate exporting metrics
-                showNotification('Metrics exported to metrics.json', 'success');
-            });
-            
-            document.getElementById('refresh-metrics').addEventListener('click', () => {
-                // Simulate refreshing metrics
-                showNotification('Metrics refreshed', 'success');
-            });
-            
-            // Process action buttons
-            document.querySelectorAll('.restart-process').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const pid = btn.getAttribute('data-pid');
-                    showNotification(`Restarting process ${pid}`, 'info');
-                });
-            });
-            
-            document.querySelectorAll('.stop-process').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const pid = btn.getAttribute('data-pid');
-                    showNotification(`Stopping process ${pid}`, 'warning');
-                });
-            });
-            
-            // Log level filter
-            document.getElementById('log-level').addEventListener('change', (e) => {
-                const level = e.target.value;
-                const logEntries = document.querySelectorAll('.log-entry');
-                
-                if (level === 'all') {
-                    logEntries.forEach(entry => entry.style.display = 'flex');
-                } else {
-                    logEntries.forEach(entry => {
-                        if (entry.classList.contains(`log-${level}`)) {
-                            entry.style.display = 'flex';
-                        } else {
-                            entry.style.display = 'none';
-                        }
-                    });
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Système de Backtest Centralisé</h3>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 20px !important; margin-bottom: 20px !important;">
+            <button style="width: 100% !important; padding: 15px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="startBacktest('Trading')">
+                <i class="fas fa-chart-line" style="margin-right: 8px !important;"></i>Backtest Trading
+            </button>
+            <button style="width: 100% !important; padding: 15px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="startBacktest('Arbitrage')">
+                <i class="fas fa-exchange-alt" style="margin-right: 8px !important;"></i>Backtest Arbitrage
+            </button>
+            <button style="width: 100% !important; padding: 15px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="startBacktest('E-commerce')">
+                <i class="fas fa-shopping-cart" style="margin-right: 8px !important;"></i>Backtest E-commerce
+            </button>
+        </div>
+        <div style="padding: 15px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important;">
+            <div style="color: #ccc !important; font-size: 14px !important; margin-bottom: 10px !important;">Configuration Globale</div>
+            <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 5px !important;">
+                <span style="color: #888 !important;">Capital Initial</span>
+                <span style="color: #00ff88 !important;">500€</span>
+            </div>
+            <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 5px !important;">
+                <span style="color: #888 !important;">Objectif Journalier</span>
+                <span style="color: #00ff88 !important;">10%</span>
+            </div>
+            <div style="display: flex !important; justify-content: space-between !important;">
+                <span style="color: #888 !important;">Mode</span>
+                <span style="color: #00ff88 !important;">Production Continue</span>
+            </div>
+        </div>
+    </div>
+
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Historique des Performances</h3>
+        <div style="overflow-x: auto !important;">
+            <table style="width: 100% !important; border-collapse: collapse !important;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #333 !important;">
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Date</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Module</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Performance</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Volume</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Profit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #222 !important;">
+                        <td style="color: #ccc !important; padding: 12px !important;">2024-06-04</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">Trading</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+12.4%</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">2,450€</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+304€</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #222 !important;">
+                        <td style="color: #ccc !important; padding: 12px !important;">2024-06-04</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">Arbitrage</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+8.7%</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">1,200€</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+104€</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #222 !important;">
+                        <td style="color: #ccc !important; padding: 12px !important;">2024-06-04</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">E-commerce</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+5.2%</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">800€</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">+42€</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function startBacktest(module) {
+        try {
+            const response = await fetch(`/api/backtest/${module.toLowerCase()}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
                 }
             });
-        });
-        
-        function showNotification(message, type = 'info', duration = 5000) {
-            console.log(`[${type}] ${message}`);
             
-            // Create notification container if it doesn't exist
-            let container = document.querySelector('.notification-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.className = 'notification-container';
-                document.body.appendChild(container);
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert(result.message);
+            } else {
+                alert('Erreur: ' + result.message);
             }
-            
-            // Create notification element
-            const notification = document.createElement('div');
-            notification.className = `notification ${type}`;
-            
-            // Get icon based on notification type
-            let icon = '';
-            switch (type) {
-                case 'success':
-                    icon = '✓';
-                    break;
-                case 'error':
-                    icon = '✗';
-                    break;
-                case 'warning':
-                    icon = '⚠';
-                    break;
-                case 'info':
-                default:
-                    icon = 'ℹ';
-                    break;
-            }
-            
-            // Set notification content
-            notification.innerHTML = `
-                <div class="notification-icon">${icon}</div>
-                <div class="notification-content">
-                    <div class="notification-message">${message}</div>
-                </div>
-                <button class="notification-close">×</button>
-            `;
-            
-            // Add notification to container
-            container.appendChild(notification);
-            
-            // Add close button event listener
-            const closeBtn = notification.querySelector('.notification-close');
-            closeBtn.addEventListener('click', () => {
-                closeNotification(notification);
-            });
-            
-            // Auto-close after duration
-            setTimeout(() => {
-                closeNotification(notification);
-            }, duration);
-            
-            return notification;
+        } catch (error) {
+            alert('Erreur lors du démarrage du backtest');
         }
-        
-        function closeNotification(notification) {
-            notification.classList.add('closing');
-            notification.addEventListener('animationend', () => {
-                notification.remove();
-            });
-        }
-    </script>
-</body>
-</html>
+    }
+</script>
+{% endblock %}
