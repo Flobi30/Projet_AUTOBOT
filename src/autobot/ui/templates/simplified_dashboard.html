@@ -395,41 +395,41 @@
                             <div class="withdrawal-impact">
                                 <div class="impact-label">Scalability Impact</div>
                                 <div class="impact-meter">
-                                    <div class="impact-value" style="width: {{ withdrawal_impact.scalability_impact * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.scalability_impact) }};"></div>
+                                    <div class="impact-value" style="width: {{ (withdrawal_impact.scalability_impact or 0) * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.scalability_impact or 0) }};"></div>
                                 </div>
-                                <div class="impact-percentage">{{ (withdrawal_impact.scalability_impact * 100)|round|int }}%</div>
+                                <div class="impact-percentage">{{ ((withdrawal_impact.scalability_impact or 0) * 100)|round|int }}%</div>
                             </div>
                             
                             <div class="withdrawal-impact">
                                 <div class="impact-label">Performance Impact</div>
                                 <div class="impact-meter">
-                                    <div class="impact-value" style="width: {{ withdrawal_impact.performance_impact * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.performance_impact) }};"></div>
+                                    <div class="impact-value" style="width: {{ (withdrawal_impact.performance_impact or 0) * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.performance_impact or 0) }};"></div>
                                 </div>
-                                <div class="impact-percentage">{{ (withdrawal_impact.performance_impact * 100)|round|int }}%</div>
+                                <div class="impact-percentage">{{ ((withdrawal_impact.performance_impact or 0) * 100)|round|int }}%</div>
                             </div>
                             
                             <div class="withdrawal-impact">
                                 <div class="impact-label">Instance Risk</div>
                                 <div class="impact-meter">
-                                    <div class="impact-value" style="width: {{ withdrawal_impact.instance_risk * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.instance_risk) }};"></div>
+                                    <div class="impact-value" style="width: {{ (withdrawal_impact.risk_impact or 0) * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.risk_impact or 0) }};"></div>
                                 </div>
-                                <div class="impact-percentage">{{ (withdrawal_impact.instance_risk * 100)|round|int }}%</div>
+                                <div class="impact-percentage">{{ ((withdrawal_impact.risk_impact or 0) * 100)|round|int }}%</div>
                             </div>
                             
                             <div class="withdrawal-impact">
                                 <div class="impact-label">Profit Impact</div>
                                 <div class="impact-meter">
-                                    <div class="impact-value" style="width: {{ withdrawal_impact.profit_impact * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.profit_impact) }};"></div>
+                                    <div class="impact-value" style="width: {{ (withdrawal_impact.profit_impact or 0) * 100 }}%; background-color: {{ get_impact_color(withdrawal_impact.profit_impact or 0) }};"></div>
                                 </div>
-                                <div class="impact-percentage">{{ (withdrawal_impact.profit_impact * 100)|round|int }}%</div>
+                                <div class="impact-percentage">{{ ((withdrawal_impact.profit_impact or 0) * 100)|round|int }}%</div>
                             </div>
                             
                             <div class="withdrawal-impact">
                                 <div class="impact-label">Overall Safety</div>
                                 <div class="impact-meter">
-                                    <div class="impact-value" style="width: {{ withdrawal_impact.overall_safety * 100 }}%; background-color: {{ get_impact_color(1 - withdrawal_impact.overall_safety) }};"></div>
+                                    <div class="impact-value" style="width: {{ (withdrawal_impact.overall_safety or 0) * 100 }}%; background-color: {{ get_impact_color(1 - (withdrawal_impact.overall_safety or 0)) }};"></div>
                                 </div>
-                                <div class="impact-percentage">{{ (withdrawal_impact.overall_safety * 100)|round|int }}%</div>
+                                <div class="impact-percentage">{{ ((withdrawal_impact.overall_safety or 0) * 100)|round|int }}%</div>
                             </div>
                         </div>
                     </div>
