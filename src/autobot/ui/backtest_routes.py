@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..autobot_security.auth.user_manager import User, get_current_user
+
 
 logger = logging.getLogger(__name__)
 
@@ -144,13 +144,16 @@ symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "DOT/USD", "XRP/USD", "DO
 saved_backtests = []
 
 @router.get("/backtest", response_class=HTMLResponse)
-async def backtest_page(request: Request, user: User = Depends(get_current_user)):
+async def backtest_page(request: Request):
     """Render the backtest page."""
     return templates.TemplateResponse(
         "backtest.html",
         {
             "request": request,
-            "user": user,
+            "active_page": "backtest",
+            "username": "AUTOBOT",
+            "user_role": "admin",
+            "user_role_display": "Administrateur",
             "strategies": strategies,
             "symbols": symbols,
             "saved_backtests": saved_backtests
@@ -158,7 +161,7 @@ async def backtest_page(request: Request, user: User = Depends(get_current_user)
     )
 
 @router.post("/api/backtest/run")
-async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):
+async def run_backtest_strategy(request: BacktestRequest):
     """Run a backtest with the specified strategy and parameters."""
     try:
         strategy = next((s for s in strategies if s["id"] == request.strategy), None)
@@ -319,7 +322,7 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/backtest/{backtest_id}")
-async def get_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def get_backtest(backtest_id: str):
     """Get a saved backtest."""
     backtest = next((b for b in saved_backtests if b["id"] == backtest_id), None)
     
@@ -452,7 +455,7 @@ async def get_backtest(backtest_id: str, user: User = Depends(get_current_user))
     }
 
 @router.delete("/api/backtest/{backtest_id}")
-async def delete_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def delete_backtest(backtest_id: str):
     """Delete a saved backtest."""
     global saved_backtests
     

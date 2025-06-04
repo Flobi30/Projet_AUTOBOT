@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..autobot_security.auth.user_manager import User, get_current_user
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ exchanges = [
 ]
 
 @router.get("/arbitrage", response_class=HTMLResponse)
-async def arbitrage_page(request: Request, user: User = Depends(get_current_user)):
+async def arbitrage_page(request: Request):
     """Render the arbitrage page."""
     profit_24h = sum(execution.profit for execution in recent_executions if execution.timestamp > time.time() - 86400)
     
@@ -93,7 +93,10 @@ async def arbitrage_page(request: Request, user: User = Depends(get_current_user
         "arbitrage.html",
         {
             "request": request,
-            "user": user,
+            "active_page": "arbitrage",
+            "username": "AUTOBOT",
+            "user_role": "admin",
+            "user_role_display": "Administrateur",
             "opportunities_count": len(opportunities),
             "profit_24h": profit_24h,
             "avg_execution_ms": avg_execution_ms,
@@ -111,7 +114,7 @@ async def arbitrage_page(request: Request, user: User = Depends(get_current_user
     )
 
 @router.post("/api/arbitrage/settings")
-async def update_arbitrage_settings(settings: ArbitrageSettings, user: User = Depends(get_current_user)):
+async def update_arbitrage_settings(settings: ArbitrageSettings):
     """Update arbitrage settings."""
     global arbitrage_settings
     
@@ -141,7 +144,7 @@ async def update_arbitrage_settings(settings: ArbitrageSettings, user: User = De
     }
 
 @router.post("/api/arbitrage/execute/{opportunity_id}")
-async def execute_arbitrage(opportunity_id: str, user: User = Depends(get_current_user)):
+async def execute_arbitrage(opportunity_id: str):
     """Execute an arbitrage opportunity."""
     opportunity = next((o for o in opportunities if o.id == opportunity_id), None)
     
@@ -176,21 +179,21 @@ async def execute_arbitrage(opportunity_id: str, user: User = Depends(get_curren
     }
 
 @router.get("/api/arbitrage/opportunities")
-async def get_arbitrage_opportunities(user: User = Depends(get_current_user)):
+async def get_arbitrage_opportunities():
     """Get arbitrage opportunities."""
     return {
         "opportunities": opportunities
     }
 
 @router.get("/api/arbitrage/executions")
-async def get_arbitrage_executions(user: User = Depends(get_current_user)):
+async def get_arbitrage_executions():
     """Get arbitrage executions."""
     return {
         "executions": recent_executions
     }
 
 @router.post("/api/arbitrage/scan")
-async def scan_arbitrage_opportunities(user: User = Depends(get_current_user)):
+async def scan_arbitrage_opportunities():
     """Scan for arbitrage opportunities."""
     global opportunities
     

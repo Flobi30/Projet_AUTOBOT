@@ -1,41 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AUTOBOT - Backtest</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/mobile.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <div class="dashboard">
-        <header class="header">
-            <div class="logo">
-                <img src="{{ url_for('static', path='img/logo.png') }}" alt="AUTOBOT">
-                <h1>AUTOBOT</h1>
-            </div>
-            <div class="user-info">
-                <span>{{ user.username }}</span>
-                <a href="/logout" class="btn btn-outline">Logout</a>
-            </div>
-        </header>
-        
-        <aside class="sidebar">
-            <ul>
-                <li><a href="/dashboard">Dashboard</a></li>
-                <li><a href="/trading">Trading</a></li>
-                <li><a href="/arbitrage">Arbitrage</a></li>
-                <li><a href="/backtest" class="active">Backtest</a></li>
-                <li><a href="/ecommerce">E-commerce</a></li>
-                <li><a href="/rl-training">RL Training</a></li>
-                <li><a href="/deposit-withdrawal">Dépôt/Retrait</a></li>
-                <li><a href="/settings">Settings</a></li>
-            </ul>
-        </aside>
-        
-        <main class="content">
-            <h2>Moteur de Backtest</h2>
+{% extends "base.html" %}
+
+{% block title %}Backtest - AUTOBOT{% endblock %}
+
+{% block content %}
+<div class="main-content">
+    <div class="page-header">
+        <h1 class="page-title">Backtest</h1>
+        <div class="page-actions">
+            <button class="btn btn-primary" onclick="runNewBacktest()">
+                <i class="fas fa-play"></i> Nouveau Backtest
+            </button>
+        </div>
+    </div>
             
             <div class="grid">
                 <div class="card">
@@ -222,10 +198,9 @@
                     </table>
                 </div>
             </div>
-        </main>
-    </div>
+</div>
 
-    <script>
+<script>
         document.addEventListener('DOMContentLoaded', function() {
             let equityChart = null;
             
@@ -588,6 +563,9 @@
                 });
             });
         });
-    </script>
-</body>
-</html>
+
+function runNewBacktest() {
+    document.getElementById('backtest-form').scrollIntoView({ behavior: 'smooth' });
+}
+</script>
+{% endblock %}
