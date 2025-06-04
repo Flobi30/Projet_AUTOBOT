@@ -129,12 +129,38 @@ async def get_parametres(request: Request):
     """
     Page de paramètres.
     """
+    env_file_path = "/home/ubuntu/Projet_AUTOBOT/.env"
+    env_vars = {}
+    
+    if os.path.exists(env_file_path):
+        with open(env_file_path, 'r') as f:
+            for line in f:
+                if '=' in line and not line.strip().startswith('#'):
+                    key, value = line.strip().split('=', 1)
+                    env_vars[key] = value
+    
     return templates.TemplateResponse("parametres.html", {
         "request": request,
         "active_page": "parametres",
         "username": "AUTOBOT",
         "user_role": "admin",
-        "user_role_display": "Administrateur"
+        "user_role_display": "Administrateur",
+        "binance_api_key": env_vars.get("BINANCE_API_KEY", ""),
+        "binance_api_secret": env_vars.get("BINANCE_API_SECRET", ""),
+        "openai_api_key": env_vars.get("OPENAI_API_KEY", ""),
+        "superagi_api_key": env_vars.get("SUPERAGI_API_KEY", ""),
+        "stripe_api_key": env_vars.get("STRIPE_API_KEY", ""),
+        "alpha_vantage_api_key": env_vars.get("ALPHA_VANTAGE_API_KEY", ""),
+        "twelve_data_api_key": env_vars.get("TWELVE_DATA_API_KEY", ""),
+        "fred_api_key": env_vars.get("FRED_API_KEY", ""),
+        "newsapi_api_key": env_vars.get("NEWSAPI_KEY", ""),
+        "shopify_api_key": env_vars.get("SHOPIFY_API_KEY", ""),
+        "shopify_api_secret": env_vars.get("SHOPIFY_API_SECRET", ""),
+        "shopify_shop_name": env_vars.get("SHOPIFY_SHOP_NAME", ""),
+        "coinbase_api_key": env_vars.get("COINBASE_API_KEY", ""),
+        "coinbase_api_secret": env_vars.get("COINBASE_API_SECRET", ""),
+        "kraken_api_key": env_vars.get("KRAKEN_API_KEY", ""),
+        "kraken_api_secret": env_vars.get("KRAKEN_API_SECRET", "")
     })
 
 @router.get("/rl-training", response_class=HTMLResponse)
@@ -204,7 +230,8 @@ async def save_settings(request: Request):
             "coinbase-api-key": "COINBASE_API_KEY",
             "coinbase-api-secret": "COINBASE_API_SECRET",
             "kraken-api-key": "KRAKEN_API_KEY",
-            "kraken-api-secret": "KRAKEN_API_SECRET"
+            "kraken-api-secret": "KRAKEN_API_SECRET",
+            "shopify-shop-name": "SHOPIFY_SHOP_NAME"
         }
         
         for form_key, env_key in api_key_mapping.items():
