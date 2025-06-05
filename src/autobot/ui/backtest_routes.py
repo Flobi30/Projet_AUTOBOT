@@ -12,7 +12,7 @@ import random
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
