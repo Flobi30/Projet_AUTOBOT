@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import os
 import logging
 
-from ..autobot_security.auth.jwt_handler import get_current_user
+
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ async def detect_mobile(user_agent: Optional[str] = None):
     }
 
 @router.get("/api/mobile/portfolio", summary="Get portfolio data for mobile")
-async def get_mobile_portfolio(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_portfolio():
     """
     Get portfolio data optimized for mobile display.
     
@@ -164,7 +164,7 @@ async def get_mobile_portfolio(current_user: Dict[str, Any] = Depends(get_curren
         raise HTTPException(status_code=500, detail=f"Error getting mobile portfolio data: {str(e)}")
 
 @router.get("/api/mobile/recent-trades", summary="Get recent trades for mobile")
-async def get_mobile_recent_trades(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_recent_trades():
     """
     Get recent trades optimized for mobile display.
     
@@ -208,7 +208,7 @@ async def get_mobile_recent_trades(current_user: Dict[str, Any] = Depends(get_cu
         raise HTTPException(status_code=500, detail=f"Error getting mobile recent trades: {str(e)}")
 
 @router.get("/api/mobile/ai-insights", summary="Get AI insights for mobile")
-async def get_mobile_ai_insights(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_mobile_ai_insights():
     """
     Get AI insights optimized for mobile display.
     
@@ -244,8 +244,7 @@ async def get_mobile_ai_insights(current_user: Dict[str, Any] = Depends(get_curr
 
 @router.post("/api/mobile/update-exchange", summary="Update exchange API settings")
 async def update_exchange_settings(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    request: Request
 ):
     """
     Update exchange API settings.
@@ -273,7 +272,7 @@ async def update_exchange_settings(
         api_secret = data["api_secret"]
         use_testnet = data.get("use_testnet", False)
         
-        logger.info(f"Updating {exchange} API settings for user {current_user['username']}")
+        logger.info(f"Updating {exchange} API settings for user AUTOBOT")
         
         # )
         
@@ -294,8 +293,7 @@ async def update_exchange_settings(
 
 @router.post("/api/mobile/disconnect-exchange", summary="Disconnect exchange API")
 async def disconnect_exchange(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    request: Request
 ):
     """
     Disconnect exchange API.
@@ -318,7 +316,7 @@ async def disconnect_exchange(
         
         exchange = data["exchange"]
         
-        logger.info(f"Disconnecting {exchange} API for user {current_user['username']}")
+        logger.info(f"Disconnecting {exchange} API for user AUTOBOT")
         
         # )
         
