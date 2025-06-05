@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import RedirectResponse
 
-from autobot.autobot_security.auth.jwt_handler import decode_token, verify_license_key, get_current_user
+from autobot.autobot_security.auth.jwt_handler import decode_token, verify_license_key
 from autobot.autobot_security.auth.user_manager import UserManager
 from autobot.autobot_security.auth.models import User
 from autobot.trading.strategy import Strategy, MovingAverageStrategy
@@ -357,49 +357,49 @@ async def update_settings(request: Request):
             
             if "binance-api-key" in api_settings and api_settings["binance-api-key"]:
                 user_manager.update_user_data(
-                    user_id=current_user.id,
+                    user_id="AUTOBOT",
                     field="binance_api_key",
                     value=api_settings["binance-api-key"]
                 )
                 
             if "binance-api-secret" in api_settings and api_settings["binance-api-secret"]:
                 user_manager.update_user_data(
-                    user_id=current_user.id,
+                    user_id="AUTOBOT",
                     field="binance_api_secret",
                     value=api_settings["binance-api-secret"]
                 )
                 
             if "openai-api-key" in api_settings and api_settings["openai-api-key"]:
                 user_manager.update_user_data(
-                    user_id=current_user.id,
+                    user_id="AUTOBOT",
                     field="openai_api_key",
                     value=api_settings["openai-api-key"]
                 )
                 
             if "superagi-api-key" in api_settings and api_settings["superagi-api-key"]:
                 user_manager.update_user_data(
-                    user_id=current_user.id,
+                    user_id="AUTOBOT",
                     field="superagi_api_key",
                     value=api_settings["superagi-api-key"]
                 )
                 
             if "stripe-api-key" in api_settings and api_settings["stripe-api-key"]:
                 user_manager.update_user_data(
-                    user_id=current_user.id,
+                    user_id="AUTOBOT",
                     field="stripe_api_key",
                     value=api_settings["stripe-api-key"]
                 )
         
         user_manager = UserManager()
         user_manager.update_user_data(
-            user_id=current_user.id,
+            user_id="AUTOBOT",
             field="preferences",
             value=data
         )
         
         await manager.broadcast_json({
             "type": "settings_updated",
-            "user_id": current_user.id
+            "user_id": "AUTOBOT"
         })
         
         return {

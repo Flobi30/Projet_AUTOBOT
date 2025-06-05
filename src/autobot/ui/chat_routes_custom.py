@@ -12,7 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 import asyncio
 
 from ..agents.custom_superagi.master_agent import create_autobot_master_agent
-from ..autobot_security.auth.user_manager import get_current_user_ws, User
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +22,11 @@ active_connections: Dict[str, List[WebSocket]] = {}
 autobot_master = None
 
 @router.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket, user: User = Depends(get_current_user_ws)):
+async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for chat communication."""
     await websocket.accept()
     
-    user_id = str(user.id)
+    user_id = "AUTOBOT"
     if user_id not in active_connections:
         active_connections[user_id] = []
     active_connections[user_id].append(websocket)

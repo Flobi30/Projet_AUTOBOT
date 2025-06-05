@@ -11,7 +11,7 @@ import logging
 
 from ..prediction.engine import PredictionEngine, create_prediction_engine, PredictionResult
 from ..prediction.models import get_model
-from ..autobot_security.auth.jwt_handler import get_current_user
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,7 @@ def get_prediction_engine(model_name: str = "default") -> PredictionEngine:
 async def train_model(
     data: Dict[str, Any] = Body(...),
     model_name: str = Query("default", description="Model name"),
-    model_type: str = Query("LSTMModel", description="Model type"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    model_type: str = Query("LSTMModel", description="Model type")
 ):
     """
     Train a prediction model.
@@ -83,8 +82,7 @@ async def train_model(
 @router.post("/api/prediction/predict", summary="Make predictions")
 async def predict(
     data: Dict[str, Any] = Body(...),
-    model_name: str = Query("default", description="Model name"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    model_name: str = Query("default", description="Model name")
 ):
     """
     Make predictions.
@@ -118,8 +116,7 @@ async def predict(
 @router.post("/api/prediction/evaluate", summary="Evaluate a prediction model")
 async def evaluate_model(
     data: Dict[str, Any] = Body(...),
-    model_name: str = Query("default", description="Model name"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    model_name: str = Query("default", description="Model name")
 ):
     """
     Evaluate a prediction model.
@@ -151,9 +148,7 @@ async def evaluate_model(
         raise HTTPException(status_code=500, detail=f"Error evaluating model: {str(e)}")
 
 @router.get("/api/prediction/models", summary="Get available models")
-async def get_models(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
+async def get_models():
     """
     Get available prediction models.
     
@@ -182,8 +177,7 @@ async def get_models(
 @router.post("/api/prediction/save/{model_name}", summary="Save a prediction model")
 async def save_model(
     model_name: str,
-    path: str = Body(..., embed=True),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    path: str = Body(..., embed=True)
 ):
     """
     Save a prediction model.
@@ -215,8 +209,7 @@ async def save_model(
 
 @router.post("/api/prediction/load", summary="Load a prediction model")
 async def load_model(
-    path: str = Body(..., embed=True),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    path: str = Body(..., embed=True)
 ):
     """
     Load a prediction model.
@@ -247,8 +240,7 @@ async def load_model(
 
 @router.delete("/api/prediction/models/{model_name}", summary="Delete a prediction model")
 async def delete_model(
-    model_name: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    model_name: str
 ):
     """
     Delete a prediction model.
