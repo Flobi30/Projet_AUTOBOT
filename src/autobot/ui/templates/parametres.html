@@ -11,9 +11,9 @@
 {% endblock %}
 
 {% block content %}
-<div class="dashboard-grid">
+<div class="settings-layout" style="display: flex; gap: 24px; width: 100%; max-width: none;">
     <!-- Navigation des paramètres -->
-    <div class="settings-nav" style="grid-column: span 3;">
+    <div class="settings-nav" style="width: 280px; flex-shrink: 0;">
         <div class="card">
             <div class="card-body">
                 <ul class="settings-menu">
@@ -26,20 +26,8 @@
                     <li class="settings-menu-item" data-target="trading-settings">
                         <i class="fas fa-chart-line"></i> Trading
                     </li>
-                    <li class="settings-menu-item" data-target="ecommerce-settings">
-                        <i class="fas fa-shopping-cart"></i> E-commerce
-                    </li>
                     <li class="settings-menu-item" data-target="security-settings">
                         <i class="fas fa-shield-alt"></i> Sécurité
-                    </li>
-                    <li class="settings-menu-item" data-target="notification-settings">
-                        <i class="fas fa-bell"></i> Notifications
-                    </li>
-                    <li class="settings-menu-item" data-target="superagi-settings">
-                        <i class="fas fa-robot"></i> SuperAGI
-                    </li>
-                    <li class="settings-menu-item" data-target="advanced-settings">
-                        <i class="fas fa-tools"></i> Avancé
                     </li>
                 </ul>
             </div>
@@ -47,7 +35,7 @@
     </div>
 
     <!-- Contenu des paramètres -->
-    <div class="settings-content" style="grid-column: span 9;">
+    <div class="settings-content" style="flex: 1; min-width: 0;">
         <!-- Paramètres généraux -->
         <div class="settings-section active" id="general-settings">
             <div class="card">
