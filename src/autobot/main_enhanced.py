@@ -63,7 +63,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# app.include_router(router)  # Temporarily disable to isolate authentication source
+app.include_router(router)
 
 user_manager = UserManager()
 risk_manager = RiskManagerEnhanced()

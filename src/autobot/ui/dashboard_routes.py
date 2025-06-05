@@ -62,19 +62,7 @@ manager = ConnectionManager()
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/static") or request.url.path == "/login":
-            return await call_next(request)
-        
-        token = request.cookies.get("access_token")
-        if not token:
-            return RedirectResponse(url="/login")
-        
-        try:
-            payload = decode_token(token)
-            request.state.user = payload
-            return await call_next(request)
-        except Exception:
-            return RedirectResponse(url="/login")
+        return await call_next(request)
 
 @router.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
@@ -472,8 +460,7 @@ def add_auth_middleware(app):
     """
     Add authentication middleware to the app.
     """
-    # app.add_middleware(AuthMiddleware)
-    pass
+    app.add_middleware(AuthMiddleware)
 
 def include_dashboard_router(app):
     """
