@@ -63,7 +63,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
+# app.include_router(router)  # Temporarily disable to isolate authentication source
 
 user_manager = UserManager()
 risk_manager = RiskManagerEnhanced()
@@ -80,7 +80,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 templates_dir = os.path.join(current_dir, "ui", "templates")
 templates = Jinja2Templates(directory=templates_dir)
 
-# include_dashboard_router(app)  # Temporarily disable to test authentication
+include_dashboard_router(app)  # Re-enable dashboard router
 
 @app.get("/health", tags=["health"])
 async def health_check():
