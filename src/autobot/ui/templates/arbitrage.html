@@ -116,7 +116,7 @@
                         <tbody>
                             {% for execution in recent_executions %}
                             <tr>
-                                <td>{{ execution.timestamp|strftime('%H:%M:%S') }}</td>
+                                <td>{{ execution.timestamp }}</td>
                                 <td>{{ execution.symbol }}</td>
                                 <td class="profit-cell">{{ "%.2f"|format(execution.profit) }}€</td>
                                 <td>
