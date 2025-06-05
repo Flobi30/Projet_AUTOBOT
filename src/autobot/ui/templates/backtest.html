@@ -250,22 +250,11 @@
                             responsive: true,
                             maintainAspectRatio: false,
                             scales: {
-                    // Update performance metrics with indicators
-                    const totalReturn = result.metrics.total_return;
-                    const dailyReturn = totalReturn / 30;
-                    const sharpeRatio = result.metrics.sharpe;
-                    const maxDrawdown = result.metrics.max_drawdown;
-                    
-                    document.getElementById('total-return').textContent = totalReturn.toFixed(2) + '%';
-                    document.getElementById('daily-return').textContent = dailyReturn.toFixed(2) + '%';
-                    document.getElementById('sharpe-ratio').textContent = sharpeRatio.toFixed(2);
-                    document.getElementById('max-drawdown').textContent = maxDrawdown.toFixed(2) + '%';
-                    
-                    // Update performance indicators
-                    updateIndicator('total-return-indicator', totalReturn >= 300);
-                    updateIndicator('daily-return-indicator', dailyReturn >= 10);
-                    updateIndicator('sharpe-indicator', sharpeRatio >= 1.5);
-                    updateIndicator('drawdown-indicator', maxDrawdown <= 20);
+                                x: {
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    },
+                                    ticks: {
                                         color: '#ffffff'
                                     }
                                 },
@@ -287,6 +276,23 @@
                             }
                         }
                     });
+                    
+                    // Update performance metrics with indicators
+                    const totalReturn = result.metrics.total_return;
+                    const dailyReturn = totalReturn / 30;
+                    const sharpeRatio = result.metrics.sharpe;
+                    const maxDrawdown = result.metrics.max_drawdown;
+                    
+                    document.getElementById('total-return').textContent = totalReturn.toFixed(2) + '%';
+                    document.getElementById('daily-return').textContent = dailyReturn.toFixed(2) + '%';
+                    document.getElementById('sharpe-ratio').textContent = sharpeRatio.toFixed(2);
+                    document.getElementById('max-drawdown').textContent = maxDrawdown.toFixed(2) + '%';
+                    
+                    // Update performance indicators
+                    updateIndicator('total-return-indicator', totalReturn >= 300);
+                    updateIndicator('daily-return-indicator', dailyReturn >= 10);
+                    updateIndicator('sharpe-indicator', sharpeRatio >= 1.5);
+                    updateIndicator('drawdown-indicator', maxDrawdown <= 20);
                     
                     // Update additional metrics
                     document.getElementById('total-trades').textContent = result.metrics.total_trades;
