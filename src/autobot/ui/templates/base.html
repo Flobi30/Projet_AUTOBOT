@@ -3,22 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AUTOBOT - {% block title %}Dashboard{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <link rel="stylesheet" href="/static/css/neon_theme.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    {% block extra_css %}{% endblock %}
+    <title>{% block title %}AUTOBOT{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/neon_theme.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    {% block extra_head %}{% endblock %}
 </head>
-<body class="dark-theme" data-role="{{ user_role }}">
+<body>
     <div class="app-container">
-        <!-- Sidebar Navigation -->
-        <div class="sidebar">
-            <div class="logo-container">
-                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
-                <h1 class="neon-text">AUTOBOT</h1>
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <span>AUTOBOT</span>
+                </div>
             </div>
+            
             <nav class="nav-menu">
                 <div class="nav-section">
                     <div class="nav-section-title">Tableau de Bord</div>
@@ -72,35 +71,49 @@
                     </a>
                 </div>
             </nav>
-            <div class="user-info">
-                <div class="user-avatar">
-                    <i class="fas fa-user"></i>
-                </div>
-                <div class="user-details">
-                    <span class="user-name">{{ username }}</span>
-                    <span class="user-role">{{ user_role_display }}</span>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="username">{{ username or 'AUTOBOT' }}</span>
+                        <span class="user-role">{{ user_role_display or 'Administrateur' }}</span>
+                    </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="main-content">
-            <header class="content-header">
-                <h2 class="neon-text">{% block header_title %}Dashboard{% endblock %}</h2>
-                <div class="header-actions">
-                    {% block header_actions %}{% endblock %}
+        </aside>
+        
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <button class="sidebar-toggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+                <div class="header-right">
+                    <div class="header-actions">
+                        <button class="header-btn">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <button class="header-btn">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                    </div>
                 </div>
             </header>
-
-            <div class="content-body">
+            
+            <div class="content-wrapper">
                 {% block content %}{% endblock %}
             </div>
-        </div>
+        </main>
     </div>
-
-    {% block modals %}{% endblock %}
     
-    <script src="/static/js/common.js"></script>
-    {% block scripts %}{% endblock %}
+    <script>
+        document.querySelector('.sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        });
+    </script>
 </body>
 </html>
