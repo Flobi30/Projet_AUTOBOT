@@ -28,11 +28,11 @@ templates = Jinja2Templates(directory=templates_dir)
 
 class BacktestRequest(BaseModel):
     strategy: str
-    symbol: str
-    timeframe: str
-    start_date: str
-    end_date: str
-    initial_capital: float
+    symbol: Optional[str] = "BTC/USD"
+    timeframe: Optional[str] = "1d"
+    start_date: Optional[str] = "2023-01-01"
+    end_date: Optional[str] = "2023-12-31"
+    initial_capital: Optional[float] = 500.0
     params: Optional[Dict[str, Any]] = None
 
 class BacktestResult(BaseModel):
