@@ -8,6 +8,7 @@ import os
 import logging
 import time
 import uuid
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -43,7 +44,7 @@ class ArbitrageOpportunity(BaseModel):
 class ArbitrageExecution(BaseModel):
     id: str
     opportunity_id: str
-    timestamp: int
+    timestamp: str
     symbol: str
     buy_exchange: str
     sell_exchange: str
@@ -156,7 +157,7 @@ async def execute_arbitrage(opportunity_id: str):
     execution = ArbitrageExecution(
         id=execution_id,
         opportunity_id=opportunity_id,
-        timestamp=int(time.time()),
+        timestamp=datetime.now().strftime("%H:%M:%S"),
         symbol=opportunity.symbol,
         buy_exchange=opportunity.buy_exchange,
         sell_exchange=opportunity.sell_exchange,
