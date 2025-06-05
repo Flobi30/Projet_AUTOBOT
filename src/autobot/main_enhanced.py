@@ -80,7 +80,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 templates_dir = os.path.join(current_dir, "ui", "templates")
 templates = Jinja2Templates(directory=templates_dir)
 
-include_dashboard_router(app)
+# include_dashboard_router(app)  # Temporarily disable to test authentication
 
 @app.get("/health", tags=["health"])
 async def health_check():
