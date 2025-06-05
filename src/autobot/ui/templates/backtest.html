@@ -5,11 +5,11 @@
 {% block content %}
 <div class="main-content">
     <div class="page-header">
-        <h1 class="page-title">Backtest</h1>
+        <h1 class="page-title">Backtest Automatisé</h1>
         <div class="page-actions">
-            <button class="btn btn-primary" onclick="runNewBacktest()">
-                <i class="fas fa-play"></i> Nouveau Backtest
-            </button>
+            <div class="auto-status">
+                <i class="fas fa-robot"></i> Mode Automatique Activé
+            </div>
         </div>
     </div>
             
@@ -17,19 +17,22 @@
                 <div class="card">
                     <h3>Performance Automatisée - Objectif 10% Quotidien</h3>
                     <div class="auto-backtest-controls">
-                        <button id="run-auto-backtest" class="btn btn-primary">
-                            <i class="fas fa-play"></i> Lancer Backtest Automatique
-                        </button>
+                        <div class="auto-status-info">
+                            <div class="status-indicator">
+                                <i class="fas fa-robot"></i>
+                                <span>Exécution automatique en cours...</span>
+                            </div>
+                            <div class="auto-config-display">
+                                <strong>Configuration Optimisée:</strong> BTC/USD, 1h, MA Crossover (8/21), Capital: 500€
+                            </div>
+                        </div>
                         <div class="performance-target">
                             <span class="target-label">Objectif:</span>
                             <span class="target-value">10% de rendement quotidien</span>
                         </div>
-                        <div class="auto-config-info">
-                            <small>Configuration optimisée: BTC/USD, 1h, MA Crossover (8/21), Capital initial: 500€</small>
-                        </div>
                     </div>
                     
-                    <div id="auto-results-loading" style="display: none;">
+                    <div id="auto-results-loading" style="display: block;">
                         <div class="loading-spinner"></div>
                         <p>Optimisation automatique en cours...</p>
                     </div>
@@ -62,17 +65,38 @@
                             font-weight: bold;
                         }
                         
-                        .auto-config-info {
-                            margin-top: 10px;
-                            padding: 8px 12px;
-                            background: rgba(0, 255, 157, 0.1);
-                            border-radius: 4px;
-                            border-left: 3px solid #00ff9d;
+                        .auto-status {
+                            color: #00ff9d;
+                            font-weight: bold;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
                         }
                         
-                        .auto-config-info small {
+                        .auto-status-info {
+                            background: rgba(0, 255, 157, 0.1);
+                            border: 1px solid #00ff9d;
+                            border-radius: 8px;
+                            padding: 15px;
+                            margin-bottom: 15px;
+                        }
+                        
+                        .status-indicator {
+                            display: flex;
+                            align-items: center;
+                            gap: 10px;
                             color: #00ff9d;
-                            font-weight: 500;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                        }
+                        
+                        .auto-config-display {
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                        
+                        .auto-config-display strong {
+                            color: #00ff9d;
                         }
                     </style>
                 </div>
@@ -145,60 +169,9 @@
                 </div>
             </div>
             
-            <div class="card" id="trades-section" style="display: none;">
-                <h3>Trades</h3>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Prix</th>
-                                <th>Taille</th>
-                                <th>Profit/Perte</th>
-                                <th>Cumulatif</th>
-                            </tr>
-                        </thead>
-                        <tbody id="trades-table-body">
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+
             
-            <div class="card">
-                <h3>Backtests Sauvegardés</h3>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Stratégie</th>
-                                <th>Symbole</th>
-                                <th>Timeframe</th>
-                                <th>Rendement</th>
-                                <th>Sharpe</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for backtest in saved_backtests %}
-                            <tr>
-                                <td>{{ backtest.date }}</td>
-                                <td>{{ backtest.strategy }}</td>
-                                <td>{{ backtest.symbol }}</td>
-                                <td>{{ backtest.timeframe }}</td>
-                                <td>{{ backtest.return }}%</td>
-                                <td>{{ backtest.sharpe }}</td>
-                                <td>
-                                    <button class="btn btn-outline load-btn" data-id="{{ backtest.id }}">Charger</button>
-                                    <button class="btn btn-outline delete-btn" data-id="{{ backtest.id }}">Supprimer</button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+
 </div>
 
 <script>
@@ -207,11 +180,11 @@
             
             // Auto-run backtest on page load
             setTimeout(() => {
-                document.getElementById('run-auto-backtest').click();
+                runAutomatedBacktest();
             }, 1000);
             
             // Handle automated backtest
-            document.getElementById('run-auto-backtest').addEventListener('click', function() {
+            function runAutomatedBacktest() {
                 // Show loading
                 document.getElementById('auto-results-loading').style.display = 'block';
                 
@@ -295,50 +268,24 @@
                         }
                     });
                     
-                    // Update trades table
-                    const tradesTableBody = document.getElementById('trades-table-body');
-                    tradesTableBody.innerHTML = '';
-                    
-                    result.trades.forEach(trade => {
-                        const row = document.createElement('tr');
-                        
-                        const dateCell = document.createElement('td');
-                        dateCell.textContent = trade.date;
-                        row.appendChild(dateCell);
-                        
-                        const typeCell = document.createElement('td');
-                        typeCell.textContent = trade.type;
-                        typeCell.className = trade.type === 'BUY' ? 'text-success' : 'text-danger';
-                        row.appendChild(typeCell);
-                        
-                        const priceCell = document.createElement('td');
-                        priceCell.textContent = trade.price.toFixed(2);
-                        row.appendChild(priceCell);
-                        
-                        const sizeCell = document.createElement('td');
-                        sizeCell.textContent = trade.size.toFixed(4);
-                        row.appendChild(sizeCell);
-                        
-                        const plCell = document.createElement('td');
-                        plCell.textContent = '$' + trade.pl.toFixed(2);
-                        plCell.className = trade.pl >= 0 ? 'text-success' : 'text-danger';
-                        row.appendChild(plCell);
-                        
-                        const cumCell = document.createElement('td');
-                        cumCell.textContent = '$' + trade.cumulative.toFixed(2);
-                        row.appendChild(cumCell);
-                        
-                        tradesTableBody.appendChild(row);
-                    });
+                    // Update additional metrics
+                    document.getElementById('total-trades').textContent = result.metrics.total_trades;
+                    document.getElementById('profit-factor').textContent = result.metrics.profit_factor.toFixed(2);
+                    document.getElementById('avg-trade').textContent = '$' + result.metrics.avg_trade.toFixed(2);
+                    document.getElementById('avg-win').textContent = '$' + result.metrics.avg_win.toFixed(2);
+                    document.getElementById('avg-loss').textContent = '$' + result.metrics.avg_loss.toFixed(2);
+                    document.getElementById('best-trade').textContent = '$' + result.metrics.best_trade.toFixed(2);
+                    document.getElementById('worst-trade').textContent = '$' + result.metrics.worst_trade.toFixed(2);
+                    document.getElementById('annual-return').textContent = result.metrics.annual_return.toFixed(2) + '%';
                     
                     // Show success message based on performance
                     const dailyReturn = result.metrics.total_return / 30;
                     if (dailyReturn >= 10) {
-                        showNotification('Objectif de 10% quotidien atteint! Performance: ' + dailyReturn.toFixed(2) + '%', 'success');
+                        showNotification('🎯 Objectif de 10% quotidien atteint! Performance: ' + dailyReturn.toFixed(2) + '%', 'success');
                     } else if (dailyReturn >= 5) {
-                        showNotification('Performance prometteuse: ' + dailyReturn.toFixed(2) + '% quotidien', 'info');
+                        showNotification('📈 Performance prometteuse: ' + dailyReturn.toFixed(2) + '% quotidien', 'info');
                     } else {
-                        showNotification('Optimisation continue pour atteindre 10% quotidien', 'warning');
+                        showNotification('⚡ Optimisation continue pour atteindre 10% quotidien', 'warning');
                     }
                 })
                 .catch(error => {
@@ -346,7 +293,7 @@
                     document.getElementById('auto-results-loading').style.display = 'none';
                     showNotification('Erreur lors de l\'exécution du backtest automatique', 'error');
                 });
-            });
+            }
             
             function showNotification(message, type) {
                 const notification = document.createElement('div');
@@ -382,182 +329,8 @@
                 indicator.style.fontSize = '20px';
                 indicator.style.fontWeight = 'bold';
             }
-            
-            // Handle load backtest button
-            document.querySelectorAll('.load-btn').forEach(button => {
-                button.addEventListener('click', function() {
-                    const backtestId = this.getAttribute('data-id');
-                    
-                    fetch(`/api/backtest/${backtestId}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            // Populate form with backtest data
-                            document.getElementById('strategy').value = data.strategy_id;
-                            document.getElementById('strategy').dispatchEvent(new Event('change'));
-                            
-                            document.getElementById('symbol').value = data.symbol;
-                            document.getElementById('timeframe').value = data.timeframe;
-                            document.getElementById('start-date').value = data.start_date;
-                            document.getElementById('end-date').value = data.end_date;
-                            document.getElementById('initial-capital').value = data.initial_capital;
-                            
-                            // Set parameters
-                            setTimeout(() => {
-                                if (data.params) {
-                                    for (const [key, value] of Object.entries(data.params)) {
-                                        const input = document.querySelector(`[name="params[${key}]"]`);
-                                        if (input) {
-                                            input.value = value;
-                                        }
-                                    }
-                                }
-                            }, 100);
-                            
-                            // Load results
-                            document.getElementById('results-loading').style.display = 'none';
-                            document.getElementById('results-content').style.display = 'block';
-                            document.getElementById('trades-section').style.display = 'block';
-                            
-                            // Update metrics
-                            document.getElementById('total-return').textContent = data.metrics.total_return.toFixed(2) + '%';
-                            document.getElementById('sharpe-ratio').textContent = data.metrics.sharpe.toFixed(2);
-                            document.getElementById('max-drawdown').textContent = data.metrics.max_drawdown.toFixed(2) + '%';
-                            document.getElementById('win-rate').textContent = data.metrics.win_rate.toFixed(2) + '%';
-                            
-                            document.getElementById('total-trades').textContent = data.metrics.total_trades;
-                            document.getElementById('profit-factor').textContent = data.metrics.profit_factor.toFixed(2);
-                            document.getElementById('avg-trade').textContent = '$' + data.metrics.avg_trade.toFixed(2);
-                            document.getElementById('avg-win').textContent = '$' + data.metrics.avg_win.toFixed(2);
-                            document.getElementById('avg-loss').textContent = '$' + data.metrics.avg_loss.toFixed(2);
-                            document.getElementById('best-trade').textContent = '$' + data.metrics.best_trade.toFixed(2);
-                            document.getElementById('worst-trade').textContent = '$' + data.metrics.worst_trade.toFixed(2);
-                            document.getElementById('annual-return').textContent = data.metrics.annual_return.toFixed(2) + '%';
-                            
-                            // Update equity chart
-                            const ctx = document.getElementById('equityCurve').getContext('2d');
-                            
-                            if (equityChart) {
-                                equityChart.destroy();
-                            }
-                            
-                            equityChart = new Chart(ctx, {
-                                type: 'line',
-                                data: {
-                                    labels: data.equity_curve.dates,
-                                    datasets: [{
-                                        label: 'Equity',
-                                        data: data.equity_curve.values,
-                                        borderColor: '#00ff9d',
-                                        backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                                        borderWidth: 2,
-                                        fill: true
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        x: {
-                                            grid: {
-                                                color: 'rgba(255, 255, 255, 0.1)'
-                                            },
-                                            ticks: {
-                                                color: '#ffffff'
-                                            }
-                                        },
-                                        y: {
-                                            grid: {
-                                                color: 'rgba(255, 255, 255, 0.1)'
-                                            },
-                                            ticks: {
-                                                color: '#ffffff'
-                                            }
-                                        }
-                                    },
-                                    plugins: {
-                                        legend: {
-                                            labels: {
-                                                color: '#ffffff'
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                            
-                            // Update trades table
-                            const tradesTableBody = document.getElementById('trades-table-body');
-                            tradesTableBody.innerHTML = '';
-                            
-                            data.trades.forEach(trade => {
-                                const row = document.createElement('tr');
-                                
-                                const dateCell = document.createElement('td');
-                                dateCell.textContent = trade.date;
-                                row.appendChild(dateCell);
-                                
-                                const typeCell = document.createElement('td');
-                                typeCell.textContent = trade.type;
-                                typeCell.className = trade.type === 'BUY' ? 'text-success' : 'text-danger';
-                                row.appendChild(typeCell);
-                                
-                                const priceCell = document.createElement('td');
-                                priceCell.textContent = trade.price.toFixed(2);
-                                row.appendChild(priceCell);
-                                
-                                const sizeCell = document.createElement('td');
-                                sizeCell.textContent = trade.size.toFixed(4);
-                                row.appendChild(sizeCell);
-                                
-                                const plCell = document.createElement('td');
-                                plCell.textContent = '$' + trade.pl.toFixed(2);
-                                plCell.className = trade.pl >= 0 ? 'text-success' : 'text-danger';
-                                row.appendChild(plCell);
-                                
-                                const cumCell = document.createElement('td');
-                                cumCell.textContent = '$' + trade.cumulative.toFixed(2);
-                                row.appendChild(cumCell);
-                                
-                                tradesTableBody.appendChild(row);
-                            });
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            alert('Une erreur est survenue lors du chargement du backtest');
-                        });
-                });
-            });
-            
-            // Handle delete backtest button
-            document.querySelectorAll('.delete-btn').forEach(button => {
-                button.addEventListener('click', function() {
-                    if (!confirm('Êtes-vous sûr de vouloir supprimer ce backtest?')) {
-                        return;
-                    }
-                    
-                    const backtestId = this.getAttribute('data-id');
-                    
-                    fetch(`/api/backtest/${backtestId}`, {
-                        method: 'DELETE'
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            // Remove row from table
-                            this.closest('tr').remove();
-                        } else {
-                            alert('Erreur lors de la suppression du backtest: ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('Une erreur est survenue lors de la suppression du backtest');
-                    });
-                });
-            });
         });
 
-function runNewBacktest() {
-    document.getElementById('run-auto-backtest').click();
-}
+// Auto-run functionality - no manual intervention needed
 </script>
 {% endblock %}
