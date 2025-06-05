@@ -22,8 +22,11 @@
                                 <i class="fas fa-robot"></i>
                                 <span>Exécution automatique en cours...</span>
                             </div>
-                            <div class="auto-config-display">
+                            <div class="auto-config-display" id="config-display">
                                 <strong>Configuration Optimisée:</strong> BTC/USD, 1h, MA Crossover (8/21), Capital: 500€
+                            </div>
+                            <div class="optimization-status" id="optimization-status">
+                                <i class="fas fa-sync-alt fa-spin"></i> Optimisation continue active...
                             </div>
                         </div>
                         <div class="performance-target">
@@ -97,6 +100,19 @@
                         
                         .auto-config-display strong {
                             color: #00ff9d;
+                        }
+                        
+                        .optimization-status {
+                            color: #00ff9d;
+                            font-size: 12px;
+                            margin-top: 8px;
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                        }
+                        
+                        .optimization-status i {
+                            animation: spin 2s linear infinite;
                         }
                     </style>
                 </div>
@@ -181,7 +197,11 @@
             // Auto-run backtest on page load
             setTimeout(() => {
                 runAutomatedBacktest();
+                updateOptimizationStatus();
             }, 1000);
+            
+            // Update optimization status every 30 seconds
+            setInterval(updateOptimizationStatus, 30000);
             
             // Handle automated backtest
             function runAutomatedBacktest() {
@@ -328,6 +348,33 @@
                 indicator.style.color = isGood ? '#00ff9d' : '#ffc107';
                 indicator.style.fontSize = '20px';
                 indicator.style.fontWeight = 'bold';
+            }
+            
+            function updateOptimizationStatus() {
+                fetch('/api/backtest/optimization-status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const params = data.current_best_params;
+                        const configDisplay = document.getElementById('config-display');
+                        const statusDisplay = document.getElementById('optimization-status');
+                        
+                        configDisplay.innerHTML = `<strong>Configuration Optimisée:</strong> BTC/USD, 1h, MA Crossover (${params.fast_period}/${params.slow_period}), Capital: 500€`;
+                        
+                        if (data.is_optimizing) {
+                            statusDisplay.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> Optimisation continue active (${data.optimization_count} améliorations)`;
+                        } else {
+                            statusDisplay.innerHTML = `<i class="fas fa-pause"></i> Optimisation en pause`;
+                        }
+                        
+                        if (data.performance > 0) {
+                            statusDisplay.innerHTML += ` - Performance: ${data.performance.toFixed(2)}%`;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching optimization status:', error);
+                });
             }
         });
 
