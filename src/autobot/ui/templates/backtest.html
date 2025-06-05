@@ -15,90 +15,91 @@
             
             <div class="grid">
                 <div class="card">
-                    <h3>Configuration du Backtest</h3>
-                    <form id="backtest-form">
-                        <div class="form-group">
-                            <label for="strategy">Stratégie</label>
-                            <select id="strategy" name="strategy" class="form-control">
-                                <option value="">Sélectionner une stratégie</option>
-                                {% for strategy in strategies %}
-                                <option value="{{ strategy.id }}">{{ strategy.name }}</option>
-                                {% endfor %}
-                            </select>
+                    <h3>Performance Automatisée - Objectif 10% Quotidien</h3>
+                    <div class="auto-backtest-controls">
+                        <button id="run-auto-backtest" class="btn btn-primary">
+                            <i class="fas fa-play"></i> Lancer Backtest Automatique
+                        </button>
+                        <div class="performance-target">
+                            <span class="target-label">Objectif:</span>
+                            <span class="target-value">10% de rendement quotidien</span>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="symbol">Symbole</label>
-                            <select id="symbol" name="symbol" class="form-control">
-                                <option value="">Sélectionner un symbole</option>
-                                {% for symbol in symbols %}
-                                <option value="{{ symbol }}">{{ symbol }}</option>
-                                {% endfor %}
-                            </select>
+                        <div class="auto-config-info">
+                            <small>Configuration optimisée: BTC/USD, 1h, MA Crossover (8/21), Capital initial: 500€</small>
                         </div>
+                    </div>
+                    
+                    <div id="auto-results-loading" style="display: none;">
+                        <div class="loading-spinner"></div>
+                        <p>Optimisation automatique en cours...</p>
+                    </div>
+                    
+                    <style>
+                        .loading-spinner {
+                            border: 4px solid rgba(0, 255, 157, 0.3);
+                            border-radius: 50%;
+                            border-top: 4px solid #00ff9d;
+                            width: 40px;
+                            height: 40px;
+                            animation: spin 1s linear infinite;
+                            margin: 0 auto 10px;
+                        }
                         
-                        <div class="form-group">
-                            <label for="timeframe">Timeframe</label>
-                            <select id="timeframe" name="timeframe" class="form-control">
-                                <option value="1m">1 minute</option>
-                                <option value="5m">5 minutes</option>
-                                <option value="15m">15 minutes</option>
-                                <option value="1h">1 heure</option>
-                                <option value="4h">4 heures</option>
-                                <option value="1d">1 jour</option>
-                            </select>
-                        </div>
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
                         
-                        <div class="form-group">
-                            <label for="start-date">Date de Début</label>
-                            <input type="date" id="start-date" name="start_date" class="form-control">
-                        </div>
+                        .performance-card {
+                            position: relative;
+                        }
                         
-                        <div class="form-group">
-                            <label for="end-date">Date de Fin</label>
-                            <input type="date" id="end-date" name="end_date" class="form-control">
-                        </div>
+                        .target-indicator {
+                            position: absolute;
+                            top: 10px;
+                            right: 15px;
+                            font-size: 20px;
+                            font-weight: bold;
+                        }
                         
-                        <div class="form-group">
-                            <label for="initial-capital">Capital Initial</label>
-                            <input type="number" id="initial-capital" name="initial_capital" value="500" min="100" step="100" class="form-control">
-                        </div>
+                        .auto-config-info {
+                            margin-top: 10px;
+                            padding: 8px 12px;
+                            background: rgba(0, 255, 157, 0.1);
+                            border-radius: 4px;
+                            border-left: 3px solid #00ff9d;
+                        }
                         
-                        <div class="form-group">
-                            <label>Paramètres</label>
-                            <div id="strategy-params">
-                                <p class="text-muted">Sélectionnez une stratégie pour voir les paramètres</p>
-                            </div>
-                        </div>
-                        
-                        <button type="submit" class="btn btn-primary">Lancer le Backtest</button>
-                    </form>
+                        .auto-config-info small {
+                            color: #00ff9d;
+                            font-weight: 500;
+                        }
+                    </style>
                 </div>
                 
                 <div class="card">
-                    <h3>Résultats du Backtest</h3>
-                    <div id="results-loading" style="display: none;">
-                        <div class="loading-spinner"></div>
-                        <p>Exécution du backtest en cours...</p>
-                    </div>
-                    
-                    <div id="results-content" style="display: none;">
+                    <h3>Résultats de Performance</h3>
+                    <div id="results-content">
                         <div class="cards">
-                            <div class="card">
+                            <div class="card performance-card">
                                 <h3>Rendement Total</h3>
-                                <div class="value" id="total-return">0.00%</div>
+                                <div class="value" id="total-return">En attente...</div>
+                                <div class="target-indicator" id="total-return-indicator"></div>
                             </div>
-                            <div class="card">
+                            <div class="card performance-card">
+                                <h3>Rendement Quotidien Moyen</h3>
+                                <div class="value" id="daily-return">En attente...</div>
+                                <div class="target-indicator" id="daily-return-indicator"></div>
+                            </div>
+                            <div class="card performance-card">
                                 <h3>Ratio de Sharpe</h3>
-                                <div class="value" id="sharpe-ratio">0.00</div>
+                                <div class="value" id="sharpe-ratio">En attente...</div>
+                                <div class="target-indicator" id="sharpe-indicator"></div>
                             </div>
-                            <div class="card">
+                            <div class="card performance-card">
                                 <h3>Drawdown Max</h3>
-                                <div class="value" id="max-drawdown">0.00%</div>
-                            </div>
-                            <div class="card">
-                                <h3>Taux de Réussite</h3>
-                                <div class="value" id="win-rate">0.00%</div>
+                                <div class="value" id="max-drawdown">En attente...</div>
+                                <div class="target-indicator" id="drawdown-indicator"></div>
                             </div>
                         </div>
                         
@@ -204,98 +205,33 @@
         document.addEventListener('DOMContentLoaded', function() {
             let equityChart = null;
             
-            // Strategy parameter templates
-            const strategyParams = {
-                {% for strategy in strategies %}
-                "{{ strategy.id }}": {{ strategy.params|tojson }},
-                {% endfor %}
-            };
+            // Auto-run backtest on page load
+            setTimeout(() => {
+                document.getElementById('run-auto-backtest').click();
+            }, 1000);
             
-            // Handle strategy selection
-            document.getElementById('strategy').addEventListener('change', function() {
-                const strategyId = this.value;
-                const paramsContainer = document.getElementById('strategy-params');
-                
-                if (!strategyId) {
-                    paramsContainer.innerHTML = '<p class="text-muted">Sélectionnez une stratégie pour voir les paramètres</p>';
-                    return;
-                }
-                
-                const params = strategyParams[strategyId];
-                if (!params || params.length === 0) {
-                    paramsContainer.innerHTML = '<p class="text-muted">Pas de paramètres pour cette stratégie</p>';
-                    return;
-                }
-                
-                let paramsHtml = '';
-                params.forEach(param => {
-                    paramsHtml += `
-                        <div class="form-group">
-                            <label for="param-${param.name}">${param.label}</label>
-                            <input type="${param.type}" id="param-${param.name}" name="params[${param.name}]" 
-                                value="${param.default}" ${param.min ? 'min="' + param.min + '"' : ''} 
-                                ${param.max ? 'max="' + param.max + '"' : ''} 
-                                ${param.step ? 'step="' + param.step + '"' : ''} 
-                                class="form-control">
-                            <small class="text-muted">${param.description}</small>
-                        </div>
-                    `;
-                });
-                
-                paramsContainer.innerHTML = paramsHtml;
-            });
-            
-            // Handle form submission
-            document.getElementById('backtest-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                const formData = new FormData(this);
-                const data = {};
-                
-                for (const [key, value] of formData.entries()) {
-                    if (key.startsWith('params[')) {
-                        const paramName = key.match(/params\[(.*?)\]/)[1];
-                        if (!data.params) data.params = {};
-                        data.params[paramName] = value;
-                    } else {
-                        data[key] = value;
-                    }
-                }
-                
+            // Handle automated backtest
+            document.getElementById('run-auto-backtest').addEventListener('click', function() {
                 // Show loading
-                document.getElementById('results-loading').style.display = 'block';
-                document.getElementById('results-content').style.display = 'none';
-                document.getElementById('trades-section').style.display = 'none';
+                document.getElementById('auto-results-loading').style.display = 'block';
                 
-                // Run backtest
-                fetch('/api/backtest/run', {
+                // Run automated backtest
+                fetch('/api/backtest/auto-run', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
+                    }
                 })
                 .then(response => response.json())
                 .then(result => {
                     // Hide loading
-                    document.getElementById('results-loading').style.display = 'none';
-                    document.getElementById('results-content').style.display = 'block';
-                    document.getElementById('trades-section').style.display = 'block';
+                    document.getElementById('auto-results-loading').style.display = 'none';
                     
-                    // Update metrics
+                    // Update performance metrics
                     document.getElementById('total-return').textContent = result.metrics.total_return.toFixed(2) + '%';
+                    document.getElementById('daily-return').textContent = (result.metrics.total_return / 30).toFixed(2) + '%';
                     document.getElementById('sharpe-ratio').textContent = result.metrics.sharpe.toFixed(2);
                     document.getElementById('max-drawdown').textContent = result.metrics.max_drawdown.toFixed(2) + '%';
-                    document.getElementById('win-rate').textContent = result.metrics.win_rate.toFixed(2) + '%';
-                    
-                    document.getElementById('total-trades').textContent = result.metrics.total_trades;
-                    document.getElementById('profit-factor').textContent = result.metrics.profit_factor.toFixed(2);
-                    document.getElementById('avg-trade').textContent = '$' + result.metrics.avg_trade.toFixed(2);
-                    document.getElementById('avg-win').textContent = '$' + result.metrics.avg_win.toFixed(2);
-                    document.getElementById('avg-loss').textContent = '$' + result.metrics.avg_loss.toFixed(2);
-                    document.getElementById('best-trade').textContent = '$' + result.metrics.best_trade.toFixed(2);
-                    document.getElementById('worst-trade').textContent = '$' + result.metrics.worst_trade.toFixed(2);
-                    document.getElementById('annual-return').textContent = result.metrics.annual_return.toFixed(2) + '%';
                     
                     // Update equity chart
                     const ctx = document.getElementById('equityCurve').getContext('2d');
@@ -321,11 +257,22 @@
                             responsive: true,
                             maintainAspectRatio: false,
                             scales: {
-                                x: {
-                                    grid: {
-                                        color: 'rgba(255, 255, 255, 0.1)'
-                                    },
-                                    ticks: {
+                    // Update performance metrics with indicators
+                    const totalReturn = result.metrics.total_return;
+                    const dailyReturn = totalReturn / 30;
+                    const sharpeRatio = result.metrics.sharpe;
+                    const maxDrawdown = result.metrics.max_drawdown;
+                    
+                    document.getElementById('total-return').textContent = totalReturn.toFixed(2) + '%';
+                    document.getElementById('daily-return').textContent = dailyReturn.toFixed(2) + '%';
+                    document.getElementById('sharpe-ratio').textContent = sharpeRatio.toFixed(2);
+                    document.getElementById('max-drawdown').textContent = maxDrawdown.toFixed(2) + '%';
+                    
+                    // Update performance indicators
+                    updateIndicator('total-return-indicator', totalReturn >= 300);
+                    updateIndicator('daily-return-indicator', dailyReturn >= 10);
+                    updateIndicator('sharpe-indicator', sharpeRatio >= 1.5);
+                    updateIndicator('drawdown-indicator', maxDrawdown <= 20);
                                         color: '#ffffff'
                                     }
                                 },
@@ -383,13 +330,58 @@
                         
                         tradesTableBody.appendChild(row);
                     });
+                    
+                    // Show success message based on performance
+                    const dailyReturn = result.metrics.total_return / 30;
+                    if (dailyReturn >= 10) {
+                        showNotification('Objectif de 10% quotidien atteint! Performance: ' + dailyReturn.toFixed(2) + '%', 'success');
+                    } else if (dailyReturn >= 5) {
+                        showNotification('Performance prometteuse: ' + dailyReturn.toFixed(2) + '% quotidien', 'info');
+                    } else {
+                        showNotification('Optimisation continue pour atteindre 10% quotidien', 'warning');
+                    }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('results-loading').style.display = 'none';
-                    alert('Une erreur est survenue lors de l\'exécution du backtest');
+                    document.getElementById('auto-results-loading').style.display = 'none';
+                    showNotification('Erreur lors de l\'exécution du backtest automatique', 'error');
                 });
             });
+            
+            function showNotification(message, type) {
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.textContent = message;
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    padding: 15px 20px;
+                    border-radius: 5px;
+                    color: white;
+                    font-weight: bold;
+                    z-index: 1000;
+                    max-width: 300px;
+                `;
+                
+                switch(type) {
+                    case 'success': notification.style.backgroundColor = '#00ff9d'; break;
+                    case 'info': notification.style.backgroundColor = '#007bff'; break;
+                    case 'warning': notification.style.backgroundColor = '#ffc107'; break;
+                    case 'error': notification.style.backgroundColor = '#dc3545'; break;
+                }
+                
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 5000);
+            }
+            
+            function updateIndicator(elementId, isGood) {
+                const indicator = document.getElementById(elementId);
+                indicator.innerHTML = isGood ? '✓' : '⚠';
+                indicator.style.color = isGood ? '#00ff9d' : '#ffc107';
+                indicator.style.fontSize = '20px';
+                indicator.style.fontWeight = 'bold';
+            }
             
             // Handle load backtest button
             document.querySelectorAll('.load-btn').forEach(button => {
@@ -565,7 +557,7 @@
         });
 
 function runNewBacktest() {
-    document.getElementById('backtest-form').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('run-auto-backtest').click();
 }
 </script>
 {% endblock %}

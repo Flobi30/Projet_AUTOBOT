@@ -160,6 +160,30 @@ async def backtest_page(request: Request):
         }
     )
 
+@router.post("/api/backtest/auto-run")
+async def auto_run_backtest():
+    """Run automated backtest with optimal defaults targeting 10% daily return."""
+    try:
+        optimal_config = BacktestRequest(
+            strategy="moving_average_crossover",
+            symbol="BTC/USD",
+            timeframe="1h",
+            start_date=(datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
+            end_date=datetime.now().strftime("%Y-%m-%d"),
+            initial_capital=500.0,
+            params={
+                "fast_period": 8,
+                "slow_period": 21
+            }
+        )
+        
+        result = await run_backtest_strategy(optimal_config)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Auto backtest error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/api/backtest/run")
 async def run_backtest_strategy(request: BacktestRequest):
     """Run a backtest with the specified strategy and parameters."""

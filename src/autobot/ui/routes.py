@@ -152,6 +152,48 @@ async def get_parametres(request: Request):
         "kraken_api_secret": env_vars.get("KRAKEN_API_SECRET", "")
     })
 
+@router.get("/arbitrage", response_class=HTMLResponse)
+async def get_arbitrage(request: Request):
+    """
+    Page d'arbitrage.
+    """
+    return templates.TemplateResponse("arbitrage.html", {
+        "request": request,
+        "active_page": "arbitrage",
+        "username": "AUTOBOT",
+        "user_role": "admin",
+        "user_role_display": "Administrateur"
+    })
+
+@router.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events for payment confirmations."""
+    try:
+        import stripe
+        
+        payload = await request.body()
+        sig_header = request.headers.get('stripe-signature')
+        
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, os.getenv("STRIPE_WEBHOOK_SECRET", "")
+        )
+        
+        if event['type'] == 'payment_intent.succeeded':
+            payment_intent = event['data']['object']
+            amount = payment_intent['amount'] / 100
+            user_id = payment_intent['metadata'].get('user_id', 'AUTOBOT')
+            
+            logger.info(f"Payment confirmed: {amount}€ for user {user_id}")
+            
+        return JSONResponse(content={"status": "success"})
+        
+    except Exception as e:
+        logger.error(f"Webhook error: {str(e)}")
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": str(e)}
+        )
+
 @router.get("/rl-training", response_class=HTMLResponse)
 async def get_rl_training(request: Request):
     """
@@ -248,18 +290,14 @@ async def save_settings(request: Request):
 @router.post("/api/deposit")
 async def deposit(request: Request):
     """
-    Traite un dépôt de fonds avec intégration Stripe.
+    Traite un dépôt de fonds avec intégration Stripe complète.
     """
     try:
-        data = await request.json()
-        amount = data.get("amount")
-        method = data.get("method", "bank")
+        from autobot.services.stripe_service import StripeService
         
-        if not amount or amount <= 0:
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "message": "Montant invalide"}
-            )
+        data = await request.json()
+        amount = float(data.get("amount", 0))
+        method = data.get("method", "card")
         
         if amount < 10:
             return JSONResponse(
@@ -267,41 +305,51 @@ async def deposit(request: Request):
                 content={"status": "error", "message": "Montant minimum: 10€"}
             )
         
-        stripe_key = os.getenv("STRIPE_API_KEY")
-        if stripe_key and method == "card":
-            logger.info(f"Processing Stripe payment for {amount}€")
-        elif method == "bank":
-            logger.info(f"Processing bank transfer for {amount}€")
+        stripe_service = StripeService()
         
-        return JSONResponse(
-            status_code=200,
-            content={"status": "success", "message": f"Dépôt de {amount}€ effectué avec succès via {method}"}
-        )
-    
+        if method == "card":
+            try:
+                payment_result = stripe_service.create_payment_intent(amount)
+                logger.info(f"Stripe PaymentIntent created for {amount}€")
+                
+                return JSONResponse(content={
+                    "status": "success",
+                    "message": f"PaymentIntent créé pour {amount}€",
+                    "payment_data": payment_result
+                })
+            except Exception as e:
+                logger.error(f"Stripe payment error: {str(e)}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Erreur de paiement: {str(e)}"}
+                )
+        elif method == "bank":
+            logger.info(f"Bank transfer deposit for {amount}€")
+            return JSONResponse(content={
+                "status": "success", 
+                "message": f"Dépôt de {amount}€ par virement bancaire en cours de traitement"
+            })
+        
     except Exception as e:
-        logger.error(f"Erreur lors du dépôt: {e}")
+        logger.error(f"Deposit error: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": "Erreur lors du dépôt"}
+            content={"status": "error", "message": "Erreur lors du traitement du dépôt"}
         )
 
 @router.post("/api/withdraw")
 async def withdraw(request: Request):
     """
-    Traite un retrait de fonds avec intégration bancaire.
+    Traite un retrait de fonds avec intégration Stripe complète.
     """
     try:
+        from autobot.services.stripe_service import StripeService
+        
         data = await request.json()
-        amount = data.get("amount")
+        amount = float(data.get("amount", 0))
         method = data.get("method", "bank")
         iban = data.get("iban", "")
         bic = data.get("bic", "")
-        
-        if not amount or amount <= 0:
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "message": "Montant invalide"}
-            )
         
         if amount < 10:
             return JSONResponse(
@@ -315,22 +363,28 @@ async def withdraw(request: Request):
                 content={"status": "error", "message": "IBAN et BIC requis pour virement bancaire"}
             )
         
-        stripe_key = os.getenv("STRIPE_API_KEY")
-        if stripe_key and method == "bank":
-            logger.info(f"Processing bank transfer withdrawal for {amount}€ to IBAN {iban[:4]}****{iban[-4:]}")
+        stripe_service = StripeService()
         
-        message = f"Retrait de {amount}€ effectué avec succès via {method}"
         if method == "bank":
-            message += f" vers IBAN {iban[:4]}****{iban[-4:]}"
+            try:
+                transfer_result = stripe_service.create_bank_transfer(amount, iban, bic)
+                logger.info(f"Stripe bank transfer created for {amount}€")
+                
+                return JSONResponse(content={
+                    "status": "success",
+                    "message": f"Retrait de {amount}€ initié vers {iban[:4]}****{iban[-4:]}",
+                    "transfer_data": transfer_result
+                })
+            except Exception as e:
+                logger.error(f"Stripe withdrawal error: {str(e)}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "message": f"Erreur de retrait: {str(e)}"}
+                )
         
-        return JSONResponse(
-            status_code=200,
-            content={"status": "success", "message": message}
-        )
-    
     except Exception as e:
-        logger.error(f"Erreur lors du retrait: {e}")
+        logger.error(f"Withdrawal error: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": "Erreur lors du retrait"}
+            content={"status": "error", "message": "Erreur lors du traitement du retrait"}
         )
