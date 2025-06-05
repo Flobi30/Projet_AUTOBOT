@@ -11,31 +11,11 @@
 {% endblock %}
 
 {% block content %}
-<div class="dashboard-grid">
-    <!-- Navigation des paramètres -->
-    <div class="settings-nav" style="grid-column: span 3;">
-        <div class="card">
-            <div class="card-body">
-                <ul class="settings-menu">
-                    <li class="settings-menu-item active" data-target="general-settings">
-                        <i class="fas fa-cog"></i> Général
-                    </li>
-                    <li class="settings-menu-item" data-target="api-settings">
-                        <i class="fas fa-key"></i> Clés API
-                    </li>
-                    <li class="settings-menu-item" data-target="trading-settings">
-                        <i class="fas fa-chart-line"></i> Trading
-                    </li>
-                    <li class="settings-menu-item" data-target="security-settings">
-                        <i class="fas fa-shield-alt"></i> Sécurité
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </div>
+<div class="settings-layout" style="width: 100%; max-width: none;">
+
 
     <!-- Contenu des paramètres -->
-    <div class="settings-content" style="grid-column: span 9;">
+    <div class="settings-content" style="width: 100%;">
         <!-- Paramètres généraux -->
         <div class="settings-section active" id="general-settings">
             <div class="card">
@@ -66,6 +46,14 @@
                             </select>
                         </div>
                         <div class="form-group">
+                            <label for="date-format">Format de Date</label>
+                            <select id="date-format" class="form-control">
+                                <option value="DD/MM/YYYY" selected>DD/MM/YYYY</option>
+                                <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="theme">Thème</label>
                             <select id="theme" class="form-control">
                                 <option value="dark" selected>Sombre (Néon Vert)</option>
@@ -78,16 +66,14 @@
             </div>
         </div>
 
-        <!-- Paramètres des clés API -->
+        <!-- Paramètres API -->
         <div class="settings-section" id="api-settings">
             <div class="card">
                 <div class="card-header">
-                    <h3>Configuration des Clés API</h3>
-                    <p class="text-muted">Configurez vos clés API pour les différents fournisseurs de données et services.</p>
+                    <h3>Clés API</h3>
                 </div>
                 <div class="card-body">
                     <form id="api-settings-form">
-                        <!-- Binance -->
                         <div class="form-group">
                             <label for="binance-api-key">Binance API Key</label>
                             <div class="input-group">
@@ -99,7 +85,6 @@
                                 </div>
                             </div>
                         </div>
-                        
                         <div class="form-group">
                             <label for="binance-api-secret">Binance API Secret</label>
                             <div class="input-group">
@@ -111,38 +96,32 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Coinbase -->
                         <div class="form-group">
-                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <label for="openai-api-key">OpenAI API Key</label>
                             <div class="input-group">
-                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <input type="password" id="openai-api-key" class="form-control" value="{{ openai_api_key|default('') }}" placeholder="Entrez votre clé API OpenAI">
                                 <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="openai-api-key">
                                         <i class="fas fa-eye"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Kraken -->
                         <div class="form-group">
-                            <label for="kraken-api-key">Kraken API Key</label>
+                            <label for="superagi-api-key">SuperAGI API Key</label>
                             <div class="input-group">
-                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <input type="password" id="superagi-api-key" class="form-control" value="{{ superagi_api_key|default('') }}" placeholder="Entrez votre clé API SuperAGI">
                                 <div class="input-group-append">
-                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="superagi-api-key">
                                         <i class="fas fa-eye"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Stripe -->
                         <div class="form-group">
                             <label for="stripe-api-key">Stripe API Key</label>
                             <div class="input-group">
-                                <input type="password" id="stripe-api-key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="sk_live_... ou sk_test_...">
+                                <input type="password" id="stripe-api-key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="Entrez votre clé API Stripe">
                                 <div class="input-group-append">
                                     <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
                                         <i class="fas fa-eye"></i>
@@ -150,8 +129,6 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- NewsAPI -->
                         <div class="form-group">
                             <label for="newsapi-api-key">NewsAPI Key</label>
                             <div class="input-group">
@@ -163,8 +140,7 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Alpha Vantage -->
+                        
                         <div class="form-group">
                             <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
                             <div class="input-group">
@@ -176,8 +152,19 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Twelve Data -->
+                        
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="form-group">
                             <label for="twelve-data-api-key">Twelve Data API Key</label>
                             <div class="input-group">
@@ -189,8 +176,7 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- FRED -->
+                        
                         <div class="form-group">
                             <label for="fred-api-key">FRED API Key</label>
                             <div class="input-group">
@@ -202,8 +188,7 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Shopify -->
+                        
                         <div class="form-group">
                             <label for="shopify-api-key">Shopify API Key</label>
                             <div class="input-group">
@@ -215,12 +200,78 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <div class="form-group">
+                            <label for="shopify-api-secret">Shopify API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-secret">Coinbase API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-secret" class="form-control" value="{{ coinbase_api_secret|default('') }}" placeholder="Entrez votre secret API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="kraken-api-key">Kraken API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="shopify-shop-name">Shopify Shop Name</label>
+                            <div class="input-group">
+                                <input type="text" id="shopify-shop-name" class="form-control" value="{{ shopify_shop_name|default('') }}" placeholder="Entrez le nom de votre boutique Shopify (ex: monshop)">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-shop-name">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="test-api-keys">Tester les Clés API</label>
+                            <button type="button" id="test-api-keys" class="btn btn-outline">
+                                <i class="fas fa-vial"></i> Tester la Connectivité
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>
         </div>
 
-        <!-- Paramètres de trading -->
+        <!-- Paramètres Trading -->
         <div class="settings-section" id="trading-settings">
             <div class="card">
                 <div class="card-header">
@@ -229,35 +280,119 @@
                 <div class="card-body">
                     <form id="trading-settings-form">
                         <div class="form-group">
-                            <label for="trading-mode">Mode de Trading</label>
-                            <select id="trading-mode" class="form-control">
-                                <option value="auto" selected>Automatique</option>
-                                <option value="manual">Manuel</option>
-                                <option value="hybrid">Hybride</option>
+                            <label for="default-exchange">Exchange par Défaut</label>
+                            <select id="default-exchange" class="form-control">
+                                <option value="binance" selected>Binance</option>
+                                <option value="kucoin">KuCoin</option>
+                                <option value="ftx">FTX</option>
+                                <option value="coinbase">Coinbase</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="default-pair">Paire par Défaut</label>
+                            <select id="default-pair" class="form-control">
+                                <option value="BTC/USDT" selected>BTC/USDT</option>
+                                <option value="ETH/USDT">ETH/USDT</option>
+                                <option value="BNB/USDT">BNB/USDT</option>
+                                <option value="SOL/USDT">SOL/USDT</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="default-timeframe">Timeframe par Défaut</label>
+                            <select id="default-timeframe" class="form-control">
+                                <option value="1m">1 minute</option>
+                                <option value="5m">5 minutes</option>
+                                <option value="15m" selected>15 minutes</option>
+                                <option value="1h">1 heure</option>
+                                <option value="4h">4 heures</option>
+                                <option value="1d">1 jour</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label for="risk-level">Niveau de Risque</label>
                             <select id="risk-level" class="form-control">
-                                <option value="conservative">Conservateur</option>
-                                <option value="moderate" selected>Modéré</option>
-                                <option value="aggressive">Agressif</option>
+                                <option value="low">Faible</option>
+                                <option value="medium" selected>Moyen</option>
+                                <option value="high">Élevé</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="max-position-size">Taille Maximum de Position (%)</label>
+                            <label for="max-position-size">Taille Maximum de Position (% du Capital)</label>
                             <input type="number" id="max-position-size" class="form-control" value="10" min="1" max="100" step="1">
                         </div>
                         <div class="form-group">
-                            <label for="stop-loss">Stop Loss (%)</label>
-                            <input type="number" id="stop-loss" class="form-control" value="5" min="0.1" max="50" step="0.1">
+                            <label for="stop-loss-percent">Stop Loss par Défaut (%)</label>
+                            <input type="number" id="stop-loss-percent" class="form-control" value="2" min="0.1" max="50" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="take-profit-percent">Take Profit par Défaut (%)</label>
+                            <input type="number" id="take-profit-percent" class="form-control" value="5" min="0.1" max="100" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-trailing-stop" checked>
+                                <label class="custom-control-label" for="enable-trailing-stop">Activer le Trailing Stop</label>
+                            </div>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
 
-        <!-- Paramètres de sécurité -->
+        <!-- Paramètres E-commerce -->
+        <div class="settings-section" id="ecommerce-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres E-commerce</h3>
+                </div>
+                <div class="card-body">
+                    <form id="ecommerce-settings-form">
+                        <div class="form-group">
+                            <label for="store-name">Nom de la Boutique</label>
+                            <input type="text" id="store-name" class="form-control" value="AUTOBOT Store" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="store-currency">Devise</label>
+                            <select id="store-currency" class="form-control">
+                                <option value="EUR" selected>Euro (€)</option>
+                                <option value="USD">Dollar US ($)</option>
+                                <option value="GBP">Livre Sterling (£)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="tax-rate">Taux de TVA (%)</label>
+                            <input type="number" id="tax-rate" class="form-control" value="20" min="0" max="100" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="shipping-method">Méthode d'Expédition par Défaut</label>
+                            <select id="shipping-method" class="form-control">
+                                <option value="standard" selected>Standard</option>
+                                <option value="express">Express</option>
+                                <option value="economy">Économique</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-inventory-tracking" checked>
+                                <label class="custom-control-label" for="enable-inventory-tracking">Activer le Suivi d'Inventaire</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-auto-reorder" checked>
+                                <label class="custom-control-label" for="enable-auto-reorder">Activer la Commande Automatique</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="low-stock-threshold">Seuil de Stock Bas</label>
+                            <input type="number" id="low-stock-threshold" class="form-control" value="5" min="1" max="100" step="1">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres Sécurité -->
         <div class="settings-section" id="security-settings">
             <div class="card">
                 <div class="card-header">
@@ -266,20 +401,223 @@
                 <div class="card-body">
                     <form id="security-settings-form">
                         <div class="form-group">
+                            <label for="change-password">Changer le Mot de Passe</label>
+                            <button type="button" id="change-password" class="btn btn-outline" data-toggle="modal" data-target="#changePasswordModal">
+                                <i class="fas fa-key"></i> Modifier le Mot de Passe
+                            </button>
+                        </div>
+                        <div class="form-group">
                             <div class="custom-control custom-switch">
                                 <input type="checkbox" class="custom-control-input" id="enable-2fa" checked>
-                                <label class="custom-control-label" for="enable-2fa">Authentification à deux facteurs</label>
+                                <label class="custom-control-label" for="enable-2fa">Activer l'Authentification à Deux Facteurs</label>
                             </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="setup-2fa">Configuration 2FA</label>
+                            <button type="button" id="setup-2fa" class="btn btn-outline" data-toggle="modal" data-target="#setup2FAModal">
+                                <i class="fas fa-qrcode"></i> Configurer 2FA
+                            </button>
+                        </div>
+                        <div class="form-group">
+                            <label for="session-timeout">Délai d'Expiration de Session (minutes)</label>
+                            <input type="number" id="session-timeout" class="form-control" value="30" min="5" max="240" step="5">
                         </div>
                         <div class="form-group">
                             <div class="custom-control custom-switch">
-                                <input type="checkbox" class="custom-control-input" id="enable-api-whitelist" checked>
-                                <label class="custom-control-label" for="enable-api-whitelist">Liste blanche IP pour API</label>
+                                <input type="checkbox" class="custom-control-input" id="enable-ip-restriction" checked>
+                                <label class="custom-control-label" for="enable-ip-restriction">Activer la Restriction d'IP</label>
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="session-timeout">Délai d'expiration de session (minutes)</label>
-                            <input type="number" id="session-timeout" class="form-control" value="30" min="5" max="480" step="5">
+                            <label for="allowed-ips">IPs Autorisées (séparées par des virgules)</label>
+                            <input type="text" id="allowed-ips" class="form-control" value="{{ allowed_ips|default('') }}" placeholder="ex: 192.168.1.1, 10.0.0.1">
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="view-login-history" class="btn btn-outline">
+                                <i class="fas fa-history"></i> Voir l'Historique de Connexion
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres Notifications -->
+        <div class="settings-section" id="notification-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres de Notifications</h3>
+                </div>
+                <div class="card-body">
+                    <form id="notification-settings-form">
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-email-notifications" checked>
+                                <label class="custom-control-label" for="enable-email-notifications">Notifications par Email</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="notification-email">Email de Notification</label>
+                            <input type="email" id="notification-email" class="form-control" value="{{ user_email|default('') }}" placeholder="votre@email.com">
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-telegram-notifications">
+                                <label class="custom-control-label" for="enable-telegram-notifications">Notifications Telegram</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="telegram-bot-token">Token Bot Telegram</label>
+                            <input type="text" id="telegram-bot-token" class="form-control" value="{{ telegram_bot_token|default('') }}" placeholder="Entrez le token de votre bot Telegram">
+                        </div>
+                        <div class="form-group">
+                            <label for="telegram-chat-id">ID Chat Telegram</label>
+                            <input type="text" id="telegram-chat-id" class="form-control" value="{{ telegram_chat_id|default('') }}" placeholder="Entrez votre ID de chat Telegram">
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="test-notifications" class="btn btn-outline">
+                                <i class="fas fa-paper-plane"></i> Tester les Notifications
+                            </button>
+                        </div>
+                        <div class="notification-types">
+                            <h4>Types de Notifications</h4>
+                            <div class="form-group">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="notify-trades" checked>
+                                    <label class="custom-control-label" for="notify-trades">Trades</label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="notify-orders" checked>
+                                    <label class="custom-control-label" for="notify-orders">Commandes E-commerce</label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="notify-security" checked>
+                                    <label class="custom-control-label" for="notify-security">Alertes de Sécurité</label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="notify-system" checked>
+                                    <label class="custom-control-label" for="notify-system">Événements Système</label>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres SuperAGI -->
+        <div class="settings-section" id="superagi-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres SuperAGI</h3>
+                </div>
+                <div class="card-body">
+                    <form id="superagi-settings-form">
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-superagi" checked>
+                                <label class="custom-control-label" for="enable-superagi">Activer SuperAGI</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="superagi-model">Modèle LLM</label>
+                            <select id="superagi-model" class="form-control">
+                                <option value="gpt-4" selected>GPT-4</option>
+                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                <option value="claude-3-opus">Claude 3 Opus</option>
+                                <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                                <option value="llama-3-70b">Llama 3 70B</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="superagi-temperature">Température</label>
+                            <input type="range" id="superagi-temperature" class="form-control-range" min="0" max="1" step="0.1" value="0.7">
+                            <div class="range-value">0.7</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="superagi-max-tokens">Tokens Maximum</label>
+                            <input type="number" id="superagi-max-tokens" class="form-control" value="4000" min="100" max="8000" step="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="superagi-system-prompt">Prompt Système</label>
+                            <textarea id="superagi-system-prompt" class="form-control" rows="5">Tu es AutobotMaster, l'agent orchestrateur principal pour AUTOBOT. Tu contrôles les modules suivants : HFT (trading haute fréquence), Backtest (test rétrospectif des stratégies de trading), E-commerce (gestion des produits et commandes), Monitoring (surveillance des performances et sécurité).</textarea>
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="test-superagi" class="btn btn-outline">
+                                <i class="fas fa-robot"></i> Tester SuperAGI
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres Avancés -->
+        <div class="settings-section" id="advanced-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres Avancés</h3>
+                </div>
+                <div class="card-body">
+                    <form id="advanced-settings-form">
+                        <div class="form-group">
+                            <label for="log-level">Niveau de Log</label>
+                            <select id="log-level" class="form-control">
+                                <option value="debug">Debug</option>
+                                <option value="info" selected>Info</option>
+                                <option value="warning">Warning</option>
+                                <option value="error">Error</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="database-backup">Sauvegarde de la Base de Données</label>
+                            <div class="input-group">
+                                <select id="database-backup-frequency" class="form-control">
+                                    <option value="daily" selected>Quotidienne</option>
+                                    <option value="weekly">Hebdomadaire</option>
+                                    <option value="monthly">Mensuelle</option>
+                                </select>
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline" type="button" id="backup-now">
+                                        <i class="fas fa-download"></i> Sauvegarder Maintenant
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="max-memory-usage">Utilisation Mémoire Maximum (MB)</label>
+                            <input type="number" id="max-memory-usage" class="form-control" value="1024" min="256" max="8192" step="128">
+                        </div>
+                        <div class="form-group">
+                            <label for="max-cpu-usage">Utilisation CPU Maximum (%)</label>
+                            <input type="number" id="max-cpu-usage" class="form-control" value="80" min="10" max="100" step="5">
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-debug-mode">
+                                <label class="custom-control-label" for="enable-debug-mode">Activer le Mode Debug</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="clear-cache" class="btn btn-outline">
+                                <i class="fas fa-broom"></i> Vider le Cache
+                            </button>
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="view-system-logs" class="btn btn-outline">
+                                <i class="fas fa-file-alt"></i> Voir les Logs Système
+                            </button>
+                        </div>
+                        <div class="form-group">
+                            <button type="button" id="reset-settings" class="btn btn-danger">
+                                <i class="fas fa-undo"></i> Réinitialiser les Paramètres
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -287,222 +625,333 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block modals %}
+<!-- Modal Changement de Mot de Passe -->
+<div class="modal" id="changePasswordModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title neon-text">Changer le Mot de Passe</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="change-password-form">
+                    <div class="form-group">
+                        <label for="current-password">Mot de Passe Actuel</label>
+                        <input type="password" id="current-password" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-password">Nouveau Mot de Passe</label>
+                        <input type="password" id="new-password" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm-password">Confirmer le Mot de Passe</label>
+                        <input type="password" id="confirm-password" class="form-control" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" data-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="changePassword()">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Configuration 2FA -->
+<div class="modal" id="setup2FAModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title neon-text">Configuration 2FA</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-4">
+                    <p>Scannez ce QR code avec votre application d'authentification (Google Authenticator, Authy, etc.)</p>
+                    <div class="qr-code-container">
+                        <img src="/static/img/qr-placeholder.png" alt="QR Code 2FA" class="qr-code">
+                    </div>
+                </div>
+                <form id="setup-2fa-form">
+                    <div class="form-group">
+                        <label for="verification-code">Code de Vérification</label>
+                        <input type="text" id="verification-code" class="form-control" placeholder="Entrez le code à 6 chiffres" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" data-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="verify2FACode()">Vérifier</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Navigation entre les sections
-    const menuItems = document.querySelectorAll('.settings-menu-item');
-    const sections = document.querySelectorAll('.settings-section');
-
-    menuItems.forEach(item => {
-        item.addEventListener('click', function() {
-            const target = this.getAttribute('data-target');
-            
-            // Retirer la classe active de tous les éléments
-            menuItems.forEach(mi => mi.classList.remove('active'));
-            sections.forEach(s => s.classList.remove('active'));
-            
-            // Ajouter la classe active aux éléments sélectionnés
-            this.classList.add('active');
-            document.getElementById(target).classList.add('active');
+    document.addEventListener('DOMContentLoaded', function() {
+        // Navigation des paramètres
+        const menuItems = document.querySelectorAll('.settings-menu-item');
+        const sections = document.querySelectorAll('.settings-section');
+        
+        menuItems.forEach(item => {
+            item.addEventListener('click', function() {
+                const target = this.getAttribute('data-target');
+                
+                // Désactiver tous les éléments du menu et sections
+                menuItems.forEach(mi => mi.classList.remove('active'));
+                sections.forEach(section => section.classList.remove('active'));
+                
+                // Activer l'élément du menu et la section correspondante
+                this.classList.add('active');
+                document.getElementById(target).classList.add('active');
+            });
         });
+        
+        // Toggle affichage mot de passe
+        const toggleButtons = document.querySelectorAll('.toggle-password');
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    this.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                } else {
+                    input.type = 'password';
+                    this.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            });
+        });
+        
+        // Affichage de la valeur du range
+        const temperatureRange = document.getElementById('superagi-temperature');
+        const rangeValue = document.querySelector('.range-value');
+        
+        if (temperatureRange && rangeValue) {
+            temperatureRange.addEventListener('input', function() {
+                rangeValue.textContent = this.value;
+            });
+        }
+        
+        // Bouton de sauvegarde
+        const saveButton = document.getElementById('save-settings-btn');
+        if (saveButton) {
+            saveButton.addEventListener('click', function() {
+                saveSettings();
+            });
+        }
     });
-
-    // Toggle password visibility
-    document.querySelectorAll('.toggle-password').forEach(button => {
-        button.addEventListener('click', function() {
-            const targetId = this.getAttribute('data-target');
-            const input = document.getElementById(targetId);
-            const icon = this.querySelector('i');
+    
+    async function saveSettings() {
+        try {
+            // Afficher un indicateur de chargement
+            const saveButton = document.getElementById('save-settings-btn');
+            const originalText = saveButton.innerHTML;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement...';
+            saveButton.disabled = true;
             
-            if (input.type === 'password') {
-                input.type = 'text';
-                icon.classList.remove('fa-eye');
-                icon.classList.add('fa-eye-slash');
+            // Collecter les données de tous les formulaires
+            const generalSettings = collectFormData('general-settings-form');
+            const apiSettings = {
+                'binance-api-key': document.getElementById('binance-api-key')?.value || '',
+                'binance-api-secret': document.getElementById('binance-api-secret')?.value || '',
+                'openai-api-key': document.getElementById('openai-api-key')?.value || '',
+                'superagi-api-key': document.getElementById('superagi-api-key')?.value || '',
+                'stripe-api-key': document.getElementById('stripe-api-key')?.value || '',
+                'alpha-vantage-api-key': document.getElementById('alpha-vantage-api-key')?.value || '',
+                'twelve-data-api-key': document.getElementById('twelve-data-api-key')?.value || '',
+                'fred-api-key': document.getElementById('fred-api-key')?.value || '',
+                'newsapi-api-key': document.getElementById('newsapi-api-key')?.value || '',
+                'shopify-api-key': document.getElementById('shopify-api-key')?.value || '',
+                'shopify-api-secret': document.getElementById('shopify-api-secret')?.value || '',
+                'coinbase-api-key': document.getElementById('coinbase-api-key')?.value || '',
+                'coinbase-api-secret': document.getElementById('coinbase-api-secret')?.value || '',
+                'kraken-api-key': document.getElementById('kraken-api-key')?.value || '',
+                'kraken-api-secret': document.getElementById('kraken-api-secret')?.value || '',
+                'shopify-shop-name': document.getElementById('shopify-shop-name')?.value || ''
+            };
+            const tradingSettings = collectFormData('trading-settings-form');
+            const ecommerceSettings = collectFormData('ecommerce-settings-form');
+            const securitySettings = collectFormData('security-settings-form');
+            const notificationSettings = collectFormData('notification-settings-form');
+            const superagiSettings = collectFormData('superagi-settings-form');
+            const advancedSettings = collectFormData('advanced-settings-form');
+            
+            const allSettings = {
+                general: generalSettings,
+                api: apiSettings,
+                trading: tradingSettings,
+                ecommerce: ecommerceSettings,
+                security: securitySettings,
+                notification: notificationSettings,
+                superagi: superagiSettings,
+                advanced: advancedSettings
+            };
+            
+            // Envoyer les données au serveur
+            const response = await fetch('/api/save-settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(allSettings)
+            });
+            
+            // Restaurer le bouton
+            saveButton.innerHTML = originalText;
+            saveButton.disabled = false;
+            
+            if (response.ok) {
+                const data = await response.json();
+                showNotification(data.message || 'Paramètres enregistrés avec succès', 'success');
             } else {
-                input.type = 'password';
-                icon.classList.remove('fa-eye-slash');
-                icon.classList.add('fa-eye');
+                const errorData = await response.json().catch(() => ({ message: 'Erreur lors de la sauvegarde des paramètres' }));
+                showNotification(errorData.message || 'Erreur lors de la sauvegarde des paramètres', 'error');
             }
-        });
-    });
-
-    // Sauvegarde des paramètres
-    document.getElementById('save-settings-btn').addEventListener('click', function() {
-        const apiData = {
-            'binance-api-key': document.getElementById('binance-api-key')?.value || '',
-            'binance-api-secret': document.getElementById('binance-api-secret')?.value || '',
-            'coinbase-api-key': document.getElementById('coinbase-api-key')?.value || '',
-            'kraken-api-key': document.getElementById('kraken-api-key')?.value || '',
-            'stripe-api-key': document.getElementById('stripe-api-key')?.value || '',
-            'newsapi-api-key': document.getElementById('newsapi-api-key')?.value || '',
-            'alpha-vantage-api-key': document.getElementById('alpha-vantage-api-key')?.value || '',
-            'twelve-data-api-key': document.getElementById('twelve-data-api-key')?.value || '',
-            'fred-api-key': document.getElementById('fred-api-key')?.value || '',
-            'shopify-api-key': document.getElementById('shopify-api-key')?.value || ''
-        };
-
-        fetch('/api/save-settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(apiData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Afficher notification de succès
-                showNotification('Paramètres sauvegardés avec succès!', 'success');
-            } else {
-                showNotification('Erreur lors de la sauvegarde', 'error');
+        } catch (error) {
+            console.error('Erreur lors de la sauvegarde des paramètres:', error);
+            showNotification('Erreur lors de la sauvegarde des paramètres', 'error');
+            
+            // Restaurer le bouton en cas d'erreur
+            const saveButton = document.getElementById('save-settings-btn');
+            saveButton.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
+            saveButton.disabled = false;
+        }
+    }
+    
+    function collectFormData(formId) {
+        const form = document.getElementById(formId);
+        if (!form) return {};
+        
+        const formData = {};
+        const elements = form.elements;
+        
+        for (let i = 0; i < elements.length; i++) {
+            const element = elements[i];
+            if (element.name || element.id) {
+                const key = element.name || element.id;
+                
+                if (element.type === 'checkbox') {
+                    formData[key] = element.checked;
+                } else if (element.type === 'radio') {
+                    if (element.checked) {
+                        formData[key] = element.value;
+                    }
+                } else {
+                    formData[key] = element.value;
+                }
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showNotification('Erreur lors de la sauvegarde', 'error');
-        });
-    });
-
-    function showNotification(message, type) {
-        // Créer et afficher une notification
+        }
+        
+        return formData;
+    }
+    
+    function showNotification(message, type = 'info') {
+        // Créer une notification
         const notification = document.createElement('div');
-        notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} notification`;
-        notification.textContent = message;
-        notification.style.position = 'fixed';
-        notification.style.top = '20px';
-        notification.style.right = '20px';
-        notification.style.zIndex = '9999';
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <div class="notification-icon">
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+            </div>
+            <div class="notification-content">
+                <div class="notification-message">${message}</div>
+            </div>
+            <button class="notification-close">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
         
-        document.body.appendChild(notification);
+        // Ajouter au conteneur de notifications
+        const container = document.querySelector('.notification-container') || createNotificationContainer();
+        container.appendChild(notification);
         
+        // Ajouter l'événement de fermeture
+        const closeButton = notification.querySelector('.notification-close');
+        closeButton.addEventListener('click', () => {
+            notification.classList.add('notification-hiding');
+            setTimeout(() => {
+                notification.remove();
+                if (container.children.length === 0) {
+                    container.remove();
+                }
+            }, 300);
+        });
+        
+        // Auto-fermeture après 5 secondes
         setTimeout(() => {
-            notification.remove();
-        }, 3000);
+            if (notification.parentNode) {
+                notification.classList.add('notification-hiding');
+                setTimeout(() => {
+                    notification.remove();
+                    if (container.children.length === 0) {
+                        container.remove();
+                    }
+                }, 300);
+            }
+        }, 5000);
     }
-});
+    
+    function createNotificationContainer() {
+        const container = document.createElement('div');
+        container.className = 'notification-container';
+        document.body.appendChild(container);
+        return container;
+    }
+    
+    function changePassword() {
+        const currentPassword = document.getElementById('current-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            showNotification('Veuillez remplir tous les champs', 'error');
+            return;
+        }
+        
+        if (newPassword !== confirmPassword) {
+            showNotification('Les mots de passe ne correspondent pas', 'error');
+            return;
+        }
+        
+        // Simuler une requête API
+        console.log('Changing password...');
+        setTimeout(() => {
+            showNotification('Mot de passe modifié avec succès', 'success');
+            $('#changePasswordModal').modal('hide');
+            
+            // Réinitialiser le formulaire
+            document.getElementById('change-password-form').reset();
+        }, 1000);
+    }
+    
+    function verify2FACode() {
+        const code = document.getElementById('verification-code').value;
+        
+        if (!code || code.length !== 6) {
+            showNotification('Veuillez entrer un code à 6 chiffres', 'error');
+            return;
+        }
+        
+        // Simuler une requête API
+        console.log('Verifying 2FA code:', code);
+        setTimeout(() => {
+            showNotification('2FA activé avec succès', 'success');
+            $('#setup2FAModal').modal('hide');
+            
+            // Réinitialiser le formulaire
+            document.getElementById('setup-2fa-form').reset();
+        }, 1000);
+    }
 </script>
-
-<style>
-.settings-nav .card {
-    background: linear-gradient(135deg, #1a1a1a 0%, rgba(30, 30, 30, 0.8) 100%);
-    border: 1px solid rgba(0, 255, 157, 0.2);
-    border-radius: 12px;
-}
-
-.settings-menu {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.settings-menu-item {
-    padding: 12px 16px;
-    cursor: pointer;
-    border-radius: 8px;
-    margin-bottom: 4px;
-    transition: all 0.3s ease;
-    color: #ccc;
-}
-
-.settings-menu-item:hover {
-    background: rgba(0, 255, 157, 0.1);
-    color: var(--primary-color);
-}
-
-.settings-menu-item.active {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-    color: #000;
-    font-weight: 600;
-}
-
-.settings-menu-item i {
-    margin-right: 8px;
-    width: 16px;
-}
-
-.settings-content .card {
-    background: linear-gradient(135deg, #1a1a1a 0%, rgba(30, 30, 30, 0.8) 100%);
-    border: 1px solid rgba(0, 255, 157, 0.2);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-}
-
-.settings-section {
-    display: none;
-}
-
-.settings-section.active {
-    display: block;
-}
-
-.form-group {
-    margin-bottom: 20px;
-}
-
-.form-group label {
-    color: var(--primary-color);
-    font-weight: 600;
-    margin-bottom: 8px;
-    display: block;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 12px;
-}
-
-.form-control {
-    width: 100%;
-    padding: 12px 16px;
-    background: rgba(10, 10, 10, 0.8);
-    border: 1px solid rgba(0, 255, 157, 0.2);
-    border-radius: 6px;
-    color: #ccc;
-    font-size: 14px;
-    transition: all 0.3s ease;
-}
-
-.form-control:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(0, 255, 157, 0.1);
-    background: rgba(10, 10, 10, 0.9);
-}
-
-.input-group {
-    display: flex;
-}
-
-.input-group-append {
-    margin-left: -1px;
-}
-
-.btn-outline {
-    padding: 12px 16px;
-    background: rgba(0, 255, 157, 0.1);
-    border: 1px solid rgba(0, 255, 157, 0.2);
-    border-radius: 0 6px 6px 0;
-    color: var(--primary-color);
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.btn-outline:hover {
-    background: rgba(0, 255, 157, 0.2);
-}
-
-.notification {
-    animation: slideIn 0.3s ease;
-}
-
-@keyframes slideIn {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-</style>
 {% endblock %}
