@@ -397,7 +397,7 @@ table th {
     width: 100%;
     max-width: none;
     margin: 0;
-    padding: 0;
+    padding: 20px;
     box-sizing: border-box;
 }
 
@@ -454,9 +454,9 @@ nav a.active {
 }
 
 .dashboard-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
     width: 100%;
     max-width: none;
     padding: 0;

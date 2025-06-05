@@ -11,31 +11,11 @@
 {% endblock %}
 
 {% block content %}
-<div class="settings-layout" style="display: flex; gap: 24px; width: 100%; max-width: none;">
-    <!-- Navigation des paramètres -->
-    <div class="settings-nav" style="width: 280px; flex-shrink: 0;">
-        <div class="card">
-            <div class="card-body">
-                <ul class="settings-menu">
-                    <li class="settings-menu-item active" data-target="general-settings">
-                        <i class="fas fa-cog"></i> Général
-                    </li>
-                    <li class="settings-menu-item" data-target="api-settings">
-                        <i class="fas fa-key"></i> Clés API
-                    </li>
-                    <li class="settings-menu-item" data-target="trading-settings">
-                        <i class="fas fa-chart-line"></i> Trading
-                    </li>
-                    <li class="settings-menu-item" data-target="security-settings">
-                        <i class="fas fa-shield-alt"></i> Sécurité
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </div>
+<div class="settings-layout" style="width: 100%; max-width: none;">
+
 
     <!-- Contenu des paramètres -->
-    <div class="settings-content" style="flex: 1; min-width: 0;">
+    <div class="settings-content" style="width: 100%;">
         <!-- Paramètres généraux -->
         <div class="settings-section active" id="general-settings">
             <div class="card">
