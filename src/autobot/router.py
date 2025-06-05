@@ -120,10 +120,10 @@ def plug_will(): return get_will()
 from autobot.plugins.qwen_chat import get_data as get_qwen_chat
 @router.get('/plugins/qwen_chat')
 def plug_qwen_chat(): return get_qwen_chat()
-@router.get('/backtest')
-def backtest(symbol: str):
-    from autobot.backtest_engine import run_backtest
-    return run_backtest(symbol)
+# @router.get('/backtest')
+# def backtest(symbol: str):
+#     from autobot.backtest_engine import run_backtest
+#     return run_backtest(symbol)
 
 @router.get('/predict')
 def predict():
@@ -253,10 +253,10 @@ def plug_will(): return get_will()
 from autobot.plugins.qwen_chat import get_data as get_qwen_chat
 @router.get('/plugins/qwen_chat')
 def plug_qwen_chat(): return get_qwen_chat()
-@router.get('/backtest')
-def backtest(symbol: str):
-    from autobot.backtest_engine import run_backtest
-    return run_backtest(symbol)
+# @router.get('/backtest')
+# def backtest(symbol: str):
+#     from autobot.backtest_engine import run_backtest
+#     return run_backtest(symbol)
 
 @router.get('/predict')
 def predict():
@@ -386,10 +386,10 @@ def plug_will(): return get_will()
 from autobot.plugins.qwen_chat import get_data as get_qwen_chat
 @router.get('/plugins/qwen_chat')
 def plug_qwen_chat(): return get_qwen_chat()
-@router.get('/backtest')
-def backtest(symbol: str):
-    from autobot.backtest_engine import run_backtest
-    return run_backtest(symbol)
+# @router.get('/backtest')
+# def backtest(symbol: str):
+#     from autobot.backtest_engine import run_backtest
+#     return run_backtest(symbol)
 
 @router.get('/predict')
 def predict():
@@ -417,7 +417,7 @@ def monitoring():
 
 
 
-@router.post("/backtest", response_model=BacktestResult, tags=["backtest"])
+#@router.post("/backtest", response_model=BacktestResult, tags=["backtest"])
 async def backtest_endpoint(req: BacktestRequest):
     metrics = run_backtest(req.strategy, req.parameters)
     return BacktestResult(strategy=req.strategy, metrics=metrics)

@@ -1,206 +1,378 @@
 {% extends "base.html" %}
+
 {% block title %}Paramètres{% endblock %}
+
+{% block header_title %}Paramètres du Système{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary" id="save-settings-btn">
+    <i class="fas fa-save"></i> Enregistrer
+</button>
+{% endblock %}
+
 {% block content %}
-<div class="page-container">
-    <div class="page-header">
-        <div class="page-title-section">
-            <div class="page-icon">
-                <i class="fas fa-cog"></i>
+<div class="dashboard-grid">
+    <!-- Navigation des paramètres -->
+    <div class="settings-nav" style="grid-column: span 3;">
+        <div class="card">
+            <div class="card-body">
+                <ul class="settings-menu">
+                    <li class="settings-menu-item active" data-target="general-settings">
+                        <i class="fas fa-cog"></i> Général
+                    </li>
+                    <li class="settings-menu-item" data-target="api-settings">
+                        <i class="fas fa-key"></i> Clés API
+                    </li>
+                    <li class="settings-menu-item" data-target="trading-settings">
+                        <i class="fas fa-chart-line"></i> Trading
+                    </li>
+                    <li class="settings-menu-item" data-target="security-settings">
+                        <i class="fas fa-shield-alt"></i> Sécurité
+                    </li>
+                </ul>
             </div>
-            <h1 class="page-title">PARAMÈTRES</h1>
         </div>
     </div>
 
-    <div class="form-section">
-        <h3>Configuration Système</h3>
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Mode de trading</label>
-                <select class="form-control" name="trading_mode">
-                    <option value="automatic">Automatique</option>
-                    <option value="manual">Manuel</option>
-                    <option value="hybrid">Hybride</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Niveau de risque</label>
-                <select class="form-control" name="risk_level">
-                    <option value="conservative">Conservateur</option>
-                    <option value="moderate">Modéré</option>
-                    <option value="aggressive">Agressif</option>
-                </select>
+    <!-- Contenu des paramètres -->
+    <div class="settings-content" style="grid-column: span 9;">
+        <!-- Paramètres généraux -->
+        <div class="settings-section active" id="general-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres Généraux</h3>
+                </div>
+                <div class="card-body">
+                    <form id="general-settings-form">
+                        <div class="form-group">
+                            <label for="system-name">Nom du Système</label>
+                            <input type="text" id="system-name" class="form-control" value="AUTOBOT" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="language">Langue</label>
+                            <select id="language" class="form-control">
+                                <option value="fr" selected>Français</option>
+                                <option value="en">English</option>
+                                <option value="es">Español</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="timezone">Fuseau Horaire</label>
+                            <select id="timezone" class="form-control">
+                                <option value="Europe/Paris" selected>Europe/Paris</option>
+                                <option value="UTC">UTC</option>
+                                <option value="America/New_York">America/New_York</option>
+                                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="theme">Thème</label>
+                            <select id="theme" class="form-control">
+                                <option value="dark" selected>Sombre (Néon Vert)</option>
+                                <option value="light">Clair</option>
+                                <option value="blue">Bleu</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-        <button class="btn-save" onclick="saveSystemConfig()">Sauvegarder</button>
+
+        <!-- Paramètres des clés API -->
+        <div class="settings-section" id="api-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Configuration des Clés API</h3>
+                    <p class="text-muted">Configurez vos clés API pour les différents fournisseurs de données et services.</p>
+                </div>
+                <div class="card-body">
+                    <form id="api-settings-form">
+                        <!-- Binance -->
+                        <div class="form-group">
+                            <label for="binance-api-key">Binance API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="binance-api-key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="binance-api-secret">Binance API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="binance-api-secret" class="form-control" value="{{ binance_api_secret|default('') }}" placeholder="Entrez votre secret API Binance">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Coinbase -->
+                        <div class="form-group">
+                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Kraken -->
+                        <div class="form-group">
+                            <label for="kraken-api-key">Kraken API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Stripe -->
+                        <div class="form-group">
+                            <label for="stripe-api-key">Stripe API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="stripe-api-key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="sk_live_... ou sk_test_...">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NewsAPI -->
+                        <div class="form-group">
+                            <label for="newsapi-api-key">NewsAPI Key</label>
+                            <div class="input-group">
+                                <input type="password" id="newsapi-api-key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alpha Vantage -->
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Twelve Data -->
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- FRED -->
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Shopify -->
+                        <div class="form-group">
+                            <label for="shopify-api-key">Shopify API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres de trading -->
+        <div class="settings-section" id="trading-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres de Trading</h3>
+                </div>
+                <div class="card-body">
+                    <form id="trading-settings-form">
+                        <div class="form-group">
+                            <label for="trading-mode">Mode de Trading</label>
+                            <select id="trading-mode" class="form-control">
+                                <option value="auto" selected>Automatique</option>
+                                <option value="manual">Manuel</option>
+                                <option value="hybrid">Hybride</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="risk-level">Niveau de Risque</label>
+                            <select id="risk-level" class="form-control">
+                                <option value="conservative">Conservateur</option>
+                                <option value="moderate" selected>Modéré</option>
+                                <option value="aggressive">Agressif</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="max-position-size">Taille Maximum de Position (%)</label>
+                            <input type="number" id="max-position-size" class="form-control" value="10" min="1" max="100" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="stop-loss">Stop Loss (%)</label>
+                            <input type="number" id="stop-loss" class="form-control" value="5" min="0.1" max="50" step="0.1">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paramètres de sécurité -->
+        <div class="settings-section" id="security-settings">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Paramètres de Sécurité</h3>
+                </div>
+                <div class="card-body">
+                    <form id="security-settings-form">
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-2fa" checked>
+                                <label class="custom-control-label" for="enable-2fa">Authentification à deux facteurs</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="enable-api-whitelist" checked>
+                                <label class="custom-control-label" for="enable-api-whitelist">Liste blanche IP pour API</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="session-timeout">Délai d'expiration de session (minutes)</label>
+                            <input type="number" id="session-timeout" class="form-control" value="30" min="5" max="480" step="5">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
+</div>
 
-    <div class="form-section">
-        <h3>Configuration des Clés API</h3>
-        
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Binance</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="binance_api_key">
-                <input type="password" class="form-control" placeholder="API Secret" name="binance_api_secret">
-            </div>
-        </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Navigation entre les sections
+    const menuItems = document.querySelectorAll('.settings-menu-item');
+    const sections = document.querySelectorAll('.settings-section');
 
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">NewsAPI</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="newsapi_key">
-            </div>
-        </div>
+    menuItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const target = this.getAttribute('data-target');
+            
+            // Retirer la classe active de tous les éléments
+            menuItems.forEach(mi => mi.classList.remove('active'));
+            sections.forEach(s => s.classList.remove('active'));
+            
+            // Ajouter la classe active aux éléments sélectionnés
+            this.classList.add('active');
+            document.getElementById(target).classList.add('active');
+        });
+    });
 
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Shopify</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="shopify_api_key">
-                <input type="text" class="form-control" placeholder="Shop Name" name="shopify_shop_name">
-            </div>
-        </div>
+    // Toggle password visibility
+    document.querySelectorAll('.toggle-password').forEach(button => {
+        button.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-target');
+            const input = document.getElementById(targetId);
+            const icon = this.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+    });
 
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Alpha Vantage</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="alpha_vantage_api_key">
-            </div>
-        </div>
+    // Sauvegarde des paramètres
+    document.getElementById('save-settings-btn').addEventListener('click', function() {
+        const apiData = {
+            'binance-api-key': document.getElementById('binance-api-key')?.value || '',
+            'binance-api-secret': document.getElementById('binance-api-secret')?.value || '',
+            'coinbase-api-key': document.getElementById('coinbase-api-key')?.value || '',
+            'kraken-api-key': document.getElementById('kraken-api-key')?.value || '',
+            'stripe-api-key': document.getElementById('stripe-api-key')?.value || '',
+            'newsapi-api-key': document.getElementById('newsapi-api-key')?.value || '',
+            'alpha-vantage-api-key': document.getElementById('alpha-vantage-api-key')?.value || '',
+            'twelve-data-api-key': document.getElementById('twelve-data-api-key')?.value || '',
+            'fred-api-key': document.getElementById('fred-api-key')?.value || '',
+            'shopify-api-key': document.getElementById('shopify-api-key')?.value || ''
+        };
 
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Coinbase</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="coinbase_api_key">
-                <input type="password" class="form-control" placeholder="API Secret" name="coinbase_api_secret">
-                <input type="text" class="form-control" placeholder="Passphrase" name="coinbase_passphrase">
-            </div>
-        </div>
-
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Kraken</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="kraken_api_key">
-                <input type="password" class="form-control" placeholder="API Secret" name="kraken_api_secret">
-            </div>
-        </div>
-
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">Twelve Data</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="twelve_data_api_key">
-            </div>
-        </div>
-
-        <div class="api-provider">
-            <div class="provider-header">
-                <span class="provider-status active"></span>
-                <span class="provider-name">FRED</span>
-            </div>
-            <div class="form-grid">
-                <input type="text" class="form-control" placeholder="API Key" name="fred_api_key">
-            </div>
-        </div>
-
-        <button class="btn-save" onclick="saveApiKeys()">Sauvegarder les Clés API</button>
-    </div>
-
-    <script>
-    function saveSystemConfig() {
-        const formData = new FormData();
-        formData.append('trading_mode', document.querySelector('[name="trading_mode"]').value);
-        formData.append('risk_level', document.querySelector('[name="risk_level"]').value);
-        
-        fetch('/api/save-system-config', {
+        fetch('/api/save-settings', {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(apiData)
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showNotification('Configuration système sauvegardée avec succès', 'success');
+                // Afficher notification de succès
+                showNotification('Paramètres sauvegardés avec succès!', 'success');
             } else {
                 showNotification('Erreur lors de la sauvegarde', 'error');
             }
         })
         .catch(error => {
-            showNotification('Erreur de connexion', 'error');
+            console.error('Error:', error);
+            showNotification('Erreur lors de la sauvegarde', 'error');
         });
-    }
-
-    function saveApiKeys() {
-        const formData = new FormData();
-        const apiKeys = [
-            'binance_api_key', 'binance_api_secret',
-            'newsapi_key',
-            'shopify_api_key', 'shopify_shop_name',
-            'alpha_vantage_api_key',
-            'coinbase_api_key', 'coinbase_api_secret', 'coinbase_passphrase',
-            'kraken_api_key', 'kraken_api_secret',
-            'twelve_data_api_key',
-            'fred_api_key'
-        ];
-        
-        apiKeys.forEach(key => {
-            const element = document.querySelector(`[name="${key}"]`);
-            if (element && element.value) {
-                formData.append(key, element.value);
-            }
-        });
-        
-        fetch('/api/save-api-keys', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showNotification('Clés API sauvegardées avec succès', 'success');
-            } else {
-                showNotification('Erreur lors de la sauvegarde', 'error');
-            }
-        })
-        .catch(error => {
-            showNotification('Erreur de connexion', 'error');
-        });
-    }
+    });
 
     function showNotification(message, type) {
+        // Créer et afficher une notification
         const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
+        notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} notification`;
         notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 12px 24px;
-            border-radius: 6px;
-            color: #fff;
-            font-weight: 600;
-            z-index: 1000;
-            background: ${type === 'success' ? 'var(--primary-color)' : '#ff4444'};
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        `;
+        notification.style.position = 'fixed';
+        notification.style.top = '20px';
+        notification.style.right = '20px';
+        notification.style.zIndex = '9999';
         
         document.body.appendChild(notification);
         
@@ -208,6 +380,129 @@
             notification.remove();
         }, 3000);
     }
-    </script>
-</div>
+});
+</script>
+
+<style>
+.settings-nav .card {
+    background: linear-gradient(135deg, #1a1a1a 0%, rgba(30, 30, 30, 0.8) 100%);
+    border: 1px solid rgba(0, 255, 157, 0.2);
+    border-radius: 12px;
+}
+
+.settings-menu {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-menu-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: all 0.3s ease;
+    color: #ccc;
+}
+
+.settings-menu-item:hover {
+    background: rgba(0, 255, 157, 0.1);
+    color: var(--primary-color);
+}
+
+.settings-menu-item.active {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: #000;
+    font-weight: 600;
+}
+
+.settings-menu-item i {
+    margin-right: 8px;
+    width: 16px;
+}
+
+.settings-content .card {
+    background: linear-gradient(135deg, #1a1a1a 0%, rgba(30, 30, 30, 0.8) 100%);
+    border: 1px solid rgba(0, 255, 157, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.settings-section {
+    display: none;
+}
+
+.settings-section.active {
+    display: block;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 12px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(10, 10, 10, 0.8);
+    border: 1px solid rgba(0, 255, 157, 0.2);
+    border-radius: 6px;
+    color: #ccc;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0, 255, 157, 0.1);
+    background: rgba(10, 10, 10, 0.9);
+}
+
+.input-group {
+    display: flex;
+}
+
+.input-group-append {
+    margin-left: -1px;
+}
+
+.btn-outline {
+    padding: 12px 16px;
+    background: rgba(0, 255, 157, 0.1);
+    border: 1px solid rgba(0, 255, 157, 0.2);
+    border-radius: 0 6px 6px 0;
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-outline:hover {
+    background: rgba(0, 255, 157, 0.2);
+}
+
+.notification {
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+</style>
 {% endblock %}

@@ -3,11 +3,11 @@ from pydantic import BaseModel
 from typing import Dict, Any
 
 class BacktestRequest(BaseModel):
-    strategy: str
+    strategy: str = "moving_average"
     parameters: Dict[str, Any] = {}
 
 class BacktestResult(BaseModel):
-    strategy: str
+    strategy: str = "moving_average"
     metrics: Dict[str, float]
 
 class APIKeyConfig(BaseModel):
