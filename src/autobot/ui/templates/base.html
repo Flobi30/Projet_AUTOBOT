@@ -3,89 +3,117 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AUTOBOT - {% block title %}Dashboard{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <link rel="stylesheet" href="/static/css/neon_theme.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    {% block extra_css %}{% endblock %}
+    <title>{% block title %}AUTOBOT{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/neon_theme.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    {% block extra_head %}{% endblock %}
 </head>
-<body class="dark-theme" data-role="{{ user_role }}">
+<body>
     <div class="app-container">
-        <!-- Sidebar Navigation -->
-        <div class="sidebar">
-            <div class="logo-container">
-                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
-                <h1 class="neon-text">AUTOBOT</h1>
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <span>AUTOBOT</span>
+                </div>
             </div>
+            
             <nav class="nav-menu">
-                <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
-                    <i class="fas fa-chart-pie"></i>
-                    <span class="nav-text">Dashboard</span>
-                </a>
-                <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
-                    <i class="fas fa-chart-line"></i>
-                    <span class="nav-text">Trading</span>
-                </a>
-                <a href="/ecommerce" class="nav-item {% if active_page == 'ecommerce' %}active{% endif %}">
-                    <i class="fas fa-shopping-cart"></i>
-                    <span class="nav-text">E-commerce</span>
-                </a>
-                <a href="/arbitrage" class="nav-item {% if active_page == 'arbitrage' %}active{% endif %}">
-                    <i class="fas fa-exchange-alt"></i>
-                    <span class="nav-text">Arbitrage</span>
-                </a>
-                <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
-                    <i class="fas fa-flask"></i>
-                    <span class="nav-text">Backtest</span>
-                </a>
-                <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
-                    <i class="fas fa-coins"></i>
-                    <span class="nav-text">Capital</span>
-                </a>
-                <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
-                    <i class="fas fa-clone"></i>
-                    <span class="nav-text">Duplication</span>
-                </a>
-                <a href="/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
-                    <i class="fas fa-wallet"></i>
-                    <span class="nav-text">Retrait/Dépôt</span>
-                </a>
-                <a href="/parametres" class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
-                    <i class="fas fa-cog"></i>
-                    <span class="nav-text">Paramètres</span>
-                </a>
-            </nav>
-            <div class="user-info">
-                <div class="user-avatar">
-                    <i class="fas fa-user"></i>
+                <div class="nav-section">
+                    <div class="nav-section-title">Tableau de Bord</div>
+                    <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                        <i class="fas fa-chart-pie"></i>
+                        <span class="nav-text">Dashboard</span>
+                    </a>
                 </div>
-                <div class="user-details">
-                    <span class="user-name">{{ username }}</span>
-                    <span class="user-role">{{ user_role_display }}</span>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Trading & Analyse</div>
+                    <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
+                        <i class="fas fa-chart-line"></i>
+                        <span class="nav-text">Trading</span>
+                    </a>
+                    <a href="/arbitrage" class="nav-item {% if active_page == 'arbitrage' %}active{% endif %}">
+                        <i class="fas fa-exchange-alt"></i>
+                        <span class="nav-text">Arbitrage</span>
+                    </a>
+                    <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                        <i class="fas fa-flask"></i>
+                        <span class="nav-text">Backtest</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Gestion</div>
+                    <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
+                        <i class="fas fa-coins"></i>
+                        <span class="nav-text">Capital</span>
+                    </a>
+                    <a href="/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
+                        <i class="fas fa-wallet"></i>
+                        <span class="nav-text">Retrait/Dépôt</span>
+                    </a>
+                    <a href="/ecommerce" class="nav-item {% if active_page == 'ecommerce' %}active{% endif %}">
+                        <i class="fas fa-shopping-cart"></i>
+                        <span class="nav-text">E-commerce</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Système</div>
+                    <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
+                        <i class="fas fa-clone"></i>
+                        <span class="nav-text">Duplication</span>
+                    </a>
+                    <a href="/parametres" class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
+                        <i class="fas fa-cog"></i>
+                        <span class="nav-text">Paramètres</span>
+                    </a>
+                </div>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="username">{{ username or 'AUTOBOT' }}</span>
+                        <span class="user-role">{{ user_role_display or 'Administrateur' }}</span>
+                    </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="main-content">
-            <header class="content-header">
-                <h2 class="neon-text">{% block header_title %}Dashboard{% endblock %}</h2>
-                <div class="header-actions">
-                    {% block header_actions %}{% endblock %}
+        </aside>
+        
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <button class="sidebar-toggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+                <div class="header-right">
+                    <div class="header-actions">
+                        <button class="header-btn">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <button class="header-btn">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                    </div>
                 </div>
             </header>
-
-            <div class="content-body">
+            
+            <div class="content-wrapper">
                 {% block content %}{% endblock %}
             </div>
-        </div>
+        </main>
     </div>
-
-    {% block modals %}{% endblock %}
     
-    <script src="/static/js/common.js"></script>
-    {% block scripts %}{% endblock %}
+    <script>
+        document.querySelector('.sidebar-toggle').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        });
+    </script>
 </body>
 </html>
