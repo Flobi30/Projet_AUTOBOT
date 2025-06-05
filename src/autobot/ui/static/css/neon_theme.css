@@ -33,13 +33,16 @@ body {
 .card {
     background: linear-gradient(135deg, var(--card-bg-color) 0%, rgba(30, 30, 30, 0.95) 100%);
     border-radius: 12px;
-    padding: 24px;
+    padding: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 255, 157, 0.1);
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     border: 1px solid rgba(0, 255, 157, 0.2);
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
 }
 
 .card::before {
@@ -463,22 +466,21 @@ body {
 
 /* Enhanced Professional Sidebar Navigation */
 .sidebar {
-    background: linear-gradient(180deg, rgba(5, 5, 5, 0.98) 0%, rgba(15, 15, 15, 0.96) 30%, rgba(20, 20, 20, 0.95) 70%, rgba(10, 10, 10, 0.98) 100%);
-    width: 320px;
+    background: linear-gradient(180deg, rgba(8, 8, 8, 0.98) 0%, rgba(18, 18, 18, 0.96) 30%, rgba(22, 22, 22, 0.95) 70%, rgba(12, 12, 12, 0.98) 100%);
+    width: 280px;
     height: 100vh;
     position: fixed;
     left: 0;
     top: 0;
-    border-right: 5px solid transparent;
-    border-image: linear-gradient(180deg, rgba(0, 255, 157, 1) 0%, rgba(0, 255, 157, 0.6) 30%, rgba(0, 255, 157, 0.4) 70%, rgba(0, 255, 157, 1) 100%) 1;
+    border-right: 3px solid transparent;
+    border-image: linear-gradient(180deg, rgba(0, 255, 157, 0.8) 0%, rgba(0, 255, 157, 0.5) 30%, rgba(0, 255, 157, 0.3) 70%, rgba(0, 255, 157, 0.8) 100%) 1;
     z-index: 100;
-    transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 
-        15px 0 50px rgba(0, 0, 0, 0.8),
-        0 0 80px rgba(0, 255, 157, 0.15),
-        inset -2px 0 20px rgba(0, 255, 157, 0.1),
-        inset 0 0 40px rgba(0, 255, 157, 0.05);
-    backdrop-filter: blur(30px);
+        8px 0 32px rgba(0, 0, 0, 0.6),
+        0 0 40px rgba(0, 255, 157, 0.12),
+        inset -1px 0 15px rgba(0, 255, 157, 0.08);
+    backdrop-filter: blur(20px);
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -571,21 +573,21 @@ body {
 .nav-item {
     display: flex;
     align-items: center;
-    padding: 20px 28px;
-    margin: 6px 12px;
-    color: rgba(255, 255, 255, 0.92);
+    padding: 14px 20px;
+    margin: 4px 8px;
+    color: rgba(255, 255, 255, 0.88);
     text-decoration: none;
-    border-radius: 16px;
-    transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: 0.8px;
-    border: 2px solid transparent;
-    background: linear-gradient(135deg, rgba(40, 40, 40, 0.6) 0%, rgba(30, 30, 30, 0.4) 50%, rgba(35, 35, 35, 0.5) 100%);
-    backdrop-filter: blur(12px);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, rgba(35, 35, 35, 0.5) 0%, rgba(25, 25, 25, 0.3) 50%, rgba(30, 30, 30, 0.4) 100%);
+    backdrop-filter: blur(8px);
     overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
 .nav-item::before {
@@ -602,11 +604,11 @@ body {
 }
 
 .nav-item:hover {
-    background: linear-gradient(135deg, rgba(0, 255, 157, 0.22) 0%, rgba(0, 255, 157, 0.12) 100%);
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.18) 0%, rgba(0, 255, 157, 0.08) 100%);
     color: var(--primary-color);
-    transform: translateX(12px) scale(1.02);
-    border-color: rgba(0, 255, 157, 0.5);
-    box-shadow: 0 8px 28px rgba(0, 255, 157, 0.3);
+    transform: translateX(8px);
+    border-color: rgba(0, 255, 157, 0.4);
+    box-shadow: 0 4px 20px rgba(0, 255, 157, 0.25);
 }
 
 .nav-item:hover::before {
@@ -614,12 +616,12 @@ body {
 }
 
 .nav-item.active {
-    background: linear-gradient(135deg, rgba(0, 255, 157, 0.3) 0%, rgba(0, 255, 157, 0.18) 100%);
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.25) 0%, rgba(0, 255, 157, 0.15) 100%);
     color: var(--primary-color);
-    border-color: rgba(0, 255, 157, 0.6);
-    box-shadow: 0 10px 32px rgba(0, 255, 157, 0.4);
-    font-weight: 700;
-    transform: translateX(8px);
+    border-color: rgba(0, 255, 157, 0.5);
+    box-shadow: 0 6px 24px rgba(0, 255, 157, 0.3);
+    font-weight: 600;
+    transform: translateX(6px);
 }
 
 .nav-item.active::before {
@@ -638,12 +640,12 @@ body {
 }
 
 .nav-item i {
-    margin-right: 20px;
-    font-size: 20px;
-    width: 24px;
+    margin-right: 16px;
+    font-size: 18px;
+    width: 20px;
     text-align: center;
-    transition: all 0.4s ease;
-    filter: drop-shadow(0 0 8px rgba(0, 255, 157, 0.3));
+    transition: all 0.3s ease;
+    filter: drop-shadow(0 0 6px rgba(0, 255, 157, 0.2));
 }
 
 .nav-item:hover i,
@@ -763,22 +765,25 @@ body {
 .app-container {
     display: flex;
     min-height: 100vh;
-    background: var(--bg-color);
     width: 100vw;
+    background: var(--bg-color);
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
     overflow-x: hidden;
 }
 
 /* Main Content Area - Full Width Responsive */
 .main-content {
     flex: 1;
-    padding: 32px;
+    padding: 16px;
     margin: 0;
     min-height: 100vh;
     background: linear-gradient(135deg, var(--bg-color) 0%, rgba(18, 18, 18, 0.95) 100%);
     transition: all 0.3s ease;
     overflow-y: auto;
     overflow-x: hidden;
-    width: calc(100vw - 320px);
+    width: 100%;
     max-width: none;
     box-sizing: border-box;
     position: relative;
