@@ -329,7 +329,7 @@ async def create_agent(request: Request):
     return {"id": agent_id, "status": "created"}
 
 @router.post("/settings", response_class=JSONResponse)
-async def update_settings(request: Request, current_user: User = Depends(get_current_user)):
+async def update_settings(request: Request):
     """
     Update user settings.
     
