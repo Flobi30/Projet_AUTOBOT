@@ -59,18 +59,7 @@ async def get_ecommerce(request: Request):
         "user_role_display": "Administrateur"
     })
 
-@router.get("/arbitrage", response_class=HTMLResponse)
-async def get_arbitrage(request: Request):
-    """
-    Page d'arbitrage.
-    """
-    return templates.TemplateResponse("arbitrage.html", {
-        "request": request,
-        "active_page": "arbitrage",
-        "username": "AUTOBOT",
-        "user_role": "admin",
-        "user_role_display": "Administrateur"
-    })
+
 
 @router.get("/backtest", response_class=HTMLResponse)
 async def get_backtest(request: Request):
