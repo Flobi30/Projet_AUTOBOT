@@ -122,6 +122,23 @@ body {
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 255, 157, 0.3);
 }
 
+.metric-card .metric-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+    margin-bottom: 8px;
+}
+
+.metric-card .metric-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+}
+
 .metric-title {
     font-size: 16px;
     color: var(--text-color);
@@ -283,6 +300,56 @@ body {
     background-color: rgba(0, 255, 157, 0.1);
     box-shadow: 0 0 20px rgba(0, 255, 157, 0.3);
     transform: translateY(-1px);
+}
+
+/* Professional Page Headers */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid rgba(0, 255, 157, 0.2);
+}
+
+.page-title {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--primary-color);
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+    margin: 0;
+}
+
+.page-actions {
+    display: flex;
+    gap: 12px;
+}
+
+/* Enhanced Grid Layout */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+/* Professional Form Styling */
+.form-control {
+    width: 100%;
+    padding: 14px 18px;
+    border: 2px solid rgba(0, 255, 157, 0.2);
+    border-radius: 8px;
+    background-color: rgba(30, 30, 30, 0.8);
+    color: var(--text-color);
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(0, 255, 157, 0.1);
+    background-color: rgba(30, 30, 30, 0.9);
 }
 
 /* Chat Interface */
