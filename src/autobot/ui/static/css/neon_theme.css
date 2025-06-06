@@ -467,11 +467,10 @@ body {
 /* Enhanced Professional Sidebar Navigation */
 .sidebar {
     background: linear-gradient(180deg, rgba(8, 8, 8, 0.98) 0%, rgba(18, 18, 18, 0.96) 30%, rgba(22, 22, 22, 0.95) 70%, rgba(12, 12, 12, 0.98) 100%);
-    width: 320px;
+    width: 280px;
     height: 100vh;
-    position: fixed;
-    left: 0;
-    top: 0;
+    position: relative;
+    flex-shrink: 0;
     border-right: 3px solid transparent;
     border-image: linear-gradient(180deg, rgba(0, 255, 157, 0.8) 0%, rgba(0, 255, 157, 0.5) 30%, rgba(0, 255, 157, 0.3) 70%, rgba(0, 255, 157, 0.8) 100%) 1;
     z-index: 100;
@@ -717,31 +716,34 @@ body {
 
 /* Enhanced Navigation Section Headers */
 .nav-section {
-    margin-bottom: 32px;
-    padding: 0 12px;
+    margin-bottom: 28px;
+    padding: 0 16px;
 }
 
 .nav-section-title {
-    font-size: 12px;
-    font-weight: 800;
-    color: rgba(0, 255, 157, 0.8);
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(0, 255, 157, 0.9);
     text-transform: uppercase;
-    letter-spacing: 1.2px;
-    margin-bottom: 12px;
-    padding: 0 28px;
-    border-bottom: 2px solid rgba(0, 255, 157, 0.2);
-    padding-bottom: 8px;
+    letter-spacing: 1.5px;
+    margin-bottom: 16px;
+    padding: 12px 20px 8px 20px;
+    border-bottom: 1px solid rgba(0, 255, 157, 0.3);
     position: relative;
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.08) 0%, rgba(0, 255, 157, 0.03) 100%);
+    border-radius: 8px 8px 0 0;
+    text-shadow: 0 0 8px rgba(0, 255, 157, 0.4);
 }
 
 .nav-section-title::after {
     content: '';
     position: absolute;
-    bottom: -2px;
-    left: 28px;
-    width: 40px;
+    bottom: -1px;
+    left: 20px;
+    width: 60px;
     height: 2px;
-    background: linear-gradient(90deg, rgba(0, 255, 157, 0.8) 0%, rgba(0, 255, 157, 0.3) 100%);
+    background: linear-gradient(90deg, rgba(0, 255, 157, 1) 0%, rgba(0, 255, 157, 0.4) 100%);
+    border-radius: 2px;
 }
 
 /* Admin-only features */
@@ -762,7 +764,7 @@ body {
     border-radius: 10px;
 }
 
-/* App Container - Fixed Layout */
+/* App Container - Responsive Flexbox Layout */
 .app-container {
     display: flex;
     min-height: 100vh;
@@ -776,14 +778,14 @@ body {
 
 /* Main Content Area - Full Width Responsive */
 .main-content {
-    margin-left: 320px;
+    flex: 1;
     padding: 24px;
     min-height: 100vh;
     background: linear-gradient(135deg, var(--bg-color) 0%, rgba(18, 18, 18, 0.95) 100%);
     transition: all 0.3s ease;
     overflow-y: auto;
     overflow-x: hidden;
-    width: calc(100vw - 320px);
+    width: 100%;
     max-width: none;
     box-sizing: border-box;
     position: relative;
@@ -1238,4 +1240,53 @@ textarea.form-control:focus {
 
 .badge.warning {
     background: linear-gradient(135deg, var(--warning-color) 0%, #cc9900 100%);
+}
+
+/* Enhanced logo styling */
+.logo .neon-text {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.logo i.neon-text {
+    font-size: 28px;
+    margin-right: 12px;
+}
+
+/* Fix content centering - ensure proper spacing and centering */
+.main-content {
+    flex: 1;
+    padding: 0 24px 24px 24px;
+    max-width: 100%;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--bg-color) 0%, rgba(18, 18, 18, 0.95) 100%);
+    transition: all 0.3s ease;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    position: relative;
+}
+
+/* Ensure content wrapper has proper centering */
+.content-wrapper {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Page header improvements */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 24px;
+}
+
+.page-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
 }

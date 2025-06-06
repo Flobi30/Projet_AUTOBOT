@@ -13,8 +13,8 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
-                    <i class="fas fa-robot"></i>
-                    <span>AUTOBOT</span>
+                    <i class="fas fa-robot neon-text"></i>
+                    <span class="neon-text">AUTOBOT</span>
                 </div>
             </div>
             
@@ -94,15 +94,19 @@
                 </div>
                 <div class="header-right">
                     <div class="header-actions">
-                        <button class="header-btn">
-                            <i class="fas fa-bell"></i>
-                        </button>
-                        <button class="header-btn">
-                            <i class="fas fa-cog"></i>
-                        </button>
+                        <!-- Removed unnecessary bell and gear buttons -->
                     </div>
                 </div>
             </header>
+            
+            {% if self.header_title() %}
+            <div class="page-header">
+                <h1 class="page-title">{% block header_title %}{% endblock %}</h1>
+                <div class="page-actions">
+                    {% block header_actions %}{% endblock %}
+                </div>
+            </div>
+            {% endif %}
             
             <div class="content-wrapper">
                 {% block content %}{% endblock %}

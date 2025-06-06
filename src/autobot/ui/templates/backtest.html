@@ -2,570 +2,244 @@
 
 {% block title %}Backtest - AUTOBOT{% endblock %}
 
+{% block header_title %}Backtest Automatisé{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary" onclick="runBacktest()">
+    <i class="fas fa-play"></i> Lancer Backtest
+</button>
+<button class="btn btn-secondary" onclick="stopOptimization()">
+    <i class="fas fa-stop"></i> Arrêter
+</button>
+{% endblock %}
+
 {% block content %}
-<div class="main-content">
-    <div class="page-header">
-        <h1 class="page-title">Backtest</h1>
-        <div class="page-actions">
-            <button class="btn btn-primary" onclick="runNewBacktest()">
-                <i class="fas fa-play"></i> Nouveau Backtest
-            </button>
-        </div>
+<div class="auto-config-display">
+    <h3><i class="fas fa-robot"></i> Configuration Automatique Active</h3>
+    <p>Stratégie: Moving Average Crossover | Capital Initial: 500€ | Objectif: 10% quotidien</p>
+    <div class="optimization-indicator">
+        <i class="fas fa-sync fa-spin"></i> Optimisation continue en cours...
     </div>
-            
-            <div class="grid">
-                <div class="card">
-                    <h3>Configuration du Backtest</h3>
-                    <form id="backtest-form">
-                        <div class="form-group">
-                            <label for="strategy">Stratégie</label>
-                            <select id="strategy" name="strategy" class="form-control">
-                                <option value="">Sélectionner une stratégie</option>
-                                {% for strategy in strategies %}
-                                <option value="{{ strategy.id }}">{{ strategy.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="symbol">Symbole</label>
-                            <select id="symbol" name="symbol" class="form-control">
-                                <option value="">Sélectionner un symbole</option>
-                                {% for symbol in symbols %}
-                                <option value="{{ symbol }}">{{ symbol }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="timeframe">Timeframe</label>
-                            <select id="timeframe" name="timeframe" class="form-control">
-                                <option value="1m">1 minute</option>
-                                <option value="5m">5 minutes</option>
-                                <option value="15m">15 minutes</option>
-                                <option value="1h">1 heure</option>
-                                <option value="4h">4 heures</option>
-                                <option value="1d">1 jour</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="start-date">Date de Début</label>
-                            <input type="date" id="start-date" name="start_date" class="form-control">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="end-date">Date de Fin</label>
-                            <input type="date" id="end-date" name="end_date" class="form-control">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="initial-capital">Capital Initial</label>
-                            <input type="number" id="initial-capital" name="initial_capital" value="500" min="100" step="100" class="form-control">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Paramètres</label>
-                            <div id="strategy-params">
-                                <p class="text-muted">Sélectionnez une stratégie pour voir les paramètres</p>
-                            </div>
-                        </div>
-                        
-                        <button type="submit" class="btn btn-primary">Lancer le Backtest</button>
-                    </form>
-                </div>
-                
-                <div class="card">
-                    <h3>Résultats du Backtest</h3>
-                    <div id="results-loading" style="display: none;">
-                        <div class="loading-spinner"></div>
-                        <p>Exécution du backtest en cours...</p>
-                    </div>
-                    
-                    <div id="results-content" style="display: none;">
-                        <div class="cards">
-                            <div class="card">
-                                <h3>Rendement Total</h3>
-                                <div class="value" id="total-return">0.00%</div>
-                            </div>
-                            <div class="card">
-                                <h3>Ratio de Sharpe</h3>
-                                <div class="value" id="sharpe-ratio">0.00</div>
-                            </div>
-                            <div class="card">
-                                <h3>Drawdown Max</h3>
-                                <div class="value" id="max-drawdown">0.00%</div>
-                            </div>
-                            <div class="card">
-                                <h3>Taux de Réussite</h3>
-                                <div class="value" id="win-rate">0.00%</div>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <canvas id="equityCurve" height="250"></canvas>
-                        </div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-item">
-                                <span class="metric-label">Trades Total</span>
-                                <span class="metric-value" id="total-trades">0</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Facteur de Profit</span>
-                                <span class="metric-value" id="profit-factor">0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Trade Moyen</span>
-                                <span class="metric-value" id="avg-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Gain Moyen</span>
-                                <span class="metric-value" id="avg-win">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Perte Moyenne</span>
-                                <span class="metric-value" id="avg-loss">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Meilleur Trade</span>
-                                <span class="metric-value" id="best-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Pire Trade</span>
-                                <span class="metric-value" id="worst-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Rendement Annualisé</span>
-                                <span class="metric-value" id="annual-return">0.00%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card" id="trades-section" style="display: none;">
-                <h3>Trades</h3>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Prix</th>
-                                <th>Taille</th>
-                                <th>Profit/Perte</th>
-                                <th>Cumulatif</th>
-                            </tr>
-                        </thead>
-                        <tbody id="trades-table-body">
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <div class="card">
-                <h3>Backtests Sauvegardés</h3>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Stratégie</th>
-                                <th>Symbole</th>
-                                <th>Timeframe</th>
-                                <th>Rendement</th>
-                                <th>Sharpe</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for backtest in saved_backtests %}
-                            <tr>
-                                <td>{{ backtest.date }}</td>
-                                <td>{{ backtest.strategy }}</td>
-                                <td>{{ backtest.symbol }}</td>
-                                <td>{{ backtest.timeframe }}</td>
-                                <td>{{ backtest.return }}%</td>
-                                <td>{{ backtest.sharpe }}</td>
-                                <td>
-                                    <button class="btn btn-outline load-btn" data-id="{{ backtest.id }}">Charger</button>
-                                    <button class="btn btn-outline delete-btn" data-id="{{ backtest.id }}">Supprimer</button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
 </div>
 
-<script>
-        document.addEventListener('DOMContentLoaded', function() {
-            let equityChart = null;
-            
-            // Strategy parameter templates
-            const strategyParams = {
-                {% for strategy in strategies %}
-                "{{ strategy.id }}": {{ strategy.params|tojson }},
-                {% endfor %}
-            };
-            
-            // Handle strategy selection
-            document.getElementById('strategy').addEventListener('change', function() {
-                const strategyId = this.value;
-                const paramsContainer = document.getElementById('strategy-params');
-                
-                if (!strategyId) {
-                    paramsContainer.innerHTML = '<p class="text-muted">Sélectionnez une stratégie pour voir les paramètres</p>';
-                    return;
-                }
-                
-                const params = strategyParams[strategyId];
-                if (!params || params.length === 0) {
-                    paramsContainer.innerHTML = '<p class="text-muted">Pas de paramètres pour cette stratégie</p>';
-                    return;
-                }
-                
-                let paramsHtml = '';
-                params.forEach(param => {
-                    paramsHtml += `
-                        <div class="form-group">
-                            <label for="param-${param.name}">${param.label}</label>
-                            <input type="${param.type}" id="param-${param.name}" name="params[${param.name}]" 
-                                value="${param.default}" ${param.min ? 'min="' + param.min + '"' : ''} 
-                                ${param.max ? 'max="' + param.max + '"' : ''} 
-                                ${param.step ? 'step="' + param.step + '"' : ''} 
-                                class="form-control">
-                            <small class="text-muted">${param.description}</small>
-                        </div>
-                    `;
-                });
-                
-                paramsContainer.innerHTML = paramsHtml;
-            });
-            
-            // Handle form submission
-            document.getElementById('backtest-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                const formData = new FormData(this);
-                const data = {};
-                
-                for (const [key, value] of formData.entries()) {
-                    if (key.startsWith('params[')) {
-                        const paramName = key.match(/params\[(.*?)\]/)[1];
-                        if (!data.params) data.params = {};
-                        data.params[paramName] = value;
-                    } else {
-                        data[key] = value;
-                    }
-                }
-                
-                // Show loading
-                document.getElementById('results-loading').style.display = 'block';
-                document.getElementById('results-content').style.display = 'none';
-                document.getElementById('trades-section').style.display = 'none';
-                
-                // Run backtest
-                fetch('/api/backtest/run', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
-                })
-                .then(response => response.json())
-                .then(result => {
-                    // Hide loading
-                    document.getElementById('results-loading').style.display = 'none';
-                    document.getElementById('results-content').style.display = 'block';
-                    document.getElementById('trades-section').style.display = 'block';
-                    
-                    // Update metrics
-                    document.getElementById('total-return').textContent = result.metrics.total_return.toFixed(2) + '%';
-                    document.getElementById('sharpe-ratio').textContent = result.metrics.sharpe.toFixed(2);
-                    document.getElementById('max-drawdown').textContent = result.metrics.max_drawdown.toFixed(2) + '%';
-                    document.getElementById('win-rate').textContent = result.metrics.win_rate.toFixed(2) + '%';
-                    
-                    document.getElementById('total-trades').textContent = result.metrics.total_trades;
-                    document.getElementById('profit-factor').textContent = result.metrics.profit_factor.toFixed(2);
-                    document.getElementById('avg-trade').textContent = '$' + result.metrics.avg_trade.toFixed(2);
-                    document.getElementById('avg-win').textContent = '$' + result.metrics.avg_win.toFixed(2);
-                    document.getElementById('avg-loss').textContent = '$' + result.metrics.avg_loss.toFixed(2);
-                    document.getElementById('best-trade').textContent = '$' + result.metrics.best_trade.toFixed(2);
-                    document.getElementById('worst-trade').textContent = '$' + result.metrics.worst_trade.toFixed(2);
-                    document.getElementById('annual-return').textContent = result.metrics.annual_return.toFixed(2) + '%';
-                    
-                    // Update equity chart
-                    const ctx = document.getElementById('equityCurve').getContext('2d');
-                    
-                    if (equityChart) {
-                        equityChart.destroy();
-                    }
-                    
-                    equityChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: result.equity_curve.dates,
-                            datasets: [{
-                                label: 'Equity',
-                                data: result.equity_curve.values,
-                                borderColor: '#00ff9d',
-                                backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                                borderWidth: 2,
-                                fill: true
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: {
-                                    grid: {
-                                        color: 'rgba(255, 255, 255, 0.1)'
-                                    },
-                                    ticks: {
-                                        color: '#ffffff'
-                                    }
-                                },
-                                y: {
-                                    grid: {
-                                        color: 'rgba(255, 255, 255, 0.1)'
-                                    },
-                                    ticks: {
-                                        color: '#ffffff'
-                                    }
-                                }
-                            },
-                            plugins: {
-                                legend: {
-                                    labels: {
-                                        color: '#ffffff'
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    
-                    // Update trades table
-                    const tradesTableBody = document.getElementById('trades-table-body');
-                    tradesTableBody.innerHTML = '';
-                    
-                    result.trades.forEach(trade => {
-                        const row = document.createElement('tr');
-                        
-                        const dateCell = document.createElement('td');
-                        dateCell.textContent = trade.date;
-                        row.appendChild(dateCell);
-                        
-                        const typeCell = document.createElement('td');
-                        typeCell.textContent = trade.type;
-                        typeCell.className = trade.type === 'BUY' ? 'text-success' : 'text-danger';
-                        row.appendChild(typeCell);
-                        
-                        const priceCell = document.createElement('td');
-                        priceCell.textContent = trade.price.toFixed(2);
-                        row.appendChild(priceCell);
-                        
-                        const sizeCell = document.createElement('td');
-                        sizeCell.textContent = trade.size.toFixed(4);
-                        row.appendChild(sizeCell);
-                        
-                        const plCell = document.createElement('td');
-                        plCell.textContent = '$' + trade.pl.toFixed(2);
-                        plCell.className = trade.pl >= 0 ? 'text-success' : 'text-danger';
-                        row.appendChild(plCell);
-                        
-                        const cumCell = document.createElement('td');
-                        cumCell.textContent = '$' + trade.cumulative.toFixed(2);
-                        row.appendChild(cumCell);
-                        
-                        tradesTableBody.appendChild(row);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('results-loading').style.display = 'none';
-                    alert('Une erreur est survenue lors de l\'exécution du backtest');
-                });
-            });
-            
-            // Handle load backtest button
-            document.querySelectorAll('.load-btn').forEach(button => {
-                button.addEventListener('click', function() {
-                    const backtestId = this.getAttribute('data-id');
-                    
-                    fetch(`/api/backtest/${backtestId}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            // Populate form with backtest data
-                            document.getElementById('strategy').value = data.strategy_id;
-                            document.getElementById('strategy').dispatchEvent(new Event('change'));
-                            
-                            document.getElementById('symbol').value = data.symbol;
-                            document.getElementById('timeframe').value = data.timeframe;
-                            document.getElementById('start-date').value = data.start_date;
-                            document.getElementById('end-date').value = data.end_date;
-                            document.getElementById('initial-capital').value = data.initial_capital;
-                            
-                            // Set parameters
-                            setTimeout(() => {
-                                if (data.params) {
-                                    for (const [key, value] of Object.entries(data.params)) {
-                                        const input = document.querySelector(`[name="params[${key}]"]`);
-                                        if (input) {
-                                            input.value = value;
-                                        }
-                                    }
-                                }
-                            }, 100);
-                            
-                            // Load results
-                            document.getElementById('results-loading').style.display = 'none';
-                            document.getElementById('results-content').style.display = 'block';
-                            document.getElementById('trades-section').style.display = 'block';
-                            
-                            // Update metrics
-                            document.getElementById('total-return').textContent = data.metrics.total_return.toFixed(2) + '%';
-                            document.getElementById('sharpe-ratio').textContent = data.metrics.sharpe.toFixed(2);
-                            document.getElementById('max-drawdown').textContent = data.metrics.max_drawdown.toFixed(2) + '%';
-                            document.getElementById('win-rate').textContent = data.metrics.win_rate.toFixed(2) + '%';
-                            
-                            document.getElementById('total-trades').textContent = data.metrics.total_trades;
-                            document.getElementById('profit-factor').textContent = data.metrics.profit_factor.toFixed(2);
-                            document.getElementById('avg-trade').textContent = '$' + data.metrics.avg_trade.toFixed(2);
-                            document.getElementById('avg-win').textContent = '$' + data.metrics.avg_win.toFixed(2);
-                            document.getElementById('avg-loss').textContent = '$' + data.metrics.avg_loss.toFixed(2);
-                            document.getElementById('best-trade').textContent = '$' + data.metrics.best_trade.toFixed(2);
-                            document.getElementById('worst-trade').textContent = '$' + data.metrics.worst_trade.toFixed(2);
-                            document.getElementById('annual-return').textContent = data.metrics.annual_return.toFixed(2) + '%';
-                            
-                            // Update equity chart
-                            const ctx = document.getElementById('equityCurve').getContext('2d');
-                            
-                            if (equityChart) {
-                                equityChart.destroy();
-                            }
-                            
-                            equityChart = new Chart(ctx, {
-                                type: 'line',
-                                data: {
-                                    labels: data.equity_curve.dates,
-                                    datasets: [{
-                                        label: 'Equity',
-                                        data: data.equity_curve.values,
-                                        borderColor: '#00ff9d',
-                                        backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                                        borderWidth: 2,
-                                        fill: true
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        x: {
-                                            grid: {
-                                                color: 'rgba(255, 255, 255, 0.1)'
-                                            },
-                                            ticks: {
-                                                color: '#ffffff'
-                                            }
-                                        },
-                                        y: {
-                                            grid: {
-                                                color: 'rgba(255, 255, 255, 0.1)'
-                                            },
-                                            ticks: {
-                                                color: '#ffffff'
-                                            }
-                                        }
-                                    },
-                                    plugins: {
-                                        legend: {
-                                            labels: {
-                                                color: '#ffffff'
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                            
-                            // Update trades table
-                            const tradesTableBody = document.getElementById('trades-table-body');
-                            tradesTableBody.innerHTML = '';
-                            
-                            data.trades.forEach(trade => {
-                                const row = document.createElement('tr');
-                                
-                                const dateCell = document.createElement('td');
-                                dateCell.textContent = trade.date;
-                                row.appendChild(dateCell);
-                                
-                                const typeCell = document.createElement('td');
-                                typeCell.textContent = trade.type;
-                                typeCell.className = trade.type === 'BUY' ? 'text-success' : 'text-danger';
-                                row.appendChild(typeCell);
-                                
-                                const priceCell = document.createElement('td');
-                                priceCell.textContent = trade.price.toFixed(2);
-                                row.appendChild(priceCell);
-                                
-                                const sizeCell = document.createElement('td');
-                                sizeCell.textContent = trade.size.toFixed(4);
-                                row.appendChild(sizeCell);
-                                
-                                const plCell = document.createElement('td');
-                                plCell.textContent = '$' + trade.pl.toFixed(2);
-                                plCell.className = trade.pl >= 0 ? 'text-success' : 'text-danger';
-                                row.appendChild(plCell);
-                                
-                                const cumCell = document.createElement('td');
-                                cumCell.textContent = '$' + trade.cumulative.toFixed(2);
-                                row.appendChild(cumCell);
-                                
-                                tradesTableBody.appendChild(row);
-                            });
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            alert('Une erreur est survenue lors du chargement du backtest');
-                        });
-                });
-            });
-            
-            // Handle delete backtest button
-            document.querySelectorAll('.delete-btn').forEach(button => {
-                button.addEventListener('click', function() {
-                    if (!confirm('Êtes-vous sûr de vouloir supprimer ce backtest?')) {
-                        return;
-                    }
-                    
-                    const backtestId = this.getAttribute('data-id');
-                    
-                    fetch(`/api/backtest/${backtestId}`, {
-                        method: 'DELETE'
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            // Remove row from table
-                            this.closest('tr').remove();
-                        } else {
-                            alert('Erreur lors de la suppression du backtest: ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('Une erreur est survenue lors de la suppression du backtest');
-                    });
-                });
-            });
-        });
+<div class="dashboard-grid">
+    <div class="metric-card">
+        <span class="metric-title">Rendement Total</span>
+        <span class="metric-value" id="totalReturn">Calcul en cours...</span>
+        <span class="metric-change positive" id="totalReturnChange">+0%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Rendement Quotidien</span>
+        <span class="metric-value" id="dailyReturn">Calcul en cours...</span>
+        <span class="metric-change" id="dailyReturnChange">+0%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Ratio de Sharpe</span>
+        <span class="metric-value" id="sharpeRatio">Calcul en cours...</span>
+        <span class="metric-change" id="sharpeChange">+0%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Drawdown Max</span>
+        <span class="metric-value" id="maxDrawdown">Calcul en cours...</span>
+        <span class="metric-change negative" id="drawdownChange">-0%</span>
+    </div>
+</div>
 
-function runNewBacktest() {
-    document.getElementById('backtest-form').scrollIntoView({ behavior: 'smooth' });
+<div class="optimization-status">
+    <h4><i class="fas fa-cogs"></i> Statut d'Optimisation Continue</h4>
+    <div class="status-grid">
+        <div class="status-item">
+            <span class="status-label">Tests Effectués:</span>
+            <span class="status-value" id="testsCount">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Améliorations:</span>
+            <span class="status-value" id="improvements">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Meilleur Résultat:</span>
+            <span class="status-value" id="bestResult">En attente...</span>
+        </div>
+    </div>
+</div>
+
+<div class="backtest-results">
+    <h4><i class="fas fa-chart-line"></i> Résultats du Backtest</h4>
+    <div class="results-container" id="resultsContainer">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Exécution du backtest automatisé en cours...</p>
+        </div>
+    </div>
+</div>
+
+<style>
+.auto-config-display {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.1) 0%, rgba(0, 255, 157, 0.05) 100%);
+    border: 1px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    text-align: center;
+    color: var(--primary-color);
+}
+
+.optimization-indicator {
+    margin-top: 10px;
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.optimization-status {
+    background: rgba(0, 255, 157, 0.05);
+    border: 1px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: rgba(0, 255, 157, 0.1);
+    border-radius: 8px;
+}
+
+.status-label {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+.status-value {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+.backtest-results {
+    background: var(--card-bg-color);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.results-container {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: var(--primary-color);
+}
+
+.loading-spinner i {
+    font-size: 24px;
+    margin-bottom: 12px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    runAutomaticBacktest();
+    startOptimizationMonitoring();
+});
+
+function runAutomaticBacktest() {
+    fetch('/api/backtest/auto-run', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            strategy: 'moving_average',
+            initial_capital: 500,
+            target_daily_return: 0.10
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateBacktestResults(data.results);
+        } else {
+            showError(data.error || 'Erreur lors du backtest');
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        showError('Erreur de connexion au serveur');
+    });
+}
+
+function updateBacktestResults(results) {
+    document.getElementById('totalReturn').textContent = results.total_return + '%';
+    document.getElementById('dailyReturn').textContent = results.daily_return + '%';
+    document.getElementById('sharpeRatio').textContent = results.sharpe_ratio;
+    document.getElementById('maxDrawdown').textContent = results.max_drawdown + '%';
+    
+    // Update change indicators
+    const totalReturnChange = document.getElementById('totalReturnChange');
+    totalReturnChange.textContent = '+' + results.total_return + '%';
+    totalReturnChange.className = 'metric-change ' + (results.total_return > 0 ? 'positive' : 'negative');
+    
+    const dailyReturnChange = document.getElementById('dailyReturnChange');
+    dailyReturnChange.textContent = '+' + results.daily_return + '%';
+    dailyReturnChange.className = 'metric-change ' + (results.daily_return > 10 ? 'positive' : 'neutral');
+}
+
+function startOptimizationMonitoring() {
+    setInterval(() => {
+        fetch('/api/backtest/optimization-status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('testsCount').textContent = data.tests_performed || 0;
+                document.getElementById('improvements').textContent = data.improvements || 0;
+                document.getElementById('bestResult').textContent = data.best_result || 'En cours...';
+            }
+        })
+        .catch(error => console.error('Erreur monitoring:', error));
+    }, 5000);
+}
+
+function runBacktest() {
+    runAutomaticBacktest();
+}
+
+function stopOptimization() {
+    fetch('/api/backtest/stop-optimization', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Optimisation arrêtée');
+        }
+    })
+    .catch(error => console.error('Erreur:', error));
+}
+
+function showError(message) {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = `
+        <div class="error-message">
+            <i class="fas fa-exclamation-triangle"></i>
+            <p>${message}</p>
+        </div>
+    `;
 }
 </script>
 {% endblock %}
