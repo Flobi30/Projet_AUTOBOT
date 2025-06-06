@@ -73,16 +73,22 @@ body {
 .logo {
     display: flex;
     align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 20px;
 }
 
-.logo img {
-    height: 50px;
-    margin-right: 15px;
+.logo-icon {
+    width: 48px;
+    height: 48px;
+    filter: drop-shadow(0 0 10px rgba(0, 255, 157, 0.5)) brightness(1.2) contrast(1.1);
 }
 
-.logo h1 {
+.logo-text {
     font-size: 28px;
+    font-weight: 700;
     color: var(--primary-color);
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
     margin: 0;
 }
 
@@ -359,6 +365,42 @@ body {
     display: flex;
     gap: 12px;
 }
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 24px;
+}
+
+.page-title {
+    color: var(--primary-color);
+    font-size: 28px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+    margin: 0;
+}
+
+.page-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.logo .neon-text {
+    font-size: 28px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+}
+
+.logo.logo-icon {
+    width: 48px;
+    height: 48px;
+    filter: drop-shadow(0 0 10px rgba(0, 255, 157, 0.5)) brightness(1.2) contrast(1.1);
+}
+
+
 
 /* Enhanced Grid Layout */
 .grid {
@@ -779,8 +821,10 @@ body {
 /* Main Content Area - Full Width Responsive */
 .main-content {
     flex: 1;
-    padding: 24px;
+    padding: 0 24px 24px 24px;
     min-height: 100vh;
+    max-width: 100%;
+    margin: 0 auto;
     background: linear-gradient(135deg, var(--bg-color) 0%, rgba(18, 18, 18, 0.95) 100%);
     transition: all 0.3s ease;
     overflow-y: auto;
@@ -947,8 +991,8 @@ body {
     
     .main-content {
         width: 100vw;
-        margin-left: 0;
-        padding: 16px;
+        margin: 0 auto;
+        padding: 0 16px 16px 16px;
     }
     
     .sidebar {
