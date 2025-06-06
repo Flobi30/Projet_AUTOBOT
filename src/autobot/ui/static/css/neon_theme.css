@@ -81,7 +81,9 @@ body {
 .logo-icon {
     width: 48px;
     height: 48px;
+    object-fit: contain;
     filter: drop-shadow(0 0 10px rgba(0, 255, 157, 0.5)) brightness(1.2) contrast(1.1);
+    margin-right: 12px;
 }
 
 .logo-text {
@@ -394,11 +396,7 @@ body {
     text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
 }
 
-.logo.logo-icon {
-    width: 48px;
-    height: 48px;
-    filter: drop-shadow(0 0 10px rgba(0, 255, 157, 0.5)) brightness(1.2) contrast(1.1);
-}
+
 
 
 
@@ -1417,4 +1415,79 @@ textarea.form-control:focus {
     padding: 0 20px 8px 20px;
     margin-bottom: 8px;
     border-bottom: 1px solid rgba(0, 255, 157, 0.1);
+}
+
+/* Login Page Styles */
+.login-container {
+    background: var(--card-bg-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 0 30px rgba(0, 255, 157, 0.3);
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    margin-top: 10vh;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.login-header h1 {
+    font-size: 32px;
+    margin: 0 0 10px 0;
+}
+
+.login-header p {
+    color: #888;
+    margin: 0;
+    font-size: 16px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    color: var(--text-color);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.form-control {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-color);
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px rgba(0, 255, 157, 0.3);
+}
+
+.error-message {
+    color: #ff4444;
+    text-align: center;
+    margin-top: 15px;
+    padding: 10px;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid #ff4444;
+    border-radius: 6px;
+}
+
+@media (max-width: 768px) {
+    .login-container {
+        margin: 5vh auto;
+        padding: 30px;
+        max-width: 350px;
+    }
 }

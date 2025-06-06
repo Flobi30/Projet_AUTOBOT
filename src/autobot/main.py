@@ -13,6 +13,7 @@ from autobot.ui.backtest_routes import router as backtest_router
 from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
 from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
+from autobot.ui.routes_auth import router as ui_auth_router
 # from .api.ghosting_routes import router as ghosting_router
 from .autobot_security.auth.user_manager import UserManager
 
@@ -43,6 +44,7 @@ app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
+app.include_router(ui_auth_router)
 # app.include_router(ghosting_router)
 
 # from .api.backtest_routes import router as api_backtest_router
@@ -58,28 +60,37 @@ async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login", tags=["auth"])
-async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
+async def login(request: Request, username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
     """
     Login endpoint with proper authentication.
     """
-    user = user_manager.authenticate_user(username, password)
-    
-    if user and user_manager.verify_license(user["id"], license_key):
-        response = RedirectResponse(url="/dashboard", status_code=303)
+    try:
+        user = user_manager.authenticate_user(username, password)
         
-        token = user_manager.create_token(user["id"])
-        
-        response.set_cookie(
-            key="access_token",
-            value=token,
-            max_age=86400,
-            samesite="lax",
-            httponly=True
-        )
-        
-        return response
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        if user and user_manager.verify_license(user["id"], license_key):
+            response = RedirectResponse(url="/dashboard", status_code=303)
+            
+            token = user_manager.create_token(user["id"])
+            
+            response.set_cookie(
+                key="access_token",
+                value=token,
+                max_age=86400,
+                samesite="lax",
+                httponly=True
+            )
+            
+            return response
+        else:
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Invalid credentials. Please check your username, password, and license key."
+            })
+    except Exception as e:
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Authentication system error. Please try again."
+        })
 
 @app.get("/dashboard", tags=["ui"])
 async def dashboard_page(request: Request):
