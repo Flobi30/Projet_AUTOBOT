@@ -143,6 +143,10 @@ async def backtest_page(request: Request):
         {
             "request": request,
             "active_page": "backtest",
+            "user": {
+                "username": "AUTOBOT",
+                "role": "admin"
+            },
             "username": "AUTOBOT",
             "user_role": "admin",
             "user_role_display": "Administrateur",

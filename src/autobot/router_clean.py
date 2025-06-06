@@ -187,9 +187,9 @@ def plug_will():
 def plug_qwen_chat(): 
     return get_qwen_chat()
 
-@router.get('/backtest')
-def backtest(symbol: str):
-    return run_backtest(symbol)
+# @router.get('/backtest')
+# def backtest(symbol: str):
+#     return run_backtest(symbol)
 
 @router.post('/backtest/run')
 def run_backtest_strategy(request: BacktestRequest):

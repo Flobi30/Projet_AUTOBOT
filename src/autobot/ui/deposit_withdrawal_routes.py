@@ -178,7 +178,8 @@ class WithdrawalAnalyzer:
     
     def get_withdrawal_recommendations(self) -> Dict[str, Any]:
         """Get recommendations for optimal withdrawal."""
-        optimal_amount = self.total_balance * 0.2
+        system_metrics = self.get_system_metrics(user_id="AUTOBOT")
+        optimal_amount = system_metrics["total_balance"] * 0.2
         
         return {
             "optimal_amount": optimal_amount,
@@ -286,6 +287,7 @@ async def deposit_withdrawal_page(request: Request):
         {
             "request": request,
             "active_page": "deposit_withdrawal",
+            "user": {"username": "AUTOBOT", "role": "admin"},
             "username": "AUTOBOT",
             "user_role": "admin",
             "user_role_display": "Administrateur",

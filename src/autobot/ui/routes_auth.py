@@ -132,8 +132,7 @@ async def parametres(request: Request, user: dict = Depends(get_current_user)):
         "user_role_display": "Administrateur",
         "binance_api_key": env_vars.get("BINANCE_API_KEY", ""),
         "binance_api_secret": env_vars.get("BINANCE_API_SECRET", ""),
-        "openai_api_key": env_vars.get("OPENAI_API_KEY", ""),
-        "superagi_api_key": env_vars.get("SUPERAGI_API_KEY", ""),
+
         "stripe_api_key": env_vars.get("STRIPE_API_KEY", ""),
         "alpha_vantage_api_key": env_vars.get("ALPHA_VANTAGE_API_KEY", ""),
         "twelve_data_api_key": env_vars.get("TWELVE_DATA_API_KEY", ""),
