@@ -13,7 +13,6 @@ from autobot.ui.backtest_routes import router as backtest_router
 from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
 from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
-from autobot.ui.routes_auth import router as ui_auth_router
 # from .api.ghosting_routes import router as ghosting_router
 from .autobot_security.auth.user_manager import UserManager
 
@@ -44,7 +43,6 @@ app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
-app.include_router(ui_auth_router)
 # app.include_router(ghosting_router)
 
 # from .api.backtest_routes import router as api_backtest_router
@@ -77,7 +75,9 @@ async def login(request: Request, username: str = Form(...), password: str = For
                 value=token,
                 max_age=86400,
                 samesite="lax",
-                httponly=True
+                httponly=True,
+                path="/",
+                secure=False
             )
             
             return response

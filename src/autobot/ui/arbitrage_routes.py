@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from ..autobot_security.auth.jwt_handler import get_current_user
 
 
 
@@ -23,6 +24,8 @@ router = APIRouter()
 
 templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "templates")
 templates = Jinja2Templates(directory=templates_dir)
+
+
 
 class ArbitrageSettings(BaseModel):
     min_profit_threshold: float
@@ -79,7 +82,7 @@ exchanges = [
 ]
 
 @router.get("/arbitrage", response_class=HTMLResponse)
-async def arbitrage_page(request: Request):
+async def arbitrage_page(request: Request, user: dict = Depends(get_current_user)):
     """Render the arbitrage page."""
     profit_24h = sum(execution.profit for execution in recent_executions if execution.timestamp > time.time() - 86400)
     
