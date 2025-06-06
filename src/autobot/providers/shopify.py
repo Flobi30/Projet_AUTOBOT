@@ -7,7 +7,7 @@ else:
     KEY = os.getenv("SHOPIFY_API_KEY", "")
     SHOP = os.getenv("SHOPIFY_SHOP_NAME", "")
     
-    def get_orders() -> dict:
+    def get_orders(param=None) -> dict:
         if not KEY or not SHOP:
             return {"error": "Shopify API key or shop name not configured"}
         r = requests.get(f"https://{SHOP}.myshopify.com/admin/api/2025-01/orders.json", headers={

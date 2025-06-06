@@ -244,6 +244,16 @@ class CCXTProvider:
         """
         return ccxt.exchanges
 
+def get_exchanges():
+    """Get list of available CCXT exchanges"""
+    try:
+        import ccxt
+        return ccxt.exchanges
+    except ImportError:
+        return {"error": "CCXT not installed"}
+    except Exception as e:
+        return {"error": f"CCXT error: {str(e)}"}
+
 def get_ccxt_provider(exchange_id: str = 'binance', **kwargs) -> CCXTProvider:
     """
     Get a CCXT provider instance.
