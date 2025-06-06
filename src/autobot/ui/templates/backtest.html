@@ -1,194 +1,195 @@
 {% extends "base.html" %}
 
 {% block title %}Backtest - AUTOBOT{% endblock %}
+{% block header_title %}Backtest Automatisé{% endblock %}
+
+{% block header_actions %}
+<div class="auto-status">
+    <i class="fas fa-robot"></i> Mode Automatique Activé
+</div>
+{% endblock %}
 
 {% block content %}
-<div class="main-content">
-    <div class="page-header">
-        <h1 class="page-title">Backtest Automatisé</h1>
-        <div class="page-actions">
-            <div class="auto-status">
-                <i class="fas fa-robot"></i> Mode Automatique Activé
+<div class="grid">
+    <div class="card">
+        <div class="card-header">
+            <h3>Performance Automatisée - Objectif 10% Quotidien</h3>
+        </div>
+        <div class="card-body">
+            <div class="auto-status-info">
+                <div class="status-indicator">
+                    <i class="fas fa-robot"></i>
+                    <span>Exécution automatique en cours...</span>
+                </div>
+                <div class="auto-config-display" id="config-display">
+                    <strong>Configuration Optimisée:</strong> BTC/USD, 1h, MA Crossover (8/21), Capital: 500€
+                </div>
+                <div class="optimization-status" id="optimization-status">
+                    <i class="fas fa-sync-alt fa-spin"></i> Optimisation continue active...
+                </div>
+            </div>
+            <div class="performance-target">
+                <span class="target-label">Objectif:</span>
+                <span class="target-value">10% de rendement quotidien</span>
+            </div>
+            
+            <div id="auto-results-loading" style="display: block;">
+                <div class="loading-spinner"></div>
+                <p>Optimisation automatique en cours...</p>
             </div>
         </div>
     </div>
-            
-            <div class="grid">
-                <div class="card">
-                    <h3>Performance Automatisée - Objectif 10% Quotidien</h3>
-                    <div class="auto-backtest-controls">
-                        <div class="auto-status-info">
-                            <div class="status-indicator">
-                                <i class="fas fa-robot"></i>
-                                <span>Exécution automatique en cours...</span>
-                            </div>
-                            <div class="auto-config-display" id="config-display">
-                                <strong>Configuration Optimisée:</strong> BTC/USD, 1h, MA Crossover (8/21), Capital: 500€
-                            </div>
-                            <div class="optimization-status" id="optimization-status">
-                                <i class="fas fa-sync-alt fa-spin"></i> Optimisation continue active...
-                            </div>
-                        </div>
-                        <div class="performance-target">
-                            <span class="target-label">Objectif:</span>
-                            <span class="target-value">10% de rendement quotidien</span>
-                        </div>
-                    </div>
-                    
-                    <div id="auto-results-loading" style="display: block;">
-                        <div class="loading-spinner"></div>
-                        <p>Optimisation automatique en cours...</p>
-                    </div>
-                    
-                    <style>
-                        .loading-spinner {
-                            border: 4px solid rgba(0, 255, 157, 0.3);
-                            border-radius: 50%;
-                            border-top: 4px solid #00ff9d;
-                            width: 40px;
-                            height: 40px;
-                            animation: spin 1s linear infinite;
-                            margin: 0 auto 10px;
-                        }
-                        
-                        @keyframes spin {
-                            0% { transform: rotate(0deg); }
-                            100% { transform: rotate(360deg); }
-                        }
-                        
-                        .performance-card {
-                            position: relative;
-                        }
-                        
-                        .target-indicator {
-                            position: absolute;
-                            top: 10px;
-                            right: 15px;
-                            font-size: 20px;
-                            font-weight: bold;
-                        }
-                        
-                        .auto-status {
-                            color: #00ff9d;
-                            font-weight: bold;
-                            display: flex;
-                            align-items: center;
-                            gap: 8px;
-                        }
-                        
-                        .auto-status-info {
-                            background: rgba(0, 255, 157, 0.1);
-                            border: 1px solid #00ff9d;
-                            border-radius: 8px;
-                            padding: 15px;
-                            margin-bottom: 15px;
-                        }
-                        
-                        .status-indicator {
-                            display: flex;
-                            align-items: center;
-                            gap: 10px;
-                            color: #00ff9d;
-                            font-weight: bold;
-                            margin-bottom: 10px;
-                        }
-                        
-                        .auto-config-display {
-                            color: #ffffff;
-                            font-size: 14px;
-                        }
-                        
-                        .auto-config-display strong {
-                            color: #00ff9d;
-                        }
-                        
-                        .optimization-status {
-                            color: #00ff9d;
-                            font-size: 12px;
-                            margin-top: 8px;
-                            display: flex;
-                            align-items: center;
-                            gap: 8px;
-                        }
-                        
-                        .optimization-status i {
-                            animation: spin 2s linear infinite;
-                        }
-                    </style>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3>Résultats de Performance</h3>
+        </div>
+        <div class="card-body">
+            <div class="metric-cards">
+                <div class="metric-card">
+                    <span class="metric-title">Rendement Total</span>
+                    <span class="metric-value" id="total-return">En attente...</span>
+                    <span class="metric-change" id="total-return-indicator"></span>
                 </div>
-                
-                <div class="card">
-                    <h3>Résultats de Performance</h3>
-                    <div id="results-content">
-                        <div class="cards">
-                            <div class="card performance-card">
-                                <h3>Rendement Total</h3>
-                                <div class="value" id="total-return">En attente...</div>
-                                <div class="target-indicator" id="total-return-indicator"></div>
-                            </div>
-                            <div class="card performance-card">
-                                <h3>Rendement Quotidien Moyen</h3>
-                                <div class="value" id="daily-return">En attente...</div>
-                                <div class="target-indicator" id="daily-return-indicator"></div>
-                            </div>
-                            <div class="card performance-card">
-                                <h3>Ratio de Sharpe</h3>
-                                <div class="value" id="sharpe-ratio">En attente...</div>
-                                <div class="target-indicator" id="sharpe-indicator"></div>
-                            </div>
-                            <div class="card performance-card">
-                                <h3>Drawdown Max</h3>
-                                <div class="value" id="max-drawdown">En attente...</div>
-                                <div class="target-indicator" id="drawdown-indicator"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <canvas id="equityCurve" height="250"></canvas>
-                        </div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-item">
-                                <span class="metric-label">Trades Total</span>
-                                <span class="metric-value" id="total-trades">0</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Facteur de Profit</span>
-                                <span class="metric-value" id="profit-factor">0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Trade Moyen</span>
-                                <span class="metric-value" id="avg-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Gain Moyen</span>
-                                <span class="metric-value" id="avg-win">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Perte Moyenne</span>
-                                <span class="metric-value" id="avg-loss">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Meilleur Trade</span>
-                                <span class="metric-value" id="best-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Pire Trade</span>
-                                <span class="metric-value" id="worst-trade">$0.00</span>
-                            </div>
-                            <div class="metric-item">
-                                <span class="metric-label">Rendement Annualisé</span>
-                                <span class="metric-value" id="annual-return">0.00%</span>
-                            </div>
-                        </div>
-                    </div>
+                <div class="metric-card">
+                    <span class="metric-title">Rendement Quotidien</span>
+                    <span class="metric-value" id="daily-return">En attente...</span>
+                    <span class="metric-change" id="daily-return-indicator"></span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Ratio de Sharpe</span>
+                    <span class="metric-value" id="sharpe-ratio">En attente...</span>
+                    <span class="metric-change" id="sharpe-indicator"></span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Drawdown Max</span>
+                    <span class="metric-value" id="max-drawdown">En attente...</span>
+                    <span class="metric-change" id="drawdown-indicator"></span>
                 </div>
             </div>
             
-
+            <div class="chart-container">
+                <canvas id="equityCurve" height="250"></canvas>
+            </div>
             
-
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-label">Trades Total</span>
+                    <span class="metric-value" id="total-trades">0</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Facteur de Profit</span>
+                    <span class="metric-value" id="profit-factor">0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Trade Moyen</span>
+                    <span class="metric-value" id="avg-trade">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Gain Moyen</span>
+                    <span class="metric-value" id="avg-win">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Perte Moyenne</span>
+                    <span class="metric-value" id="avg-loss">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Meilleur Trade</span>
+                    <span class="metric-value" id="best-trade">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Pire Trade</span>
+                    <span class="metric-value" id="worst-trade">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Rendement Annualisé</span>
+                    <span class="metric-value" id="annual-return">0.00%</span>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<style>
+.loading-spinner {
+    border: 4px solid rgba(0, 255, 157, 0.3);
+    border-radius: 50%;
+    border-top: 4px solid var(--primary-color);
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.auto-status {
+    color: var(--primary-color);
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.auto-status-info {
+    background: rgba(0, 255, 157, 0.1);
+    border: 1px solid var(--primary-color);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--primary-color);
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.auto-config-display {
+    color: var(--text-color);
+    font-size: 14px;
+}
+
+.auto-config-display strong {
+    color: var(--primary-color);
+}
+
+.optimization-status {
+    color: var(--primary-color);
+    font-size: 12px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.optimization-status i {
+    animation: spin 2s linear infinite;
+}
+
+.performance-target {
+    text-align: center;
+    padding: 10px;
+    background: rgba(0, 255, 157, 0.05);
+    border-radius: 6px;
+}
+
+.target-label {
+    color: var(--text-color);
+    margin-right: 8px;
+}
+
+.target-value {
+    color: var(--primary-color);
+    font-weight: bold;
+}
+</style>
 
 <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -351,9 +352,7 @@
             function updateIndicator(elementId, isGood) {
                 const indicator = document.getElementById(elementId);
                 indicator.innerHTML = isGood ? '✓' : '⚠';
-                indicator.style.color = isGood ? '#00ff9d' : '#ffc107';
-                indicator.style.fontSize = '20px';
-                indicator.style.fontWeight = 'bold';
+                indicator.className = isGood ? 'metric-change positive' : 'metric-change negative';
             }
             
             function updateOptimizationStatus() {

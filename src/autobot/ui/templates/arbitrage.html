@@ -2,10 +2,9 @@
 
 {% block title %}Arbitrage - AUTOBOT{% endblock %}
 
-{% block content %}
-<div class="main-content">
-    <div class="page-header">
-        <h1 class="page-title">Arbitrage</h1>
+{% block header_title %}Arbitrage{% endblock %}
+
+{% block header_actions %}
         <div class="page-actions">
             <button class="btn btn-primary" onclick="scanOpportunities()">
                 <i class="fas fa-search"></i> Scanner
@@ -14,7 +13,10 @@
                 <i class="fas fa-cog"></i> Paramètres
             </button>
         </div>
-    </div>
+{% endblock %}
+
+{% block content %}
+<div class="main-content">
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-icon">
