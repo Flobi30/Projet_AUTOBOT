@@ -138,7 +138,7 @@ async def get_parametres(request: Request, user: dict = Depends(get_current_user
     """
     Page de paramètres.
     """
-    env_file_path = "/home/ubuntu/Projet_AUTOBOT/.env"
+    env_file_path = "/app/.env"
     env_vars = {}
     
     if os.path.exists(env_file_path):
@@ -147,6 +147,9 @@ async def get_parametres(request: Request, user: dict = Depends(get_current_user
                 if '=' in line and not line.strip().startswith('#'):
                     key, value = line.strip().split('=', 1)
                     env_vars[key] = value
+        
+        print(f"DEBUG: Read {len(env_vars)} environment variables from {env_file_path}")
+        print(f"DEBUG: Available variables: {list(env_vars.keys())}")
     
     return templates.TemplateResponse("parametres.html", {
         "request": request,
@@ -154,21 +157,20 @@ async def get_parametres(request: Request, user: dict = Depends(get_current_user
         "username": user.get("username", "AUTOBOT"),
         "user_role": user.get("role", "admin"),
         "user_role_display": "Administrateur",
-        "binance_api_key": env_vars.get("BINANCE_API_KEY", ""),
-        "binance_api_secret": env_vars.get("BINANCE_API_SECRET", ""),
-
-        "stripe_api_key": env_vars.get("STRIPE_API_KEY", ""),
-        "alpha_vantage_api_key": env_vars.get("ALPHA_VANTAGE_API_KEY", ""),
+        "binance_api_key": env_vars.get("BINANCE_KEY", ""),
+        "binance_api_secret": env_vars.get("BINANCE_SECRET", ""),
+        "stripe_api_key": env_vars.get("STRIPE_KEY", ""),
+        "alpha_vantage_api_key": env_vars.get("ALPHA_KEY", ""),
         "twelve_data_api_key": env_vars.get("TWELVE_DATA_API_KEY", ""),
-        "fred_api_key": env_vars.get("FRED_API_KEY", ""),
+        "fred_api_key": env_vars.get("FRED_KEY", ""),
         "newsapi_api_key": env_vars.get("NEWSAPI_KEY", ""),
-        "shopify_api_key": env_vars.get("SHOPIFY_API_KEY", ""),
-        "shopify_api_secret": env_vars.get("SHOPIFY_API_SECRET", ""),
+        "shopify_api_key": env_vars.get("SHOPIFY_KEY", ""),
+        "shopify_api_secret": env_vars.get("SHOPIFY_SECRET", ""),
         "shopify_shop_name": env_vars.get("SHOPIFY_SHOP_NAME", ""),
-        "coinbase_api_key": env_vars.get("COINBASE_API_KEY", ""),
-        "coinbase_api_secret": env_vars.get("COINBASE_API_SECRET", ""),
-        "kraken_api_key": env_vars.get("KRAKEN_API_KEY", ""),
-        "kraken_api_secret": env_vars.get("KRAKEN_API_SECRET", "")
+        "coinbase_api_key": env_vars.get("COINBASE_KEY", ""),
+        "coinbase_api_secret": env_vars.get("COINBASE_SECRET", ""),
+        "kraken_api_key": env_vars.get("KRAKEN_KEY", ""),
+        "kraken_api_secret": env_vars.get("KRAKEN_SECRET", "")
     })
 
 @router.get("/arbitrage", response_class=HTMLResponse)
@@ -265,21 +267,24 @@ async def save_settings(request: Request):
                         key, value = line.strip().split('=', 1)
                         env_vars[key] = value
         
+        print(f"DEBUG: Loading existing env vars from {env_file_path}")
+        print(f"DEBUG: Found {len(env_vars)} existing variables: {list(env_vars.keys())}")
+        
         api_key_mapping = {
-            "binance-api-key": "BINANCE_API_KEY",
-            "binance-api-secret": "BINANCE_API_SECRET",
-
-            "stripe-api-key": "STRIPE_API_KEY",
-            "alpha-vantage-api-key": "ALPHA_VANTAGE_API_KEY",
+            "binance-api-key": "BINANCE_KEY",
+            "binance-api-secret": "BINANCE_SECRET",
+            "stripe-api-key": "STRIPE_KEY",
+            "stripe-api-secret": "STRIPE_SECRET",
+            "alpha-vantage-api-key": "ALPHA_KEY",
             "twelve-data-api-key": "TWELVE_DATA_API_KEY",
-            "fred-api-key": "FRED_API_KEY",
+            "fred-api-key": "FRED_KEY",
             "newsapi-api-key": "NEWSAPI_KEY",
-            "shopify-api-key": "SHOPIFY_API_KEY",
-            "shopify-api-secret": "SHOPIFY_API_SECRET",
-            "coinbase-api-key": "COINBASE_API_KEY",
-            "coinbase-api-secret": "COINBASE_API_SECRET",
-            "kraken-api-key": "KRAKEN_API_KEY",
-            "kraken-api-secret": "KRAKEN_API_SECRET",
+            "shopify-api-key": "SHOPIFY_KEY",
+            "shopify-api-secret": "SHOPIFY_SECRET",
+            "coinbase-api-key": "COINBASE_KEY",
+            "coinbase-api-secret": "COINBASE_SECRET",
+            "kraken-api-key": "KRAKEN_KEY",
+            "kraken-api-secret": "KRAKEN_SECRET",
             "shopify-shop-name": "SHOPIFY_SHOP_NAME"
         }
         
@@ -291,7 +296,15 @@ async def save_settings(request: Request):
             for key, value in env_vars.items():
                 f.write(f"{key}={value}\n")
         
+        print(f"DEBUG: Successfully wrote {len(env_vars)} environment variables to {env_file_path}")
+        print(f"DEBUG: Written variables: {list(env_vars.keys())}")
+        
+        print(f"DEBUG: Settings saved successfully: {list(api_settings.keys())}")
+        print(f"DEBUG: API settings received: {api_settings}")
+        print(f"DEBUG: Environment variables written: {env_vars}")
         logger.info(f"Settings saved successfully: {list(api_settings.keys())}")
+        logger.info(f"API settings received: {api_settings}")
+        logger.info(f"Environment variables written: {env_vars}")
         
         return JSONResponse(
             status_code=200,

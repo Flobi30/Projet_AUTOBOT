@@ -143,7 +143,7 @@
                 <div class="form-group">
                     <label for="alphavantage-api-key">Alpha Vantage API Key</label>
                     <div class="input-group">
-                        <input type="password" id="alphavantage-api-key" class="form-control" value="{{ alphavantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                        <input type="password" id="alphavantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
                         <div class="input-group-append">
                             <button class="btn btn-outline toggle-password" type="button" data-target="alphavantage-api-key">
                                 <i class="fas fa-eye"></i>
@@ -273,21 +273,21 @@ document.getElementById('api-settings-form').addEventListener('submit', function
     
     // Collect all API keys
     const apiKeys = {
-        binance_api_key: document.getElementById('binance-api-key').value,
-        binance_api_secret: document.getElementById('binance-api-secret').value,
-        coinbase_api_key: document.getElementById('coinbase-api-key').value,
-        coinbase_api_secret: document.getElementById('coinbase-api-secret').value,
-        kraken_api_key: document.getElementById('kraken-api-key').value,
-        kraken_api_secret: document.getElementById('kraken-api-secret').value,
-        stripe_api_key: document.getElementById('stripe-api-key').value,
-        stripe_api_secret: document.getElementById('stripe-api-secret').value,
-        alphavantage_api_key: document.getElementById('alphavantage-api-key').value,
-        newsapi_api_key: document.getElementById('newsapi-api-key').value,
-        twelve_data_api_key: document.getElementById('twelve-data-api-key').value,
-        fred_api_key: document.getElementById('fred-api-key').value,
-        shopify_api_key: document.getElementById('shopify-api-key').value,
-        shopify_api_secret: document.getElementById('shopify-api-secret').value,
-        shopify_shop_name: document.getElementById('shopify-shop-name').value
+        "binance-api-key": document.getElementById('binance-api-key').value,
+        "binance-api-secret": document.getElementById('binance-api-secret').value,
+        "coinbase-api-key": document.getElementById('coinbase-api-key').value,
+        "coinbase-api-secret": document.getElementById('coinbase-api-secret').value,
+        "kraken-api-key": document.getElementById('kraken-api-key').value,
+        "kraken-api-secret": document.getElementById('kraken-api-secret').value,
+        "stripe-api-key": document.getElementById('stripe-api-key').value,
+        "stripe-api-secret": document.getElementById('stripe-api-secret').value,
+        "alpha-vantage-api-key": document.getElementById('alphavantage-api-key').value,
+        "newsapi-api-key": document.getElementById('newsapi-api-key').value,
+        "twelve-data-api-key": document.getElementById('twelve-data-api-key').value,
+        "fred-api-key": document.getElementById('fred-api-key').value,
+        "shopify-api-key": document.getElementById('shopify-api-key').value,
+        "shopify-api-secret": document.getElementById('shopify-api-secret').value,
+        "shopify-shop-name": document.getElementById('shopify-shop-name').value
     };
     
     // Save API keys
@@ -296,7 +296,7 @@ document.getElementById('api-settings-form').addEventListener('submit', function
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(apiKeys)
+        body: JSON.stringify({ api: apiKeys })
     })
     .then(response => response.json())
     .then(data => {
