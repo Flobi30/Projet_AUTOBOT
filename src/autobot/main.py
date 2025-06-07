@@ -65,9 +65,13 @@ app.include_router(chat_router)
 app.include_router(ui_router)
 # app.include_router(ghosting_router)
 
-from autobot.ui.ecommerce_routes import router as ecommerce_router
+try:
+    from autobot.ui.ecommerce_routes import router as ecommerce_router
+    app.include_router(ecommerce_router)
+except ImportError:
+    logging.warning("E-commerce routes not available")
+
 from autobot.ui.automation_routes import router as automation_router
-app.include_router(ecommerce_router)
 app.include_router(automation_router)
 
 # from .api.backtest_routes import router as api_backtest_router
