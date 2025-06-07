@@ -160,6 +160,7 @@ async def get_parametres(request: Request, user: dict = Depends(get_current_user
         "binance_api_key": env_vars.get("BINANCE_KEY", ""),
         "binance_api_secret": env_vars.get("BINANCE_SECRET", ""),
         "stripe_api_key": env_vars.get("STRIPE_KEY", ""),
+        "stripe_secret": env_vars.get("STRIPE_SECRET", ""),
         "alpha_vantage_api_key": env_vars.get("ALPHA_KEY", ""),
         "twelve_data_api_key": env_vars.get("TWELVE_DATA_API_KEY", ""),
         "fred_api_key": env_vars.get("FRED_KEY", ""),

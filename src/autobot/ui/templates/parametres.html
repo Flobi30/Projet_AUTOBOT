@@ -110,7 +110,7 @@
                 <div class="form-group">
                     <label for="stripe-api-secret">Stripe API Secret (Privée)</label>
                     <div class="input-group">
-                        <input type="password" id="stripe-api-secret" class="form-control" value="{{ stripe_api_secret|default('') }}" placeholder="Entrez votre clé API Stripe secrète">
+                        <input type="password" id="stripe-api-secret" class="form-control" value="{{ stripe_secret|default('') }}" placeholder="Entrez votre clé API Stripe secrète">
                         <div class="input-group-append">
                             <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-secret">
                                 <i class="fas fa-eye"></i>

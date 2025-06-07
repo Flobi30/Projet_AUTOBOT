@@ -3,6 +3,8 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
+import threading
+import logging
 from autobot.router_clean import router
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
@@ -16,6 +18,24 @@ from autobot.ui.routes import router as ui_router
 # from .api.ghosting_routes import router as ghosting_router
 from .autobot_security.auth.user_manager import UserManager
 
+try:
+    from autobot.scheduler import start_scheduler, shutdown_scheduler
+except ImportError:
+    logging.warning("Scheduler module not available")
+    start_scheduler = None
+    shutdown_scheduler = None
+
+try:
+    from autobot.ui.backtest_routes import start_continuous_optimization
+except ImportError:
+    logging.warning("Continuous optimization not available")
+    start_continuous_optimization = None
+
+try:
+    from autobot.trading.auto_mode_manager import AutoModeManager
+except ImportError:
+    logging.warning("AutoModeManager not available")
+    AutoModeManager = None
 
 app = FastAPI(
     title="Autobot API",
@@ -47,6 +67,44 @@ app.include_router(ui_router)
 
 # from .api.backtest_routes import router as api_backtest_router
 # app.include_router(api_backtest_router)
+
+@app.on_event("startup")
+async def startup_event():
+    logging.info("Starting AUTOBOT background services...")
+    
+    if start_scheduler:
+        try:
+            scheduler_thread = threading.Thread(target=start_scheduler, daemon=True, name="SchedulerThread")
+            scheduler_thread.start()
+            logging.info("Scheduler thread started successfully")
+        except Exception as e:
+            logging.error(f"Failed to start scheduler: {e}")
+    
+    if start_continuous_optimization:
+        try:
+            optimization_thread = threading.Thread(target=start_continuous_optimization, daemon=True, name="OptimizationThread")
+            optimization_thread.start()
+            logging.info("Continuous optimization thread started successfully")
+        except Exception as e:
+            logging.error(f"Failed to start continuous optimization: {e}")
+    
+    if AutoModeManager:
+        try:
+            auto_mode_manager = AutoModeManager()
+            app.state.auto_mode_manager = auto_mode_manager
+            logging.info("AutoModeManager initialized successfully")
+        except Exception as e:
+            logging.error(f"Failed to initialize AutoModeManager: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logging.info("Shutting down AUTOBOT background services...")
+    if shutdown_scheduler:
+        try:
+            shutdown_scheduler()
+            logging.info("Scheduler shutdown successfully")
+        except Exception as e:
+            logging.error(f"Error shutting down scheduler: {e}")
 
 
 
