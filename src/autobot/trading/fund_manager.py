@@ -194,6 +194,66 @@ class FundManager:
         """
         return self.balance
     
+    def get_available_balance(self) -> float:
+        """
+        Get available balance for transactions.
+        
+        Returns:
+            float: Available balance
+        """
+        return self.balance
+    
+    def process_expense(self, amount: float, description: str, category: str = "general") -> Dict[str, Any]:
+        """
+        Process an expense transaction.
+        
+        Args:
+            amount: Amount to deduct
+            description: Description of the expense
+            category: Category of the expense
+            
+        Returns:
+            Dict[str, Any]: Transaction result
+        """
+        if amount <= 0:
+            logger.warning(f"Invalid expense amount: {amount}")
+            return {
+                "success": False,
+                "message": "Expense amount must be positive",
+                "balance": self.balance
+            }
+        
+        if amount > self.balance:
+            logger.warning(f"Insufficient funds for expense: {amount} > {self.balance}")
+            return {
+                "success": False,
+                "message": "Insufficient funds",
+                "balance": self.balance
+            }
+        
+        previous_balance = self.balance
+        self.balance -= amount
+        
+        transaction = {
+            "timestamp": datetime.now().isoformat(),
+            "type": "expense",
+            "amount": amount,
+            "description": description,
+            "category": category,
+            "previous_balance": previous_balance,
+            "new_balance": self.balance
+        }
+        self.transaction_history.append(transaction)
+        
+        logger.info(f"Processed expense: {description} - ${amount:.2f}, new balance: ${self.balance:.2f}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully processed expense: {description}",
+            "balance": self.balance,
+            "transaction": transaction
+        }
+    
     def get_transaction_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Get transaction history.
