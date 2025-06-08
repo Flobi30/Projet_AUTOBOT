@@ -504,6 +504,16 @@ body {
     background-color: var(--secondary-color);
 }
 
+/* Hide mobile menu toggle elements completely */
+.menu-toggle,
+.mobile-menu-toggle,
+.hamburger-menu,
+.nav-toggle {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
+
 /* Enhanced Professional Sidebar Navigation */
 .sidebar {
     background: linear-gradient(180deg, rgba(8, 8, 8, 0.98) 0%, rgba(18, 18, 18, 0.96) 30%, rgba(22, 22, 22, 0.95) 70%, rgba(12, 12, 12, 0.98) 100%);

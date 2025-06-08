@@ -5,34 +5,34 @@ from fastapi.templating import Jinja2Templates
 import os
 import threading
 import logging
-from autobot.router_clean import router
-from autobot.routes.health_routes import router as health_router
-from autobot.routes.prediction_routes import router as prediction_router
-from autobot.ui.mobile_routes import router as mobile_router
+from src.autobot.router_clean import router
+from src.autobot.routes.health_routes import router as health_router
+from src.autobot.routes.prediction_routes import router as prediction_router
+from src.autobot.ui.mobile_routes import router as mobile_router
 
-from autobot.ui.arbitrage_routes import router as arbitrage_router
-from autobot.ui.backtest_routes import router as backtest_router
-from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
-from autobot.ui.chat_routes_custom import router as chat_router
-from autobot.ui.routes import router as ui_router
-# from .api.ghosting_routes import router as ghosting_router
-from .autobot_security.auth.user_manager import UserManager
+from src.autobot.ui.arbitrage_routes import router as arbitrage_router
+from src.autobot.ui.backtest_routes import router as backtest_router
+from src.autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
+from src.autobot.ui.chat_routes_custom import router as chat_router
+from src.autobot.ui.routes import router as ui_router
+# from src.autobot.api.ghosting_routes import router as ghosting_router
+from src.autobot.autobot_security.auth.user_manager import UserManager
 
 try:
-    from autobot.scheduler import start_scheduler, shutdown_scheduler
+    from src.autobot.scheduler import start_scheduler, shutdown_scheduler
 except ImportError:
     logging.warning("Scheduler module not available")
     start_scheduler = None
     shutdown_scheduler = None
 
 try:
-    from autobot.ui.backtest_routes import start_continuous_optimization
+    from src.autobot.ui.backtest_routes import start_continuous_optimization
 except ImportError:
     logging.warning("Continuous optimization not available")
     start_continuous_optimization = None
 
 try:
-    from autobot.trading.auto_mode_manager import AutoModeManager
+    from src.autobot.trading.auto_mode_manager import AutoModeManager
 except ImportError:
     logging.warning("AutoModeManager not available")
     AutoModeManager = None
@@ -66,12 +66,12 @@ app.include_router(ui_router)
 # app.include_router(ghosting_router)
 
 try:
-    from autobot.ui.ecommerce_routes import router as ecommerce_router
+    from src.autobot.ui.ecommerce_routes import router as ecommerce_router
     app.include_router(ecommerce_router)
 except ImportError:
     logging.warning("E-commerce routes not available")
 
-from autobot.ui.automation_routes import router as automation_router
+from src.autobot.ui.automation_routes import router as automation_router
 app.include_router(automation_router)
 
 # from .api.backtest_routes import router as api_backtest_router
