@@ -217,5 +217,42 @@ def main():
         
         time.sleep(1)
 
+def start_scheduler():
+    """Start the scheduler in a background thread."""
+    logger.info("Starting AUTOBOT scheduler...")
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    schedule_task("Market Data Update", 300, update_market_data)  # Every 5 minutes
+    schedule_task("Model Retraining", 86400, retrain_models)  # Once a day
+    schedule_task("System Maintenance", 3600, run_system_maintenance)  # Once an hour
+    
+    while not shutdown_flag.is_set():
+        current_time = datetime.now()
+        
+        for task in scheduled_tasks:
+            if not task['enabled']:
+                continue
+                
+            if task['next_run'] <= current_time:
+                logger.info(f"Running scheduled task: {task['name']}")
+                
+                try:
+                    task['function']()
+                    task['last_run'] = current_time
+                except Exception as e:
+                    logger.exception(f"Error running task {task['name']}: {str(e)}")
+                
+                task['next_run'] = current_time + timedelta(seconds=task['interval'])
+                logger.info(f"Next run of {task['name']} scheduled for {task['next_run']}")
+        
+        time.sleep(1)
+
+def shutdown_scheduler():
+    """Shutdown the scheduler gracefully."""
+    logger.info("Shutting down scheduler...")
+    shutdown_flag.set()
+
 if __name__ == "__main__":
     main()

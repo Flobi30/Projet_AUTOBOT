@@ -10,9 +10,8 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status, WebSocket
 from starlette.websockets import WebSocketDisconnect
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import hashlib
+import base64
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
 from autobot.autobot_security.auth.jwt_handler import create_access_token, decode_token, verify_license_key, get_current_user
@@ -49,30 +48,19 @@ class UserManager:
         
     def _setup_encryption(self, encryption_key: str = None):
         """
-        Set up encryption for sensitive data.
+        Set up simple encryption for sensitive data.
         
         Args:
             encryption_key: Key for encryption. If None, derive from SECRET_KEY
         """
         if encryption_key:
-            key_bytes = encryption_key.encode()
+            self.encryption_key = hashlib.sha256(encryption_key.encode()).hexdigest()
         else:
-            # Derive key from SECRET_KEY
-            salt = b'autobot_salt_for_key_derivation'
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=100000,
-            )
-            key_bytes = kdf.derive(SECRET_KEY.encode())
-            
-        self.encryption_key = base64.urlsafe_b64encode(key_bytes)
-        self.cipher = Fernet(self.encryption_key)
+            self.encryption_key = hashlib.sha256(SECRET_KEY.encode()).hexdigest()
         
     def _encrypt_data(self, data: str) -> str:
         """
-        Encrypt sensitive data.
+        Simple encryption for sensitive data.
         
         Args:
             data: Data to encrypt
@@ -84,15 +72,15 @@ class UserManager:
             return data
             
         try:
-            encrypted = self.cipher.encrypt(data.encode())
-            return base64.urlsafe_b64encode(encrypted).decode()
+            encrypted = ''.join(chr(ord(c) ^ ord(self.encryption_key[i % len(self.encryption_key)])) for i, c in enumerate(data))
+            return base64.b64encode(encrypted.encode()).decode()
         except Exception as e:
             logger.error(f"Encryption error: {str(e)}")
             return data
             
     def _decrypt_data(self, encrypted_data: str) -> str:
         """
-        Decrypt sensitive data.
+        Simple decryption for sensitive data.
         
         Args:
             encrypted_data: Encrypted data as base64 string
@@ -104,9 +92,9 @@ class UserManager:
             return encrypted_data
             
         try:
-            decoded = base64.urlsafe_b64decode(encrypted_data.encode())
-            decrypted = self.cipher.decrypt(decoded)
-            return decrypted.decode()
+            decoded = base64.b64decode(encrypted_data.encode()).decode()
+            decrypted = ''.join(chr(ord(c) ^ ord(self.encryption_key[i % len(self.encryption_key)])) for i, c in enumerate(decoded))
+            return decrypted
         except Exception as e:
             logger.error(f"Decryption error: {str(e)}")
             return encrypted_data

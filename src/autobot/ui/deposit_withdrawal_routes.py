@@ -329,11 +329,11 @@ async def deposit_funds(deposit: DepositRequest):
         
         system_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
         
-        return TransactionResponse(
-            success=True,
-            message=f"Successfully deposited ${deposit.amount:.2f}",
-            new_balance=system_metrics["total_balance"]
-        )
+        return {
+            "status": "success",
+            "message": f"Successfully deposited {deposit.amount:.2f}€",
+            "new_balance": system_metrics["total_balance"]
+        }
     except Exception as e:
         logger.error(f"Deposit error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing deposit: {str(e)}")
@@ -369,12 +369,12 @@ async def withdraw_funds(withdrawal: WithdrawalRequest):
         
         updated_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
         
-        return TransactionResponse(
-            success=True,
-            message=f"Successfully withdrew ${withdrawal.amount:.2f}",
-            new_balance=updated_metrics["total_balance"],
-            impact=impact.to_dict()
-        )
+        return {
+            "status": "success", 
+            "message": f"Successfully withdrew {withdrawal.amount:.2f}€",
+            "new_balance": updated_metrics["total_balance"],
+            "impact": impact.to_dict()
+        }
     except Exception as e:
         logger.error(f"Withdrawal error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing withdrawal: {str(e)}")
