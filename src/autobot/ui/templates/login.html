@@ -139,19 +139,75 @@
             const form = document.querySelector('form');
             const errorDiv = document.querySelector('.error-message');
             
+            function showError(message) {
+                let errorEl = document.querySelector('.error-message');
+                if (!errorEl) {
+                    errorEl = document.createElement('div');
+                    errorEl.className = 'error-message';
+                    form.appendChild(errorEl);
+                }
+                errorEl.textContent = message;
+                errorEl.style.display = 'block';
+            }
+            
             form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
                 if (errorDiv) {
                     errorDiv.style.display = 'none';
                 }
                 
-                const submitBtn = form.querySelector('button[type="submit"]');
-                submitBtn.textContent = 'Connexion...';
-                submitBtn.disabled = true;
+                const submitButton = form.querySelector('button[type="submit"]');
+                submitButton.textContent = 'Connexion...';
+                submitButton.disabled = true;
                 
-                setTimeout(() => {
-                    submitBtn.textContent = 'SE CONNECTER';
-                    submitBtn.disabled = false;
-                }, 3000);
+                const formData = new FormData(form);
+                
+                fetch('/login', {
+                    method: 'POST',
+                    body: formData,
+                    redirect: 'manual'
+                })
+                .then(response => {
+                    if (response.type === 'opaqueredirect' || response.status === 303) {
+                        window.location.href = '/dashboard';
+                        return;
+                    }
+                    if (response.redirected) {
+                        window.location.href = response.url;
+                        return;
+                    }
+                    if (!response.ok) {
+                        throw new Error('Erreur réseau');
+                    }
+                    return response.text();
+                })
+                .then(data => {
+                    if (typeof data === 'string' && data.includes('error')) {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(data, 'text/html');
+                        const errorEl = doc.querySelector('.error-message');
+                        if (errorEl) {
+                            showError(errorEl.textContent);
+                        } else {
+                            showError('Identifiants invalides');
+                        }
+                    } else if (data && data.success) {
+                        window.location.href = data.redirect || '/dashboard';
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    if (error.message.includes('redirected')) {
+                        window.location.href = '/dashboard';
+                    } else {
+                        showError('Erreur de connexion au serveur');
+                    }
+                })
+                .finally(() => {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'SE CONNECTER';
+                });
             });
         });
     </script>

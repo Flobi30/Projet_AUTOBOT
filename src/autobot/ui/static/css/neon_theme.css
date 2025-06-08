@@ -980,6 +980,17 @@ body {
     margin-top: 0;
 }
 
+/* Hide hamburger menu button */
+.hamburger-menu, .menu-toggle, .sandwich-button {
+    display: none !important;
+}
+
+/* Fix responsive layout */
+.main-content {
+    width: calc(100% - 250px);
+    margin-left: 250px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .sidebar {

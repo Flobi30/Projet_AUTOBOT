@@ -102,6 +102,8 @@
         </main>
     </div>
     
-
+    {% block scripts %}
+    <script src="{{ url_for('static', path='/js/automation-logs.js') }}"></script>
+    {% endblock %}
 </body>
 </html>
