@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paramètres - AUTOBOT</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <style>
+        .tab-content {
+            padding: 20px;
+            background-color: #1e1e1e;
+            border-radius: 0 0 10px 10px;
+        }
+        .nav-tabs .nav-link {
+            color: #00ff9d;
+            background-color: #121212;
+            border: none;
+            border-radius: 10px 10px 0 0;
+            margin-right: 5px;
+        }
+        .nav-tabs .nav-link.active {
+            color: #121212;
+            background-color: #00ff9d;
+            font-weight: bold;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-control {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            color: #fff;
+        }
+        .form-control:focus {
+            background-color: #333;
+            border-color: #00ff9d;
+            box-shadow: 0 0 0 0.2rem rgba(0, 255, 157, 0.25);
+        }
+        .btn-outline {
+            color: #00ff9d;
+            border-color: #00ff9d;
+            background-color: transparent;
+        }
+        .btn-outline:hover {
+            color: #121212;
+            background-color: #00ff9d;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            z-index: 9999;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .notification.success {
+            background-color: #00ff9d;
+        }
+        .notification.error {
+            background-color: #ff3860;
+        }
+        .notification.info {
+            background-color: #3273dc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="logo">
+                    <img src="/static/img/logo.png" alt="AUTOBOT Logo">
+                </div>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/trading">
+                            <i class="fas fa-chart-line"></i> Trading
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/ecommerce">
+                            <i class="fas fa-shopping-cart"></i> E-commerce
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/arbitrage">
+                            <i class="fas fa-balance-scale"></i> Arbitrage
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/backtest">
+                            <i class="fas fa-vial"></i> Backtest
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/capital">
+                            <i class="fas fa-wallet"></i> Capital
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/parametres">
+                            <i class="fas fa-cog"></i> Paramètres
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-10 main-content">
+                <header>
+                    <h1>Paramètres</h1>
+                    <div class="user-info">
+                        <span>{{ user.username }}</span>
+                        <a href="/logout" class="btn btn-outline-danger btn-sm">
+                            <i class="fas fa-sign-out-alt"></i> Déconnexion
+                        </a>
+                    </div>
+                </header>
+                
+                <div class="content-wrapper">
+                    <div class="card">
+                        <div class="card-header">
+                            <ul class="nav nav-tabs" id="settingsTabs" role="tablist">
+                                <li class="nav-item">
+                                    <a class="nav-link active" id="general-tab" data-toggle="tab" href="#general" role="tab">
+                                        <i class="fas fa-sliders-h"></i> Général
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="api-tab" data-toggle="tab" href="#api" role="tab">
+                                        <i class="fas fa-key"></i> Clés API
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="trading-tab" data-toggle="tab" href="#trading" role="tab">
+                                        <i class="fas fa-chart-line"></i> Trading
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="ecommerce-tab" data-toggle="tab" href="#ecommerce" role="tab">
+                                        <i class="fas fa-shopping-cart"></i> E-commerce
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="security-tab" data-toggle="tab" href="#security" role="tab">
+                                        <i class="fas fa-shield-alt"></i> Sécurité
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="notifications-tab" data-toggle="tab" href="#notifications" role="tab">
+                                        <i class="fas fa-bell"></i> Notifications
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="superagi-tab" data-toggle="tab" href="#superagi" role="tab">
+                                        <i class="fas fa-robot"></i> SuperAGI
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="advanced-tab" data-toggle="tab" href="#advanced" role="tab">
+                                        <i class="fas fa-cogs"></i> Avancé
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="card-body">
+                            <div class="tab-content" id="settingsTabsContent">
+                                <!-- General Settings -->
+                                <div class="tab-pane fade show active" id="general" role="tabpanel">
+                                    <h3>Paramètres généraux</h3>
+                                    <form id="general-settings-form">
+                                        <div class="form-group">
+                                            <label for="language">Langue</label>
+                                            <select class="form-control" id="language" name="language">
+                                                <option value="fr">Français</option>
+                                                <option value="en">English</option>
+                                                <option value="es">Español</option>
+                                                <option value="de">Deutsch</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="theme">Thème</label>
+                                            <select class="form-control" id="theme" name="theme">
+                                                <option value="dark">Sombre (par défaut)</option>
+                                                <option value="light">Clair</option>
+                                                <option value="blue">Bleu</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="timezone">Fuseau horaire</label>
+                                            <select class="form-control" id="timezone" name="timezone">
+                                                <option value="Europe/Paris">Europe/Paris</option>
+                                                <option value="America/New_York">America/New_York</option>
+                                                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                                                <option value="Australia/Sydney">Australia/Sydney</option>
+                                            </select>
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- API Keys -->
+                                <div class="tab-pane fade" id="api" role="tabpanel">
+                                    <h3>Clés API</h3>
+                                    <form id="api-settings-form">
+                                        <div class="form-group">
+                                            <label for="binance-api-key">Binance API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="binance-api-key" name="binance_api_key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="binance-api-secret">Binance API Secret</label>
+                                            <div class="input-group">
+                                                <input type="password" id="binance-api-secret" name="binance_api_secret" class="form-control" value="{{ binance_api_secret|default('') }}" placeholder="Entrez votre secret API Binance">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-secret">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openai-api-key">OpenAI API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="openai-api-key" name="openai_api_key" class="form-control" value="{{ openai_api_key|default('') }}" placeholder="Entrez votre clé API OpenAI">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="openai-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="superagi-api-key">SuperAGI API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="superagi-api-key" name="superagi_api_key" class="form-control" value="{{ superagi_api_key|default('') }}" placeholder="Entrez votre clé API SuperAGI">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="superagi-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="stripe-api-key">Stripe API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="stripe-api-key" name="stripe_api_key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="Entrez votre clé API Stripe">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="twelve-data-api-key" name="twelve_data_api_key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="alpha-vantage-api-key" name="alpha_vantage_api_key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="coinbase-api-key">Coinbase API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="coinbase-api-key" name="coinbase_api_key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="fred-api-key">FRED API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="fred-api-key" name="fred_api_key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="kraken-api-key">Kraken API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="kraken-api-key" name="kraken_api_key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="newsapi-api-key">NewsAPI Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="newsapi-api-key" name="newsapi_api_key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé NewsAPI">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="shopify-api-key">Shopify API Key</label>
+                                            <div class="input-group">
+                                                <input type="password" id="shopify-api-key" name="shopify_api_key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                                <div class="input-group-append">
+                                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- Trading Settings -->
+                                <div class="tab-pane fade" id="trading" role="tabpanel">
+                                    <h3>Paramètres de trading</h3>
+                                    <form id="trading-settings-form">
+                                        <div class="form-group">
+                                            <label for="risk-level">Niveau de risque</label>
+                                            <select class="form-control" id="risk-level" name="risk_level">
+                                                <option value="low">Faible</option>
+                                                <option value="medium">Moyen</option>
+                                                <option value="high">Élevé</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="max-trade-amount">Montant maximum par trade</label>
+                                            <input type="number" class="form-control" id="max-trade-amount" name="max_trade_amount" placeholder="Entrez le montant maximum par trade">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="stop-loss-percentage">Pourcentage de stop-loss</label>
+                                            <input type="number" class="form-control" id="stop-loss-percentage" name="stop_loss_percentage" placeholder="Entrez le pourcentage de stop-loss">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="take-profit-percentage">Pourcentage de take-profit</label>
+                                            <input type="number" class="form-control" id="take-profit-percentage" name="take_profit_percentage" placeholder="Entrez le pourcentage de take-profit">
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- E-commerce Settings -->
+                                <div class="tab-pane fade" id="ecommerce" role="tabpanel">
+                                    <h3>Paramètres E-commerce</h3>
+                                    <form id="ecommerce-settings-form">
+                                        <div class="form-group">
+                                            <label for="shop-url">URL de la boutique</label>
+                                            <input type="text" class="form-control" id="shop-url" name="shop_url" placeholder="Entrez l'URL de votre boutique">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="shop-api-key">Clé API de la boutique</label>
+                                            <input type="text" class="form-control" id="shop-api-key" name="shop_api_key" placeholder="Entrez la clé API de votre boutique">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="shop-api-secret">Secret API de la boutique</label>
+                                            <input type="password" class="form-control" id="shop-api-secret" name="shop_api_secret" placeholder="Entrez le secret API de votre boutique">
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- Security Settings -->
+                                <div class="tab-pane fade" id="security" role="tabpanel">
+                                    <h3>Paramètres de sécurité</h3>
+                                    <form id="security-settings-form">
+                                        <div class="form-group">
+                                            <label for="two-factor-auth">Authentification à deux facteurs</label>
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="two-factor-auth" name="two_factor_auth">
+                                                <label class="custom-control-label" for="two-factor-auth">Activer</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="session-timeout">Délai d'expiration de session (minutes)</label>
+                                            <input type="number" class="form-control" id="session-timeout" name="session_timeout" placeholder="Entrez le délai d'expiration de session">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ip-whitelist">Liste blanche d'adresses IP</label>
+                                            <textarea class="form-control" id="ip-whitelist" name="ip_whitelist" rows="3" placeholder="Entrez les adresses IP séparées par des virgules"></textarea>
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- Notifications Settings -->
+                                <div class="tab-pane fade" id="notifications" role="tabpanel">
+                                    <h3>Paramètres de notifications</h3>
+                                    <form id="notification-settings-form">
+                                        <div class="form-group">
+                                            <label>Notifications par e-mail</label>
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="email-notifications" name="email_notifications">
+                                                <label class="custom-control-label" for="email-notifications">Activer</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Notifications push</label>
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="push-notifications" name="push_notifications">
+                                                <label class="custom-control-label" for="push-notifications">Activer</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Notifications SMS</label>
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="sms-notifications" name="sms_notifications">
+                                                <label class="custom-control-label" for="sms-notifications">Activer</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="notification-frequency">Fréquence des notifications</label>
+                                            <select class="form-control" id="notification-frequency" name="notification_frequency">
+                                                <option value="realtime">Temps réel</option>
+                                                <option value="hourly">Toutes les heures</option>
+                                                <option value="daily">Quotidien</option>
+                                                <option value="weekly">Hebdomadaire</option>
+                                            </select>
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- SuperAGI Settings -->
+                                <div class="tab-pane fade" id="superagi" role="tabpanel">
+                                    <h3>Paramètres SuperAGI</h3>
+                                    <form id="superagi-settings-form">
+                                        <div class="form-group">
+                                            <label for="superagi-model">Modèle SuperAGI</label>
+                                            <select class="form-control" id="superagi-model" name="superagi_model">
+                                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                                <option value="gpt-4">GPT-4</option>
+                                                <option value="claude-2">Claude 2</option>
+                                                <option value="llama-2">Llama 2</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="superagi-temperature">Température</label>
+                                            <input type="range" class="form-control-range" id="superagi-temperature" name="superagi_temperature" min="0" max="1" step="0.1">
+                                            <small class="form-text text-muted">Contrôle la créativité des réponses (0 = déterministe, 1 = créatif)</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="superagi-max-tokens">Nombre maximum de tokens</label>
+                                            <input type="number" class="form-control" id="superagi-max-tokens" name="superagi_max_tokens" placeholder="Entrez le nombre maximum de tokens">
+                                        </div>
+                                    </form>
+                                </div>
+                                
+                                <!-- Advanced Settings -->
+                                <div class="tab-pane fade" id="advanced" role="tabpanel">
+                                    <h3>Paramètres avancés</h3>
+                                    <form id="advanced-settings-form">
+                                        <div class="form-group">
+                                            <label for="log-level">Niveau de journalisation</label>
+                                            <select class="form-control" id="log-level" name="log_level">
+                                                <option value="debug">Debug</option>
+                                                <option value="info">Info</option>
+                                                <option value="warning">Warning</option>
+                                                <option value="error">Error</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="cache-ttl">Durée de vie du cache (secondes)</label>
+                                            <input type="number" class="form-control" id="cache-ttl" name="cache_ttl" placeholder="Entrez la durée de vie du cache">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="api-rate-limit">Limite de taux d'API (requêtes par minute)</label>
+                                            <input type="number" class="form-control" id="api-rate-limit" name="api_rate_limit" placeholder="Entrez la limite de taux d'API">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Mode développeur</label>
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="developer-mode" name="developer_mode">
+                                                <label class="custom-control-label" for="developer-mode">Activer</label>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            
+                            <div class="text-center mt-4">
+                                <button type="button" class="btn btn-primary" onclick="saveSettings()">
+                                    <i class="fas fa-save"></i> Enregistrer
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="resetSettings()">
+                                    <i class="fas fa-undo"></i> Réinitialiser
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Fonction pour collecter les données d'un formulaire
+        function collectFormData(formId) {
+            const form = document.getElementById(formId);
+            if (!form) return {};
+            
+            const formData = {};
+            const inputs = form.querySelectorAll('input, select, textarea');
+            
+            inputs.forEach(input => {
+                if (input.name) {
+                    if (input.type === 'checkbox') {
+                        formData[input.name] = input.checked;
+                    } else if (input.type === 'radio') {
+                        if (input.checked) {
+                            formData[input.name] = input.value;
+                        }
+                    } else {
+                        formData[input.name] = input.value;
+                    }
+                } else if (input.id) {
+                    if (input.type === 'checkbox') {
+                        formData[input.id] = input.checked;
+                    } else if (input.type === 'radio') {
+                        if (input.checked) {
+                            formData[input.id] = input.value;
+                        }
+                    } else {
+                        formData[input.id] = input.value;
+                    }
+                }
+            });
+            
+            return formData;
+        }
+
+        function saveSettings() {
+            console.log('Saving settings...');
+            
+            // Collecter les données de tous les formulaires
+            const generalSettings = collectFormData('general-settings-form');
+            const apiSettings = collectFormData('api-settings-form');
+            const tradingSettings = collectFormData('trading-settings-form');
+            const ecommerceSettings = collectFormData('ecommerce-settings-form');
+            const securitySettings = collectFormData('security-settings-form');
+            const notificationSettings = collectFormData('notification-settings-form');
+            const superagiSettings = collectFormData('superagi-settings-form');
+            const advancedSettings = collectFormData('advanced-settings-form');
+            
+            const allSettings = {
+                general: generalSettings,
+                api: apiSettings,
+                trading: tradingSettings,
+                ecommerce: ecommerceSettings,
+                security: securitySettings,
+                notification: notificationSettings,
+                superagi: superagiSettings,
+                advanced: advancedSettings
+            };
+            
+            console.log('Settings to save:', allSettings);
+            
+            // Envoyer les clés API au serveur
+            if (apiSettings && Object.keys(apiSettings).length > 0) {
+                fetch('/api/keys/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(apiSettings)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification('Clés API enregistrées avec succès', 'success');
+                    } else {
+                        showNotification('Erreur lors de l\'enregistrement des clés API: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving API keys:', error);
+                    showNotification('Erreur de connexion lors de l\'enregistrement', 'error');
+                });
+            }
+            
+            // Pour les autres paramètres, afficher une notification de succès
+            showNotification('Paramètres enregistrés avec succès', 'success');
+        }
+
+        function resetSettings() {
+            if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?')) {
+                document.querySelectorAll('form').forEach(form => {
+                    form.reset();
+                });
+                showNotification('Paramètres réinitialisés', 'info');
+            }
+        }
+
+        // Toggle password visibility
+        document.querySelectorAll('.toggle-password').forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    this.querySelector('i').classList.remove('fa-eye');
+                    this.querySelector('i').classList.add('fa-eye-slash');
+                } else {
+                    input.type = 'password';
+                    this.querySelector('i').classList.remove('fa-eye-slash');
+                    this.querySelector('i').classList.add('fa-eye');
+                }
+            });
+        });
+
+        // Show notification
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // Show notification
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // Hide and remove notification after 3 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

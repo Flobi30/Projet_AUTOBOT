@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+
+{% block title %}E-commerce{% endblock %}
+{% block header_title %}E-commerce{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/drawer_panel.css">
+{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline" id="manageUnsoldProducts">
+    <i class="fas fa-boxes"></i> Gérer les Invendus
+</button>
+<button class="btn btn-outline" id="syncInventory">
+    <i class="fas fa-sync"></i> Synchroniser Inventaire
+</button>
+<button class="btn btn-primary" id="optimizePrices">
+    <i class="fas fa-magic"></i> Optimiser Prix
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- E-commerce Stats -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Produits Invendus</span>
+        <span class="metric-value">{{ unsold_products|default('124') }}</span>
+        <span class="metric-change">Valeur: {{ unsold_value|default('12,450 €') }}</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Économies Potentielles</span>
+        <span class="metric-value">{{ potential_savings|default('2,890 €') }}</span>
+        <span class="metric-change positive">+23.2%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Commandes Recyclées</span>
+        <span class="metric-value">{{ recycled_orders|default('45') }}</span>
+        <span class="metric-change">Ce mois</span>
+    </div>
+</div>
+
+<!-- Optimization Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Optimisation des Prix</h3>
+        <div class="card-actions">
+            <button class="btn-sm">Journalier</button>
+            <button class="btn-sm active">Hebdomadaire</button>
+            <button class="btn-sm">Mensuel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="optimizationChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Unsold Products Table -->
+<div class="card">
+    <div class="card-header">
+        <h3>Produits Invendus</h3>
+        <div class="card-actions">
+            <div class="search-container">
+                <input type="text" class="search-input" placeholder="Rechercher un produit...">
+                <button class="search-btn"><i class="fas fa-search"></i></button>
+            </div>
+            <div class="filter-container">
+                <select class="filter-select">
+                    <option value="all">Toutes Catégories</option>
+                    <option value="electronics">Électronique</option>
+                    <option value="clothing">Vêtements</option>
+                    <option value="home">Maison</option>
+                    <option value="beauty">Beauté</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="data-table" id="unsoldProductsTable">
+                <thead>
+                    <tr>
+                        <th>Produit</th>
+                        <th>SKU</th>
+                        <th>Catégorie</th>
+                        <th>Prix Original</th>
+                        <th>Prix Optimisé</th>
+                        <th>Stock</th>
+                        <th>Jours Invendus</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr data-sku="SKU-001">
+                        <td>Écouteurs Bluetooth Pro</td>
+                        <td>SKU-001</td>
+                        <td>Électronique</td>
+                        <td>129.99 €</td>
+                        <td>99.99 €</td>
+                        <td>12</td>
+                        <td>45</td>
+                        <td>
+                            <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                        </td>
+                    </tr>
+                    <tr data-sku="SKU-002">
+                        <td>Montre Connectée Sport</td>
+                        <td>SKU-002</td>
+                        <td>Électronique</td>
+                        <td>199.99 €</td>
+                        <td>149.99 €</td>
+                        <td>8</td>
+                        <td>60</td>
+                        <td>
+                            <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                        </td>
+                    </tr>
+                    <tr data-sku="SKU-003">
+                        <td>Veste Imperméable Homme</td>
+                        <td>SKU-003</td>
+                        <td>Vêtements</td>
+                        <td>89.99 €</td>
+                        <td>69.99 €</td>
+                        <td>15</td>
+                        <td>30</td>
+                        <td>
+                            <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                        </td>
+                    </tr>
+                    <tr data-sku="SKU-004">
+                        <td>Lampe de Bureau LED</td>
+                        <td>SKU-004</td>
+                        <td>Maison</td>
+                        <td>59.99 €</td>
+                        <td>39.99 €</td>
+                        <td>20</td>
+                        <td>75</td>
+                        <td>
+                            <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                        </td>
+                    </tr>
+                    <tr data-sku="SKU-005">
+                        <td>Crème Hydratante Premium</td>
+                        <td>SKU-005</td>
+                        <td>Beauté</td>
+                        <td>49.99 €</td>
+                        <td>34.99 €</td>
+                        <td>25</td>
+                        <td>90</td>
+                        <td>
+                            <button class="btn-icon"><i class="fas fa-eye"></i></button>
+                            <button class="btn-icon"><i class="fas fa-edit"></i></button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recycling Suggestions -->
+<div class="card">
+    <div class="card-header">
+        <h3>Suggestions de Recyclage</h3>
+    </div>
+    <div class="card-body">
+        <div class="suggestion-cards">
+            <div class="suggestion-card">
+                <div class="suggestion-icon">
+                    <i class="fas fa-recycle"></i>
+                </div>
+                <div class="suggestion-content">
+                    <h4>Recyclage Écologique</h4>
+                    <p>Recyclez les produits électroniques invendus depuis plus de 60 jours pour récupérer les matériaux précieux.</p>
+                    <button class="btn btn-outline">Voir les Détails</button>
+                </div>
+            </div>
+            <div class="suggestion-card">
+                <div class="suggestion-icon">
+                    <i class="fas fa-tags"></i>
+                </div>
+                <div class="suggestion-content">
+                    <h4>Vente Flash</h4>
+                    <p>Organisez une vente flash pour les vêtements invendus avec une réduction supplémentaire de 15%.</p>
+                    <button class="btn btn-outline">Planifier</button>
+                </div>
+            </div>
+            <div class="suggestion-card">
+                <div class="suggestion-icon">
+                    <i class="fas fa-box-open"></i>
+                </div>
+                <div class="suggestion-content">
+                    <h4>Lots Économiques</h4>
+                    <p>Créez des lots avec les produits de beauté invendus pour augmenter leur attractivité.</p>
+                    <button class="btn btn-outline">Créer des Lots</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/drawer_panel.js"></script>
+<script src="/static/js/treasury_integration.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize optimization chart
+        const ctx = document.getElementById('optimizationChart').getContext('2d');
+        const optimizationChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+                datasets: [{
+                    label: 'Prix Original',
+                    data: [12000, 12000, 12000, 12000, 12000, 12000, 12000],
+                    borderColor: '#aaa',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 3
+                }, {
+                    label: 'Prix Optimisé',
+                    data: [12000, 11500, 10800, 10200, 9800, 9500, 9200],
+                    borderColor: '#00ff9d',
+                    backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#aaa'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#aaa'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#fff'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Filter products by category
+        const filterSelect = document.querySelector('.filter-select');
+        if (filterSelect) {
+            filterSelect.addEventListener('change', function() {
+                const category = this.value;
+                const rows = document.querySelectorAll('#unsoldProductsTable tbody tr');
+                
+                rows.forEach(row => {
+                    const rowCategory = row.querySelector('td:nth-child(3)').textContent;
+                    if (category === 'all' || rowCategory.toLowerCase() === category) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        }
+        
+        // Search products
+        const searchInput = document.querySelector('.search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const rows = document.querySelectorAll('#unsoldProductsTable tbody tr');
+                
+                rows.forEach(row => {
+                    const productName = row.querySelector('td:first-child').textContent.toLowerCase();
+                    const sku = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+                    
+                    if (productName.includes(searchTerm) || sku.includes(searchTerm)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        }
+        
+        // Sync inventory button
+        const syncButton = document.getElementById('syncInventory');
+        if (syncButton) {
+            syncButton.addEventListener('click', function() {
+                this.disabled = true;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+                
+                // Simulate API call
+                setTimeout(() => {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="fas fa-sync"></i> Synchroniser Inventaire';
+                    
+                    // Show notification
+                    showNotification('Inventaire synchronisé avec succès', 'success');
+                }, 2000);
+            });
+        }
+        
+        // Optimize prices button
+        const optimizeButton = document.getElementById('optimizePrices');
+        if (optimizeButton) {
+            optimizeButton.addEventListener('click', function() {
+                this.disabled = true;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Optimisation...';
+                
+                // Simulate API call
+                setTimeout(() => {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="fas fa-magic"></i> Optimiser Prix';
+                    
+                    // Show notification
+                    showNotification('Prix optimisés avec succès', 'success');
+                    
+                    // Update table values (simulate)
+                    const priceColumns = document.querySelectorAll('#unsoldProductsTable tbody tr td:nth-child(5)');
+                    priceColumns.forEach(cell => {
+                        const currentPrice = parseFloat(cell.textContent.replace(' €', ''));
+                        const newPrice = (currentPrice * 0.95).toFixed(2);
+                        cell.textContent = newPrice + ' €';
+                        cell.style.color = '#00ff9d';
+                        
+                        // Reset color after animation
+                        setTimeout(() => {
+                            cell.style.color = '';
+                        }, 3000);
+                    });
+                }, 2000);
+            });
+        }
+        
+        // Show notification function
+        window.showNotification = function(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <div class="notification-icon">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                </div>
+                <div class="notification-content">
+                    <p>${message}</p>
+                </div>
+                <button class="notification-close"><i class="fas fa-times"></i></button>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Show notification with animation
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 5000);
+            
+            // Close button
+            notification.querySelector('.notification-close').addEventListener('click', () => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            });
+        };
+    });
+</script>
+{% endblock %}

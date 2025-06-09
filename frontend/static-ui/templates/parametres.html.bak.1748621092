@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paramètres - AUTOBOT</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/neon_theme.css">
+    <link rel="stylesheet" href="/static/css/all.min.css">
+    <style>
+        :root {
+            --primary-bg: #121212;
+            --secondary-bg: #1e1e1e;
+            --accent-color: #00ff9d;
+            --text-color: #ffffff;
+            --card-bg: #252525;
+            --border-color: #333333;
+        }
+        
+        body {
+            background-color: var(--primary-bg);
+            color: var(--text-color);
+            font-family: 'Roboto', sans-serif;
+        }
+        
+        .logo {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        .sidebar {
+            background-color: var(--secondary-bg);
+            min-height: 100vh;
+            border-right: 1px solid var(--border-color);
+            padding: 20px 0;
+        }
+        
+        .sidebar ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        
+        .sidebar li {
+            margin-bottom: 10px;
+        }
+        
+        .sidebar a {
+            color: var(--text-color);
+            text-decoration: none;
+            display: block;
+            padding: 10px 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar a:hover, .sidebar a.active {
+            background-color: rgba(0, 255, 157, 0.1);
+            color: var(--accent-color);
+            border-left: 3px solid var(--accent-color);
+        }
+        
+        .sidebar i {
+            margin-right: 10px;
+        }
+        
+        .content {
+            padding: 20px;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .card-header {
+            background-color: rgba(0, 255, 157, 0.1);
+            color: var(--accent-color);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: bold;
+            padding: 15px 20px;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .form-control {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            border-radius: 5px;
+        }
+        
+        .form-control:focus {
+            background-color: var(--secondary-bg);
+            border-color: var(--accent-color);
+            color: var(--text-color);
+            box-shadow: 0 0 0 0.2rem rgba(0, 255, 157, 0.25);
+        }
+        
+        .btn-primary {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+            color: var(--primary-bg);
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            background-color: #00cc7d;
+            border-color: #00cc7d;
+            color: var(--primary-bg);
+        }
+        
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-outline:hover {
+            background-color: rgba(0, 255, 157, 0.1);
+        }
+        
+        .nav-tabs {
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .nav-tabs .nav-link {
+            color: var(--text-color);
+            border: none;
+            border-bottom: 3px solid transparent;
+            border-radius: 0;
+            padding: 10px 20px;
+            margin-right: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-tabs .nav-link:hover {
+            border-color: transparent;
+            background-color: rgba(0, 255, 157, 0.1);
+        }
+        
+        .nav-tabs .nav-link.active {
+            color: var(--accent-color);
+            background-color: transparent;
+            border-bottom: 3px solid var(--accent-color);
+        }
+        
+        .tab-content {
+            padding: 20px 0;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            color: var(--accent-color);
+            font-weight: 500;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .input-group-append .btn {
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            z-index: 9999;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease;
+        }
+        
+        .notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .notification.success {
+            background-color: var(--accent-color);
+        }
+        
+        .notification.error {
+            background-color: #ff4d4d;
+        }
+        
+        .api-key-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
+        .api-key-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .api-key-card:hover {
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .api-key-card h4 {
+            color: var(--accent-color);
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        
+        .api-key-card .input-group {
+            margin-bottom: 0;
+        }
+        
+        .save-button-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 30px;
+        }
+        
+        .save-button {
+            background-color: var(--accent-color);
+            color: var(--primary-bg);
+            border: none;
+            padding: 10px 25px;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+        }
+        
+        .save-button i {
+            margin-right: 8px;
+        }
+        
+        .save-button:hover {
+            background-color: #00cc7d;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="text-center mb-4">
+                    <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+                </div>
+                <ul>
+                    <li><a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+                    <li><a href="/trading"><i class="fas fa-chart-line"></i> Trading</a></li>
+                    <li><a href="/ecommerce"><i class="fas fa-shopping-cart"></i> E-commerce</a></li>
+                    <li><a href="/arbitrage"><i class="fas fa-balance-scale"></i> Arbitrage</a></li>
+                    <li><a href="/backtest"><i class="fas fa-vial"></i> Backtest</a></li>
+                    <li><a href="/capital"><i class="fas fa-dollar-sign"></i> Capital</a></li>
+                    <li><a href="/parametres" class="active"><i class="fas fa-cog"></i> Paramètres</a></li>
+                </ul>
+                <div class="mt-auto text-center text-muted small" style="position: absolute; bottom: 20px; width: 100%;">
+                    <p>AUTOBOT v1.0.0</p>
+                    <p>© 2025 AUTOBOT</p>
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-10 content">
+                <h1 class="mb-4" style="color: var(--accent-color);">Paramètres</h1>
+                
+                <!-- Tabs -->
+                <ul class="nav nav-tabs" id="settingsTabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="api-tab" data-toggle="tab" href="#api" role="tab">Clés API</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="general-tab" data-toggle="tab" href="#general" role="tab">Général</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="trading-tab" data-toggle="tab" href="#trading" role="tab">Trading</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="ecommerce-tab" data-toggle="tab" href="#ecommerce" role="tab">E-commerce</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="security-tab" data-toggle="tab" href="#security" role="tab">Sécurité</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="notifications-tab" data-toggle="tab" href="#notifications" role="tab">Notifications</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="superagi-tab" data-toggle="tab" href="#superagi" role="tab">SuperAGI</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="advanced-tab" data-toggle="tab" href="#advanced" role="tab">Avancé</a>
+                    </li>
+                </ul>
+                
+                <!-- Tab Content -->
+                <div class="tab-content" id="settingsTabsContent">
+                    <!-- API Keys Tab -->
+                    <div class="tab-pane fade show active" id="api" role="tabpanel">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="fas fa-key"></i> Configuration des clés API
+                            </div>
+                            <div class="card-body">
+                                <p class="mb-4">Configurez vos clés API pour permettre à AUTOBOT d'accéder aux différents services et plateformes.</p>
+                                
+                                <form id="api-settings-form">
+                                    <div class="api-key-section">
+                                        <!-- Trading APIs -->
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-chart-line"></i> Binance</h4>
+                                            <div class="form-group">
+                                                <label for="binance-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="binance-api-key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group mb-0">
+                                                <label for="binance-secret-key">Clé secrète</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="binance-secret-key" class="form-control" value="{{ binance_secret_key|default('') }}" placeholder="Entrez votre clé secrète Binance">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="binance-secret-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fab fa-bitcoin"></i> Coinbase</h4>
+                                            <div class="form-group">
+                                                <label for="coinbase-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group mb-0">
+                                                <label for="coinbase-secret-key">Clé secrète</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="coinbase-secret-key" class="form-control" value="{{ coinbase_secret_key|default('') }}" placeholder="Entrez votre clé secrète Coinbase">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-secret-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fab fa-kraken"></i> Kraken</h4>
+                                            <div class="form-group">
+                                                <label for="kraken-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group mb-0">
+                                                <label for="kraken-secret-key">Clé secrète</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="kraken-secret-key" class="form-control" value="{{ kraken_secret_key|default('') }}" placeholder="Entrez votre clé secrète Kraken">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="kraken-secret-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Data APIs -->
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-database"></i> Twelve Data</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="twelve-data-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-chart-bar"></i> Alpha Vantage</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="alpha-vantage-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-university"></i> FRED</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="fred-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Other APIs -->
+                                        <div class="api-key-card">
+                                            <h4><i class="far fa-newspaper"></i> NewsAPI</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="newsapi-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="newsapi-api-key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé NewsAPI">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-shopping-bag"></i> Shopify</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="shopify-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-robot"></i> OpenAI</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="openai-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="openai-api-key" class="form-control" value="{{ openai_api_key|default('') }}" placeholder="Entrez votre clé API OpenAI">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="openai-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="api-key-card">
+                                            <h4><i class="fas fa-credit-card"></i> Stripe</h4>
+                                            <div class="form-group mb-0">
+                                                <label for="stripe-api-key">Clé API</label>
+                                                <div class="input-group">
+                                                    <input type="password" id="stripe-api-key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="Entrez votre clé API Stripe">
+                                                    <div class="input-group-append">
+                                                        <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
+                                                            <i class="fas fa-eye"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="save-button-container">
+                                        <button type="button" class="save-button" onclick="saveSettings()">
+                                            <i class="fas fa-save"></i> Enregistrer les clés API
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Other tabs content would go here -->
+                    <div class="tab-pane fade" id="general" role="tabpanel">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="fas fa-cog"></i> Paramètres généraux
+                            </div>
+                            <div class="card-body">
+                                <p>Contenu des paramètres généraux...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade" id="trading" role="tabpanel">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="fas fa-chart-line"></i> Paramètres de trading
+                            </div>
+                            <div class="card-body">
+                                <p>Contenu des paramètres de trading...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- More tabs... -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+    
+    <!-- Scripts -->
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Toggle password visibility
+        document.addEventListener('DOMContentLoaded', function() {
+            const toggleButtons = document.querySelectorAll('.toggle-password');
+            
+            toggleButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const targetId = this.getAttribute('data-target');
+                    const input = document.getElementById(targetId);
+                    const icon = this.querySelector('i');
+                    
+                    if (input.type === 'password') {
+                        input.type = 'text';
+                        icon.classList.remove('fa-eye');
+                        icon.classList.add('fa-eye-slash');
+                    } else {
+                        input.type = 'password';
+                        icon.classList.remove('fa-eye-slash');
+                        icon.classList.add('fa-eye');
+                    }
+                });
+            });
+        });
+        
+        // Collect form data
+        function collectFormData(formId) {
+            const form = document.getElementById(formId);
+            if (!form) return {};
+            
+            const formData = {};
+            const inputs = form.querySelectorAll('input, select, textarea');
+            
+            inputs.forEach(input => {
+                if (input.id) {
+                    formData[input.id.replace(/-/g, '_')] = input.value;
+                }
+            });
+            
+            return formData;
+        }
+        
+        // Show notification
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = 'notification ' + type;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+        
+        // Save settings
+        function saveSettings() {
+            console.log('Saving settings...');
+            
+            // Collect API settings
+            const apiSettings = collectFormData('api-settings-form');
+            console.log('API settings to save:', apiSettings);
+            
+            // Send API keys to server
+            fetch('/api/keys/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(apiSettings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Clés API enregistrées avec succès', 'success');
+                } else {
+                    showNotification('Erreur lors de l\'enregistrement des clés API: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving API keys:', error);
+                showNotification('Erreur de connexion lors de l\'enregistrement', 'error');
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - {% block title %}Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/neon_theme.css">
+    <link rel="stylesheet" href="/static/css/fix_layout.css">
+    <link rel="stylesheet" href="/static/css/drawer_panel.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {% block extra_head %}{% endblock %}
+<link rel="stylesheet" href="/static/css/fix_layout_robust.css">
+    <link rel="stylesheet" href="/static/css/drawer_panel.css">
+    <link rel="stylesheet" href="static/css/fix_layout_urgent.css">
+    
+    <style>
+        :root {
+            --sidebar-width: 250px;
+            --header-height: 60px;
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        
+        body {
+            display: flex !important;
+            flex-direction: row !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow-x: hidden !important;
+            background-color: var(--bg-color) !important;
+            color: var(--text-color) !important;
+        }
+        
+        .sidebar {
+            width: var(--sidebar-width) !important;
+            position: fixed !important;
+            height: 100vh !important;
+            z-index: 20 !important;
+            overflow-y: auto !important;
+            background-color: var(--bg-color) !important;
+            border-right: 1px solid #2a2a2a !important;
+        }
+        
+        .main-content {
+            margin-left: var(--sidebar-width) !important;
+            padding: 20px !important;
+            min-height: 100vh !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            box-sizing: border-box !important;
+            flex: 1 !important;
+            overflow-x: hidden !important;
+            display: block !important;
+            position: relative !important;
+            z-index: 10 !important;
+            background-color: var(--bg-color) !important;
+        }
+        
+        header {
+            margin-left: var(--sidebar-width) !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            box-sizing: border-box !important;
+            z-index: 15 !important;
+            background-color: var(--bg-color) !important;
+            border-bottom: 1px solid #2a2a2a !important;
+            padding: 10px 20px !important;
+        }
+        
+        .container, .container-fluid {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .wrapper, .content-wrapper, .page-wrapper {
+            margin-left: var(--sidebar-width) !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            display: block !important;
+            visibility: visible !important;
+        }
+        
+        /* Force all content to be visible */
+        * {
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+    </style>
+        </head>
+<body class="dark-theme" data-role="{{ user_role }}">
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar" style="width: 250px; position: fixed; height: 100vh; z-index: 20; overflow-y: auto; background-color: #121212;">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+                <h1 class="neon-text">AUTOBOT</h1>
+            </div>
+            <nav class="nav-menu">
+                <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="nav-text">Trading</span>
+                </a>
+                <a href="/ecommerce" class="nav-item {% if active_page == 'ecommerce' %}active{% endif %}">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span class="nav-text">E-commerce</span>
+                </a>
+                <a href="/arbitrage" class="nav-item {% if active_page == 'arbitrage' %}active{% endif %}">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span class="nav-text">Arbitrage</span>
+                </a>
+                <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                    <i class="fas fa-flask"></i>
+                    <span class="nav-text">Backtest</span>
+                </a>
+                <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
+                    <i class="fas fa-coins"></i>
+                    <span class="nav-text">Capital</span>
+                </a>
+                <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
+                    <i class="fas fa-clone"></i>
+                    <span class="nav-text">Duplication</span>
+                </a>
+                <a href="/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
+                    <i class="fas fa-wallet"></i>
+                    <span class="nav-text">Retrait/Dépôt</span>
+                </a>
+                <a href="/parametres" class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
+                    <i class="fas fa-cog"></i>
+                    <span class="nav-text">Paramètres</span>
+                </a>
+            </nav>
+            <div class="user-info">
+                <div class="user-avatar">
+                    <i class="fas fa-user"></i>
+                </div>
+                <div class="user-details">
+                    <span class="user-name">{{ username }}</span>
+                    <span class="user-role">{{ user_role_display }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content" style="margin-left: 250px; padding: 20px; min-height: 100vh; width: calc(100% - 250px); box-sizing: border-box; flex: 1; overflow-x: hidden; display: block; position: relative; z-index: 10; background-color: #121212;">
+            <header class="content-header">
+                <h2 class="neon-text">{% block header_title %}Dashboard{% endblock %}</h2>
+                <div class="header-actions">
+                    {% block header_actions %}{% endblock %}
+                </div>
+            </header>
+
+            <div class="content-body">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    {% block modals %}{% endblock %}
+    
+    <script src="/static/js/common.js"></script>
+    {% block scripts %}{% endblock %}
+    <script src="/static/js/drawer_panel.js"></script>
+        <script src="/static/js/treasury_integration.js"></script>
+    <script src="/static/js/login_fix.js"></script>
+    <script src="/static/js/login_direct_fix.js"></script>
+    <script src="/static/js/drawer_panel.js"></script>
+    <script src="/static/js/treasury_integration.js"></script>
+    </body>
+</html>

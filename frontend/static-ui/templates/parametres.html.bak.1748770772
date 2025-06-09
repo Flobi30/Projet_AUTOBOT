@@ -1,0 +1,720 @@
+{% extends "base.html" %}
+
+{% block title %}Paramètres{% endblock %}
+{% block header_title %}Paramètres{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <div class="settings-sidebar">
+        <div class="settings-nav">
+            <a href="#api-keys" class="settings-nav-item active">
+                <i class="fas fa-key"></i>
+                <span>Clés API</span>
+            </a>
+            <a href="#trading-settings" class="settings-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Paramètres Trading</span>
+            </a>
+            <a href="#notifications" class="settings-nav-item">
+                <i class="fas fa-bell"></i>
+                <span>Notifications</span>
+            </a>
+            <a href="#security" class="settings-nav-item">
+                <i class="fas fa-shield-alt"></i>
+                <span>Sécurité</span>
+            </a>
+            <a href="#account" class="settings-nav-item">
+                <i class="fas fa-user-cog"></i>
+                <span>Compte</span>
+            </a>
+        </div>
+    </div>
+    
+    <div class="settings-content">
+        <!-- API Keys Section -->
+        <div class="settings-section active" id="api-keys">
+            <div class="section-header">
+                <h3>Clés API</h3>
+                <p class="section-description">Configurez vos clés API pour connecter AUTOBOT à différents services.</p>
+            
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="binance-api-key">Binance API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="binance-api-key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="coinbase-api-key">Coinbase API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="kraken-api-key">Kraken API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="newsapi-api-key">NewsAPI Key</label>
+                            <div class="input-group">
+                                <input type="password" id="newsapi-api-key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-api-key">Shopify API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+</div>
+            
+            <form id="apiKeysForm" class="settings-form">
+                <!-- Binance API Key -->
+                <div class="form-group">
+                    <label for="binance-api-key">Binance API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="binance-api-key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="binance-api-secret">Binance API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="binance-api-secret" class="form-control" value="{{ binance_api_secret|default('') }}" placeholder="Entrez votre secret API Binance">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Twelve Data API Key -->
+                <div class="form-group">
+                    <label for="twelve-data-api-key">Twelve Data API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Alpha Vantage API Key -->
+                <div class="form-group">
+                    <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Coinbase API Key -->
+                <div class="form-group">
+                    <label for="coinbase-api-key">Coinbase API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="coinbase-api-key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="coinbase-api-secret">Coinbase API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="coinbase-api-secret" class="form-control" value="{{ coinbase_api_secret|default('') }}" placeholder="Entrez votre secret API Coinbase">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- FRED API Key -->
+                <div class="form-group">
+                    <label for="fred-api-key">FRED API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Kraken API Key -->
+                <div class="form-group">
+                    <label for="kraken-api-key">Kraken API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="kraken-api-key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="kraken-api-secret">Kraken API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="kraken-api-secret" class="form-control" value="{{ kraken_api_secret|default('') }}" placeholder="Entrez votre secret API Kraken">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- NewsAPI Key -->
+                <div class="form-group">
+                    <label for="newsapi-key">NewsAPI Key</label>
+                    <div class="input-group">
+                        <input type="password" id="newsapi-key" class="form-control" value="{{ newsapi_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Shopify API Key -->
+                <div class="form-group">
+                    <label for="shopify-api-key">Shopify API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="shopify-api-secret">Shopify API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="shopify-api-secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- OpenAI API Key -->
+                <div class="form-group">
+                    <label for="openai-api-key">OpenAI API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="openai-api-key" class="form-control" value="{{ openai_api_key|default('') }}" placeholder="Entrez votre clé API OpenAI">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="openai-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- SuperAGI API Key -->
+                <div class="form-group">
+                    <label for="superagi-api-key">SuperAGI API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="superagi-api-key" class="form-control" value="{{ superagi_api_key|default('') }}" placeholder="Entrez votre clé API SuperAGI">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="superagi-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stripe API Key -->
+                <div class="form-group">
+                    <label for="stripe-api-key">Stripe API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="stripe-api-key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="Entrez votre clé API Stripe">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="stripe-api-secret">Stripe API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="stripe-api-secret" class="form-control" value="{{ stripe_api_secret|default('') }}" placeholder="Entrez votre secret API Stripe">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" id="testApiKeys" class="btn btn-outline">
+                        <i class="fas fa-vial"></i> Tester les Connexions
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Enregistrer
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Trading Settings Section -->
+        <div class="settings-section" id="trading-settings">
+            <div class="section-header">
+                <h3>Paramètres Trading</h3>
+                <p class="section-description">Configurez vos préférences de trading et stratégies.</p>
+            </div>
+            
+            <form id="tradingSettingsForm" class="settings-form">
+                <div class="form-group">
+                    <label for="default-exchange">Exchange par Défaut</label>
+                    <select id="default-exchange" class="form-control">
+                        <option value="binance" {% if default_exchange == 'binance' %}selected{% endif %}>Binance</option>
+                        <option value="coinbase" {% if default_exchange == 'coinbase' %}selected{% endif %}>Coinbase</option>
+                        <option value="kraken" {% if default_exchange == 'kraken' %}selected{% endif %}>Kraken</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="default-pair">Paire par Défaut</label>
+                    <select id="default-pair" class="form-control">
+                        <option value="BTC/USDT" {% if default_pair == 'BTC/USDT' %}selected{% endif %}>BTC/USDT</option>
+                        <option value="ETH/USDT" {% if default_pair == 'ETH/USDT' %}selected{% endif %}>ETH/USDT</option>
+                        <option value="BNB/USDT" {% if default_pair == 'BNB/USDT' %}selected{% endif %}>BNB/USDT</option>
+                        <option value="SOL/USDT" {% if default_pair == 'SOL/USDT' %}selected{% endif %}>SOL/USDT</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="risk-level">Niveau de Risque</label>
+                    <div class="range-slider">
+                        <input type="range" id="risk-level" min="1" max="10" value="{{ risk_level|default(5) }}" class="form-range">
+                        <div class="range-value">{{ risk_level|default(5) }}/10</div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="auto-trading">Trading Automatique</label>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="auto-trading" {% if auto_trading %}checked{% endif %}>
+                        <label for="auto-trading"></label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="max-trade-amount">Montant Maximum par Trade</label>
+                    <div class="input-group">
+                        <input type="number" id="max-trade-amount" class="form-control" value="{{ max_trade_amount|default(1000) }}" min="0" step="100">
+                        <div class="input-group-append">
+                            <span class="input-group-text">€</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" id="resetDefaults" class="btn btn-outline">
+                        <i class="fas fa-undo"></i> Réinitialiser
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Enregistrer
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Notifications Section -->
+        <div class="settings-section" id="notifications">
+            <div class="section-header">
+                <h3>Notifications</h3>
+                <p class="section-description">Configurez vos préférences de notifications.</p>
+            </div>
+            
+            <form id="notificationsForm" class="settings-form">
+                <div class="form-group">
+                    <label>Notifications Email</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="email-trades" {% if email_trades %}checked{% endif %}>
+                            <label for="email-trades">Trades</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="email-deposits" {% if email_deposits %}checked{% endif %}>
+                            <label for="email-deposits">Dépôts</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="email-withdrawals" {% if email_withdrawals %}checked{% endif %}>
+                            <label for="email-withdrawals">Retraits</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="email-system" {% if email_system %}checked{% endif %}>
+                            <label for="email-system">Alertes Système</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Notifications Push</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="push-trades" {% if push_trades %}checked{% endif %}>
+                            <label for="push-trades">Trades</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="push-deposits" {% if push_deposits %}checked{% endif %}>
+                            <label for="push-deposits">Dépôts</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="push-withdrawals" {% if push_withdrawals %}checked{% endif %}>
+                            <label for="push-withdrawals">Retraits</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="push-system" {% if push_system %}checked{% endif %}>
+                            <label for="push-system">Alertes Système</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Enregistrer
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Security Section -->
+        <div class="settings-section" id="security">
+            <div class="section-header">
+                <h3>Sécurité</h3>
+                <p class="section-description">Configurez vos paramètres de sécurité.</p>
+            </div>
+            
+            <form id="securityForm" class="settings-form">
+                <div class="form-group">
+                    <label for="enable-2fa">Authentification à Deux Facteurs</label>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="enable-2fa" {% if enable_2fa %}checked{% endif %}>
+                        <label for="enable-2fa"></label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="session-timeout">Expiration de Session</label>
+                    <select id="session-timeout" class="form-control">
+                        <option value="15" {% if session_timeout == 15 %}selected{% endif %}>15 minutes</option>
+                        <option value="30" {% if session_timeout == 30 %}selected{% endif %}>30 minutes</option>
+                        <option value="60" {% if session_timeout == 60 %}selected{% endif %}>1 heure</option>
+                        <option value="120" {% if session_timeout == 120 %}selected{% endif %}>2 heures</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="current-password">Mot de Passe Actuel</label>
+                    <input type="password" id="current-password" class="form-control" placeholder="Entrez votre mot de passe actuel">
+                </div>
+                
+                <div class="form-group">
+                    <label for="new-password">Nouveau Mot de Passe</label>
+                    <input type="password" id="new-password" class="form-control" placeholder="Entrez votre nouveau mot de passe">
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirm-password">Confirmer Mot de Passe</label>
+                    <input type="password" id="confirm-password" class="form-control" placeholder="Confirmez votre nouveau mot de passe">
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Enregistrer
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Account Section -->
+        <div class="settings-section" id="account">
+            <div class="section-header">
+                <h3>Compte</h3>
+                <p class="section-description">Gérez les informations de votre compte.</p>
+            </div>
+            
+            <form id="accountForm" class="settings-form">
+                <div class="form-group">
+                    <label for="username">Nom d'Utilisateur</label>
+                    <input type="text" id="username" class="form-control" value="{{ username|default('') }}" placeholder="Entrez votre nom d'utilisateur">
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" class="form-control" value="{{ email|default('') }}" placeholder="Entrez votre email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="language">Langue</label>
+                    <select id="language" class="form-control">
+                        <option value="fr" {% if language == 'fr' %}selected{% endif %}>Français</option>
+                        <option value="en" {% if language == 'en' %}selected{% endif %}>English</option>
+                        <option value="es" {% if language == 'es' %}selected{% endif %}>Español</option>
+                        <option value="de" {% if language == 'de' %}selected{% endif %}>Deutsch</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="timezone">Fuseau Horaire</label>
+                    <select id="timezone" class="form-control">
+                        <option value="Europe/Paris" {% if timezone == 'Europe/Paris' %}selected{% endif %}>Europe/Paris</option>
+                        <option value="Europe/London" {% if timezone == 'Europe/London' %}selected{% endif %}>Europe/London</option>
+                        <option value="America/New_York" {% if timezone == 'America/New_York' %}selected{% endif %}>America/New_York</option>
+                        <option value="Asia/Tokyo" {% if timezone == 'Asia/Tokyo' %}selected{% endif %}>Asia/Tokyo</option>
+                    </select>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" id="deleteAccount" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Supprimer Compte
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Enregistrer
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Toggle password visibility
+        const toggleButtons = document.querySelectorAll('.toggle-password');
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const inputField = document.getElementById(targetId);
+                
+                if (inputField.type === 'password') {
+                    inputField.type = 'text';
+                    this.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                } else {
+                    inputField.type = 'password';
+                    this.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            });
+        });
+        
+        // Settings navigation
+        const navItems = document.querySelectorAll('.settings-nav-item');
+        const sections = document.querySelectorAll('.settings-section');
+        
+        navItems.forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                const targetId = this.getAttribute('href').substring(1);
+                
+                // Update active nav item
+                navItems.forEach(navItem => navItem.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Show target section
+                sections.forEach(section => {
+                    if (section.id === targetId) {
+                        section.classList.add('active');
+                    } else {
+                        section.classList.remove('active');
+                    }
+                });
+            });
+        });
+        
+        // Range slider value display
+        const riskSlider = document.getElementById('risk-level');
+        if (riskSlider) {
+            const riskValue = riskSlider.nextElementSibling;
+            riskSlider.addEventListener('input', function() {
+                riskValue.textContent = this.value + '/10';
+            });
+        }
+        
+        // Test API Keys button
+        const testApiKeysButton = document.getElementById('testApiKeys');
+        if (testApiKeysButton) {
+            testApiKeysButton.addEventListener('click', function() {
+                this.disabled = true;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Test en cours...';
+                
+                // Simulate API call
+                setTimeout(() => {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="fas fa-vial"></i> Tester les Connexions';
+                    
+                    // Show notification
+                    showNotification('Toutes les connexions API sont fonctionnelles', 'success');
+                    
+                    // Trigger backtesting
+                    triggerBacktesting();
+                }, 2000);
+            });
+        }
+        
+        // Trigger backtesting when API keys are saved
+        function triggerBacktesting() {
+            showNotification('Lancement du backtesting automatique avec les nouvelles clés API...', 'info');
+            
+            // Simulate backtesting process
+            setTimeout(() => {
+                showNotification('Backtesting terminé avec succès. Consultez les résultats dans la section Backtest.', 'success');
+            }, 5000);
+        }
+        
+        // Form submissions
+        const forms = document.querySelectorAll('.settings-form');
+        forms.forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const submitButton = this.querySelector('button[type="submit"]');
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement...';
+                
+                // Simulate API call
+                setTimeout(() => {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
+                    
+                    // Show notification
+                    showNotification('Paramètres enregistrés avec succès', 'success');
+                    
+                    // If API keys form, trigger backtesting
+                    if (this.id === 'apiKeysForm') {
+                        triggerBacktesting();
+                    }
+                }, 1500);
+            });
+        });
+        
+        // Show notification function
+        window.showNotification = function(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <div class="notification-icon">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                </div>
+                <div class="notification-content">
+                    <p>${message}</p>
+                </div>
+                <button class="notification-close"><i class="fas fa-times"></i></button>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Show notification with animation
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 5000);
+            
+            // Close button
+            notification.querySelector('.notification-close').addEventListener('click', () => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            });
+        };
+    });
+</script>
+{% endblock %}

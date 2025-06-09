@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Connexion</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/neon_theme.css">
+    <link rel="stylesheet" href="/static/css/enhanced_professional_theme.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            background-color: #121212;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 30px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header img {
+            height: 80px;
+            width: auto;
+            margin-bottom: 15px;
+        }
+        
+        .login-header h1 {
+            color: #00ff9d;
+            margin: 0;
+            font-size: 2rem;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+        }
+        
+        .login-form {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ffffff;
+            font-weight: 500;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            background-color: rgba(30, 30, 30, 0.8);
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 1rem;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .form-control:focus {
+            border-color: #00ff9d;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.2);
+            outline: none;
+        }
+        
+        .btn-login {
+            background-color: #00ff9d;
+            color: #121212;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            margin-top: 10px;
+        }
+        
+        .btn-login:hover {
+            background-color: #00cc7d;
+            transform: translateY(-2px);
+        }
+        
+        .btn-login:active {
+            transform: translateY(0);
+        }
+        
+        .login-footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        
+        .login-footer a {
+            color: #00ff9d;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        
+        .login-footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .error-message {
+            background-color: rgba(255, 51, 51, 0.1);
+            border-left: 3px solid #ff3333;
+            color: #ff3333;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .error-message i {
+            margin-right: 10px;
+            font-size: 1.2rem;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .input-group {
+            position: relative;
+        }
+        
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        
+        .toggle-password:hover {
+            color: #00ff9d;
+        }
+        
+        .alt-login {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        
+        .alt-login a {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            margin: 0 5px;
+            border-radius: 4px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.3s ease;
+        }
+        
+        .alt-login a:first-child {
+            background-color: #3498db;
+        }
+        
+        .alt-login a:last-child {
+            background-color: #e74c3c;
+        }
+        
+        .alt-login a:hover {
+            opacity: 0.9;
+        }
+        
+        .alt-login a i {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <img src="/static/img/logo.png" alt="AUTOBOT Logo">
+            <h1>AUTOBOT</h1>
+            <p style="color: #aaa; margin-top: 5px;">Trading and Automation Framework</p>
+        </div>
+        
+        {% if error %}
+        <div class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            <span>{{ error }}</span>
+        </div>
+        {% endif %}
+        
+        <form class="login-form" method="post" action="/login">
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <div class="input-group">
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Entrez votre nom d'utilisateur" required autocomplete="username">
+                    <span class="toggle-password" style="color: #00ff9d;">
+                        <i class="fas fa-user"></i>
+                    </span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <div class="input-group">
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Entrez votre mot de passe" required autocomplete="current-password">
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('password')">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="license_key">Clé de licence</label>
+                <div class="input-group">
+                    <input type="password" id="license_key" name="license_key" class="form-control" placeholder="Entrez votre clé d'authentification" required>
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('license_key')">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn-login">
+                <i class="fas fa-sign-in-alt"></i> SE CONNECTER
+            </button>
+        </form>
+        
+        <div class="alt-login">
+            <a href="/direct-login">
+                <i class="fas fa-bolt"></i> Connexion Directe
+            </a>
+            <a href="/simple-login">
+                <i class="fas fa-lock"></i> Connexion Simple
+            </a>
+        </div>
+        
+        <div class="login-footer">
+            <p>© 2025 AUTOBOT. Tous droits réservés.</p>
+            <p><a href="#">Mot de passe oublié?</a> | <a href="#">Besoin d'aide?</a></p>
+        </div>
+    </div>
+    
+    <script>
+        function togglePasswordVisibility(fieldId) {
+            const input = document.getElementById(fieldId);
+            const icon = input.nextElementSibling.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+    </script>
+    <script src="{{ url_for("static", path="js/fix_login_form.js") }}"></script>
+    <script src="/static/js/fix_login_form_method_direct.js"></script>
+    <script src="/static/js/fix_login_form_method_direct_v2.js"></script>
+
+    <script>
+        // Fallback JavaScript to handle form submission
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.querySelector('form.login-form') || document.querySelector('form');
+            if (loginForm) {
+                loginForm.setAttribute('method', 'post');
+                loginForm.setAttribute('action', '/login');
+                
+                loginForm.addEventListener('submit', function(event) {
+                    // Ensure form is submitted as POST
+                    if (loginForm.method.toLowerCase() !== 'post') {
+                        event.preventDefault();
+                        
+                        const formData = new FormData(loginForm);
+                        fetch('/login', {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'include'
+                        })
+                        .then(response => {
+                            if (response.ok || response.redirected) {
+                                window.location.href = '/dashboard/';
+                            } else {
+                                alert('Login failed. Please try again.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('An error occurred. Please try again.');
+                        });
+                    }
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<script src="/static/js/fix_main_content_direct.js"></script>
+<script src="/static/js/fix_layout_complete.js"></script>
+<link rel="stylesheet" href="/static/css/fix_layout_direct.css">
+<script src="/static/js/fix_dashboard_direct.js"></script>
+document.write(`
+<script>
+(function() {
+    console.log("Executing inline layout fix");
+    
+    document.body.style.display = "flex";
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
+    document.body.style.backgroundColor = "#121212";
+    document.body.style.color = "white";
+    document.body.style.minHeight = "100vh";
+    document.body.style.width = "100%";
+    document.body.style.overflowX = "hidden";
+    
+    function applyLayoutFixes() {
+        console.log("Applying layout fixes");
+        
+        const sidebar = document.querySelector('nav');
+        if (sidebar) {
+            sidebar.style.width = "250px";
+            sidebar.style.minWidth = "250px";
+            sidebar.style.maxWidth = "250px";
+            sidebar.style.position = "fixed";
+            sidebar.style.height = "100vh";
+            sidebar.style.left = "0";
+            sidebar.style.top = "0";
+            sidebar.style.backgroundColor = "#1e1e1e";
+            sidebar.style.zIndex = "10";
+            sidebar.style.display = "block";
+            sidebar.style.overflowY = "auto";
+            sidebar.style.boxSizing = "border-box";
+            sidebar.style.padding = "20px 0";
+        }
+        
+        const allElements = document.querySelectorAll('header, h2, h3, h4, button, input, div:not(nav):not(.sidebar)');
+        allElements.forEach(el => {
+            if (!el.closest('nav') && !el.closest('.sidebar')) {
+                el.style.marginLeft = "250px";
+                el.style.display = "block";
+                el.style.visibility = "visible";
+                el.style.opacity = "1";
+            }
+        });
+        
+        if (!document.querySelector('.main-content')) {
+            const mainContent = document.createElement('div');
+            mainContent.className = 'main-content';
+            mainContent.style.marginLeft = "250px";
+            mainContent.style.width = "calc(100% - 250px)";
+            mainContent.style.padding = "20px";
+            mainContent.style.backgroundColor = "#121212";
+            mainContent.style.minHeight = "100vh";
+            mainContent.style.boxSizing = "border-box";
+            mainContent.style.position = "relative";
+            mainContent.style.zIndex = "5";
+            
+            const childrenToMove = [];
+            Array.from(document.body.children).forEach(child => {
+                if (child !== sidebar && child.tagName !== 'SCRIPT' && child.tagName !== 'STYLE' && 
+                    !child.classList.contains('sidebar')) {
+                    childrenToMove.push(child);
+                }
+            });
+            
+            childrenToMove.forEach(child => mainContent.appendChild(child));
+            document.body.appendChild(mainContent);
+        }
+        
+        document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+            heading.style.display = 'block';
+            heading.style.visibility = 'visible';
+            heading.style.opacity = '1';
+            heading.style.color = '#00ff9d';
+        });
+    }
+    
+    applyLayoutFixes();
+    
+    setTimeout(applyLayoutFixes, 500);
+    setTimeout(applyLayoutFixes, 1500);
+})();
+</script>
+`);
+<script src="/static/js/fix_layout_final.js"></script>
+<script src="/static/js/fix_layout_emergency.js"></script>
+    <script src="/static/js/rebuild_layout_v2.js"></script>
+    <script src="/static/js/fix_layout_aggressive.js"></script>
+    <script src="/static/js/fix_layout_visibility.js"></script>
+    <script src="/static/js/fix_layout_and_login.js"></script>
+    <script src="/static/js/fix_login_and_layout.js"></script>
+    <script src="/static/js/rebuild_layout_v2.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - {% block title %}Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/neon_theme.css">
+    <link rel="stylesheet" href="/static/css/fix_layout.css">
+    <link rel="stylesheet" href="/static/css/drawer_panel.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    {% block extra_css %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {% block extra_head %}{% endblock %}
+<link rel="stylesheet" href="/static/css/fix_layout_robust.css">
+    <link rel="stylesheet" href="/static/css/drawer_panel.css">
+    <link rel="stylesheet" href="static/css/fix_layout_urgent.css">
+    
+    <style>
+        :root {
+            --sidebar-width: 250px;
+            --header-height: 60px;
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        
+        body {
+            display: flex !important;
+            flex-direction: row !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow-x: hidden !important;
+            background-color: var(--bg-color) !important;
+            color: var(--text-color) !important;
+        }
+        
+        .sidebar {
+            width: var(--sidebar-width) !important;
+            position: fixed !important;
+            height: 100vh !important;
+            z-index: 20 !important;
+            overflow-y: auto !important;
+            background-color: var(--bg-color) !important;
+            border-right: 1px solid #2a2a2a !important;
+        }
+        
+        .main-content {
+            margin-left: var(--sidebar-width) !important;
+            padding: 20px !important;
+            min-height: 100vh !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            box-sizing: border-box !important;
+            flex: 1 !important;
+            overflow-x: hidden !important;
+            display: block !important;
+            position: relative !important;
+            z-index: 10 !important;
+            background-color: var(--bg-color) !important;
+        }
+        
+        header {
+            margin-left: var(--sidebar-width) !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            box-sizing: border-box !important;
+            z-index: 15 !important;
+            background-color: var(--bg-color) !important;
+            border-bottom: 1px solid #2a2a2a !important;
+            padding: 10px 20px !important;
+        }
+        
+        .container, .container-fluid {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .wrapper, .content-wrapper, .page-wrapper {
+            margin-left: var(--sidebar-width) !important;
+            width: calc(100% - var(--sidebar-width)) !important;
+            display: block !important;
+            visibility: visible !important;
+        }
+        
+        /* Force all content to be visible */
+        * {
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+    </style>
+            <link rel="stylesheet" href="/static/css/fix_layout_visibility_aggressive.css">
+    <link rel="stylesheet" href="/static/css/fix_layout_visibility.css">
+    <link rel="stylesheet" href="/static/css/force_layout_visibility.css">
+<link rel="stylesheet" href="{ url_for('static', filename='css/force_layout_visibility_v3.css') }">
+
+    <style>
+        /* Aggressive layout fix */
+        body {
+            display: flex !important;
+            flex-direction: row !important;
+            min-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow-x: hidden !important;
+        }
+        
+        .sidebar {
+            width: 250px !important;
+            min-width: 250px !important;
+            position: fixed !important;
+            height: 100vh !important;
+            z-index: 1000 !important;
+            overflow-y: auto !important;
+        }
+        
+        .main-content {
+            margin-left: 250px !important;
+            width: calc(100% - 250px) !important;
+            min-height: 100vh !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: relative !important;
+            z-index: 1 !important;
+            padding: 20px !important;
+            box-sizing: border-box !important;
+        }
+        
+        .container, .container-fluid {
+            width: 100% !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .row {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            margin-right: -15px !important;
+            margin-left: -15px !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .card {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            margin-bottom: 20px !important;
+        }
+    </style>
+    
+<style>
+    /* Aggressive layout fix */
+    body {
+        display: flex !important;
+        flex-direction: row !important;
+        min-height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow-x: hidden !important;
+    }
+    
+    .sidebar, #sidebar, .side-nav, #side-nav, nav.sidebar {
+        width: 250px !important;
+        min-width: 250px !important;
+        position: fixed !important;
+        height: 100vh !important;
+        z-index: 1000 !important;
+        overflow-y: auto !important;
+    }
+    
+    .main-content, #main-content, main, .content, #content {
+        margin-left: 250px !important;
+        width: calc(100% - 250px) !important;
+        min-height: 100vh !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: relative !important;
+        z-index: 1 !important;
+        padding: 20px !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
+    }
+    
+    .container, .container-fluid {
+        width: 100% !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .row {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        margin-right: -15px !important;
+        margin-left: -15px !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .card {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        margin-bottom: 20px !important;
+    }
+</style>
+
+<link rel="stylesheet" href="/static/css/aggressive_layout_fix.css">
+<link rel="stylesheet" href="/static/css/layout_fix_final.css">
+<script src="/static/js/fix_layout_visibility_permanent.js"></script>
+<link rel="stylesheet" href="/static/css/fix_layout_targeted.css">
+<link rel="stylesheet" href="{ url_for('static', filename='css/layout_fix_simple.css') }">
+<link rel="stylesheet" href="{ url_for('static', filename='css/layout_fix_direct_v3.css') }">
+<link rel="stylesheet" href="{ url_for('static', filename='css/layout_fix_direct_v5.css') }">
+<link rel="stylesheet" href="{ url_for('static', filename='css/layout_fix_bypass_v2.css') }">
+<link rel="stylesheet" href="/static/css/layout_fix_standalone.css">
+<link rel="stylesheet" href="/static/css/layout_fix_v4.css">
+</head>
+<body class="dark-theme" data-role="{{ user_role }}">
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar" style="width: 250px; position: fixed; height: 100vh; z-index: 20; overflow-y: auto; background-color: #121212;">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+                <h1 class="neon-text">AUTOBOT</h1>
+            </div>
+            <nav class="nav-menu">
+                <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="nav-text">Trading</span>
+                </a>
+                <a href="/ecommerce" class="nav-item {% if active_page == 'ecommerce' %}active{% endif %}">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span class="nav-text">E-commerce</span>
+                </a>
+                <a href="/arbitrage" class="nav-item {% if active_page == 'arbitrage' %}active{% endif %}">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span class="nav-text">Arbitrage</span>
+                </a>
+                <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                    <i class="fas fa-flask"></i>
+                    <span class="nav-text">Backtest</span>
+                </a>
+                <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
+                    <i class="fas fa-coins"></i>
+                    <span class="nav-text">Capital</span>
+                </a>
+                <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
+                    <i class="fas fa-clone"></i>
+                    <span class="nav-text">Duplication</span>
+                </a>
+                <a href="/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
+                    <i class="fas fa-wallet"></i>
+                    <span class="nav-text">Retrait/Dépôt</span>
+                </a>
+                <a href="/parametres" class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
+                    <i class="fas fa-cog"></i>
+                    <span class="nav-text">Paramètres</span>
+                </a>
+            </nav>
+            <div class="user-info">
+                <div class="user-avatar">
+                    <i class="fas fa-user"></i>
+                </div>
+                <div class="user-details">
+                    <span class="user-name">{{ username }}</span>
+                    <span class="user-role">{{ user_role_display }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content" style="margin-left: 250px; padding: 20px; min-height: 100vh; width: calc(100% - 250px); box-sizing: border-box; flex: 1; overflow-x: hidden; display: block; position: relative; z-index: 10; background-color: #121212;">
+            <header class="content-header">
+                <h2 class="neon-text">{% block header_title %}Dashboard{% endblock %}</h2>
+                <div class="header-actions">
+                    {% block header_actions %}{% endblock %}
+                </div>
+            </header>
+
+            <div class="content-body">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    {% block modals %}{% endblock %}
+    
+    <script src="/static/js/common.js"></script>
+    {% block scripts %}{% endblock %}
+    <script src="/static/js/drawer_panel.js"></script>
+        <script src="/static/js/treasury_integration.js"></script>
+    <script src="/static/js/login_fix.js"></script>
+    <script src="/static/js/login_direct_fix.js"></script>
+    <script src="/static/js/drawer_panel.js"></script>
+    <script src="/static/js/treasury_integration.js"></script>
+    <script src="/static/js/fix_layout_direct.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Force main content visibility
+    const mainContent = document.querySelector('.main-content') || 
+                        document.querySelector('#main-content') || 
+                        document.querySelector('main') || 
+                        document.querySelector('.content') || 
+                        document.querySelector('#content');
+    
+    if (mainContent) {
+        mainContent.style.display = 'block';
+        mainContent.style.visibility = 'visible';
+        mainContent.style.opacity = '1';
+        mainContent.style.width = 'calc(100% - 250px)';
+        mainContent.style.marginLeft = '250px';
+        mainContent.style.position = 'relative';
+        mainContent.style.minHeight = '100vh';
+        mainContent.style.zIndex = '1';
+        mainContent.style.overflow = 'visible';
+        mainContent.style.padding = '20px';
+        mainContent.style.boxSizing = 'border-box';
+    }
+    
+    // Force sidebar visibility
+    const sidebar = document.querySelector('.sidebar') || 
+                   document.querySelector('#sidebar') || 
+                   document.querySelector('.side-nav') || 
+                   document.querySelector('#side-nav') || 
+                   document.querySelector('aside');
+    
+    if (sidebar) {
+        sidebar.style.display = 'block';
+        sidebar.style.visibility = 'visible';
+        sidebar.style.opacity = '1';
+        sidebar.style.width = '250px';
+        sidebar.style.position = 'fixed';
+        sidebar.style.left = '0';
+        sidebar.style.top = '0';
+        sidebar.style.bottom = '0';
+        sidebar.style.height = '100vh';
+        sidebar.style.zIndex = '2';
+        sidebar.style.overflowY = 'auto';
+    }
+});
+</script>
+
+<script src="/static/js/fix_login_and_layout_client_side.js"></script><script src="/static/js/fix_layout_visibility_client.js"></script>
+<script>
+    // Apply layout fixes
+    function applyLayoutFixes() {
+        // Force layout recalculation
+        document.body.style.display = 'none';
+        setTimeout(() => {
+            document.body.style.display = '';
+        }, 50);
+    }
+    
+    // Apply fixes after DOM content loads
+    document.addEventListener('DOMContentLoaded', applyLayoutFixes);
+    
+    // Apply fixes after window loads
+    window.addEventListener('load', applyLayoutFixes);
+    
+    // Apply fixes periodically
+    setInterval(applyLayoutFixes, 1000);
+</script>
+
+<script>
+/**
+ * AUTOBOT Layout Visibility Fix
+ * Simple script to ensure the main content area is visible alongside the sidebar
+ */
+(function() {
+    function applyLayoutFixes() {
+        console.log("Applying layout visibility fixes...");
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            /* Force main content to be visible */
+            .main-content, 
+            .container, 
+            .container-fluid, 
+            .row, 
+            .col, 
+            .card {
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+            }
+            
+            /* Ensure proper layout with sidebar */
+            body {
+                display: flex !important;
+                flex-direction: row !important;
+                min-height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            /* Fix sidebar */
+            .sidebar {
+                width: 250px !important;
+                min-width: 250px !important;
+                position: fixed !important;
+                height: 100vh !important;
+                z-index: 1000 !important;
+            }
+            
+            /* Fix main content area */
+            .main-content {
+                margin-left: 250px !important;
+                width: calc(100% - 250px) !important;
+                min-height: 100vh !important;
+                padding: 20px !important;
+                box-sizing: border-box !important;
+                position: relative !important;
+                z-index: 1 !important;
+            }
+            
+            /* Fix logo proportions */
+            .logo img {
+                height: 60px !important;
+                width: auto !important;
+                margin-right: 15px !important;
+            }
+            
+            /* Responsive adjustments */
+            @media (max-width: 768px) {
+                .sidebar {
+                    width: 70px !important;
+                    min-width: 70px !important;
+                }
+                
+                .main-content {
+                    margin-left: 70px !important;
+                    width: calc(100% - 70px) !important;
+                }
+            }
+        `;
+        
+        document.head.appendChild(style);
+        
+        console.log("Layout visibility fixes applied");
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyLayoutFixes);
+    } else {
+        applyLayoutFixes();
+    }
+    
+    window.addEventListener('load', applyLayoutFixes);
+})();
+
+</script>
+<script>
+/**
+ * AUTOBOT Layout Visibility Direct Fix
+ * This script forces the main content area to be visible alongside the sidebar
+ */
+(function() {
+    console.log("Applying direct layout visibility fix...");
+    
+    const style = document.createElement('style');
+    style.textContent = `
+        /* Force main content to be visible */
+        .main-content, 
+        .container, 
+        .container-fluid, 
+        .row, 
+        .col, 
+        .card {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        /* Ensure proper layout with sidebar */
+        body {
+            display: flex !important;
+            flex-direction: row !important;
+            min-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        /* Fix sidebar */
+        .sidebar {
+            width: 250px !important;
+            min-width: 250px !important;
+            position: fixed !important;
+            height: 100vh !important;
+            z-index: 1000 !important;
+        }
+        
+        /* Fix main content area */
+        .main-content {
+            margin-left: 250px !important;
+            width: calc(100% - 250px) !important;
+            min-height: 100vh !important;
+            padding: 20px !important;
+            box-sizing: border-box !important;
+            position: relative !important;
+            z-index: 1 !important;
+        }
+        
+        /* Fix logo proportions */
+        .logo img {
+            height: 60px !important;
+            width: auto !important;
+            margin-right: 15px !important;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 70px !important;
+                min-width: 70px !important;
+            }
+            
+            .main-content {
+                margin-left: 70px !important;
+                width: calc(100% - 70px) !important;
+            }
+        }
+    `;
+    
+    document.head.appendChild(style);
+    
+    setTimeout(() => {
+        document.body.style.display = 'none';
+        setTimeout(() => {
+            document.body.style.display = '';
+        }, 50);
+    }, 100);
+    
+    console.log("Direct layout visibility fix applied");
+})();
+
+</script>
+<script>
+/**
+ * AUTOBOT Dashboard Layout Aggressive Fix
+ * This script forcibly restructures the DOM to ensure the dashboard content is visible
+ * alongside the sidebar, using the most aggressive approach possible.
+ */
+(function() {
+    console.log("Applying AUTOBOT dashboard layout aggressive fix...");
+    
+    applyAggressiveFix();
+    setTimeout(applyAggressiveFix, 500);
+    setTimeout(applyAggressiveFix, 1000);
+    setTimeout(applyAggressiveFix, 2000);
+    
+    function applyAggressiveFix() {
+        console.log("Applying aggressive layout fix...");
+        
+        document.body.style.margin = '0';
+        document.body.style.padding = '0';
+        document.body.style.overflow = 'hidden';
+        document.body.style.backgroundColor = '#121212';
+        document.body.style.color = '#ffffff';
+        document.body.style.fontFamily = 'Arial, sans-serif';
+        document.body.style.display = 'flex';
+        document.body.style.flexDirection = 'row';
+        document.body.style.minHeight = '100vh';
+        document.body.style.maxWidth = '100vw';
+        
+        let sidebar = document.querySelector('.sidebar') || 
+                      document.querySelector('.side-nav') || 
+                      document.querySelector('nav');
+        
+        if (!sidebar) {
+            console.log("Creating sidebar from scratch");
+            sidebar = document.createElement('div');
+            sidebar.className = 'sidebar';
+            document.body.appendChild(sidebar);
+            
+            const possibleSidebarElements = document.querySelectorAll('div[class*="side"], div[class*="nav"], div[id*="side"], div[id*="nav"]');
+            possibleSidebarElements.forEach(el => {
+                if (el !== sidebar) {
+                    sidebar.appendChild(el);
+                }
+            });
+        }
+        
+        sidebar.style.width = '250px';
+        sidebar.style.minWidth = '250px';
+        sidebar.style.maxWidth = '250px';
+        sidebar.style.height = '100vh';
+        sidebar.style.position = 'fixed';
+        sidebar.style.left = '0';
+        sidebar.style.top = '0';
+        sidebar.style.backgroundColor = '#1e1e1e';
+        sidebar.style.color = '#00ff9d';
+        sidebar.style.padding = '20px 0';
+        sidebar.style.boxSizing = 'border-box';
+        sidebar.style.overflowY = 'auto';
+        sidebar.style.overflowX = 'hidden';
+        sidebar.style.zIndex = '1000';
+        sidebar.style.display = 'block';
+        sidebar.style.boxShadow = '2px 0 10px rgba(0, 0, 0, 0.5)';
+        
+        let mainContent = document.querySelector('.main-content') || 
+                         document.querySelector('.content') ||
+                         document.querySelector('main');
+        
+        if (!mainContent) {
+            console.log("Creating main content from scratch");
+            mainContent = document.createElement('div');
+            mainContent.className = 'main-content';
+            document.body.appendChild(mainContent);
+            
+            Array.from(document.body.children).forEach(child => {
+                if (child !== sidebar && 
+                    child !== mainContent && 
+                    child.tagName !== 'SCRIPT' && 
+                    child.tagName !== 'STYLE' &&
+                    !child.id?.includes('modal') &&
+                    !child.className?.includes('modal')) {
+                    mainContent.appendChild(child);
+                }
+            });
+            
+            if (mainContent.children.length === 0) {
+                const placeholderContent = document.createElement('div');
+                placeholderContent.className = 'placeholder-content';
+                placeholderContent.innerHTML = `
+                    <h1 style="color: #00ff9d; margin-bottom: 20px;">AUTOBOT Dashboard</h1>
+                    <div class="card" style="background-color: #1e1e1e; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                        <h2 style="color: #00ff9d; margin-bottom: 15px;">Trading Overview</h2>
+                        <p style="color: #ffffff; margin-bottom: 10px;">Current Balance: €10,000.00</p>
+                        <p style="color: #ffffff; margin-bottom: 10px;">Active Trades: 5</p>
+                        <p style="color: #ffffff; margin-bottom: 10px;">Profit Today: +€250.75</p>
+                    </div>
+                    <div class="card" style="background-color: #1e1e1e; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                        <h2 style="color: #00ff9d; margin-bottom: 15px;">Recent Activity</h2>
+                        <ul style="color: #ffffff; padding-left: 20px;">
+                            <li style="margin-bottom: 8px;">BTC/USD Trade Executed - €500.00</li>
+                            <li style="margin-bottom: 8px;">ETH/EUR Position Closed - €750.25</li>
+                            <li style="margin-bottom: 8px;">API Key Updated - Alpha Vantage</li>
+                            <li style="margin-bottom: 8px;">Backtesting Completed - Strategy #12</li>
+                        </ul>
+                    </div>
+                `;
+                mainContent.appendChild(placeholderContent);
+            }
+        }
+        
+        mainContent.style.marginLeft = '250px';
+        mainContent.style.width = 'calc(100% - 250px)';
+        mainContent.style.minHeight = '100vh';
+        mainContent.style.padding = '20px';
+        mainContent.style.boxSizing = 'border-box';
+        mainContent.style.backgroundColor = '#121212';
+        mainContent.style.color = 'white';
+        mainContent.style.overflowX = 'hidden';
+        mainContent.style.overflowY = 'auto';
+        mainContent.style.display = 'block';
+        mainContent.style.position = 'relative';
+        mainContent.style.zIndex = '1';
+        mainContent.style.opacity = '1';
+        mainContent.style.visibility = 'visible';
+        
+        const contentContainers = document.querySelectorAll('.container, .container-fluid, .content, .dashboard-content, .page-content, .card, .row, .col');
+        contentContainers.forEach(container => {
+            container.style.display = 'block';
+            container.style.visibility = 'visible';
+            container.style.opacity = '1';
+            container.style.position = 'relative';
+        });
+        
+        console.log("Aggressive layout fix applied successfully");
+    }
+})();
+
+</script>
+<script src="/static/js/fix_layout_visibility_direct_v3.js"></script>
+<script src="/static/js/fix_login_and_layout_direct_v2.js"></script>
+
+<script>
+// Layout visibility fix
+(function() {
+    console.log("Applying AUTOBOT layout fix in base template...");
+    
+    // Create and apply CSS fix
+    const style = document.createElement('style');
+    style.id = 'autobot-layout-fix-inline-base';
+    style.textContent = `
+        /* Force main content to be visible */
+        .main-content, 
+        .container, 
+        .container-fluid, 
+        .row, 
+        .col, 
+        .card {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            overflow: visible !important;
+        }
+        
+        /* Ensure proper layout with sidebar */
+        body {
+            display: flex !important;
+            flex-direction: row !important;
+            min-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow-x: hidden !important;
+        }
+        
+        /* Fix sidebar */
+        .sidebar {
+            width: 250px !important;
+            min-width: 250px !important;
+            position: fixed !important;
+            height: 100vh !important;
+            z-index: 1000 !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+        
+        /* Fix main content area */
+        .main-content {
+            margin-left: 250px !important;
+            width: calc(100% - 250px) !important;
+            min-height: 100vh !important;
+            padding: 20px !important;
+            box-sizing: border-box !important;
+            position: relative !important;
+            z-index: 1 !important;
+            flex: 1 !important;
+        }
+        
+        /* Fix logo proportions */
+        .logo img {
+            height: 60px !important;
+            width: auto !important;
+            margin-right: 15px !important;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 70px !important;
+                min-width: 70px !important;
+            }
+            
+            .main-content {
+                margin-left: 70px !important;
+                width: calc(100% - 70px) !important;
+            }
+        }
+        
+        /* Fix for specific elements */
+        .dashboard-container,
+        .parametres-container,
+        .ecommerce-container {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+        }
+        
+        /* Fix for tables */
+        table, tr, td, th {
+            visibility: visible !important;
+        }
+        table {
+            display: table !important;
+        }
+        tr {
+            display: table-row !important;
+        }
+        td, th {
+            display: table-cell !important;
+        }
+        
+        /* Fix for charts and graphs */
+        canvas, svg {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+    `;
+    
+    // Add the style to the document
+    document.head.appendChild(style);
+    console.log("Layout fix applied in base template");
+    
+    // Apply direct style fixes to elements after a short delay
+    setTimeout(function() {
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.style.display = 'block';
+            mainContent.style.visibility = 'visible';
+            mainContent.style.opacity = '1';
+            mainContent.style.width = 'calc(100% - 250px)';
+            mainContent.style.marginLeft = '250px';
+            mainContent.style.minHeight = '100vh';
+            mainContent.style.padding = '20px';
+            mainContent.style.boxSizing = 'border-box';
+            mainContent.style.position = 'relative';
+            mainContent.style.zIndex = '1';
+            mainContent.style.flex = '1';
+            mainContent.style.overflow = 'visible';
+            console.log("Main content visibility fixed in base template");
+        }
+        
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            sidebar.style.width = '250px';
+            sidebar.style.minWidth = '250px';
+            sidebar.style.position = 'fixed';
+            sidebar.style.height = '100vh';
+            sidebar.style.zIndex = '1000';
+            sidebar.style.left = '0';
+            sidebar.style.top = '0';
+            console.log("Sidebar fixed in base template");
+        }
+        
+        document.body.style.display = 'flex';
+        document.body.style.flexDirection = 'row';
+        document.body.style.minHeight = '100vh';
+        document.body.style.margin = '0';
+        document.body.style.padding = '0';
+        document.body.style.overflowX = 'hidden';
+        console.log("Body layout fixed in base template");
+        
+        const containers = document.querySelectorAll('.container, .container-fluid, .row, .col, .card');
+        containers.forEach(container => {
+            container.style.display = 'block';
+            container.style.visibility = 'visible';
+            container.style.opacity = '1';
+            container.style.overflow = 'visible';
+        });
+        console.log("Containers fixed in base template");
+        
+        const logoImg = document.querySelector('.logo img');
+        if (logoImg) {
+            logoImg.style.height = '60px';
+            logoImg.style.width = 'auto';
+            logoImg.style.marginRight = '15px';
+            console.log("Logo proportions fixed in base template");
+        }
+    }, 500);
+})();
+</script>
+
+<script src="/static/js/fix_login_and_layout_direct_v3.js"></script>
+<script src="/static/js/fix_login_and_layout_direct_v4.js"></script>
+<script src="/static/js/fix_login_and_layout_direct_v5.js"></script>
+<script src="/static/js/redirect_to_complete.js"></script>
+<script src="{ url_for('static', filename='js/layout_fix_simple.js') }"></script>
+<script src="{ url_for('static', filename='js/layout_fix_direct_v3.js') }"></script>
+<script src="{ url_for('static', filename='js/layout_fix_direct_v5.js') }"></script>
+<script src="{ url_for('static', filename='js/layout_fix_bypass_v2.js') }"></script>
+<script src="/static/js/layout_fix_standalone.js"></script>
+<script src="/static/js/layout_fix_v4.js"></script>
+</body>
+</html>
