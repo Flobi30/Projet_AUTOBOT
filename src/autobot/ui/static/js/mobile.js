@@ -5,13 +5,9 @@
 
 document.addEventListener('DOMContentLoaded', function() {
   initMobileNav();
-  
   initCollapsibleSections();
-  
   handleOrientationChanges();
-  
   initMobileCharts();
-  
   initTouchGestures();
 });
 
@@ -19,22 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
  * Initialize mobile navigation
  */
 function initMobileNav() {
-  const menuToggle = document.querySelector('.menu-toggle');
-  const navMenu = document.querySelector('.nav-menu');
-  
-  if (menuToggle && navMenu) {
-    menuToggle.addEventListener('click', function() {
-      navMenu.classList.toggle('active');
-      menuToggle.classList.toggle('active');
-    });
-    
-    document.addEventListener('click', function(event) {
-      if (!navMenu.contains(event.target) && !menuToggle.contains(event.target)) {
-        navMenu.classList.remove('active');
-        menuToggle.classList.remove('active');
-      }
-    });
-  }
+  // Removed menu-toggle functionality since mobile templates use direct navigation
   
   const bottomNavItems = document.querySelectorAll('.bottom-nav-item');
   
@@ -55,13 +36,14 @@ function initCollapsibleSections() {
   collapsibleHeaders.forEach(header => {
     header.addEventListener('click', function() {
       const content = this.nextElementSibling;
+      const isActive = this.classList.contains('active');
       
-      this.classList.toggle('active');
-      
-      if (content.style.maxHeight) {
+      if (isActive) {
+        this.classList.remove('active');
         content.style.maxHeight = null;
       } else {
-        content.style.maxHeight = content.scrollHeight + 'px';
+        this.classList.add('active');
+        content.style.maxHeight = content.scrollHeight + "px";
       }
     });
   });
@@ -73,124 +55,90 @@ function initCollapsibleSections() {
 function handleOrientationChanges() {
   window.addEventListener('orientationchange', function() {
     setTimeout(function() {
-      if (window.autobotCharts) {
-        Object.values(window.autobotCharts).forEach(chart => {
-          if (chart && typeof chart.resize === 'function') {
-            chart.resize();
-          }
+      if (window.Chart) {
+        Chart.helpers.each(Chart.instances, function(instance) {
+          instance.resize();
         });
       }
-      
-      adjustUIForOrientation();
-    }, 200);
+    }, 500);
   });
 }
 
 /**
- * Adjust UI elements based on orientation
- */
-function adjustUIForOrientation() {
-  const isLandscape = window.innerWidth > window.innerHeight;
-  const dashboardPanels = document.querySelectorAll('.dashboard-panel');
-  
-  if (isLandscape) {
-    const panelGrid = document.querySelector('.panel-grid');
-    if (panelGrid) {
-      panelGrid.style.flexDirection = 'row';
-      panelGrid.style.flexWrap = 'wrap';
-    }
-    
-    dashboardPanels.forEach(panel => {
-      panel.style.width = 'calc(50% - 10px)';
-    });
-  } else {
-    const panelGrid = document.querySelector('.panel-grid');
-    if (panelGrid) {
-      panelGrid.style.flexDirection = 'column';
-    }
-    
-    dashboardPanels.forEach(panel => {
-      panel.style.width = '100%';
-    });
-  }
-}
-
-/**
- * Initialize mobile-specific charts
- * Simplifies charts for better mobile performance
+ * Initialize mobile-optimized charts
  */
 function initMobileCharts() {
-  if (!window.autobotCharts) return;
+  if (typeof Chart !== 'undefined') {
+    Chart.defaults.responsive = true;
+    Chart.defaults.maintainAspectRatio = false;
+    
+    Chart.defaults.plugins.legend.display = false;
+    Chart.defaults.elements.point.radius = 2;
+    Chart.defaults.elements.line.borderWidth = 1;
+  }
+}
+
+/**
+ * Initialize touch gestures
+ */
+function initTouchGestures() {
+  let startY = 0;
+  let currentY = 0;
+  let isScrolling = false;
   
-  Object.values(window.autobotCharts).forEach(chart => {
-    if (chart && chart.options) {
-      if (chart.options.animation) {
-        chart.options.animation.duration = 0;
-      }
-      
-      if (chart.options.tooltips) {
-        chart.options.tooltips.enabled = false;
-        chart.options.tooltips.intersect = false;
-      }
-      
-      if (chart.data && chart.data.datasets) {
-        chart.data.datasets.forEach(dataset => {
-          if (dataset.pointRadius) {
-            dataset.pointRadius = 2;
-          }
-          if (dataset.pointHoverRadius) {
-            dataset.pointHoverRadius = 3;
-          }
-        });
-      }
-      
-      chart.update();
+  document.addEventListener('touchstart', function(e) {
+    startY = e.touches[0].clientY;
+    isScrolling = false;
+  }, { passive: true });
+  
+  document.addEventListener('touchmove', function(e) {
+    currentY = e.touches[0].clientY;
+    
+    if (Math.abs(currentY - startY) > 10) {
+      isScrolling = true;
     }
+  }, { passive: true });
+  
+  document.addEventListener('touchend', function(e) {
+    if (!isScrolling) {
+      const target = e.target.closest('.card, .metric-card');
+      if (target) {
+        target.classList.add('touch-feedback');
+        setTimeout(() => {
+          target.classList.remove('touch-feedback');
+        }, 150);
+      }
+    }
+  }, { passive: true });
+}
+
+/**
+ * Mobile-specific form handling
+ */
+function initMobileFormHandling() {
+  const forms = document.querySelectorAll('form');
+  
+  forms.forEach(form => {
+    form.addEventListener('submit', function(e) {
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Envoi en cours...';
+        
+        setTimeout(() => {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Sauvegarder';
+        }, 2000);
+      }
+    });
   });
 }
 
 /**
- * Initialize touch gestures for mobile
+ * Initialize mobile-specific features
  */
-function initTouchGestures() {
-  let touchStartX = 0;
-  let touchEndX = 0;
-  
-  document.addEventListener('touchstart', function(event) {
-    touchStartX = event.changedTouches[0].screenX;
-  }, false);
-  
-  document.addEventListener('touchend', function(event) {
-    touchEndX = event.changedTouches[0].screenX;
-    handleSwipe();
-  }, false);
-  
-  function handleSwipe() {
-    const swipeThreshold = 100;
-    
-    if (touchEndX < touchStartX - swipeThreshold) {
-      const nextTab = document.querySelector('.tab.active').nextElementSibling;
-      if (nextTab) {
-        switchTab(nextTab.dataset.tab);
-      }
-    }
-    
-    if (touchEndX > touchStartX + swipeThreshold) {
-      const prevTab = document.querySelector('.tab.active').previousElementSibling;
-      if (prevTab) {
-        switchTab(prevTab.dataset.tab);
-      }
-    }
-  }
-  
-  function switchTab(tabId) {
-    const tabs = document.querySelectorAll('.tab');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    tabs.forEach(tab => tab.classList.remove('active'));
-    tabContents.forEach(content => content.classList.remove('active'));
-    
-    document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
-    document.querySelector(`.tab-content[data-tab="${tabId}"]`).classList.add('active');
-  }
+if (window.innerWidth <= 768) {
+  document.addEventListener('DOMContentLoaded', function() {
+    initMobileFormHandling();
+  });
 }
