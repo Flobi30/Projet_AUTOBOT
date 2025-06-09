@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Accès Direct</title>
+    <style>
+        :root {
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .login-container {
+            background-color: var(--card-bg-color);
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2);
+            padding: 30px;
+            width: 400px;
+            max-width: 90%;
+            text-align: center;
+        }
+        
+        .logo {
+            color: var(--primary-color);
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+        }
+        
+        .subtitle {
+            color: #aaa;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        
+        .input-container {
+            position: relative;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #333;
+            border-radius: 5px;
+            background-color: #2a2a2a;
+            color: white;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.2);
+        }
+        
+        .icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary-color);
+            cursor: pointer;
+        }
+        
+        .btn {
+            background-color: var(--primary-color);
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: #00cc7d;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+        }
+        
+        .btn-secondary {
+            background-color: #2196F3;
+            margin-top: 10px;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #0b7dda;
+            box-shadow: 0 0 10px rgba(33, 150, 243, 0.5);
+        }
+        
+        .btn-tertiary {
+            background-color: #e53935;
+            margin-top: 10px;
+        }
+        
+        .btn-tertiary:hover {
+            background-color: #c62828;
+            box-shadow: 0 0 10px rgba(229, 57, 53, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">AUTOBOT</div>
+        <div class="subtitle">Trading and Automation Framework</div>
+        
+        <form id="directLoginForm">
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <div class="input-container">
+                    <input type="text" id="username" name="username" value="AUTOBOT" required>
+                    <span class="icon">👤</span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <div class="input-container">
+                    <input type="password" id="password" name="password" value="333333Aesnpr54&" required>
+                    <span class="icon" onclick="togglePassword()">👁️</span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="license_key">Clé de licence</label>
+                <div class="input-container">
+                    <input type="text" id="license_key" name="license_key" value="AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx" required>
+                    <span class="icon">🔑</span>
+                </div>
+            </div>
+            
+            <button type="button" class="btn" onclick="directAccess()">SE CONNECTER</button>
+            <button type="button" class="btn btn-secondary" onclick="bypassAccess()">Connexion Directe</button>
+            <button type="button" class="btn btn-tertiary" onclick="simpleAccess()">Connexion Simple</button>
+        </form>
+    </div>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+            } else {
+                passwordInput.type = 'password';
+            }
+        }
+        
+        function directAccess() {
+            // Create a form and submit directly to /dashboard
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/dashboard';
+            
+            // Add hidden fields for credentials
+            const username = document.createElement('input');
+            username.type = 'hidden';
+            username.name = 'username';
+            username.value = document.getElementById('username').value;
+            form.appendChild(username);
+            
+            const password = document.createElement('input');
+            password.type = 'hidden';
+            password.name = 'password';
+            password.value = document.getElementById('password').value;
+            form.appendChild(password);
+            
+            const licenseKey = document.createElement('input');
+            licenseKey.type = 'hidden';
+            licenseKey.name = 'license_key';
+            licenseKey.value = document.getElementById('license_key').value;
+            form.appendChild(licenseKey);
+            
+            // Add to body and submit
+            document.body.appendChild(form);
+            form.submit();
+        }
+        
+        function bypassAccess() {
+            // Direct access to dashboard with token in URL
+            window.location.href = '/dashboard?access_token=AUTOBOT_DIRECT_ACCESS_TOKEN';
+        }
+        
+        function simpleAccess() {
+            // Simple access via cookie setting
+            document.cookie = "access_token=AUTOBOT_DIRECT_ACCESS_TOKEN; path=/";
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>

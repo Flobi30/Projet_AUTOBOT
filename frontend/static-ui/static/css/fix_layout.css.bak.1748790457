@@ -1,0 +1,102 @@
+
+/* Fix Layout CSS - Ensures main content is visible */
+:root {
+    --sidebar-width: 250px;
+    --header-height: 60px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+    --border-color: #333333;
+}
+
+/* Layout Container */
+.layout-container {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: var(--sidebar-width);
+    position: fixed;
+    height: 100vh;
+    background-color: var(--card-bg-color);
+    border-right: 1px solid var(--border-color);
+    z-index: 100;
+    overflow-y: auto;
+}
+
+/* Main Content Area - Critical Fix */
+.main-content {
+    margin-left: var(--sidebar-width) !important;
+    padding: 20px;
+    min-height: 100vh;
+    width: calc(100% - var(--sidebar-width)) !important;
+    box-sizing: border-box;
+    flex: 1;
+    overflow-x: hidden;
+    display: block !important;
+    position: relative;
+    z-index: 10;
+}
+
+/* Header */
+.header {
+    height: var(--header-height);
+    background-color: var(--card-bg-color);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+/* Content Wrapper */
+.content-wrapper {
+    padding: 20px;
+    display: block !important;
+    width: 100% !important;
+}
+
+/* Card Styles */
+.card {
+    background-color: var(--card-bg-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: block !important;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+    
+    .sidebar.active {
+        transform: translateX(0);
+    }
+    
+    .main-content {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+}
+
+/* Fix for any conflicting styles */
+    display: block !important;
+    width: 100% !important;
+}
+
+/* Ensure all content is visible */
+body, html {
+    overflow-x: hidden;
+}

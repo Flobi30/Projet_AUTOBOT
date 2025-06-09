@@ -1,0 +1,65 @@
+/* Fix for layout issues - ensures main content is visible */
+:root {
+    --sidebar-width: 250px;
+    --header-height: 60px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+}
+
+/* Main Content Area - Force display */
+
+.main-content {
+    margin-left: var(--sidebar-width) !important;
+    padding: 20px !important;
+    min-height: 100vh !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    box-sizing: border-box !important;
+    flex: 1 !important;
+    overflow-x: hidden !important;
+    display: block !important;
+    position: relative !important;
+    z-index: 10 !important;
+    background-color: var(--bg-color) !important;
+}
+
+/* Ensure sidebar doesn't overlap content */
+.sidebar {
+    width: var(--sidebar-width) !important;
+    position: fixed !important;
+    height: 100vh !important;
+    z-index: 20 !important;
+    overflow-y: auto !important;
+}
+
+/* Fix for header positioning */
+header {
+    margin-left: var(--sidebar-width) !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    box-sizing: border-box !important;
+    z-index: 15 !important;
+}
+
+/* Fix for any container that might be hiding content */
+.container, .container-fluid {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure all content is visible */
+body {
+    overflow-x: hidden !important;
+    background-color: var(--bg-color) !important;
+}
+
+/* Fix for any wrapper elements */
+.wrapper, .content-wrapper, .page-wrapper {
+    margin-left: var(--sidebar-width) !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    display: block !important;
+    visibility: visible !important;
+}

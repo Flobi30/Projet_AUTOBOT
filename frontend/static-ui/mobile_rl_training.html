@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AUTOBOT - RL Training Mobile</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="mobile-container">
+        <!-- Header -->
+        <header class="mobile-header">
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li><a href="/mobile"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+                    <li><a href="/mobile/trading"><i class="fas fa-exchange-alt"></i> Trading</a></li>
+                    <li><a href="/mobile/ecommerce"><i class="fas fa-shopping-cart"></i> E-commerce</a></li>
+                    <li><a href="/mobile/rl-training" class="active"><i class="fas fa-brain"></i> RL Training</a></li>
+                    <li><a href="/mobile/settings"><i class="fas fa-cog"></i> Settings</a></li>
+                    <li><a href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Training Status -->
+            <section class="collapsible-section">
+                <div class="collapsible-header active">
+                    <h2><i class="fas fa-brain"></i> Training Status</h2>
+                </div>
+                <div class="collapsible-content" style="max-height: 500px;">
+                    <div class="training-status">
+                        <div class="status-card">
+                            <div class="status-header">
+                                <h3>Current Model: PPO Agent</h3>
+                                <span class="status-badge training">Training</span>
+                            </div>
+                            <div class="status-metrics">
+                                <div class="metric-item">
+                                    <span class="metric-label">Episodes</span>
+                                    <span class="metric-value">245/1000</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Reward</span>
+                                    <span class="metric-value">+1,245.32</span>
+                                </div>
+                                <div class="metric-item">
+                                    <span class="metric-label">Win Rate</span>
+                                    <span class="metric-value">68%</span>
+                                </div>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: 24.5%"></div>
+                                <span class="progress-text">24.5% Complete</span>
+                            </div>
+                            <div class="status-actions">
+                                <button class="btn btn-danger btn-sm"><i class="fas fa-stop"></i> Stop</button>
+                                <button class="btn btn-warning btn-sm"><i class="fas fa-pause"></i> Pause</button>
+                                <button class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Save</button>
+                            </div>
+                        </div>
+                        
+                        <div class="training-chart-container">
+                            <canvas id="rewardChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Model Configuration -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-sliders-h"></i> Model Configuration</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="model-config-form">
+                        <div class="form-group">
+                            <label for="modelType">Model Type</label>
+                            <select id="modelType" class="form-control">
+                                <option value="ppo" selected>PPO Agent</option>
+                                <option value="dqn">DQN Agent</option>
+                                <option value="a2c">A2C Agent</option>
+                                <option value="sac">SAC Agent</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="learningRate">Learning Rate</label>
+                            <input type="range" id="learningRate" class="form-range" min="0.00001" max="0.01" step="0.00001" value="0.0003">
+                            <div class="range-value">0.0003</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="batchSize">Batch Size</label>
+                            <select id="batchSize" class="form-control">
+                                <option value="16">16</option>
+                                <option value="32">32</option>
+                                <option value="64" selected>64</option>
+                                <option value="128">128</option>
+                                <option value="256">256</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="episodes">Episodes</label>
+                            <input type="number" id="episodes" class="form-control" value="1000" min="100" max="10000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="gamma">Discount Factor (γ)</label>
+                            <input type="range" id="gamma" class="form-range" min="0.8" max="0.999" step="0.001" value="0.99">
+                            <div class="range-value">0.99</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="clipRatio">Clip Ratio (PPO)</label>
+                            <input type="range" id="clipRatio" class="form-range" min="0.1" max="0.3" step="0.01" value="0.2">
+                            <div class="range-value">0.2</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Network Architecture</label>
+                            <div class="network-layers">
+                                <div class="layer-item">
+                                    <span class="layer-name">Input</span>
+                                    <span class="layer-size">24 units</span>
+                                </div>
+                                <div class="layer-item">
+                                    <span class="layer-name">Hidden 1</span>
+                                    <span class="layer-size">128 units</span>
+                                </div>
+                                <div class="layer-item">
+                                    <span class="layer-name">Hidden 2</span>
+                                    <span class="layer-size">64 units</span>
+                                </div>
+                                <div class="layer-item">
+                                    <span class="layer-name">Output</span>
+                                    <span class="layer-size">4 units</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button class="btn btn-primary btn-block">
+                            <i class="fas fa-play"></i> Start New Training
+                        </button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Environment Settings -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-globe"></i> Environment Settings</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="environment-settings">
+                        <div class="form-group">
+                            <label for="envType">Environment Type</label>
+                            <select id="envType" class="form-control">
+                                <option value="trading" selected>Trading Environment</option>
+                                <option value="ecommerce">E-commerce Environment</option>
+                                <option value="hybrid">Hybrid Environment</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="marketData">Market Data</label>
+                            <select id="marketData" class="form-control">
+                                <option value="btc-eur" selected>BTC/EUR</option>
+                                <option value="eth-eur">ETH/EUR</option>
+                                <option value="xrp-eur">XRP/EUR</option>
+                                <option value="multi">Multiple Markets</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="timeframe">Timeframe</label>
+                            <select id="timeframe" class="form-control">
+                                <option value="1m">1 Minute</option>
+                                <option value="5m">5 Minutes</option>
+                                <option value="15m" selected>15 Minutes</option>
+                                <option value="1h">1 Hour</option>
+                                <option value="4h">4 Hours</option>
+                                <option value="1d">1 Day</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="initialCapital">Initial Capital</label>
+                            <input type="number" id="initialCapital" class="form-control" value="10000" min="100" max="1000000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="commission">Commission Rate (%)</label>
+                            <input type="number" id="commission" class="form-control" value="0.1" min="0" max="5" step="0.01">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="slippage">Slippage (%)</label>
+                            <input type="number" id="slippage" class="form-control" value="0.05" min="0" max="5" step="0.01">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Features</label>
+                            <div class="feature-list">
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature1" checked>
+                                    <label for="feature1">Price</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature2" checked>
+                                    <label for="feature2">Volume</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature3" checked>
+                                    <label for="feature3">Moving Averages</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature4" checked>
+                                    <label for="feature4">RSI</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature5" checked>
+                                    <label for="feature5">MACD</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature6">
+                                    <label for="feature6">Bollinger Bands</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature7">
+                                    <label for="feature7">Order Book</label>
+                                </div>
+                                <div class="feature-item">
+                                    <input type="checkbox" id="feature8">
+                                    <label for="feature8">Sentiment</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button class="btn btn-primary btn-block">
+                            <i class="fas fa-save"></i> Save Environment Settings
+                        </button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Saved Models -->
+            <section class="collapsible-section">
+                <div class="collapsible-header">
+                    <h2><i class="fas fa-save"></i> Saved Models</h2>
+                </div>
+                <div class="collapsible-content">
+                    <div class="saved-models-list">
+                        <div class="model-item">
+                            <div class="model-header">
+                                <h3>PPO_BTC_EUR_15m_v1</h3>
+                                <span class="model-date">May 12, 2025</span>
+                            </div>
+                            <div class="model-metrics">
+                                <div class="metric-row">
+                                    <span class="metric-name">Final Reward:</span>
+                                    <span class="metric-value">+2,450.78</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Win Rate:</span>
+                                    <span class="metric-value">72%</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Episodes:</span>
+                                    <span class="metric-value">1000</span>
+                                </div>
+                            </div>
+                            <div class="model-actions">
+                                <button class="btn btn-primary btn-sm"><i class="fas fa-play"></i> Deploy</button>
+                                <button class="btn btn-secondary btn-sm"><i class="fas fa-download"></i> Export</button>
+                                <button class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        
+                        <div class="model-item">
+                            <div class="model-header">
+                                <h3>DQN_ETH_EUR_1h_v2</h3>
+                                <span class="model-date">May 10, 2025</span>
+                            </div>
+                            <div class="model-metrics">
+                                <div class="metric-row">
+                                    <span class="metric-name">Final Reward:</span>
+                                    <span class="metric-value">+1,850.45</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Win Rate:</span>
+                                    <span class="metric-value">68%</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Episodes:</span>
+                                    <span class="metric-value">800</span>
+                                </div>
+                            </div>
+                            <div class="model-actions">
+                                <button class="btn btn-primary btn-sm"><i class="fas fa-play"></i> Deploy</button>
+                                <button class="btn btn-secondary btn-sm"><i class="fas fa-download"></i> Export</button>
+                                <button class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        
+                        <div class="model-item">
+                            <div class="model-header">
+                                <h3>A2C_MULTI_4h_v1</h3>
+                                <span class="model-date">May 8, 2025</span>
+                            </div>
+                            <div class="model-metrics">
+                                <div class="metric-row">
+                                    <span class="metric-name">Final Reward:</span>
+                                    <span class="metric-value">+3,120.90</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Win Rate:</span>
+                                    <span class="metric-value">75%</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-name">Episodes:</span>
+                                    <span class="metric-value">1200</span>
+                                </div>
+                            </div>
+                            <div class="model-actions">
+                                <button class="btn btn-primary btn-sm"><i class="fas fa-play"></i> Deploy</button>
+                                <button class="btn btn-secondary btn-sm"><i class="fas fa-download"></i> Export</button>
+                                <button class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <a href="/mobile" class="bottom-nav-item">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="/mobile/trading" class="bottom-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Trading</span>
+            </a>
+            <a href="/mobile/ecommerce" class="bottom-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Shop</span>
+            </a>
+            <a href="/mobile/rl-training" class="bottom-nav-item active">
+                <i class="fas fa-brain"></i>
+                <span>AI</span>
+            </a>
+            <a href="/mobile/settings" class="bottom-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="/static/js/mobile.js"></script>
+    <script>
+        // Initialize charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Reward chart
+            const rewardCtx = document.getElementById('rewardChart').getContext('2d');
+            const rewardChart = new Chart(rewardCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 20}, (_, i) => (i * 12 + 1).toString()),
+                    datasets: [{
+                        label: 'Reward',
+                        data: [120, 180, 250, 310, 280, 350, 420, 390, 450, 520, 580, 650, 720, 780, 850, 920, 980, 1050, 1150, 1245],
+                        borderColor: '#1eff00',
+                        backgroundColor: 'rgba(30, 255, 0, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#1eff00',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#222',
+                            titleColor: '#1eff00',
+                            bodyColor: '#fff',
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += '+' + context.parsed.y.toFixed(2);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888',
+                                maxTicksLimit: 10
+                            },
+                            title: {
+                                display: true,
+                                text: 'Episode',
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#888'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Cumulative Reward',
+                                color: '#888'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Store charts for mobile.js to access
+            window.autobotCharts = {
+                reward: rewardChart
+            };
+            
+            // Range input value display
+            const rangeInputs = document.querySelectorAll('.form-range');
+            rangeInputs.forEach(input => {
+                const valueDisplay = input.nextElementSibling;
+                input.addEventListener('input', function() {
+                    valueDisplay.textContent = this.value;
+                });
+            });
+        });
+    </script>
+</body>
+</html>

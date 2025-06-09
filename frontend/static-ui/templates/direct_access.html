@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Accès Direct</title>
+    <style>
+        :root {
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .access-container {
+            background-color: var(--card-bg-color);
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2);
+            padding: 30px;
+            width: 500px;
+            max-width: 90%;
+            text-align: center;
+        }
+        
+        .logo {
+            color: var(--primary-color);
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+        }
+        
+        .subtitle {
+            color: #aaa;
+            margin-bottom: 30px;
+        }
+        
+        .btn {
+            background-color: var(--primary-color);
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            padding: 15px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 15px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .btn:hover {
+            background-color: #00cc7d;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+            transform: translateY(-2px);
+        }
+        
+        .btn-icon {
+            margin-right: 10px;
+            font-size: 20px;
+        }
+        
+        .btn-dashboard {
+            background-color: var(--primary-color);
+        }
+        
+        .btn-trading {
+            background-color: #2196F3;
+        }
+        
+        .btn-trading:hover {
+            background-color: #0b7dda;
+            box-shadow: 0 0 10px rgba(33, 150, 243, 0.5);
+        }
+        
+        .btn-arbitrage {
+            background-color: #9c27b0;
+        }
+        
+        .btn-arbitrage:hover {
+            background-color: #7b1fa2;
+            box-shadow: 0 0 10px rgba(156, 39, 176, 0.5);
+        }
+        
+        .btn-backtest {
+            background-color: #ff9800;
+        }
+        
+        .btn-backtest:hover {
+            background-color: #e68a00;
+            box-shadow: 0 0 10px rgba(255, 152, 0, 0.5);
+        }
+        
+        .btn-settings {
+            background-color: #607d8b;
+        }
+        
+        .btn-settings:hover {
+            background-color: #546e7a;
+            box-shadow: 0 0 10px rgba(96, 125, 139, 0.5);
+        }
+        
+        .btn-ecommerce {
+            background-color: #e91e63;
+        }
+        
+        .btn-ecommerce:hover {
+            background-color: #c2185b;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        .btn-capital {
+            background-color: #4caf50;
+        }
+        
+        .btn-capital:hover {
+            background-color: #43a047;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="access-container">
+        <div class="logo">AUTOBOT</div>
+        <div class="subtitle">Accès Direct aux Fonctionnalités</div>
+        
+        <button class="btn btn-dashboard" onclick="accessPage('/dashboard')">
+            <span class="btn-icon">📊</span> Dashboard
+        </button>
+        
+        <button class="btn btn-trading" onclick="accessPage('/trading')">
+            <span class="btn-icon">📈</span> Trading
+        </button>
+        
+        <button class="btn btn-arbitrage" onclick="accessPage('/arbitrage')">
+            <span class="btn-icon">⚖️</span> Arbitrage
+        </button>
+        
+        <button class="btn btn-backtest" onclick="accessPage('/backtest')">
+            <span class="btn-icon">🔄</span> Backtest
+        </button>
+        
+        <button class="btn btn-settings" onclick="accessPage('/parametres')">
+            <span class="btn-icon">⚙️</span> Paramètres
+        </button>
+        
+        <button class="btn btn-ecommerce" onclick="accessPage('/ecommerce')">
+            <span class="btn-icon">🛒</span> E-commerce
+        </button>
+        
+        <button class="btn btn-capital" onclick="accessPage('/capital')">
+            <span class="btn-icon">💰</span> Capital
+        </button>
+    </div>
+
+    <script>
+        // Set authentication cookie before accessing pages
+        function accessPage(url) {
+            // Set authentication cookie
+            document.cookie = "access_token=AUTOBOT_DIRECT_ACCESS_TOKEN; path=/";
+            
+            // Create a form to POST to the page
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = url;
+            
+            // Add user data
+            const username = document.createElement('input');
+            username.type = 'hidden';
+            username.name = 'username';
+            username.value = 'AUTOBOT';
+            form.appendChild(username);
+            
+            const password = document.createElement('input');
+            password.type = 'hidden';
+            password.name = 'password';
+            password.value = '333333Aesnpr54&';
+            form.appendChild(password);
+            
+            const licenseKey = document.createElement('input');
+            licenseKey.type = 'hidden';
+            licenseKey.name = 'license_key';
+            licenseKey.value = 'AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx';
+            form.appendChild(licenseKey);
+            
+            // Submit the form
+            document.body.appendChild(form);
+            form.submit();
+        }
+    </script>
+</body>
+</html>

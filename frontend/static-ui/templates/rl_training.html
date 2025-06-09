@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Entraînement RL</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment"></script>
+</head>
+<body class="dark-theme">
+    <div class="container">
+        <header>
+            <div class="logo-container">
+                <img src="/static/img/logo.png" alt="AUTOBOT Logo" class="logo">
+                <h1>AUTOBOT <span class="neon-text">RL Training</span></h1>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="/dashboard">Dashboard</a></li>
+                    <li><a href="/trading">Trading</a></li>
+                    <li><a href="/rl" class="active">RL Training</a></li>
+                    <li><a href="/agents">Agents IA</a></li>
+                    <li><a href="/ecommerce">E-commerce</a></li>
+                    <li><a href="/settings">Paramètres</a></li>
+                </ul>
+            </nav>
+            <div class="user-info">
+                <span id="username">{{ username }}</span>
+                <a href="/logout" class="btn btn-outline">Déconnexion</a>
+            </div>
+        </header>
+
+        <main>
+            <div class="dashboard-grid">
+                <!-- Training Control Panel -->
+                <section class="card training-control">
+                    <h2 class="card-title">Contrôle d'Entraînement</h2>
+                    <div class="control-panel">
+                        <div class="form-group">
+                            <label for="agent-type">Type d'Agent</label>
+                            <select id="agent-type" class="form-control">
+                                <option value="ppo">PPO (Proximal Policy Optimization)</option>
+                                <option value="dqn">DQN (Deep Q-Network)</option>
+                                <option value="a2c">A2C (Advantage Actor-Critic)</option>
+                                <option value="sac">SAC (Soft Actor-Critic)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="environment">Environnement</label>
+                            <select id="environment" class="form-control">
+                                <option value="crypto">Crypto Trading</option>
+                                <option value="forex">Forex Trading</option>
+                                <option value="stocks">Stock Trading</option>
+                                <option value="custom">Environnement Personnalisé</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="episodes">Épisodes</label>
+                            <input type="number" id="episodes" class="form-control" value="1000" min="1" max="100000">
+                        </div>
+                        <div class="form-group">
+                            <label for="learning-rate">Taux d'Apprentissage</label>
+                            <input type="number" id="learning-rate" class="form-control" value="0.0003" min="0.00001" max="0.1" step="0.0001">
+                        </div>
+                        <div class="form-group">
+                            <label for="batch-size">Taille de Batch</label>
+                            <input type="number" id="batch-size" class="form-control" value="64" min="1" max="1024">
+                        </div>
+                        <div class="form-group">
+                            <label for="gamma">Gamma (Facteur d'Actualisation)</label>
+                            <input type="number" id="gamma" class="form-control" value="0.99" min="0.8" max="1" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label for="model-name">Nom du Modèle</label>
+                            <input type="text" id="model-name" class="form-control" placeholder="mon_modele_rl">
+                        </div>
+                        <div class="form-group">
+                            <label for="save-interval">Intervalle de Sauvegarde (épisodes)</label>
+                            <input type="number" id="save-interval" class="form-control" value="100" min="1" max="10000">
+                        </div>
+                        <div class="button-group">
+                            <button id="start-training" class="btn btn-primary">Démarrer l'Entraînement</button>
+                            <button id="pause-training" class="btn btn-warning" disabled>Pause</button>
+                            <button id="stop-training" class="btn btn-danger" disabled>Arrêter</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Training Progress -->
+                <section class="card training-progress">
+                    <h2 class="card-title">Progression de l'Entraînement</h2>
+                    <div class="progress-container">
+                        <div class="progress-info">
+                            <div class="info-item">
+                                <span class="info-label">Statut:</span>
+                                <span id="training-status" class="info-value">Inactif</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Épisode:</span>
+                                <span id="current-episode" class="info-value">0</span>
+                                <span id="total-episodes" class="info-value">/ 0</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Temps écoulé:</span>
+                                <span id="elapsed-time" class="info-value">00:00:00</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Temps estimé restant:</span>
+                                <span id="remaining-time" class="info-value">00:00:00</span>
+                            </div>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                            </div>
+                            <span id="progress-percentage">0%</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Reward Chart -->
+                <section class="card reward-chart">
+                    <h2 class="card-title">Récompenses par Épisode</h2>
+                    <div class="chart-container">
+                        <canvas id="reward-chart"></canvas>
+                    </div>
+                </section>
+
+                <!-- Portfolio Value Chart -->
+                <section class="card portfolio-chart">
+                    <h2 class="card-title">Valeur du Portfolio</h2>
+                    <div class="chart-container">
+                        <canvas id="portfolio-chart"></canvas>
+                    </div>
+                </section>
+
+                <!-- Training Metrics -->
+                <section class="card training-metrics">
+                    <h2 class="card-title">Métriques d'Entraînement</h2>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <h3>Récompense Moyenne</h3>
+                            <p id="avg-reward" class="metric-value">0.00</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Récompense Max</h3>
+                            <p id="max-reward" class="metric-value">0.00</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Rendement</h3>
+                            <p id="portfolio-return" class="metric-value">0.00%</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Drawdown Max</h3>
+                            <p id="max-drawdown" class="metric-value">0.00%</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Ratio de Sharpe</h3>
+                            <p id="sharpe-ratio" class="metric-value">0.00</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Perte Moyenne</h3>
+                            <p id="avg-loss" class="metric-value">0.00</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Entropie</h3>
+                            <p id="entropy" class="metric-value">0.00</p>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Transactions</h3>
+                            <p id="trade-count" class="metric-value">0</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Training History -->
+                <section class="card training-history">
+                    <h2 class="card-title">Historique des Entraînements</h2>
+                    <div class="history-controls">
+                        <div class="search-container">
+                            <input type="text" id="history-search" class="form-control" placeholder="Rechercher...">
+                        </div>
+                        <div class="filter-container">
+                            <select id="history-filter" class="form-control">
+                                <option value="all">Tous</option>
+                                <option value="completed">Terminés</option>
+                                <option value="in-progress">En cours</option>
+                                <option value="stopped">Arrêtés</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="history-table-container">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nom du Modèle</th>
+                                    <th>Type d'Agent</th>
+                                    <th>Environnement</th>
+                                    <th>Épisodes</th>
+                                    <th>Statut</th>
+                                    <th>Récompense Moy.</th>
+                                    <th>Rendement</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Saved Models -->
+                <section class="card saved-models">
+                    <h2 class="card-title">Modèles Sauvegardés</h2>
+                    <div class="models-grid" id="models-grid">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 AUTOBOT. Tous droits réservés.</p>
+        </footer>
+    </div>
+
+    <!-- Model Details Modal -->
+    <div id="model-details-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 id="modal-model-name">Détails du Modèle</h2>
+            <div class="model-details-grid">
+                <div class="model-info">
+                    <h3>Informations Générales</h3>
+                    <div class="info-item">
+                        <span class="info-label">Type d'Agent:</span>
+                        <span id="modal-agent-type" class="info-value">PPO</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Environnement:</span>
+                        <span id="modal-environment" class="info-value">Crypto Trading</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Épisodes:</span>
+                        <span id="modal-episodes" class="info-value">1000</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Date de création:</span>
+                        <span id="modal-creation-date" class="info-value">2025-05-14</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Taille du modèle:</span>
+                        <span id="modal-model-size" class="info-value">2.4 MB</span>
+                    </div>
+                </div>
+                <div class="model-performance">
+                    <h3>Performance</h3>
+                    <div class="info-item">
+                        <span class="info-label">Récompense Moyenne:</span>
+                        <span id="modal-avg-reward" class="info-value">120.5</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Récompense Max:</span>
+                        <span id="modal-max-reward" class="info-value">350.2</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Rendement:</span>
+                        <span id="modal-return" class="info-value">24.5%</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Ratio de Sharpe:</span>
+                        <span id="modal-sharpe" class="info-value">1.8</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Drawdown Max:</span>
+                        <span id="modal-drawdown" class="info-value">12.3%</span>
+                    </div>
+                </div>
+                <div class="model-hyperparams">
+                    <h3>Hyperparamètres</h3>
+                    <div class="info-item">
+                        <span class="info-label">Taux d'Apprentissage:</span>
+                        <span id="modal-learning-rate" class="info-value">0.0003</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Gamma:</span>
+                        <span id="modal-gamma" class="info-value">0.99</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Taille de Batch:</span>
+                        <span id="modal-batch-size" class="info-value">64</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Clip Range:</span>
+                        <span id="modal-clip-range" class="info-value">0.2</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Entropie:</span>
+                        <span id="modal-entropy-coef" class="info-value">0.01</span>
+                    </div>
+                </div>
+                <div class="model-architecture">
+                    <h3>Architecture</h3>
+                    <div class="info-item">
+                        <span class="info-label">Couches:</span>
+                        <span id="modal-layers" class="info-value">[64, 64]</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Activation:</span>
+                        <span id="modal-activation" class="info-value">tanh</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Optimiseur:</span>
+                        <span id="modal-optimizer" class="info-value">Adam</span>
+                    </div>
+                </div>
+            </div>
+            <div class="model-actions">
+                <button id="modal-deploy-btn" class="btn btn-primary">Déployer</button>
+                <button id="modal-backtest-btn" class="btn btn-secondary">Backtest</button>
+                <button id="modal-export-btn" class="btn btn-outline">Exporter</button>
+                <button id="modal-delete-btn" class="btn btn-danger">Supprimer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="modal">
+        <div class="modal-content confirmation-content">
+            <h2>Confirmation</h2>
+            <p id="confirmation-message">Êtes-vous sûr de vouloir effectuer cette action?</p>
+            <div class="button-group">
+                <button id="confirm-yes" class="btn btn-danger">Oui</button>
+                <button id="confirm-no" class="btn btn-outline">Non</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/rl_training.js"></script>
+</body>
+</html>

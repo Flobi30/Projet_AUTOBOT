@@ -1,0 +1,106 @@
+
+/* Robust Layout Fix for AUTOBOT - Ensures main content is visible */
+:root {
+    --sidebar-width: 250px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+    --border-color: #333333;
+}
+
+/* Force main content to be visible and properly positioned */
+.main-content {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-left: var(--sidebar-width) !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    min-height: 100vh !important;
+    position: relative !important;
+    z-index: 10 !important;
+    overflow-x: hidden !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+}
+
+/* Ensure sidebar is properly positioned */
+.sidebar {
+    width: var(--sidebar-width) !important;
+    position: fixed !important;
+    height: 100vh !important;
+    z-index: 20 !important;
+    left: 0 !important;
+    top: 0 !important;
+    background-color: var(--bg-color) !important;
+    border-right: 1px solid var(--border-color) !important;
+}
+
+/* Fix container layout */
+.container-fluid {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+}
+
+/* Ensure content wrapper is visible */
+.content-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+}
+
+/* Fix card visibility */
+.card {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--card-bg-color) !important;
+    border: 1px solid var(--border-color) !important;
+    margin-bottom: 20px !important;
+}
+
+/* Fix row and column layout */
+.row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -15px !important;
+    margin-left: -15px !important;
+    width: 100% !important;
+}
+
+.col, .col-md-6, .col-lg-4, .col-xl-3 {
+    position: relative !important;
+    width: 100% !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .main-content {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+    
+    .sidebar {
+        transform: translateX(-100%) !important;
+    }
+    
+    .sidebar.active {
+        transform: translateX(0) !important;
+    }
+}
+
+/* Fix logo proportions */
+.logo img {
+    height: 60px !important;
+    width: auto !important;
+    max-height: 60px !important;
+    object-fit: contain !important;
+}

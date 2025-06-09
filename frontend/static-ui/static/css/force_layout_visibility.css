@@ -1,0 +1,1079 @@
+
+/* 
+ * Aggressive CSS fix for AUTOBOT layout visibility issue - V2
+ * This ensures the main content area is visible alongside the sidebar
+ */
+
+/* Force main content to be visible and properly positioned */
+.main-content, 
+.content-wrapper, 
+.content, 
+.dashboard-content,
+main,
+.container-fluid > div:not(.sidebar):not(.navbar),
+.container > div:not(.sidebar):not(.navbar),
+body > div:not(.sidebar):not(.navbar) > div:not(.sidebar):not(.navbar),
+.row > div:not(.sidebar):not(.navbar),
+.col > div:not(.sidebar):not(.navbar) {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    margin-left: 250px !important; /* Match sidebar width */
+    width: calc(100% - 250px) !important;
+    min-height: 100vh !important;
+    z-index: 10 !important;
+    overflow: visible !important;
+    padding: 20px !important;
+    background-color: #121212 !important; /* Dark theme background */
+    box-sizing: border-box !important;
+    float: none !important;
+    clear: none !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    transform: none !important;
+    transition: none !important;
+}
+
+/* Ensure sidebar doesn't overlap main content */
+.sidebar, 
+.side-nav, 
+.navbar-sidebar,
+.nav-sidebar,
+[class*="sidebar"],
+[id*="sidebar"],
+[class*="side-nav"],
+[id*="side-nav"] {
+    width: 250px !important;
+    position: fixed !important;
+    height: 100% !important;
+    z-index: 20 !important;
+    overflow-y: auto !important;
+    background-color: #1e1e1e !important; /* Slightly lighter than main background */
+    border-right: 1px solid #333 !important;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    float: left !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+    transition: none !important;
+}
+
+/* Fix container layout */
+.container-fluid, 
+.container,
+.wrapper,
+.app-container,
+.app-wrapper,
+.dashboard-container,
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    position: relative !important;
+    min-height: 100vh !important;
+    overflow-x: hidden !important;
+    background-color: #121212 !important;
+}
+
+/* Ensure cards are visible */
+.card, 
+.panel, 
+.box, 
+.widget,
+.tile,
+[class*="card"],
+[class*="panel"],
+[class*="box"],
+[class*="widget"],
+[class*="tile"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: #1e1e1e !important; /* Card background */
+    border: 1px solid #333 !important;
+    border-radius: 8px !important;
+    margin-bottom: 20px !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+    position: relative !important;
+    z-index: 1 !important;
+    overflow: visible !important;
+}
+
+/* Fix any hidden elements */
+.hidden, 
+.d-none, 
+.invisible, 
+[style*="display: none"], 
+[style*="visibility: hidden"], 
+[style*="opacity: 0"],
+[class*="hidden"],
+[class*="d-none"],
+[class*="invisible"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure proper text contrast */
+body, 
+p, 
+h1, h2, h3, h4, h5, h6, 
+.card-title, 
+.card-text,
+.text-muted,
+.text-dark,
+span,
+label,
+a,
+button,
+input,
+select,
+textarea {
+    color: #f8f9fa !important; /* Light text for dark background */
+}
+
+/* Maintain neon green accent color */
+.btn-primary, 
+.nav-link.active, 
+.badge-primary,
+.btn-success,
+.text-primary,
+.text-success,
+[class*="primary"],
+[class*="success"] {
+    background-color: #00ff9d !important; /* Neon green */
+    border-color: #00ff9d !important;
+    color: #121212 !important; /* Dark text on light button */
+}
+
+/* Fix any potential layout issues with flex containers */
+.row, 
+.d-flex, 
+.flex-row, 
+.flex-column,
+[class*="row"],
+[class*="d-flex"],
+[class*="flex-row"],
+[class*="flex-column"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+/* Ensure columns are visible */
+.col, 
+.col-1, .col-2, .col-3, .col-4, .col-5, .col-6, 
+.col-7, .col-8, .col-9, .col-10, .col-11, .col-12,
+.col-sm, .col-md, .col-lg, .col-xl,
+[class*="col-"] {
+    position: relative !important;
+    width: 100% !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 1 !important;
+}
+
+/* Fix any potential z-index issues */
+.modal, 
+.dropdown-menu, 
+.tooltip, 
+.popover,
+.overlay,
+.notification,
+[class*="modal"],
+[class*="dropdown"],
+[class*="tooltip"],
+[class*="popover"],
+[class*="overlay"],
+[class*="notification"] {
+    z-index: 1050 !important;
+}
+
+/* Ensure proper spacing */
+.mt-4, .my-4, .m-4,
+.pt-4, .py-4, .p-4,
+[class*="mt-"],
+[class*="my-"],
+[class*="m-"],
+[class*="pt-"],
+[class*="py-"],
+[class*="p-"] {
+    margin-top: 1.5rem !important;
+    padding-top: 1.5rem !important;
+}
+
+.mb-4, .my-4, .m-4,
+.pb-4, .py-4, .p-4,
+[class*="mb-"],
+[class*="my-"],
+[class*="m-"],
+[class*="pb-"],
+[class*="py-"],
+[class*="p-"] {
+    margin-bottom: 1.5rem !important;
+    padding-bottom: 1.5rem !important;
+}
+
+/* Fix any potential overflow issues */
+html, 
+body {
+    overflow-x: hidden !important;
+    background-color: #121212 !important;
+    color: #f8f9fa !important;
+    font-family: Arial, sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh !important;
+}
+
+/* Fix tables */
+table, 
+.table,
+[class*="table"] {
+    width: 100% !important;
+    margin-bottom: 1rem !important;
+    color: #f8f9fa !important;
+    border-collapse: collapse !important;
+    display: table !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix table cells */
+th, td,
+.th, .td,
+[class*="th"],
+[class*="td"] {
+    padding: 0.75rem !important;
+    vertical-align: top !important;
+    border-top: 1px solid #333 !important;
+    color: #f8f9fa !important;
+    display: table-cell !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix forms */
+form,
+.form,
+[class*="form"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-bottom: 1rem !important;
+}
+
+/* Fix form controls */
+input, 
+select, 
+textarea, 
+.form-control,
+[class*="form-control"] {
+    display: block !important;
+    width: 100% !important;
+    padding: 0.375rem 0.75rem !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+    color: #f8f9fa !important;
+    background-color: #2c2c2c !important;
+    border: 1px solid #444 !important;
+    border-radius: 0.25rem !important;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix buttons */
+button,
+.btn,
+[class*="btn"] {
+    display: inline-block !important;
+    font-weight: 400 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    vertical-align: middle !important;
+    user-select: none !important;
+    border: 1px solid transparent !important;
+    padding: 0.375rem 0.75rem !important;
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+    border-radius: 0.25rem !important;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix images */
+img,
+.img,
+[class*="img"] {
+    max-width: 100% !important;
+    height: auto !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix logo */
+.logo img,
+.navbar-brand img,
+[class*="logo"] img,
+[id*="logo"] img,
+[class*="navbar-brand"] img,
+[id*="navbar-brand"] img {
+    height: 60px !important;
+    width: auto !important;
+    max-height: 60px !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix navigation */
+nav,
+.nav,
+.navbar,
+[class*="nav"],
+[class*="navbar"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    padding-left: 0 !important;
+    margin-bottom: 0 !important;
+    list-style: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix navigation links */
+.nav-link,
+.navbar-link,
+[class*="nav-link"],
+[class*="navbar-link"] {
+    display: block !important;
+    padding: 0.5rem 1rem !important;
+    color: #f8f9fa !important;
+    text-decoration: none !important;
+    background-color: transparent !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix active navigation links */
+.nav-link.active,
+.navbar-link.active,
+[class*="nav-link"].active,
+[class*="navbar-link"].active {
+    color: #121212 !important;
+    background-color: #00ff9d !important;
+    font-weight: bold !important;
+}
+
+/* Fix dropdown menus */
+.dropdown-menu,
+[class*="dropdown-menu"] {
+    position: absolute !important;
+    top: 100% !important;
+    left: 0 !important;
+    z-index: 1000 !important;
+    display: block !important;
+    float: left !important;
+    min-width: 10rem !important;
+    padding: 0.5rem 0 !important;
+    margin: 0.125rem 0 0 !important;
+    font-size: 1rem !important;
+    color: #f8f9fa !important;
+    text-align: left !important;
+    list-style: none !important;
+    background-color: #2c2c2c !important;
+    background-clip: padding-box !important;
+    border: 1px solid #444 !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix dropdown items */
+.dropdown-item,
+[class*="dropdown-item"] {
+    display: block !important;
+    width: 100% !important;
+    padding: 0.25rem 1.5rem !important;
+    clear: both !important;
+    font-weight: 400 !important;
+    color: #f8f9fa !important;
+    text-align: inherit !important;
+    white-space: nowrap !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix alerts */
+.alert,
+[class*="alert"] {
+    position: relative !important;
+    padding: 0.75rem 1.25rem !important;
+    margin-bottom: 1rem !important;
+    border: 1px solid transparent !important;
+    border-radius: 0.25rem !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix badges */
+.badge,
+[class*="badge"] {
+    display: inline-block !important;
+    padding: 0.25em 0.4em !important;
+    font-size: 75% !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    vertical-align: baseline !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix progress bars */
+.progress,
+[class*="progress"] {
+    display: flex !important;
+    height: 1rem !important;
+    overflow: hidden !important;
+    font-size: 0.75rem !important;
+    background-color: #2c2c2c !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix progress bar values */
+.progress-bar,
+[class*="progress-bar"] {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    color: #121212 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    background-color: #00ff9d !important;
+    transition: width 0.6s ease !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix modals */
+.modal,
+[class*="modal"] {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 1050 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    outline: 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix modal content */
+.modal-content,
+[class*="modal-content"] {
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    pointer-events: auto !important;
+    background-color: #2c2c2c !important;
+    background-clip: padding-box !important;
+    border: 1px solid #444 !important;
+    border-radius: 0.3rem !important;
+    outline: 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix modal header */
+.modal-header,
+[class*="modal-header"] {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    padding: 1rem 1rem !important;
+    border-bottom: 1px solid #444 !important;
+    border-top-left-radius: calc(0.3rem - 1px) !important;
+    border-top-right-radius: calc(0.3rem - 1px) !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix modal body */
+.modal-body,
+[class*="modal-body"] {
+    position: relative !important;
+    flex: 1 1 auto !important;
+    padding: 1rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix modal footer */
+.modal-footer,
+[class*="modal-footer"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    padding: 0.75rem !important;
+    border-top: 1px solid #444 !important;
+    border-bottom-right-radius: calc(0.3rem - 1px) !important;
+    border-bottom-left-radius: calc(0.3rem - 1px) !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix tooltips */
+.tooltip,
+[class*="tooltip"] {
+    position: absolute !important;
+    z-index: 1070 !important;
+    display: block !important;
+    margin: 0 !important;
+    font-family: Arial, sans-serif !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    line-height: 1.5 !important;
+    text-align: left !important;
+    text-decoration: none !important;
+    text-shadow: none !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    word-break: normal !important;
+    word-spacing: normal !important;
+    white-space: normal !important;
+    line-break: auto !important;
+    font-size: 0.875rem !important;
+    word-wrap: break-word !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Fix popovers */
+.popover,
+[class*="popover"] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 1060 !important;
+    display: block !important;
+    max-width: 276px !important;
+    font-family: Arial, sans-serif !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    line-height: 1.5 !important;
+    text-align: left !important;
+    text-decoration: none !important;
+    text-shadow: none !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    word-break: normal !important;
+    word-spacing: normal !important;
+    white-space: normal !important;
+    line-break: auto !important;
+    font-size: 0.875rem !important;
+    word-wrap: break-word !important;
+    background-color: #2c2c2c !important;
+    background-clip: padding-box !important;
+    border: 1px solid #444 !important;
+    border-radius: 0.3rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix spinners */
+.spinner,
+.spinner-border,
+.spinner-grow,
+[class*="spinner"],
+[class*="spinner-border"],
+[class*="spinner-grow"] {
+    display: inline-block !important;
+    width: 2rem !important;
+    height: 2rem !important;
+    vertical-align: text-bottom !important;
+    border: 0.25em solid currentColor !important;
+    border-right-color: transparent !important;
+    border-radius: 50% !important;
+    animation: spinner-border 0.75s linear infinite !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix pagination */
+.pagination,
+[class*="pagination"] {
+    display: flex !important;
+    padding-left: 0 !important;
+    list-style: none !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix pagination items */
+.page-item,
+[class*="page-item"] {
+    display: list-item !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix pagination links */
+.page-link,
+[class*="page-link"] {
+    position: relative !important;
+    display: block !important;
+    padding: 0.5rem 0.75rem !important;
+    margin-left: -1px !important;
+    line-height: 1.25 !important;
+    color: #00ff9d !important;
+    background-color: #2c2c2c !important;
+    border: 1px solid #444 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix breadcrumbs */
+.breadcrumb,
+[class*="breadcrumb"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    padding: 0.75rem 1rem !important;
+    margin-bottom: 1rem !important;
+    list-style: none !important;
+    background-color: #2c2c2c !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix breadcrumb items */
+.breadcrumb-item,
+[class*="breadcrumb-item"] {
+    display: list-item !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix jumbotron */
+.jumbotron,
+[class*="jumbotron"] {
+    padding: 2rem 1rem !important;
+    margin-bottom: 2rem !important;
+    background-color: #2c2c2c !important;
+    border-radius: 0.3rem !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix list groups */
+.list-group,
+[class*="list-group"] {
+    display: flex !important;
+    flex-direction: column !important;
+    padding-left: 0 !important;
+    margin-bottom: 0 !important;
+    border-radius: 0.25rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix list group items */
+.list-group-item,
+[class*="list-group-item"] {
+    position: relative !important;
+    display: block !important;
+    padding: 0.75rem 1.25rem !important;
+    background-color: #2c2c2c !important;
+    border: 1px solid #444 !important;
+    color: #f8f9fa !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix carousel */
+.carousel,
+[class*="carousel"] {
+    position: relative !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix carousel inner */
+.carousel-inner,
+[class*="carousel-inner"] {
+    position: relative !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix carousel items */
+.carousel-item,
+[class*="carousel-item"] {
+    position: relative !important;
+    display: block !important;
+    float: left !important;
+    width: 100% !important;
+    margin-right: -100% !important;
+    backface-visibility: hidden !important;
+    perspective: 1000px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix carousel controls */
+.carousel-control-prev,
+.carousel-control-next,
+[class*="carousel-control"] {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    z-index: 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 15% !important;
+    color: #fff !important;
+    text-align: center !important;
+    opacity: 0.5 !important;
+    transition: opacity 0.15s ease !important;
+    visibility: visible !important;
+}
+
+/* Fix carousel indicators */
+.carousel-indicators,
+[class*="carousel-indicators"] {
+    position: absolute !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 15 !important;
+    display: flex !important;
+    justify-content: center !important;
+    padding-left: 0 !important;
+    margin-right: 15% !important;
+    margin-left: 15% !important;
+    list-style: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix carousel captions */
+.carousel-caption,
+[class*="carousel-caption"] {
+    position: absolute !important;
+    right: 15% !important;
+    bottom: 20px !important;
+    left: 15% !important;
+    z-index: 10 !important;
+    padding-top: 20px !important;
+    padding-bottom: 20px !important;
+    color: #fff !important;
+    text-align: center !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix media objects */
+.media,
+[class*="media"] {
+    display: flex !important;
+    align-items: flex-start !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix media body */
+.media-body,
+[class*="media-body"] {
+    flex: 1 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix close buttons */
+.close,
+[class*="close"] {
+    float: right !important;
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    color: #f8f9fa !important;
+    text-shadow: 0 1px 0 #000 !important;
+    opacity: 0.5 !important;
+    visibility: visible !important;
+    display: block !important;
+}
+
+/* Fix embedded content */
+embed,
+iframe,
+object,
+video {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    max-width: 100% !important;
+    border: none !important;
+}
+
+/* Fix code blocks */
+pre,
+code,
+kbd,
+samp {
+    font-family: monospace !important;
+    font-size: 1em !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: #f8f9fa !important;
+    background-color: #2c2c2c !important;
+    padding: 0.2rem 0.4rem !important;
+    border-radius: 0.25rem !important;
+}
+
+/* Fix horizontal rules */
+hr {
+    margin-top: 1rem !important;
+    margin-bottom: 1rem !important;
+    border: 0 !important;
+    border-top: 1px solid #444 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix blockquotes */
+blockquote {
+    margin: 0 0 1rem !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    padding: 0.5rem 1rem !important;
+    border-left: 0.25rem solid #00ff9d !important;
+    background-color: #2c2c2c !important;
+    color: #f8f9fa !important;
+}
+
+/* Fix figures */
+figure {
+    display: inline-block !important;
+    margin: 0 0 1rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix figure captions */
+figcaption {
+    display: block !important;
+    margin-top: 0.5rem !important;
+    font-size: 90% !important;
+    color: #f8f9fa !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix address */
+address {
+    margin-bottom: 1rem !important;
+    font-style: normal !important;
+    line-height: inherit !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix abbreviations */
+abbr[title],
+abbr[data-original-title] {
+    text-decoration: underline !important;
+    text-decoration: underline dotted !important;
+    cursor: help !important;
+    border-bottom: 0 !important;
+    text-decoration-skip-ink: none !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix small text */
+small,
+.small {
+    font-size: 80% !important;
+    font-weight: 400 !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix mark */
+mark,
+.mark {
+    padding: 0.2em !important;
+    background-color: #00ff9d !important;
+    color: #121212 !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix lists */
+ul,
+ol,
+dl {
+    margin-top: 0 !important;
+    margin-bottom: 1rem !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix list items */
+li {
+    display: list-item !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix description lists */
+dt {
+    font-weight: 700 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix description list details */
+dd {
+    margin-bottom: 0.5rem !important;
+    margin-left: 0 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix fieldsets */
+fieldset {
+    min-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix legends */
+legend {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin-bottom: 0.5rem !important;
+    font-size: 1.5rem !important;
+    line-height: inherit !important;
+    color: inherit !important;
+    white-space: normal !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix labels */
+label {
+    display: inline-block !important;
+    margin-bottom: 0.5rem !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix output */
+output {
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix summary */
+summary {
+    display: list-item !important;
+    cursor: pointer !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix template */
+template {
+    display: none !important;
+}
+
+/* Fix hidden attribute */
+[hidden] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix aria-hidden attribute */
+[aria-hidden="true"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix display property */
+[style*="display: none"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix visibility property */
+[style*="visibility: hidden"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix opacity property */
+[style*="opacity: 0"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}

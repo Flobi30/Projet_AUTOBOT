@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+
+{% block title %}Capital - AUTOBOT{% endblock %}
+{% block header_title %}Capital{% endblock %}
+
+{% block content %}
+<button onclick="history.back()" class="back-button">
+    <i class="fas fa-arrow-left"></i> Retour
+</button>
+
+<div class="main-content">
+    <!-- Capital Overview -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">💰</div>
+            <div class="stat-content">
+                <div class="stat-label">Capital Total</div>
+                <div class="stat-value">578.45 €</div>
+                <div class="stat-change positive">+4.82%</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">📈</div>
+            <div class="stat-content">
+                <div class="stat-label">Profit Aujourd'hui</div>
+                <div class="stat-value">+12.34 €</div>
+                <div class="stat-change positive">+2.18%</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">🎯</div>
+            <div class="stat-content">
+                <div class="stat-label">Objectif Quotidien</div>
+                <div class="stat-value">10%</div>
+                <div class="stat-change">57.85 €</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-content">
+                <div class="stat-label">Performance</div>
+                <div class="stat-value">Excellente</div>
+                <div class="stat-change positive">+15.68%</div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- Capital Allocation -->
+    <div class="allocation-section">
+        <div class="section-header">
+            <h2>Répartition du Capital</h2>
+        </div>
+        <div class="allocation-grid">
+            <div class="allocation-chart">
+                <canvas id="allocationChart" width="300" height="300"></canvas>
+            </div>
+            <div class="allocation-details">
+                <div class="allocation-item">
+                    <div class="allocation-color trading"></div>
+                    <span>Trading (65%)</span>
+                    <span class="allocation-amount">376.00 €</span>
+                </div>
+                <div class="allocation-item">
+                    <div class="allocation-color ecommerce"></div>
+                    <span>E-commerce (35%)</span>
+                    <span class="allocation-amount">202.45 €</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction History -->
+    <div class="transaction-history">
+        <div class="section-header">
+            <h2>Historique des Transactions</h2>
+        </div>
+        <div class="table-container">
+            <table class="transaction-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Montant</th>
+                        <th>Statut</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>2024-06-06 14:30</td>
+                        <td>Dépôt</td>
+                        <td class="positive">+500.00 €</td>
+                        <td><span class="status completed">Terminé</span></td>
+                        <td>
+                            <button class="btn-small">Détails</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>2024-06-05 09:15</td>
+                        <td>Profit Trading</td>
+                        <td class="positive">+78.45 €</td>
+                        <td><span class="status completed">Terminé</span></td>
+                        <td>
+                            <button class="btn-small">Détails</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Capital Evolution Chart -->
+    <div class="chart-section">
+        <div class="chart-header">
+            <h2>Évolution du Capital</h2>
+            <div class="chart-controls">
+                <button class="chart-btn active">7J</button>
+                <button class="chart-btn">1M</button>
+                <button class="chart-btn">3M</button>
+                <button class="chart-btn">1A</button>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="capitalChart" width="800" height="400"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Deposit Modal -->
+<div id="depositModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Effectuer un Dépôt</h3>
+            <span class="close" onclick="closeDepositModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="depositForm">
+                <div class="form-group">
+                    <label for="deposit-amount">Montant (€)</label>
+                    <input type="number" id="deposit-amount" min="10" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="deposit-method">Méthode de Paiement</label>
+                    <select id="deposit-method" required>
+                        <option value="">Sélectionner...</option>
+                        <option value="card">Carte Bancaire</option>
+                        <option value="bank">Virement Bancaire</option>
+                        <option value="paypal">PayPal</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button type="button" onclick="submitDeposit()" class="btn-primary">Confirmer le Dépôt</button>
+                    <button type="button" onclick="closeDepositModal()" class="btn-secondary">Annuler</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Withdrawal Modal -->
+<div id="withdrawModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Effectuer un Retrait</h3>
+            <span class="close" onclick="closeWithdrawModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="withdrawForm">
+                <div class="form-group">
+                    <label for="withdrawal-amount">Montant (€)</label>
+                    <input type="number" id="withdrawal-amount" min="10" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="withdrawal-method">Méthode de Retrait</label>
+                    <select id="withdrawal-method" required>
+                        <option value="">Sélectionner...</option>
+                        <option value="bank">Virement Bancaire</option>
+                        <option value="paypal">PayPal</option>
+                    </select>
+                </div>
+                <div class="form-group bank-details" style="display: none;">
+                    <label for="withdrawal-iban">IBAN</label>
+                    <input type="text" id="withdrawal-iban" placeholder="FR76 1234 5678 9012 3456 7890 123">
+                    <label for="withdrawal-bic">Code BIC</label>
+                    <input type="text" id="withdrawal-bic" placeholder="BNPAFRPP">
+                </div>
+                <div class="form-group">
+                    <button type="button" onclick="submitWithdrawal()" class="btn-primary">Confirmer le Retrait</button>
+                    <button type="button" onclick="closeWithdrawModal()" class="btn-secondary">Annuler</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showDepositModal() {
+        document.getElementById('depositModal').style.display = 'block';
+    }
+    
+    function closeDepositModal() {
+        document.getElementById('depositModal').style.display = 'none';
+        if (document.getElementById('depositForm')) {
+            document.getElementById('depositForm').reset();
+        }
+    }
+    
+    function showWithdrawModal() {
+        document.getElementById('withdrawModal').style.display = 'block';
+    }
+    
+    function closeWithdrawModal() {
+        document.getElementById('withdrawModal').style.display = 'none';
+        if (document.getElementById('withdrawForm')) {
+            document.getElementById('withdrawForm').reset();
+        }
+    }
+    
+    async function submitDeposit() {
+        const amount = document.getElementById('deposit-amount').value;
+        const method = document.getElementById('deposit-method').value;
+        
+        if (!amount || amount <= 0) {
+            alert('Veuillez entrer un montant valide');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/deposit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Dépôt effectué avec succès!');
+                closeDepositModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du traitement du dépôt');
+        }
+    }
+    
+    async function submitWithdrawal() {
+        const amount = document.getElementById('withdrawal-amount').value;
+        const method = document.getElementById('withdrawal-method').value;
+        const iban = document.getElementById('withdrawal-iban').value;
+        const bic = document.getElementById('withdrawal-bic').value;
+        
+        if (!amount || amount <= 0) {
+            alert('Veuillez entrer un montant valide');
+            return;
+        }
+        
+        if (method === 'bank' && (!iban || !bic)) {
+            alert('Veuillez renseigner l\'IBAN et le code BIC pour un virement bancaire');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/withdraw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    amount: parseFloat(amount),
+                    method: method,
+                    iban: iban,
+                    bic: bic
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Retrait effectué avec succès!');
+                closeWithdrawModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du traitement du retrait');
+        }
+    }
+    
+    document.getElementById('withdrawal-method').addEventListener('change', function() {
+        const bankDetails = document.querySelector('.bank-details');
+        if (this.value === 'bank') {
+            bankDetails.style.display = 'block';
+            document.getElementById('withdrawal-iban').required = true;
+            document.getElementById('withdrawal-bic').required = true;
+        } else {
+            bankDetails.style.display = 'none';
+            document.getElementById('withdrawal-iban').required = false;
+            document.getElementById('withdrawal-bic').required = false;
+        }
+    });
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const capitalCtx = document.getElementById('capitalChart').getContext('2d');
+        const capitalChart = new Chart(capitalCtx, {
+            type: 'line',
+            data: {
+                labels: ['1 Mai', '5 Mai', '10 Mai', '15 Mai', '20 Mai', 'Aujourd\'hui'],
+                datasets: [{
+                    label: 'Capital (€)',
+                    data: [500, 510, 525, 545, 560, 578.45],
+                    borderColor: '#00ff9d',
+                    backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#00ff9d',
+                    pointRadius: 4,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#00ff9d',
+                        bodyColor: '#ffffff',
+                        borderColor: '#00ff9d',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#cccccc'
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#cccccc',
+                            callback: function(value) {
+                                return value + ' €';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const allocationCtx = document.getElementById('allocationChart').getContext('2d');
+        const allocationChart = new Chart(allocationCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Trading', 'E-commerce'],
+                datasets: [{
+                    data: [65, 35],
+                    backgroundColor: [
+                        '#00ff9d',
+                        '#00ccff'
+                    ],
+                    borderColor: '#1e1e1e',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#00ff9d',
+                        bodyColor: '#ffffff',
+                        borderColor: '#00ff9d',
+                        borderWidth: 1
+                    }
+                },
+                cutout: '70%'
+            }
+        });
+    });
+
+
+</script>
+{% endblock %}

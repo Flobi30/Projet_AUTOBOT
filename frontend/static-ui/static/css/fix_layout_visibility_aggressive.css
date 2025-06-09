@@ -1,0 +1,112 @@
+/* 
+ * Aggressive CSS fix for AUTOBOT layout visibility issue
+ * This ensures the main content area is visible alongside the sidebar
+ */
+
+/* Force main content to be visible and properly positioned */
+.main-content {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-left: 250px !important; /* Match sidebar width */
+    width: calc(100% - 250px) !important;
+    position: relative !important;
+    z-index: 10 !important;
+    overflow: visible !important;
+    padding: 20px !important;
+    min-height: 100vh !important;
+    background-color: #121212 !important; /* Dark theme background */
+}
+
+/* Ensure sidebar doesn't overlap main content */
+.sidebar {
+    width: 250px !important;
+    position: fixed !important;
+    height: 100% !important;
+    z-index: 20 !important;
+    overflow-y: auto !important;
+    background-color: #1e1e1e !important; /* Slightly lighter than main background */
+    border-right: 1px solid #333 !important;
+}
+
+/* Fix container layout */
+.container-fluid, .container {
+    width: 100% !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    display: block !important;
+}
+
+/* Ensure cards are visible */
+.card {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: #1e1e1e !important; /* Card background */
+    border: 1px solid #333 !important;
+    border-radius: 8px !important;
+    margin-bottom: 20px !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Fix any hidden elements */
+.hidden, .d-none {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure proper text contrast */
+body, p, h1, h2, h3, h4, h5, h6, .card-title, .card-text {
+    color: #f8f9fa !important; /* Light text for dark background */
+}
+
+/* Maintain neon green accent color */
+.btn-primary, .nav-link.active, .badge-primary {
+    background-color: #00ff9d !important; /* Neon green */
+    border-color: #00ff9d !important;
+    color: #121212 !important; /* Dark text on light button */
+}
+
+/* Fix any potential layout issues with flex containers */
+.row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -15px !important;
+    margin-left: -15px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure columns are visible */
+.col, .col-1, .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11, .col-12,
+.col-sm, .col-md, .col-lg, .col-xl {
+    position: relative !important;
+    width: 100% !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix any potential z-index issues */
+.modal, .dropdown-menu, .tooltip, .popover {
+    z-index: 1050 !important;
+}
+
+/* Ensure proper spacing */
+.mt-4, .my-4 {
+    margin-top: 1.5rem !important;
+}
+
+.mb-4, .my-4 {
+    margin-bottom: 1.5rem !important;
+}
+
+/* Fix any potential overflow issues */
+html, body {
+    overflow-x: hidden !important;
+}

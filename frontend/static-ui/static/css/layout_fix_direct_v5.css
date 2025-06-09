@@ -1,0 +1,100 @@
+/* Direct CSS fix for AUTOBOT layout visibility issue */
+:root {
+    --sidebar-width: 250px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+}
+
+/* Force main content to be visible */
+.main-content {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    margin-left: var(--sidebar-width) !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    min-height: 100vh !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+    z-index: 1 !important;
+    overflow-x: hidden !important;
+    background-color: var(--bg-color) !important;
+}
+
+/* Ensure sidebar is properly positioned */
+.sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: var(--sidebar-width) !important;
+    height: 100vh !important;
+    z-index: 10 !important;
+    overflow-y: auto !important;
+    background-color: var(--bg-color) !important;
+}
+
+/* Fix container elements */
+.container, .container-fluid, .wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    overflow: visible !important;
+    position: relative !important;
+}
+
+/* Fix section elements */
+section, .content, .dashboard-content {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    width: 100% !important;
+}
+
+/* Fix card elements */
+.card, .panel, .box {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    margin-bottom: 20px !important;
+    background-color: var(--card-bg-color) !important;
+    border-radius: 8px !important;
+    padding: 15px !important;
+}
+
+/* Fix header elements */
+header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 20px !important;
+}
+
+/* Fix button elements */
+button {
+    background-color: var(--primary-color) !important;
+    color: var(--bg-color) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 8px 16px !important;
+    cursor: pointer !important;
+}
+
+/* Fix text colors */
+h1, h2, h3, h4, h5, h6, p, span, div {
+    color: white !important;
+}
+
+/* Fix links */
+a {
+    color: var(--primary-color) !important;
+    text-decoration: none !important;
+}
+
+/* Fix inputs */
+input, textarea, select {
+    background-color: #2a2a2a !important;
+    color: white !important;
+    border: 1px solid #444 !important;
+    border-radius: 4px !important;
+    padding: 8px !important;
+}

@@ -1,0 +1,139 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Bypass</title>
+    <style>
+        :root {
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        
+        .bypass-container {
+            background-color: var(--card-bg-color);
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2);
+            width: 400px;
+            max-width: 90%;
+            text-align: center;
+        }
+        
+        h1 {
+            color: var(--primary-color);
+            text-align: center;
+            margin-bottom: 5px;
+            font-size: 2.5rem;
+        }
+        
+        .subtitle {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #aaa;
+        }
+        
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        button {
+            background-color: var(--primary-color);
+            color: #000;
+            border: none;
+            padding: 15px 0;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            transition: background-color 0.3s;
+            font-size: 16px;
+        }
+        
+        button:hover {
+            background-color: #00cc7d;
+        }
+        
+        .dashboard-button {
+            background-color: #3498db;
+        }
+        
+        .dashboard-button:hover {
+            background-color: #2980b9;
+        }
+        
+        .trading-button {
+            background-color: #e74c3c;
+        }
+        
+        .trading-button:hover {
+            background-color: #c0392b;
+        }
+        
+        .arbitrage-button {
+            background-color: #f39c12;
+        }
+        
+        .arbitrage-button:hover {
+            background-color: #d35400;
+        }
+        
+        .backtest-button {
+            background-color: #9b59b6;
+        }
+        
+        .backtest-button:hover {
+            background-color: #8e44ad;
+        }
+        
+        .settings-button {
+            background-color: #1abc9c;
+        }
+        
+        .settings-button:hover {
+            background-color: #16a085;
+        }
+    </style>
+</head>
+<body>
+    <div class="bypass-container">
+        <h1>AUTOBOT</h1>
+        <div class="subtitle">Accès Direct</div>
+        
+        <div class="button-container">
+            <button class="dashboard-button" onclick="accessPage('/dashboard')">Dashboard</button>
+            <button class="trading-button" onclick="accessPage('/trading')">Trading</button>
+            <button class="arbitrage-button" onclick="accessPage('/arbitrage')">Arbitrage</button>
+            <button class="backtest-button" onclick="accessPage('/backtest')">Backtest</button>
+            <button class="settings-button" onclick="accessPage('/parametres')">Paramètres</button>
+        </div>
+    </div>
+    
+    <script>
+        function accessPage(page) {
+            // First set the auth cookie
+            document.cookie = "access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJBVVRPQk9UIiwiZXhwIjoxNzE3MjM5MDIyfQ.qnNpxhXPSQNzlmJcNUHNmojOG6L7teF0y1YcGh4UXUI; path=/; max-age=86400";
+            
+            // Then redirect to the page
+            window.location.href = page;
+        }
+    </script>
+</body>
+</html>

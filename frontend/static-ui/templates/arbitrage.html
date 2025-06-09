@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+
+{% block title %}Arbitrage - AUTOBOT{% endblock %}
+
+{% block header_title %}Arbitrage{% endblock %}
+
+{% block header_actions %}
+        <div class="page-actions">
+            <button class="btn btn-primary" onclick="scanOpportunities()">
+                <i class="fas fa-search"></i> Scanner
+            </button>
+            <button class="btn btn-secondary" onclick="openSettings()">
+                <i class="fas fa-cog"></i> Paramètres
+            </button>
+        </div>
+{% endblock %}
+
+{% block content %}
+<div class="main-content">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ opportunities_count }}</div>
+                <div class="stat-label">Opportunités</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-euro-sign"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ "%.2f"|format(profit_24h) }}€</div>
+                <div class="stat-label">Profit 24h</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ "%.0f"|format(avg_execution_ms) }}ms</div>
+                <div class="stat-label">Temps Moyen</div>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-percentage"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ "%.1f"|format(success_rate) }}%</div>
+                <div class="stat-label">Taux de Succès</div>
+            </div>
+        </div>
+    </div>
+    <div class="content-grid">
+        <div class="card">
+            <div class="card-header">
+                <h3>Opportunités d'Arbitrage</h3>
+                <div class="card-actions">
+                    <button class="btn btn-sm btn-primary" onclick="refreshOpportunities()">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Paire</th>
+                                <th>Exchange A</th>
+                                <th>Exchange B</th>
+                                <th>Profit</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="opportunities-table">
+                            {% for opportunity in opportunities %}
+                            <tr>
+                                <td>{{ opportunity.symbol }}</td>
+                                <td>{{ opportunity.exchange_a }}</td>
+                                <td>{{ opportunity.exchange_b }}</td>
+                                <td class="profit-cell">{{ "%.2f"|format(opportunity.profit_percentage) }}%</td>
+                                <td>
+                                    <button class="btn btn-sm btn-success" onclick="executeArbitrage('{{ opportunity.id }}')">
+                                        Exécuter
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3>Historique des Exécutions</h3>
+            </div>
+            <div class="card-content">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Heure</th>
+                                <th>Paire</th>
+                                <th>Profit</th>
+                                <th>Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for execution in recent_executions %}
+                            <tr>
+                                <td>{{ execution.timestamp }}</td>
+                                <td>{{ execution.symbol }}</td>
+                                <td class="profit-cell">{{ "%.2f"|format(execution.profit) }}€</td>
+                                <td>
+                                    <span class="status-badge status-{{ execution.status }}">
+                                        {{ execution.status|title }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3>Graphique de Performance</h3>
+        </div>
+        <div class="card-content">
+            <canvas id="arbitrageChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<div id="settingsModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Paramètres d'Arbitrage</h3>
+            <span class="close" onclick="closeSettings()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label for="minProfit">Profit Minimum (%)</label>
+                    <input type="number" id="minProfit" step="0.1" value="{{ settings.min_profit_threshold }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="maxAmount">Montant Maximum (€)</label>
+                    <input type="number" id="maxAmount" value="{{ settings.max_trade_amount }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="enabledExchanges">Exchanges Actifs</label>
+                    <div class="checkbox-group">
+                        {% for exchange in exchanges %}
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="{{ exchange.id }}" 
+                                   {% if exchange.id in settings.enabled_exchanges %}checked{% endif %}>
+                            {{ exchange.name }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeSettings()">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Sauvegarder</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let arbitrageChart;
+
+function initChart() {
+    const ctx = document.getElementById('arbitrageChart').getContext('2d');
+    arbitrageChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ chart_labels|tojson }},
+            datasets: [{
+                label: 'Profit (€)',
+                data: {{ chart_data.profit|tojson }},
+                borderColor: '#00ff9d',
+                backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                tension: 0.4
+            }, {
+                label: 'Opportunités',
+                data: {{ chart_data.opportunities|tojson }},
+                borderColor: '#ff6b6b',
+                backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                tension: 0.4,
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#ffffff'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#ffffff'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    ticks: {
+                        color: '#ffffff'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    ticks: {
+                        color: '#ffffff'
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    }
+                }
+            }
+        }
+    });
+}
+
+function scanOpportunities() {
+    fetch('/api/arbitrage/scan', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showNotification('Scan terminé avec succès', 'success');
+            refreshOpportunities();
+        }
+    })
+    .catch(error => {
+        showNotification('Erreur lors du scan', 'error');
+    });
+}
+
+function refreshOpportunities() {
+    fetch('/api/arbitrage/opportunities')
+    .then(response => response.json())
+    .then(data => {
+        updateOpportunitiesTable(data.opportunities);
+    });
+}
+
+function updateOpportunitiesTable(opportunities) {
+    const tbody = document.getElementById('opportunities-table');
+    tbody.innerHTML = '';
+    
+    opportunities.forEach(opportunity => {
+        const row = tbody.insertRow();
+        row.innerHTML = `
+            <td>${opportunity.symbol}</td>
+            <td>${opportunity.exchange_a}</td>
+            <td>${opportunity.exchange_b}</td>
+            <td class="profit-cell">${opportunity.profit_percentage.toFixed(2)}%</td>
+            <td>
+                <button class="btn btn-sm btn-success" onclick="executeArbitrage('${opportunity.id}')">
+                    Exécuter
+                </button>
+            </td>
+        `;
+    });
+}
+
+function executeArbitrage(opportunityId) {
+    fetch(`/api/arbitrage/execute/${opportunityId}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showNotification('Arbitrage exécuté avec succès', 'success');
+            refreshOpportunities();
+        } else {
+            showNotification(data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showNotification('Erreur lors de l\'exécution', 'error');
+    });
+}
+
+function openSettings() {
+    document.getElementById('settingsModal').style.display = 'block';
+}
+
+function closeSettings() {
+    document.getElementById('settingsModal').style.display = 'none';
+}
+
+document.getElementById('settingsForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const settings = {
+        min_profit_threshold: parseFloat(document.getElementById('minProfit').value),
+        max_trade_amount: parseFloat(document.getElementById('maxAmount').value),
+        enabled_exchanges: Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value)
+    };
+    
+    fetch('/api/arbitrage/settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showNotification('Paramètres sauvegardés', 'success');
+            closeSettings();
+        }
+    })
+    .catch(error => {
+        showNotification('Erreur lors de la sauvegarde', 'error');
+    });
+});
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initChart();
+    refreshOpportunities();
+    
+    setInterval(refreshOpportunities, 30000);
+});
+</script>
+{% endblock %}

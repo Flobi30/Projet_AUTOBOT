@@ -1,0 +1,172 @@
+
+/**
+ * Aggressive CSS fix for AUTOBOT layout visibility issues
+ * This stylesheet forces the main content area to be visible alongside the sidebar
+ */
+
+/* Root variables for consistent styling */
+:root {
+    --sidebar-width: 250px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+}
+
+/* Force main content to be visible with !important flags */
+body {
+    overflow-x: hidden !important;
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    font-family: 'Roboto', sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    min-height: 100vh !important;
+    width: 100% !important;
+}
+
+/* Container layout */
+.container, #container, main, .main, #main {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    position: relative !important;
+}
+
+/* Sidebar styling */
+.sidebar, #sidebar, .side-nav, #side-nav, nav.sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: var(--sidebar-width) !important;
+    height: 100vh !important;
+    background-color: var(--bg-color) !important;
+    z-index: 100 !important;
+    overflow-y: auto !important;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Main content area - extremely aggressive styling to ensure visibility */
+.main-content, #main-content, .content, #content, main .content, .dashboard-content, #dashboard-content {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-left: var(--sidebar-width) !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    min-height: 100vh !important;
+    position: relative !important;
+    overflow-x: hidden !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+    z-index: 1 !important;
+    background-color: var(--bg-color) !important;
+}
+
+/* Ensure all cards and widgets are visible */
+.card, .widget, .dashboard-widget, .panel, .box, .content-box {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--card-bg-color) !important;
+    border-radius: 8px !important;
+    padding: 20px !important;
+    margin-bottom: 20px !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Fix logo proportions */
+.logo img, .sidebar .logo img, #logo img, .brand img {
+    height: 60px !important;
+    width: auto !important;
+    margin-right: 15px !important;
+    max-height: 60px !important;
+}
+
+/* Ensure tables are visible */
+table, .table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-bottom: 20px !important;
+    display: table !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure forms are visible */
+form, .form {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure buttons maintain professional styling */
+.btn, button, .button, input[type="button"], input[type="submit"] {
+    background-color: var(--bg-color) !important;
+    color: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    border-radius: 4px !important;
+    padding: 8px 16px !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+}
+
+.btn:hover, button:hover, .button:hover, input[type="button"]:hover, input[type="submit"]:hover {
+    background-color: var(--primary-color) !important;
+    color: var(--bg-color) !important;
+}
+
+/* Primary buttons */
+.btn-primary, .button-primary {
+    background-color: var(--primary-color) !important;
+    color: var(--bg-color) !important;
+}
+
+.btn-primary:hover, .button-primary:hover {
+    background-color: var(--bg-color) !important;
+    color: var(--primary-color) !important;
+}
+
+/* Force all text to be visible */
+p, h1, h2, h3, h4, h5, h6, span, a, label, input, select, textarea {
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: var(--text-color) !important;
+}
+
+/* Ensure links maintain styling */
+a, .link {
+    color: var(--primary-color) !important;
+    text-decoration: none !important;
+}
+
+a:hover, .link:hover {
+    text-decoration: underline !important;
+}
+
+/* Force all inputs to be visible and styled correctly */
+input, select, textarea {
+    background-color: var(--card-bg-color) !important;
+    border: 1px solid #333 !important;
+    border-radius: 4px !important;
+    padding: 8px !important;
+    color: var(--text-color) !important;
+}
+
+/* Ensure grid layouts are visible */
+.row, .grid, .flex-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin: 0 -10px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.col, .column, .grid-item, .flex-col {
+    padding: 0 10px !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}

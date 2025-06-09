@@ -1,0 +1,79 @@
+/* Targeted CSS fix for AUTOBOT layout issues */
+:root {
+  --primary-color: #00ff9d;
+  --bg-color: #121212;
+  --card-bg-color: #1e1e1e;
+  --text-color: #ffffff;
+  --sidebar-width: 250px;
+}
+
+/* Force main content visibility */
+.main-content {
+  margin-left: var(--sidebar-width) !important;
+  width: calc(100% - var(--sidebar-width)) !important;
+  min-height: 100vh !important;
+  padding: 20px !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  z-index: 5 !important;
+  background-color: var(--bg-color) !important;
+}
+
+/* Ensure content containers are visible */
+.content-container, .dashboard-container, .card, .panel {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  margin-bottom: 20px !important;
+}
+
+/* Fix header visibility */
+header, .header {
+  margin-left: var(--sidebar-width) !important;
+  width: calc(100% - var(--sidebar-width)) !important;
+  padding: 20px !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Fix headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--primary-color) !important;
+  margin-bottom: 15px !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Fix logo proportions */
+.logo img {
+  height: 60px !important;
+  width: auto !important;
+  max-height: 60px !important;
+}
+
+/* Fix sidebar positioning */
+.sidebar {
+  width: var(--sidebar-width) !important;
+  min-width: var(--sidebar-width) !important;
+  max-width: var(--sidebar-width) !important;
+  height: 100vh !important;
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  background-color: var(--card-bg-color) !important;
+}
+
+/* Fix body layout */
+body {
+  display: flex !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: var(--bg-color) !important;
+  color: var(--text-color) !important;
+}

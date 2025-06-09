@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Login</title>
+    <link rel="stylesheet" href="/static/css/neon_theme.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1 class="neon-text">AUTOBOT</h1>
+            <p>Trading and Automation Framework</p>
+        </div>
+        
+        <form id="login-form" method="post" action="/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="license_key">License Key</label>
+                <input type="text" id="license_key" name="license_key" class="form-control" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">SE CONNECTER</button>
+            
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+        </form>
+    </div>
+</body>
+</html>

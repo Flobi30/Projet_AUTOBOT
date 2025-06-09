@@ -1,0 +1,66 @@
+
+/* Aggressive layout fix to ensure main content is visible */
+.main-content {
+    margin-left: 250px !important;
+    width: calc(100% - 250px) !important;
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    min-height: 100vh !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+    overflow: auto !important;
+    z-index: 1 !important;
+    opacity: 1 !important;
+}
+
+.sidebar {
+    width: 250px !important;
+    position: fixed !important;
+    height: 100% !important;
+    z-index: 2 !important;
+    display: block !important;
+    visibility: visible !important;
+}
+
+.content-wrapper {
+    display: flex !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    position: relative !important;
+}
+
+.dashboard-container, 
+.settings-container,
+.trading-container,
+.backtest-container,
+.arbitrage-container,
+.ecommerce-container,
+.capital-container {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+}
+
+/* Fix for cards and widgets */
+.card, .widget {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-bottom: 20px !important;
+}
+
+/* Fix for tables */
+table {
+    width: 100% !important;
+    display: table !important;
+    visibility: visible !important;
+}
+
+/* Fix for forms */
+form {
+    display: block !important;
+    visibility: visible !important;
+}

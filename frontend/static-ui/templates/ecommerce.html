@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+
+{% block title %}E-commerce{% endblock %}
+{% block header_title %}E-commerce{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline" id="syncInventory">
+    <i class="fas fa-sync"></i> Synchroniser Inventaire
+</button>
+<button class="btn btn-primary" id="optimizePrices">
+    <i class="fas fa-magic"></i> Optimiser Prix
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- E-commerce Stats -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Produits Invendus</span>
+        <span class="metric-value">{{ unsold_products|default('124') }}</span>
+        <span class="metric-change">Valeur: {{ unsold_value|default('12,450 €') }}</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Économies Potentielles</span>
+        <span class="metric-value">{{ potential_savings|default('2,890 €') }}</span>
+        <span class="metric-change positive">+23.2%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Commandes Recyclées</span>
+        <span class="metric-value">{{ recycled_orders|default('45') }}</span>
+        <span class="metric-change">Ce mois</span>
+    </div>
+</div>
+
+<!-- Optimization Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Optimisation des Prix</h3>
+        <div class="card-actions">
+            <button class="btn-sm">Journalier</button>
+            <button class="btn-sm active">Hebdomadaire</button>
+            <button class="btn-sm">Mensuel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container" style="display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important;">
+            <canvas id="optimizationChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Unsold Products Table -->
+<div class="card">
+    <div class="card-header">
+        <h3>Produits Invendus</h3>
+        <div class="card-actions">
+            <select id="categoryFilter" class="form-select">
+                <option value="all">Toutes catégories</option>
+                <option value="electronics">Électronique</option>
+                <option value="clothing">Vêtements</option>
+                <option value="home">Maison</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-container" style="display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Produit</th>
+                        <th>SKU</th>
+                        <th>Catégorie</th>
+                        <th>Prix Original</th>
+                        <th>Prix Optimisé</th>
+                        <th>Stock</th>
+                        <th>Jours en Stock</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="unsoldProductsTable">
+                    {% for product in unsold_products_list|default([
+                        {'name': 'Smartphone XYZ', 'sku': 'SM-XYZ-123', 'category': 'electronics', 'original_price': '599.99 €', 'optimized_price': '499.99 €', 'stock': 15, 'days': 45},
+                        {'name': 'Écouteurs Bluetooth', 'sku': 'EB-BT-456', 'category': 'electronics', 'original_price': '129.99 €', 'optimized_price': '89.99 €', 'stock': 32, 'days': 60},
+                        {'name': 'Montre Connectée', 'sku': 'MC-789', 'category': 'electronics', 'original_price': '249.99 €', 'optimized_price': '199.99 €', 'stock': 8, 'days': 30},
+                        {'name': 'T-shirt Premium', 'sku': 'TS-PRE-101', 'category': 'clothing', 'original_price': '39.99 €', 'optimized_price': '29.99 €', 'stock': 45, 'days': 90},
+                        {'name': 'Lampe Design', 'sku': 'LD-202', 'category': 'home', 'original_price': '89.99 €', 'optimized_price': '69.99 €', 'stock': 12, 'days': 75}
+                    ]) %}
+                    <tr data-category="{{ product.category }}">
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.sku }}</td>
+                        <td>{{ product.category|capitalize }}</td>
+                        <td>{{ product.original_price }}</td>
+                        <td>{{ product.optimized_price }}</td>
+                        <td>{{ product.stock }}</td>
+                        <td>{{ product.days }}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon apply-price" data-sku="{{ product.sku }}">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn-icon edit-product" data-sku="{{ product.sku }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recycling Suggestions -->
+<div class="card">
+    <div class="card-header">
+        <h3>Suggestions de Recyclage</h3>
+    </div>
+    <div class="card-body">
+        <div class="suggestions-container" style="display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important;">
+            {% for suggestion in recycling_suggestions|default([
+                {'title': 'Regrouper les smartphones', 'description': 'Créer un pack avec les smartphones invendus et accessoires', 'savings': '1,250 €', 'complexity': 'Moyenne'},
+                {'title': 'Promotion croisée', 'description': 'Offrir une remise sur les écouteurs avec achat de smartphone', 'savings': '850 €', 'complexity': 'Faible'},
+                {'title': 'Reconditionnement', 'description': 'Reconditionner les produits électroniques en stock depuis plus de 60 jours', 'savings': '2,100 €', 'complexity': 'Élevée'}
+            ]) %}
+            <div class="suggestion-card">
+                <h4>{{ suggestion.title }}</h4>
+                <p>{{ suggestion.description }}</p>
+                <div class="suggestion-details">
+                    <span class="suggestion-savings">Économies: {{ suggestion.savings }}</span>
+                    <span class="suggestion-complexity">Complexité: {{ suggestion.complexity }}</span>
+                </div>
+                <button class="btn btn-outline btn-sm">Appliquer</button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+<!-- Drawer Panel for Unsold Products Management -->
+<div id="drawer-panel" class="drawer-panel">
+    <div class="drawer-header">
+        <h3>Gestion des Produits Invendus</h3>
+        <button id="close-drawer" class="btn-icon">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <div class="drawer-content" style="display: block !important; visibility: visible !important; opacity: 1 !important;">
+        <div class="drawer-section">
+            <h4>Produits Sélectionnés</h4>
+            <div id="selected-products-container" class="selected-products-container" style="display: block !important; visibility: visible !important; opacity: 1 !important; width: 100% !important;">
+                <!-- Selected products will be displayed here -->
+            </div>
+        </div>
+        
+        <div class="drawer-section">
+            <h4>Options de Gestion</h4>
+            <div class="management-options">
+                <div class="option-group">
+                    <h5>Méthode d'Expédition</h5>
+                    <div class="shipping-options">
+                        <div class="shipping-option" data-cost="5.99">
+                            <i class="fas fa-truck"></i>
+                            <span>Standard (5.99€)</span>
+                        </div>
+                        <div class="shipping-option" data-cost="12.99">
+                            <i class="fas fa-shipping-fast"></i>
+                            <span>Express (12.99€)</span>
+                        </div>
+                        <div class="shipping-option" data-cost="0">
+                            <i class="fas fa-store"></i>
+                            <span>Retrait en magasin (Gratuit)</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="option-group">
+                    <h5>Trésorerie AUTOBOT</h5>
+                    <div class="treasury-info">
+                        <div class="balance-info">
+                            <span>Solde disponible:</span>
+                            <span id="treasury-balance" class="balance-amount">{{ treasury_balance|default('5,000.00') }} €</span>
+                        </div>
+                        <div class="cost-info">
+                            <span>Coût total:</span>
+                            <span id="total-cost" class="cost-amount">0.00 €</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="drawer-actions">
+            <button id="recycle-selected" class="btn btn-outline" disabled>
+                <i class="fas fa-recycle"></i> Recycler Sélection
+            </button>
+            <button id="order-selected" class="btn btn-primary" disabled>
+                <i class="fas fa-shopping-cart"></i> Commander Sélection
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Drawer Panel Trigger Button -->
+<div class="drawer-trigger">
+    <button id="open-drawer" class="btn btn-primary">
+        <i class="fas fa-tasks"></i> Gérer les Invendus
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/drawer_panel.js"></script>
+<script src="/static/js/treasury_integration.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Optimization Chart
+    const ctx = document.getElementById('optimizationChart').getContext('2d');
+    const optimizationChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+            datasets: [
+                {
+                    label: 'Prix Original',
+                    data: [12450, 12450, 12450, 12450, 12450, 12450, 12450],
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Prix Optimisé',
+                    data: [12450, 11800, 11200, 10500, 10000, 9700, 9560],
+                    backgroundColor: 'rgba(0, 255, 157, 0.5)',
+                    borderColor: 'rgba(0, 255, 157, 1)',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888'
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) {
+                            return value + ' €';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Category filter
+    const categoryFilter = document.getElementById('categoryFilter');
+    if (categoryFilter) {
+        categoryFilter.addEventListener('change', function() {
+            const selectedCategory = this.value;
+            const rows = document.querySelectorAll('#unsoldProductsTable tr');
+            
+            rows.forEach(row => {
+                const category = row.getAttribute('data-category');
+                if (selectedCategory === 'all' || category === selectedCategory) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+    
+    // Sync Inventory button
+    const syncInventoryBtn = document.getElementById('syncInventory');
+    if (syncInventoryBtn) {
+        syncInventoryBtn.addEventListener('click', function() {
+            // Simulate synchronization
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+            
+            setTimeout(() => {
+                this.disabled = false;
+                this.innerHTML = '<i class="fas fa-sync"></i> Synchroniser Inventaire';
+                showNotification('Inventaire synchronisé avec succès', 'success');
+            }, 2000);
+        });
+    }
+    
+    // Optimize Prices button
+    const optimizePricesBtn = document.getElementById('optimizePrices');
+    if (optimizePricesBtn) {
+        optimizePricesBtn.addEventListener('click', function() {
+            // Simulate optimization
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Optimisation...';
+            
+            setTimeout(() => {
+                this.disabled = false;
+                this.innerHTML = '<i class="fas fa-magic"></i> Optimiser Prix';
+                showNotification('Prix optimisés avec succès', 'success');
+            }, 2000);
+        });
+    }
+    
+    // Apply price buttons
+    document.querySelectorAll('.apply-price').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sku = this.getAttribute('data-sku');
+            // Apply optimized price logic
+            showNotification(`Prix optimisé appliqué pour ${sku}`, 'success');
+        });
+    });
+    
+    // Edit product buttons
+    document.querySelectorAll('.edit-product').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sku = this.getAttribute('data-sku');
+            // Open edit product modal or form
+            alert(`Éditer le produit ${sku}`);
+        });
+    });
+    
+    // Utility function to show notifications
+    function showNotification(message, type = 'info') {
+        // This function is defined in common.js
+        if (window.showNotification) {
+            window.showNotification(message, type);
+        } else {
+            alert(message);
+        }
+    }
+});
+</script>
+{% endblock %}
+
+<!-- Drawer Panel for Unsold Products -->
+<div class="drawer-panel">
+    <div class="drawer-panel-header">
+        <h3>Gestion des Invendus</h3>
+        <button class="drawer-panel-close">&times;</button>
+    </div>
+    
+    <div class="drawer-panel-content">
+        <div class="treasury-balance mb-3">
+            <span>Solde de trésorerie:</span>
+            <span class="treasury-balance-amount">5000.00 €</span>
+        </div>
+        
+        <h4>Produits Invendus</h4>
+        <div class="product-list">
+            <div class="product-item">
+                <input type="checkbox" class="product-checkbox" value="1">
+                <div class="product-info">
+                    <div class="product-name">Smartphone XYZ</div>
+                    <div class="product-price" data-price="499.99">499.99 €</div>
+                </div>
+                <div class="product-actions">
+                    <button class="btn btn-sm btn-outline-danger">Recycler</button>
+                    <button class="btn btn-sm btn-outline-primary">Commander</button>
+                </div>
+            </div>
+            
+            <div class="product-item">
+                <input type="checkbox" class="product-checkbox" value="2">
+                <div class="product-info">
+                    <div class="product-name">Écouteurs Bluetooth</div>
+                    <div class="product-price" data-price="89.99">89.99 €</div>
+                </div>
+                <div class="product-actions">
+                    <button class="btn btn-sm btn-outline-danger">Recycler</button>
+                    <button class="btn btn-sm btn-outline-primary">Commander</button>
+                </div>
+            </div>
+            
+            <div class="product-item">
+                <input type="checkbox" class="product-checkbox" value="3">
+                <div class="product-info">
+                    <div class="product-name">Montre Connectée</div>
+                    <div class="product-price" data-price="199.99">199.99 €</div>
+                </div>
+                <div class="product-actions">
+                    <button class="btn btn-sm btn-outline-danger">Recycler</button>
+                    <button class="btn btn-sm btn-outline-primary">Commander</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bulk-actions mt-3">
+            <button id="recycle-all" class="btn btn-danger">Recycler Sélection</button>
+            <button id="order-all" class="btn btn-primary">Commander Sélection</button>
+        </div>
+        
+        <div class="shipping-options mt-4">
+            <h4>Options d'Expédition</h4>
+            <div class="shipping-option">
+                <input type="radio" name="shipping-option" id="shipping-standard" value="standard" data-price="5.99">
+                <label for="shipping-standard">Standard (5-7 jours) - 5.99 €</label>
+            </div>
+            <div class="shipping-option">
+                <input type="radio" name="shipping-option" id="shipping-express" value="express" data-price="12.99">
+                <label for="shipping-express">Express (2-3 jours) - 12.99 €</label>
+            </div>
+            <div class="shipping-option">
+                <input type="radio" name="shipping-option" id="shipping-priority" value="priority" data-price="19.99">
+                <label for="shipping-priority">Prioritaire (24h) - 19.99 €</label>
+            </div>
+        </div>
+        
+        <div class="order-summary mt-3">
+            <h4>Récapitulatif de commande</h4>
+            <div class="d-flex justify-content-between">
+                <span>Produits (0):</span>
+                <span>0.00 €</span>
+            </div>
+            <div class="d-flex justify-content-between">
+                <span>Expédition:</span>
+                <span>0.00 €</span>
+            </div>
+            <div class="d-flex justify-content-between font-weight-bold mt-2">
+                <span>Total:</span>
+                <span>0.00 €</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="drawer-panel-footer">
+        <button id="confirm-order" class="btn btn-success btn-block">Confirmer la Commande</button>
+    </div>
+</div>
+
+<!-- Drawer Trigger Button -->
+<button class="drawer-trigger">
+    <i class="fas fa-shopping-cart"></i>
+</button>

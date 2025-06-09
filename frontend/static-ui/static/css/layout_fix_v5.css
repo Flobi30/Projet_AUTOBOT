@@ -1,0 +1,43 @@
+
+/* Layout fix to ensure main content is visible alongside sidebar */
+.main-content {
+    margin-left: 250px !important;
+    width: calc(100% - 250px) !important;
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    min-height: 100vh !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+    overflow: auto !important;
+    z-index: 1 !important;
+}
+
+.sidebar {
+    width: 250px !important;
+    position: fixed !important;
+    height: 100% !important;
+    z-index: 2 !important;
+    overflow-y: auto !important;
+}
+
+/* Ensure all content is visible */
+.container, .container-fluid, .row, .col, .col-md-12, .card {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix for dashboard cards */
+.dashboard-card {
+    display: block !important;
+    visibility: visible !important;
+    margin-bottom: 20px !important;
+}
+
+/* Fix for tables */
+table {
+    width: 100% !important;
+    display: table !important;
+    visibility: visible !important;
+}

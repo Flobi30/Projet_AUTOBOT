@@ -1,0 +1,368 @@
+
+/* Force Layout Visibility CSS v3 - Aggressive Approach */
+:root {
+    --sidebar-width: 250px;
+    --primary-color: #00ff9d;
+    --bg-color: #121212;
+    --card-bg-color: #1e1e1e;
+    --text-color: #ffffff;
+}
+
+/* Force Main Content Visibility */
+.main-content,
+main,
+.content,
+.dashboard-content,
+.page-content,
+.container-fluid,
+.container,
+div[class*="content"],
+div[class*="main"],
+div[class*="dashboard"],
+div[class*="container"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: calc(100% - var(--sidebar-width)) !important;
+    margin-left: var(--sidebar-width) !important;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    min-height: 100vh !important;
+    z-index: 1 !important;
+    overflow: visible !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
+}
+
+/* Ensure Sidebar is Visible but Doesn't Overlap Content */
+.sidebar,
+.side-nav,
+.sidenav,
+.nav-sidebar,
+nav[class*="sidebar"],
+div[class*="sidebar"],
+aside {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: var(--sidebar-width) !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: 100vh !important;
+    z-index: 2 !important;
+    overflow-y: auto !important;
+    background-color: var(--bg-color) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Ensure Cards and Panels are Visible */
+.card,
+.panel,
+.box,
+.widget,
+div[class*="card"],
+div[class*="panel"],
+div[class*="box"],
+div[class*="widget"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--card-bg-color) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    margin-bottom: 20px !important;
+    overflow: visible !important;
+}
+
+/* Ensure Tables are Visible */
+table,
+.table,
+div[class*="table"] {
+    display: table !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-bottom: 20px !important;
+    color: var(--text-color) !important;
+}
+
+/* Ensure Forms are Visible */
+form,
+.form,
+div[class*="form"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    margin-bottom: 20px !important;
+}
+
+/* Ensure Buttons are Visible */
+button,
+.btn,
+.button,
+input[type="button"],
+input[type="submit"],
+a[class*="btn"],
+div[class*="btn"] {
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure Text is Visible */
+h1, h2, h3, h4, h5, h6, p, span, a, label, input, select, textarea {
+    color: var(--text-color) !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Ensure Images and Icons are Visible */
+img, svg, i, .icon, [class*="icon"] {
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    max-width: 100% !important;
+}
+
+/* Fix for Flexbox Layouts */
+.d-flex,
+.flex,
+[class*="d-flex"],
+[class*="flex"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix for Grid Layouts */
+.row,
+.grid,
+[class*="row"],
+[class*="grid"] {
+    display: grid !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important;
+    gap: 20px !important;
+}
+
+/* Ensure Proper Layout for Body */
+body {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
+}
+
+/* Ensure Proper Layout for HTML */
+html {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
+}
+
+/* Fix for Nested Containers */
+.container .container,
+.container-fluid .container,
+.container .container-fluid,
+.container-fluid .container-fluid {
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* Fix for Absolute Positioned Elements */
+[style*="position: absolute"],
+[style*="position:absolute"] {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+}
+
+/* Fix for Fixed Positioned Elements (except sidebar) */
+body > *:not(.sidebar):not(#sidebar):not(.side-nav):not(#side-nav):not(.sidenav):not(#sidenav)[style*="position: fixed"],
+body > *:not(.sidebar):not(#sidebar):not(.side-nav):not(#side-nav):not(.sidenav):not(#sidenav)[style*="position:fixed"] {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+}
+
+/* Fix for Hidden Elements */
+[style*="display: none"],
+[style*="display:none"],
+[style*="visibility: hidden"],
+[style*="visibility:hidden"],
+[style*="opacity: 0"],
+[style*="opacity:0"],
+.d-none,
+.hidden,
+.invisible {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Fix for Drawer Panel */
+.drawer-panel,
+.drawer,
+[class*="drawer"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: fixed !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 300px !important;
+    z-index: 9999 !important;
+    background-color: var(--card-bg-color) !important;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5) !important;
+    transform: translateX(100%) !important;
+    transition: transform 0.3s ease !important;
+}
+
+.drawer-panel.open,
+.drawer.open,
+[class*="drawer"].open {
+    transform: translateX(0) !important;
+}
+
+/* Fix for API Key Fields */
+.api-key-field,
+.api-key-input,
+input[type="password"],
+[class*="api-key"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: 100% !important;
+    background-color: rgba(0, 0, 0, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: var(--text-color) !important;
+    padding: 8px 12px !important;
+    border-radius: 4px !important;
+    margin-bottom: 10px !important;
+}
+
+/* Fix for Logo */
+.logo,
+[class*="logo"] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 20px !important;
+}
+
+.logo img,
+[class*="logo"] img {
+    height: 60px !important;
+    width: auto !important;
+    max-width: 100% !important;
+}
+
+/* Fix for Treasury Integration */
+.treasury-integration,
+[class*="treasury"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-top: 20px !important;
+    padding: 15px !important;
+    background-color: rgba(0, 255, 157, 0.1) !important;
+    border: 1px solid var(--primary-color) !important;
+    border-radius: 8px !important;
+}
+
+/* Fix for Backtesting Triggers */
+.backtesting-trigger,
+[class*="backtesting"] {
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-top: 10px !important;
+    padding: 8px 15px !important;
+    background-color: var(--primary-color) !important;
+    color: var(--bg-color) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+}
+
+/* Fix for Neon Accents */
+[class*="neon"],
+[class*="accent"],
+.accent,
+.neon {
+    color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* Fix for Button Hover States */
+button:hover,
+.btn:hover,
+.button:hover,
+input[type="button"]:hover,
+input[type="submit"]:hover,
+a[class*="btn"]:hover,
+div[class*="btn"]:hover {
+    filter: brightness(1.2) !important;
+}
+
+/* Fix for Links */
+a, a:visited {
+    color: var(--primary-color) !important;
+    text-decoration: none !important;
+}
+
+a:hover {
+    text-decoration: underline !important;
+    filter: brightness(1.2) !important;
+}
+
+/* Fix for Scrollbars */
+::-webkit-scrollbar {
+    width: 8px !important;
+    height: 8px !important;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-color) !important;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--primary-color) !important;
+    border-radius: 4px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    filter: brightness(1.2) !important;
+}

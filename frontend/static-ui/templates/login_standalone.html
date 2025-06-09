@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Login</title>
+    <style>
+        :root {
+            --primary-color: #00ff9d;
+            --bg-color: #121212;
+            --card-bg-color: #1e1e1e;
+            --text-color: #ffffff;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .login-container {
+            background-color: var(--card-bg-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            padding: 2rem;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            border: 1px solid rgba(0, 255, 157, 0.2);
+        }
+        
+        .login-title {
+            color: var(--primary-color);
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+        }
+        
+        .login-subtitle {
+            color: #aaa;
+            margin-bottom: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: var(--border-radius);
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-color);
+            font-size: 1rem;
+            transition: var(--transition);
+            box-sizing: border-box;
+            position: relative;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.2);
+        }
+        
+        .password-container {
+            position: relative;
+        }
+        
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+            border: none;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: #000;
+        }
+        
+        .btn-primary:hover {
+            background-color: #00cc7d;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 255, 157, 0.3);
+        }
+        
+        .btn-secondary {
+            background-color: #2196F3;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #0d8aee;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+        }
+        
+        .btn-tertiary {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        .btn-tertiary:hover {
+            background-color: #d62c1a;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+        }
+        
+        .input-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary-color);
+        }
+        
+        .form-control-container {
+            position: relative;
+        }
+        
+        /* Neon glow effect */
+        .neon-glow {
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.5), 
+                        0 0 20px rgba(0, 255, 157, 0.3), 
+                        0 0 30px rgba(0, 255, 157, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container neon-glow">
+        <h1 class="login-title">AUTOBOT</h1>
+        <p class="login-subtitle">Trading and Automation Framework</p>
+        
+        <form id="loginForm" method="POST" action="/login">
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <div class="form-control-container">
+                    <input type="text" id="username" name="username" class="form-control" value="AUTOBOT" required>
+                    <span class="input-icon">👤</span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <div class="password-container">
+                    <input type="password" id="password" name="password" class="form-control" value="333333Aesnpr54&" required>
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility()">👁️</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="license_key">Clé de licence</label>
+                <div class="form-control-container">
+                    <input type="text" id="license_key" name="license_key" class="form-control" value="AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx" required>
+                    <span class="input-icon">🔑</span>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">
+                <span>SE CONNECTER</span>
+            </button>
+            
+            <a href="/direct-dashboard" class="btn btn-secondary">
+                <span>⚡ Connexion Directe</span>
+            </a>
+            
+            <a href="/bypass-auth?redirect=/dashboard" class="btn btn-tertiary">
+                <span>🔓 Connexion Simple</span>
+            </a>
+        </form>
+    </div>
+
+    <script>
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+            } else {
+                passwordInput.type = 'password';
+            }
+        }
+        
+        // Fix for form submission - ensure POST method is used
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            fetch('/login', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else {
+                    return response.json();
+                }
+            })
+            .then(data => {
+                if (data && data.access_token) {
+                    // Store token and redirect
+                    document.cookie = `access_token=${data.access_token}; path=/; max-age=3600; SameSite=Lax`;
+                    window.location.href = '/dashboard';
+                }
+            })
+            .catch(error => {
+                console.error('Login error:', error);
+                alert('Erreur de connexion. Veuillez réessayer.');
+            });
+        });
+    </script>
+</body>
+</html>
