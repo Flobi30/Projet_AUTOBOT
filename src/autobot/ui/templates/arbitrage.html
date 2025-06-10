@@ -7,12 +7,6 @@
     <div class="page-header">
         <h1 class="page-title">Arbitrage</h1>
         <div class="page-actions">
-            <button class="btn btn-primary" onclick="scanOpportunities()">
-                <i class="fas fa-search"></i> Scanner
-            </button>
-            <button class="btn btn-secondary" onclick="openSettings()">
-                <i class="fas fa-cog"></i> Paramètres
-            </button>
         </div>
     </div>
     <div class="stats-grid">
@@ -61,9 +55,6 @@
             <div class="card-header">
                 <h3>Opportunités d'Arbitrage</h3>
                 <div class="card-actions">
-                    <button class="btn btn-sm btn-primary" onclick="refreshOpportunities()">
-                        <i class="fas fa-sync"></i>
-                    </button>
                 </div>
             </div>
             <div class="card-content">
@@ -86,9 +77,7 @@
                                 <td>{{ opportunity.exchange_b }}</td>
                                 <td class="profit-cell">{{ "%.2f"|format(opportunity.profit_percentage) }}%</td>
                                 <td>
-                                    <button class="btn btn-sm btn-success" onclick="executeArbitrage('{{ opportunity.id }}')">
-                                        Exécuter
-                                    </button>
+                                    <span class="status-badge status-active">Surveillé</span>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -174,8 +163,6 @@
                 </div>
                 
                 <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeSettings()">Annuler</button>
-                    <button type="submit" class="btn btn-primary">Sauvegarder</button>
                 </div>
             </form>
         </div>
@@ -287,9 +274,6 @@ function updateOpportunitiesTable(opportunities) {
             <td>${opportunity.exchange_b}</td>
             <td class="profit-cell">${opportunity.profit_percentage.toFixed(2)}%</td>
             <td>
-                <button class="btn btn-sm btn-success" onclick="executeArbitrage('${opportunity.id}')">
-                    Exécuter
-                </button>
             </td>
         `;
     });

@@ -17,19 +17,19 @@
 <div class="metric-cards">
     <div class="metric-card">
         <span class="metric-title">Capital Total</span>
-        <span class="metric-value"><span id="totalCapital">0 €</span></span>
+        <span class="metric-value"><span id="totalCapital">Chargement...</span></span>
         <span class="metric-change" id="capitalChange">+0,00%</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Instances Actives</span>
-        <span class="metric-value"><span id="activeInstances">0</span></span>
+        <span class="metric-value"><span id="activeInstances">Chargement...</span></span>
         <span class="metric-change" id="instanceChange">+0</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Performance</span>
-        <span class="metric-value"><span id="performance">+0.00%</span></span>
+        <span class="metric-value"><span id="performance">Chargement...</span></span>
         <span class="metric-status">Temps réel</span>
     </div>
 </div>
@@ -386,26 +386,36 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Real-time dashboard metrics updates
 
-// Real-time dashboard metrics update function - ZERO BASELINE
+// Real-time dashboard metrics update function
 function updateDashboardMetrics() {
-    // Set all metrics to 0 as requested by user
-    const capitalElement = document.getElementById("totalCapital");
-    if (capitalElement) {
-        capitalElement.textContent = "0 €";
-    }
+    // Fetch real capital data
+    fetch("/api/metrics/dashboard")
+        .then(response => response.json())
+        .then(data => {
+            const capitalElement = document.getElementById("totalCapital");
+            if (capitalElement) {
+                capitalElement.textContent = `${Math.round(data.current_capital).toLocaleString("fr-FR")} €`;
+            }
+            
+            const performancePercent = ((data.current_capital - data.initial_deposit) / data.initial_deposit) * 100;
+            const performanceElement = document.getElementById("performance");
+            if (performanceElement) {
+                performanceElement.textContent = `+${performancePercent.toFixed(2)}%`;
+            }
+            
+            console.log("Capital metrics updated:", data);
+        })
+        .catch(error => console.error("Error fetching capital:", error));
     
-    const performanceElement = document.getElementById("performance");
-    if (performanceElement) {
-        performanceElement.textContent = "+0.00%";
-    }
-    
-    const instancesElement = document.getElementById("activeInstances");
-    if (instancesElement) {
-        instancesElement.textContent = "0";
-    }
-    
-    console.log("Dashboard metrics set to ZERO BASELINE as requested");
-}
+    // Fetch duplication status
+    fetch("/api/duplication/status")
+        .then(response => response.json())
+        .then(data => {
+            const instancesElement = document.getElementById("activeInstances");
+            if (instancesElement) {
+                instancesElement.textContent = data.active_instances;
+            }
+            console.log("Duplication status updated:", data);
         })
         .catch(error => console.error("Error fetching duplication status:", error));
 }

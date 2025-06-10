@@ -4,12 +4,6 @@
 {% block header_title %}Trading{% endblock %}
 
 {% block header_actions %}
-<button class="btn btn-outline" id="refreshMarkets">
-    <i class="fas fa-sync"></i> Rafraîchir
-</button>
-<button class="btn btn-primary" id="newTrade">
-    <i class="fas fa-plus"></i> Nouveau Trade
-</button>
 {% endblock %}
 
 {% block content %}
@@ -134,14 +128,7 @@
                             <td>{{ order.price }}</td>
                             <td>{{ order.amount }}</td>
                             <td>
-                                <div class="action-buttons">
-                                    <button class="btn-icon edit-order" data-id="{{ loop.index }}">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn-icon cancel-order" data-id="{{ loop.index }}">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
+                                <span class="status-badge">{{ order.status|default('En attente') }}</span>
                             </td>
                         </tr>
                         {% endfor %}

@@ -17,19 +17,19 @@
 <div class="metric-cards">
     <div class="metric-card">
         <span class="metric-title">Capital Total</span>
-        <span class="metric-value"><span id="totalCapital">0 €</span></span>
+        <span class="metric-value"><span id="totalCapital">Chargement...</span></span>
         <span class="metric-change" id="capitalChange">+0,00%</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Instances Actives</span>
-        <span class="metric-value"><span id="activeInstances">0</span></span>
+        <span class="metric-value"><span id="activeInstances">Chargement...</span></span>
         <span class="metric-change" id="instanceChange">+0</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Performance</span>
-        <span class="metric-value"><span id="performance">+0.00%</span></span>
+        <span class="metric-value"><span id="performance">Chargement...</span></span>
         <span class="metric-status">Temps réel</span>
     </div>
 </div>
