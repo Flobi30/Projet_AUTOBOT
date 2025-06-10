@@ -420,16 +420,31 @@ function initWebSocket() {
 }
 
 function updateRandomData() {
-    const portfolioValue = document.querySelector('.card:nth-child(1) .value');
-    const portfolioChange = document.querySelector('.card:nth-child(1) .change');
+    // ZERO BASELINE - Set all metrics to 0 as requested by user
+    const totalCapitalElement = document.getElementById("totalCapital");
+    if (totalCapitalElement) {
+        totalCapitalElement.textContent = "0 €";
+    }
     
-    const currentValue = parseFloat(portfolioValue.textContent.replace('€', '').replace(',', ''));
-    const change = (Math.random() * 2 - 1) * 50; // Random change between -50 and +50
-    const newValue = currentValue + change;
+    const performanceElement = document.getElementById("performance");
+    if (performanceElement) {
+        performanceElement.textContent = "+0.00%";
+    }
     
-    portfolioValue.textContent = '€' + newValue.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const activeInstancesElement = document.getElementById("activeInstances");
+    if (activeInstancesElement) {
+        activeInstancesElement.textContent = "0";
+    }
     
-    const percentChange = (change / currentValue) * 100;
-    portfolioChange.textContent = (percentChange >= 0 ? '+' : '') + percentChange.toFixed(2) + '% (24h)';
-    portfolioChange.className = 'change ' + (percentChange >= 0 ? 'positive' : 'negative');
+    const capitalChangeElement = document.getElementById("capitalChange");
+    if (capitalChangeElement) {
+        capitalChangeElement.textContent = "+0.00%";
+    }
+    
+    const instanceChangeElement = document.getElementById("instanceChange");
+    if (instanceChangeElement) {
+        instanceChangeElement.textContent = "+0";
+    }
+    
+    console.log("Dashboard metrics set to ZERO BASELINE as requested");
 }
