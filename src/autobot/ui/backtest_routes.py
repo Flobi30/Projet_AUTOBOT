@@ -147,15 +147,14 @@ auto_backtest_state = None
 
 @router.get("/backtest", response_class=HTMLResponse)
 async def backtest_page(request: Request, user: User = Depends(get_current_user)):
-    """Render the backtest page."""
+    """Render the ultra-performance backtest page."""
     return templates.TemplateResponse(
         "backtest.html",
         {
             "request": request,
             "user": user,
-            "strategies": strategies,
-            "symbols": symbols,
-            "saved_backtests": saved_backtests
+            "active_page": "backtest",
+            "title": "Backtest Ultra-Performance"
         }
     )
 
