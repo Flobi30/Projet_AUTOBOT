@@ -29,7 +29,7 @@
                     </div>
                 </div>
             </div>
-            <form id="api-settings-form">
+            <form id="api-settings-form" method="post">
                 <div class="form-group">
                     <label for="binance-api-key">Binance API Key</label>
                     <div class="input-group">
@@ -238,24 +238,41 @@
 document.getElementById('api-settings-form').addEventListener('submit', function(e) {
     e.preventDefault();
     
-    // Collect all API keys
+    // Collect all API keys in APIKeysRequest schema format
     const apiKeys = {
-        binance_api_key: document.getElementById('binance-api-key').value,
-        binance_api_secret: document.getElementById('binance-api-secret').value,
-        coinbase_api_key: document.getElementById('coinbase-api-key').value,
-        coinbase_api_secret: document.getElementById('coinbase-api-secret').value,
-        kraken_api_key: document.getElementById('kraken-api-key').value,
-        stripe_api_key: document.getElementById('stripe-api-key').value,
-        newsapi_api_key: document.getElementById('newsapi-api-key').value,
-        twelve_data_api_key: document.getElementById('twelve-data-api-key').value,
-        fred_api_key: document.getElementById('fred-api-key').value,
-        shopify_api_key: document.getElementById('shopify-api-key').value,
-        shopify_api_secret: document.getElementById('shopify-api-secret').value,
-        shopify_shop_name: document.getElementById('shopify-shop-name').value
+        binance: {
+            api_key: document.getElementById("binance-api").value,
+            api_secret: document.getElementById("binance-secret-api").value
+        },
+        coinbase: {
+            api_key: document.getElementById("coinbase-api-key").value,
+            api_secret: document.getElementById("coinbase-secret").value
+        },
+        kraken: {
+            api_key: document.getElementById("kraken-api-key").value,
+            api_secret: document.getElementById("kraken-secret").value
+        },
+        other: {
+            stripe: {
+                api_key: document.getElementById("stripe-api").value,
+                api_secret: document.getElementById("stripe-secret").value
+            },
+            twelve_data: document.getElementById("twelve-data-api").value,
+            fred: document.getElementById("fred-api").value,
+            news_api: {
+                api_key: document.getElementById("news-api").value,
+                api_secret: ""
+            },
+            shopify: {
+                api_key: document.getElementById("shopify-api-key").value,
+                api_secret: document.getElementById("shopify-api-secret").value,
+                shop_name: document.getElementById("shopify-shop-name").value
+            }
+        }
     };
     
     // Save API keys
-    fetch('/api/save-settings', {
+    fetch('/setup', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -284,6 +301,19 @@ document.getElementById('api-settings-form').addEventListener('submit', function
             .catch(error => {
                 console.error('Erreur lors du lancement du backtest automatique:', error);
             });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
         } else {
             alert('Erreur lors de la sauvegarde: ' + data.message);
         }
@@ -292,6 +322,32 @@ document.getElementById('api-settings-form').addEventListener('submit', function
         console.error('Erreur:', error);
         alert('Erreur lors de la sauvegarde des paramètres');
     });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+});
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
 });
 
 // Toggle password visibility
@@ -311,6 +367,32 @@ document.querySelectorAll('.toggle-password').forEach(button => {
             icon.classList.add('fa-eye');
         }
     });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+});
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
 });
 </script>
 {% endblock %}

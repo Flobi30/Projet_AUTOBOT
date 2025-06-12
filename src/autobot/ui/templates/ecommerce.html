@@ -17,19 +17,19 @@
 <div class="metric-cards">
     <div class="metric-card">
         <span class="metric-title">Produits Invendus</span>
-        <span class="metric-value">{{ unsold_products|default('124') }}</span>
-        <span class="metric-change">Valeur: {{ unsold_value|default('12,450 €') }}</span>
+        <span class="metric-value">{{ unsold_products|default('0') }}</span>
+        <span class="metric-change">Valeur: {{ unsold_value|default('12,00 €') }}</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Économies Potentielles</span>
-        <span class="metric-value">{{ potential_savings|default('2,890 €') }}</span>
-        <span class="metric-change positive">+23.2%</span>
+        <span class="metric-value">{{ potential_savings|default('0 €') }}</span>
+        <span class="metric-change positive">0.0%</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Commandes Recyclées</span>
-        <span class="metric-value">{{ recycled_orders|default('45') }}</span>
+        <span class="metric-value">{{ recycled_orders|default('0') }}</span>
         <span class="metric-change">Ce mois</span>
     </div>
 </div>
@@ -81,10 +81,10 @@
                 </thead>
                 <tbody id="unsoldProductsTable">
                     {% for product in unsold_products_list|default([
-                        {'name': 'Smartphone XYZ', 'sku': 'SM-XYZ-123', 'category': 'electronics', 'original_price': '599.99 €', 'optimized_price': '499.99 €', 'stock': 15, 'days': 45},
-                        {'name': 'Écouteurs Bluetooth', 'sku': 'EB-BT-456', 'category': 'electronics', 'original_price': '129.99 €', 'optimized_price': '89.99 €', 'stock': 32, 'days': 60},
-                        {'name': 'Montre Connectée', 'sku': 'MC-789', 'category': 'electronics', 'original_price': '249.99 €', 'optimized_price': '199.99 €', 'stock': 8, 'days': 30},
-                        {'name': 'T-shirt Premium', 'sku': 'TS-PRE-101', 'category': 'clothing', 'original_price': '39.99 €', 'optimized_price': '29.99 €', 'stock': 45, 'days': 90},
+                        {'name': 'Smartphone XYZ', 'sku': 'SM-XYZ-123', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '499.99 €', 'stock': 15, 'days': 0},
+                        {'name': 'Écouteurs Bluetooth', 'sku': 'EB-BT-06', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '89.99 €', 'stock': 32, 'days': 60},
+                        {'name': 'Montre Connectée', 'sku': 'MC-789', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '199.99 €', 'stock': 8, 'days': 30},
+                        {'name': 'T-shirt Premium', 'sku': 'TS-PRE-101', 'category': 'clothing', 'original_price': '39.99 €', 'optimized_price': '29.99 €', 'stock': 0, 'days': 90},
                         {'name': 'Lampe Design', 'sku': 'LD-202', 'category': 'home', 'original_price': '89.99 €', 'optimized_price': '69.99 €', 'stock': 12, 'days': 75}
                     ]) %}
                     <tr data-category="{{ product.category }}">
@@ -121,9 +121,9 @@
     <div class="card-body">
         <div class="suggestions-container">
             {% for suggestion in recycling_suggestions|default([
-                {'title': 'Regrouper les smartphones', 'description': 'Créer un pack avec les smartphones invendus et accessoires', 'savings': '1,250 €', 'complexity': 'Moyenne'},
-                {'title': 'Promotion croisée', 'description': 'Offrir une remise sur les écouteurs avec achat de smartphone', 'savings': '850 €', 'complexity': 'Faible'},
-                {'title': 'Reconditionnement', 'description': 'Reconditionner les produits électroniques en stock depuis plus de 60 jours', 'savings': '2,100 €', 'complexity': 'Élevée'}
+                {'title': 'Regrouper les smartphones', 'description': 'Créer un pack avec les smartphones invendus et accessoires', 'savings': '0 €', 'complexity': 'Moyenne'},
+                {'title': 'Promotion croisée', 'description': 'Offrir une remise sur les écouteurs avec achat de smartphone', 'savings': '0 €', 'complexity': 'Faible'},
+                {'title': '', 'description': '', 'savings': '0 €', 'complexity': ''}
             ]) %}
             <div class="suggestion-card">
                 <h4>{{ suggestion.title }}</h4>
@@ -152,14 +152,14 @@ document.addEventListener('DOMContentLoaded', function() {
             datasets: [
                 {
                     label: 'Prix Original',
-                    data: [12450, 12450, 12450, 12450, 12450, 12450, 12450],
+                    data: [050, 050, 050, 050, 050, 050, 050],
                     backgroundColor: 'rgba(255, 99, 132, 0.5)',
                     borderColor: 'rgba(255, 99, 132, 1)',
                     borderWidth: 1
                 },
                 {
                     label: 'Prix Optimisé',
-                    data: [12450, 11800, 11200, 10500, 10000, 9700, 9560],
+                    data: [050, 11800, 11200, 10500, 10000, 9700, 9560],
                     backgroundColor: 'rgba(0, 255, 157, 0.5)',
                     borderColor: 'rgba(0, 255, 157, 1)',
                     borderWidth: 1
