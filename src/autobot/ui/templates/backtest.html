@@ -2,238 +2,341 @@
 
 {% block title %}Backtest - AUTOBOT{% endblock %}
 
-{% block header_title %}Backtest Automatisé{% endblock %}
-
-{% block header_actions %}
-{% endblock %}
+{% block header_title %}Backtest{% endblock %}
 
 {% block content %}
-<div class="auto-config-display">
-    <h3><i class="fas fa-robot"></i> Configuration Automatique Active</h3>
-    <p>Stratégie: Moving Average Crossover | Capital Initial: 500€ | Objectif: 10% quotidien</p>
-    <div class="optimization-indicator">
-        <i class="fas fa-sync fa-spin"></i> Optimisation continue en cours...
-    </div>
-</div>
-
 <div class="dashboard-grid">
-    <div class="metric-card">
-        <span class="metric-title">Rendement Total</span>
-        <span class="metric-value" id="totalReturn">Calcul en cours...</span>
-        <span class="metric-change positive" id="totalReturnChange">+0%</span>
+    <!-- Automatic Backtest Status -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="neon-text">Configuration Automatique Active</h3>
+            <p>AUTOBOT optimise automatiquement les stratégies</p>
+            <p id="auto-status">Initialisation en cours...</p>
+        </div>
     </div>
-    
-    <div class="metric-card">
-        <span class="metric-title">Rendement Quotidien</span>
-        <span class="metric-value" id="dailyReturn">Calcul en cours...</span>
-        <span class="metric-change" id="dailyReturnChange">+0%</span>
+
+    <!-- Performance Metrics -->
+    <div class="card">
+        <div class="metric-item">
+            <div class="metric-label">Rendement Total</div>
+            <div class="metric-value neon-text" id="auto-total-return">+0.00%</div>
+        </div>
     </div>
-    
-    <div class="metric-card">
-        <span class="metric-title">Ratio de Sharpe</span>
-        <span class="metric-value" id="sharpeRatio">Calcul en cours...</span>
-        <span class="metric-change" id="sharpeChange">+0%</span>
+    <div class="card">
+        <div class="metric-item">
+            <div class="metric-label">Rendement Quotidien</div>
+            <div class="metric-value neon-text" id="auto-daily-return">+0.00%</div>
+        </div>
     </div>
-    
-    <div class="metric-card">
-        <span class="metric-title">Drawdown Max</span>
-        <span class="metric-value" id="maxDrawdown">Calcul en cours...</span>
-        <span class="metric-change negative" id="drawdownChange">-0%</span>
+    <div class="card">
+        <div class="metric-item">
+            <div class="metric-label">Ratio de Sharpe</div>
+            <div class="metric-value neon-text" id="auto-sharpe">+0.00</div>
+        </div>
+    </div>
+
+    <!-- Évolution du Capital Fictif -->
+    <div class="card" style="grid-column: span 4;">
+        <div class="card-header">
+            <h3 class="neon-text">Évolution du Capital Fictif (500€ Initial)</h3>
+        </div>
+        <div class="card-body">
+            <div class="chart-container">
+                <canvas id="capitalChart" height="300"></canvas>
+            </div>
+            <div class="metrics-row" style="margin-top: 20px;">
+                <div class="metric-item">
+                    <div class="metric-label">Capital Actuel</div>
+                    <div class="metric-value neon-text" id="current-capital">500.00€</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Variation</div>
+                    <div class="metric-value" id="capital-change">0.00€</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Performance</div>
+                    <div class="metric-value" id="capital-performance">0.00%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Module Activity Status -->
+    <div class="card" style="grid-column: span 4;">
+        <div class="card-header">
+            <h3 class="neon-text">Activité des Modules</h3>
+        </div>
+        <div class="card-body">
+            <div class="module-status">
+                <div class="metric-item">
+                    <div class="metric-label">Trading</div>
+                    <div class="metric-value" id="trading-status">En attente...</div>
+                    <div class="metric-value neon-text" id="trading-profit">0.00€</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">E-commerce</div>
+                    <div class="metric-value" id="ecommerce-status">En attente...</div>
+                    <div class="metric-value neon-text" id="ecommerce-profit">0.00€</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Arbitrage</div>
+                    <div class="metric-value" id="arbitrage-status">En attente...</div>
+                    <div class="metric-value neon-text" id="arbitrage-profit">0.00€</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Métriques Détaillées -->
+    <div class="card" style="grid-column: span 4;">
+        <div class="card-header">
+            <h3 class="neon-text">Métriques de Performance Détaillées</h3>
+        </div>
+        <div class="card-body">
+            <div class="metrics-row">
+                <div class="metric-item">
+                    <div class="metric-label">Trades Total</div>
+                    <div class="metric-value" id="total-trades">0</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Facteur de Profit</div>
+                    <div class="metric-value" id="profit-factor">0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Trade Moyen</div>
+                    <div class="metric-value" id="avg-trade">0.00€</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Drawdown Max</div>
+                    <div class="metric-value" id="max-drawdown">0.00%</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Rendement Annualisé</div>
+                    <div class="metric-value" id="annual-return">0.00%</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
-
-<div class="optimization-status">
-    <h4><i class="fas fa-cogs"></i> Statut d'Optimisation Continue</h4>
-    <div class="status-grid">
-        <div class="status-item">
-            <span class="status-label">Tests Effectués:</span>
-            <span class="status-value" id="testsCount">0</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">Améliorations:</span>
-            <span class="status-value" id="improvements">0</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">Meilleur Résultat:</span>
-            <span class="status-value" id="bestResult">En attente...</span>
-        </div>
-    </div>
-</div>
-
-<div class="backtest-results">
-    <h4><i class="fas fa-chart-line"></i> Résultats du Backtest</h4>
-    <div class="results-container" id="resultsContainer">
-        <div class="loading-spinner">
-            <i class="fas fa-spinner fa-spin"></i>
-            <p>Exécution du backtest automatisé en cours...</p>
-        </div>
-    </div>
-</div>
-
-<style>
-.auto-config-display {
-    background: linear-gradient(135deg, rgba(0, 255, 157, 0.1) 0%, rgba(0, 255, 157, 0.05) 100%);
-    border: 1px solid var(--primary-color);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 24px;
-    text-align: center;
-    color: var(--primary-color);
-}
-
-.optimization-indicator {
-    margin-top: 10px;
-    font-size: 14px;
-    opacity: 0.8;
-}
-
-.optimization-status {
-    background: rgba(0, 255, 157, 0.05);
-    border: 1px solid var(--primary-color);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 24px;
-}
-
-.status-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-top: 16px;
-}
-
-.status-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    background: rgba(0, 255, 157, 0.1);
-    border-radius: 8px;
-}
-
-.status-label {
-    color: var(--text-color);
-    font-weight: 500;
-}
-
-.status-value {
-    color: var(--primary-color);
-    font-weight: 700;
-}
-
-.backtest-results {
-    background: var(--card-bg-color);
-    border-radius: 12px;
-    padding: 20px;
-    border: 1px solid var(--border-color);
-}
-
-.results-container {
-    min-height: 200px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.loading-spinner {
-    text-align: center;
-    color: var(--primary-color);
-}
-
-.loading-spinner i {
-    font-size: 24px;
-    margin-bottom: 12px;
-}
-</style>
 
 <script>
+let autoBacktestInterval;
+let capitalChart;
+let capitalData = [500]; // Start with initial 500€
+let capitalLabels = ['Début'];
+
 document.addEventListener('DOMContentLoaded', function() {
-    runAutomaticBacktest();
-    startOptimizationMonitoring();
+    console.log('Backtest page loaded');
+    
+    // Initialize capital chart
+    initializeCapitalChart();
+    
+    // Initialize automatic backtest system
+    startAutomaticBacktest();
 });
 
-function runAutomaticBacktest() {
-    fetch('/api/backtest/auto-run', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
+function initializeCapitalChart() {
+    const ctx = document.getElementById('capitalChart').getContext('2d');
+    
+    capitalChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: capitalLabels,
+            datasets: [{
+                label: 'Capital (€)',
+                data: capitalData,
+                borderColor: '#00ff9d',
+                backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
         },
-        body: JSON.stringify({
-            strategy: 'moving_average',
-            initial_capital: 500,
-            target_daily_return: 0.10
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            updateBacktestResults(data.results);
-        } else {
-            showError(data.error || 'Erreur lors du backtest');
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#ffffff'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#ffffff'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#ffffff',
+                        callback: function(value) {
+                            return value + '€';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                }
+            }
         }
-    })
-    .catch(error => {
-        console.error('Erreur:', error);
-        showError('Erreur de connexion au serveur');
     });
 }
 
-function updateBacktestResults(results) {
-    document.getElementById('totalReturn').textContent = results.total_return + '%';
-    document.getElementById('dailyReturn').textContent = results.daily_return + '%';
-    document.getElementById('sharpeRatio').textContent = results.sharpe_ratio;
-    document.getElementById('maxDrawdown').textContent = results.max_drawdown + '%';
+function updateCapitalChart(newCapital) {
+    const now = new Date();
+    const timeLabel = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
     
-    // Update change indicators
-    const totalReturnChange = document.getElementById('totalReturnChange');
-    totalReturnChange.textContent = '+' + results.total_return + '%';
-    totalReturnChange.className = 'metric-change ' + (results.total_return > 0 ? 'positive' : 'negative');
+    capitalData.push(newCapital);
+    capitalLabels.push(timeLabel);
     
-    const dailyReturnChange = document.getElementById('dailyReturnChange');
-    dailyReturnChange.textContent = '+' + results.daily_return + '%';
-    dailyReturnChange.className = 'metric-change ' + (results.daily_return > 10 ? 'positive' : 'neutral');
+    // Keep only last 20 data points
+    if (capitalData.length > 20) {
+        capitalData.shift();
+        capitalLabels.shift();
+    }
+    
+    capitalChart.data.labels = capitalLabels;
+    capitalChart.data.datasets[0].data = capitalData;
+    capitalChart.update();
+    
+    // Update capital metrics
+    const variation = newCapital - 500;
+    const performance = ((newCapital - 500) / 500) * 100;
+    
+    document.getElementById('current-capital').textContent = newCapital.toFixed(2) + '€';
+    document.getElementById('capital-change').textContent = (variation >= 0 ? '+' : '') + variation.toFixed(2) + '€';
+    document.getElementById('capital-performance').textContent = (performance >= 0 ? '+' : '') + performance.toFixed(2) + '%';
+    
+    // Update color based on performance
+    const changeElement = document.getElementById('capital-change');
+    const performanceElement = document.getElementById('capital-performance');
+    
+    if (variation >= 0) {
+        changeElement.style.color = '#00ff9d';
+        performanceElement.style.color = '#00ff9d';
+    } else {
+        changeElement.style.color = '#ff4757';
+        performanceElement.style.color = '#ff4757';
+    }
 }
 
-function startOptimizationMonitoring() {
-    setInterval(() => {
-        fetch('/api/backtest/optimization-status')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('testsCount').textContent = data.tests_performed || 0;
-                document.getElementById('improvements').textContent = data.improvements || 0;
-                document.getElementById('bestResult').textContent = data.best_result || 'En cours...';
-            }
-        })
-        .catch(error => console.error('Erreur monitoring:', error));
-    }, 5000);
-}
-
-function runBacktest() {
-    runAutomaticBacktest();
-}
-
-function stopOptimization() {
-    fetch('/api/backtest/stop-optimization', {
-        method: 'POST'
+function startAutomaticBacktest() {
+    console.log('Starting automatic backtest system...');
+    
+    // Start the automatic backtest
+    fetch('/api/backtest/auto-run', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
     })
     .then(response => response.json())
     .then(data => {
+        console.log('Auto backtest started:', data);
+        
         if (data.success) {
-            alert('Optimisation arrêtée');
+            document.getElementById('auto-status').textContent = 'Backtests automatiques actifs';
+            
+            // Start periodic updates
+            autoBacktestInterval = setInterval(updateAutomaticBacktest, 3000);
+            
+            // Initial update
+            setTimeout(updateAutomaticBacktest, 1000);
+        } else {
+            document.getElementById('auto-status').textContent = 'Erreur lors du démarrage';
         }
     })
-    .catch(error => console.error('Erreur:', error));
+    .catch(error => {
+        console.error('Error starting automatic backtest:', error);
+        document.getElementById('auto-status').textContent = 'Erreur de connexion au serveur';
+    });
 }
 
-function showError(message) {
-    const container = document.getElementById('resultsContainer');
-    container.innerHTML = `
-        <div class="error-message">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p>${message}</p>
-        </div>
-    `;
+function updateAutomaticBacktest() {
+    fetch('/api/backtest/optimization-status')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Optimization status update:', data);
+            
+            if (data.status === 'running' && data.metrics) {
+                // Update main metrics (with safety checks)
+                if (data.metrics.total_return !== undefined) {
+                    document.getElementById('auto-total-return').textContent = data.metrics.total_return.toFixed(2) + '%';
+                    
+                    // Calculate daily return (assuming monthly data)
+                    const dailyReturn = data.metrics.total_return / 30;
+                    document.getElementById('auto-daily-return').textContent = dailyReturn.toFixed(2) + '%';
+                    
+                    // Calculate new capital based on total return
+                    const newCapital = 500 + (500 * data.metrics.total_return / 100);
+                    updateCapitalChart(newCapital);
+                }
+                
+                if (data.metrics.sharpe !== undefined) {
+                    document.getElementById('auto-sharpe').textContent = data.metrics.sharpe.toFixed(2);
+                }
+                
+                // Update module status
+                if (data.modules) {
+                    const trading = data.modules.trading;
+                    const ecommerce = data.modules.ecommerce;
+                    const arbitrage = data.modules.arbitrage;
+                    
+                    if (trading) {
+                        document.getElementById('trading-status').textContent = `${trading.current_trades || 0} positions actives`;
+                        document.getElementById('trading-profit').textContent = (trading.profit || 0).toFixed(2) + '€';
+                    }
+                    
+                    if (ecommerce) {
+                        document.getElementById('ecommerce-status').textContent = `${ecommerce.products_analyzed || 0} produits analysés`;
+                        document.getElementById('ecommerce-profit').textContent = (ecommerce.profit || 0).toFixed(2) + '€';
+                    }
+                    
+                    if (arbitrage) {
+                        document.getElementById('arbitrage-status').textContent = `${arbitrage.opportunities_scanned || 0} opportunités scannées`;
+                        document.getElementById('arbitrage-profit').textContent = (arbitrage.profit || 0).toFixed(2) + '€';
+                    }
+                }
+                
+                // Update detailed metrics
+                if (data.total_trades !== undefined) {
+                    document.getElementById('total-trades').textContent = data.total_trades;
+                }
+                
+                // Update status messages
+                if (data.status_messages && data.status_messages.length > 0) {
+                    document.getElementById('auto-status').textContent = data.status_messages.join(' | ');
+                }
+                
+            } else if (data.status === 'inactive') {
+                document.getElementById('auto-status').textContent = 'Configuration des clés API requise';
+                
+                // Reset metrics to initial state
+                document.getElementById('auto-total-return').textContent = '0.00%';
+                document.getElementById('auto-daily-return').textContent = '0.00%';
+                document.getElementById('auto-sharpe').textContent = '0.00';
+                
+                document.getElementById('trading-status').textContent = 'En attente...';
+                document.getElementById('ecommerce-status').textContent = 'En attente...';
+                document.getElementById('arbitrage-status').textContent = 'En attente...';
+            }
+        })
+        .catch(error => {
+            console.error('Error updating automatic backtest:', error);
+            document.getElementById('auto-status').textContent = 'Erreur de connexion au serveur';
+        });
 }
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (autoBacktestInterval) {
+        clearInterval(autoBacktestInterval);
+    }
+});
 </script>
 {% endblock %}
