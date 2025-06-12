@@ -21,19 +21,19 @@
             <div class="metrics-row">
                 <div class="metric-item">
                     <div class="metric-label">Capital Initial</div>
-                    <div class="metric-value neon-text">500 €</div>
+                    <div class="metric-value neon-text">{{ initial_capital|default('0') }} €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Capital Actuel</div>
-                    <div class="metric-value neon-text">{{ current_capital|default('578.45') }} €</div>
+                    <div class="metric-value neon-text">{{ current_capital|default('0') }} €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Profit</div>
-                    <div class="metric-value neon-text">{{ profit|default('78.45') }} €</div>
+                    <div class="metric-value neon-text">{{ profit|default('0') }} €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">ROI</div>
-                    <div class="metric-value neon-text">{{ roi|default('15.69') }} %</div>
+                    <div class="metric-value neon-text">{{ roi|default('0') }} %</div>
                 </div>
             </div>
         </div>
@@ -64,12 +64,12 @@
                 <div class="allocation-item">
                     <div class="allocation-color" style="background-color: var(--primary-color);"></div>
                     <div class="allocation-label">Trading</div>
-                    <div class="allocation-value">{{ trading_allocation|default('65') }}%</div>
+                    <div class="allocation-value">{{ trading_allocation|default('0') }}%</div>
                 </div>
                 <div class="allocation-item">
                     <div class="allocation-color" style="background-color: var(--info-color);"></div>
                     <div class="allocation-label">E-commerce</div>
-                    <div class="allocation-value">{{ ecommerce_allocation|default('35') }}%</div>
+                    <div class="allocation-value">{{ ecommerce_allocation|default('0') }}%</div>
                 </div>
             </div>
         </div>
@@ -93,10 +93,7 @@
                 </thead>
                 <tbody>
                     {% for transaction in transactions|default([
-                        {'date': '2025-05-15', 'type': 'Dépôt', 'amount': '500.00', 'source': 'Compte bancaire', 'status': 'Complété'},
-                        {'date': '2025-05-16', 'type': 'Profit', 'amount': '12.35', 'source': 'Trading BTC/USD', 'status': 'Complété'},
-                        {'date': '2025-05-17', 'type': 'Profit', 'amount': '8.75', 'source': 'E-commerce', 'status': 'Complété'},
-                        {'date': '2025-05-18', 'type': 'Profit', 'amount': '57.35', 'source': 'Trading ETH/USD', 'status': 'Complété'}
+                        {'date': '--', 'type': 'Configuration', 'amount': '0.00', 'source': 'Configurez vos clés API', 'status': 'En attente'}
                     ]) %}
                     <tr>
                         <td>{{ transaction.date }}</td>
@@ -128,7 +125,7 @@
                 labels: ['1 Mai', '5 Mai', '10 Mai', '15 Mai', '20 Mai', 'Aujourd\'hui'],
                 datasets: [{
                     label: 'Capital (€)',
-                    data: [500, 510, 525, 545, 560, 578.45],
+                    data: {{ capital_chart_data|default('[500, 500, 500, 500, 500, 500]')|safe }},
                     borderColor: '#00ff9d',
                     backgroundColor: 'rgba(0, 255, 157, 0.1)',
                     borderWidth: 2,
@@ -186,7 +183,7 @@
             data: {
                 labels: ['Trading', 'E-commerce'],
                 datasets: [{
-                    data: [65, 35],
+                    data: {{ allocation_chart_data|default('[0, 0]')|safe }},
                     backgroundColor: [
                         '#00ff9d',
                         '#00ccff'

@@ -17,19 +17,19 @@
 <div class="metric-cards">
     <div class="metric-card">
         <span class="metric-title">Capital Total</span>
-        <span class="metric-value">{{ total_capital|default('32 480 €') }}</span>
-        <span class="metric-change positive">+4,82%</span>
+        <span class="metric-value">{{ total_capital|default('0 €') }}</span>
+        <span class="metric-change">{{ capital_change|default('0%') }}</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Instances Actives</span>
-        <span class="metric-value">{{ active_instances|default('3') }}</span>
-        <span class="metric-change positive">+1</span>
+        <span class="metric-value">{{ active_instances|default('0') }}</span>
+        <span class="metric-change">{{ instances_change|default('0') }}</span>
     </div>
     
     <div class="metric-card">
         <span class="metric-title">Performance</span>
-        <span class="metric-value">{{ performance|default('+4,82%') }}</span>
+        <span class="metric-value">{{ performance|default('0%') }}</span>
         <span class="metric-status">7 jours</span>
     </div>
 </div>
@@ -63,10 +63,7 @@
         <div class="card-body">
             <div class="logs-container">
                 {% for log in system_logs|default([
-                    {'time': '18:42', 'system': 'SYSTÈME', 'message': 'Duplication créée avec succès'},
-                    {'time': '18:30', 'system': 'SYSTÈME', 'message': 'Alerte risque détectée'},
-                    {'time': '18:15', 'system': 'SYSTÈME', 'message': 'Turbo initialisé'},
-                    {'time': '18:00', 'system': 'SYSTÈME', 'message': 'Système opérationnel'}
+                    {'time': '--:--', 'system': 'SYSTÈME', 'message': 'En attente de configuration des clés API'}
                 ]) %}
                 <div class="log-item">
                     <span class="log-time">{{ log.time }}</span>
@@ -85,8 +82,7 @@
         <div class="card-body">
             <div class="ai-container">
                 {% for insight in ai_insights|default([
-                    {'icon': 'fa-lightbulb', 'title': 'Opportunité', 'message': 'Le marché BTC montre une tendance haussière'},
-                    {'icon': 'fa-chart-line', 'title': 'Performance', 'message': 'La stratégie A surperforme de 5.2%'}
+                    {'icon': 'fa-info-circle', 'title': 'Configuration', 'message': 'Configurez vos clés API pour commencer'}
                 ]) %}
                 <div class="ai-insight">
                     <div class="insight-icon">
@@ -135,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
             labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
             datasets: [{
                 label: 'Performance',
-                data: [28500, 29200, 29800, 30500, 31200, 32000, 32480],
+                data: {{ chart_data|default('[0, 0, 0, 0, 0, 0, 0]')|safe }},
                 borderColor: '#00ff9d',
                 backgroundColor: 'rgba(0, 255, 157, 0.1)',
                 borderWidth: 2,

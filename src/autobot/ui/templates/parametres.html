@@ -162,6 +162,83 @@
                             </div>
                         </div>
                         <div class="form-group">
+                            <label for="stripe-api-secret">Stripe API Secret</label>
+                            <div class="input-group">
+                                <input type="password" id="stripe-api-secret" class="form-control" value="{{ stripe_api_secret|default('') }}" placeholder="Entrez votre secret API Stripe">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-secret">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key">Alpha Vantage API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="alpha-vantage-api-key" class="form-control" value="{{ alpha_vantage_api_key|default('') }}" placeholder="Entrez votre clé API Alpha Vantage">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="alpha-vantage-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="newsapi-api-key">NewsAPI Key</label>
+                            <div class="input-group">
+                                <input type="password" id="newsapi-api-key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="twelve-data-api-key">Twelve Data API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="twelve-data-api-key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="fred-api-key">FRED API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="fred-api-key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-api-key">Shopify API Key</label>
+                            <div class="input-group">
+                                <input type="password" id="shopify-api-key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="shopify-shop-name">Shopify Shop Name</label>
+                            <div class="input-group">
+                                <input type="text" id="shopify-shop-name" class="form-control" value="{{ shopify_shop_name|default('') }}" placeholder="Entrez le nom de votre boutique Shopify">
+                                <div class="input-group-append">
+                                    <button class="btn btn-outline toggle-password" type="button" data-target="shopify-shop-name">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
                             <label for="test-api-keys">Tester les Clés API</label>
                             <button type="button" id="test-api-keys" class="btn btn-outline">
                                 <i class="fas fa-vial"></i> Tester la Connectivité
@@ -683,12 +760,39 @@
             };
             
             // Envoyer les données au serveur
-            const response = await fetch('/api/save-settings', {
+            const apiKeys = {
+                binance: {
+                    api_key: apiSettings['binance-api-key'] || '',
+                    secret_key: apiSettings['binance-api-secret'] || ''
+                },
+                coinbase: {
+                    api_key: apiSettings['coinbase-api-key'] || '',
+                    secret_key: apiSettings['coinbase-api-secret'] || ''
+                },
+                kraken: {
+                    api_key: apiSettings['kraken-api-key'] || '',
+                    secret_key: apiSettings['kraken-api-secret'] || ''
+                },
+                stripe: {
+                    api_key: apiSettings['stripe-api-key'] || '',
+                    secret_key: apiSettings['stripe-api-secret'] || ''
+                },
+                twelve_data: apiSettings['twelve-data-api-key'] || '',
+                alpha_vantage: apiSettings['alpha-vantage-api-key'] || '',
+                fred: apiSettings['fred-api-key'] || '',
+                news_api: apiSettings['newsapi-api-key'] || '',
+                shopify: {
+                    api_key: apiSettings['shopify-api-key'] || '',
+                    shop_name: apiSettings['shopify-shop-name'] || ''
+                }
+            };
+            
+            const response = await fetch('/setup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(allSettings)
+                body: JSON.stringify(apiKeys)
             });
             
             // Restaurer le bouton
