@@ -21,15 +21,15 @@
             <div class="metrics-row">
                 <div class="metric-item">
                     <div class="metric-label">Capital Total</div>
-                    <div class="metric-value neon-text">{{ total_capital|default('578.45') }} €</div>
+                    <div class="metric-value neon-text">{{ total_capital|default('0') }} €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Disponible pour Retrait</div>
-                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('350.00') }} €</div>
+                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('0') }} €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">En Cours d'Utilisation</div>
-                    <div class="metric-value neon-text">{{ in_use|default('228.45') }} €</div>
+                    <div class="metric-value neon-text">{{ in_use|default('0') }} €</div>
                 </div>
             </div>
         </div>
@@ -72,12 +72,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for transaction in transactions|default([
-                        {'date': '2025-05-15', 'type': 'Dépôt', 'amount': '500.00', 'method': 'Virement bancaire', 'status': 'Complété'},
-                        {'date': '2025-05-16', 'type': 'Retrait', 'amount': '50.00', 'method': 'Virement bancaire', 'status': 'En attente'},
-                        {'date': '2025-05-17', 'type': 'Dépôt', 'amount': '100.00', 'method': 'Carte bancaire', 'status': 'Complété'},
-                        {'date': '2025-05-18', 'type': 'Retrait', 'amount': '200.00', 'method': 'Virement bancaire', 'status': 'Complété'}
-                    ]) %}
+                    {% for transaction in transactions|default([]) %}
                     <tr>
                         <td>{{ transaction.date }}</td>
                         <td>
