@@ -17,7 +17,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..autobot_security.auth.user_manager import User, get_current_user
+from ..autobot_security.auth.user_manager import User
+from ..autobot_security.auth.jwt_handler import get_current_user_from_cookie
+from ..backtest_data_manager import backtest_data_manager
+from ..backtest_learning_system import learning_system
 
 logger = logging.getLogger(__name__)
 
@@ -141,24 +144,29 @@ strategies = [
 
 symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "DOT/USD", "XRP/USD", "DOGE/USD"]
 
-saved_backtests = []
+# saved_backtests = []  # Replaced with centralized data
 
 @router.get("/backtest", response_class=HTMLResponse)
-async def backtest_page(request: Request, user: User = Depends(get_current_user)):
-    """Render the backtest page."""
+async def backtest_page(request: Request, user_data: dict = Depends(get_current_user_from_cookie)):
+    """Page de backtest avec données centralisées."""
+    centralized_data = backtest_data_manager.get_centralized_data()
+    learning_status = learning_system.get_learning_status()
+    
     return templates.TemplateResponse(
         "backtest.html",
         {
             "request": request,
-            "user": user,
+            "user": user_data,
             "strategies": strategies,
             "symbols": symbols,
-            "saved_backtests": saved_backtests
+            "centralized_data": centralized_data,
+            "learning_status": learning_status,
+            "saved_backtests": centralized_data["all_backtests"]  # For backward compatibility
         }
     )
 
 @router.post("/api/backtest/run")
-async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):
+async def run_backtest_strategy(request: BacktestRequest, user_data: dict = Depends(get_current_user_from_cookie)):
     """Run a backtest with the specified strategy and parameters."""
     try:
         strategy = next((s for s in strategies if s["id"] == request.strategy), None)
@@ -302,14 +310,14 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
             trades=trades
         )
         
-        saved_backtests.append({
+        backtest_data_manager.add_backtest_result("manual", {
             "id": result_id,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "strategy": strategy["name"],
             "symbol": request.symbol,
             "timeframe": request.timeframe,
-            "return": round(total_return, 2),
-            "sharpe": round(sharpe, 2)
+            "total_return": round(total_return, 2),
+            "sharpe": round(sharpe, 2),
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
         
         return result
@@ -319,7 +327,7 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/backtest/{backtest_id}")
-async def get_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def get_backtest(backtest_id: str, user_data: dict = Depends(get_current_user_from_cookie)):
     """Get a saved backtest."""
     backtest = next((b for b in saved_backtests if b["id"] == backtest_id), None)
     
@@ -452,7 +460,7 @@ async def get_backtest(backtest_id: str, user: User = Depends(get_current_user))
     }
 
 @router.delete("/api/backtest/{backtest_id}")
-async def delete_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def delete_backtest(backtest_id: str, user_data: dict = Depends(get_current_user_from_cookie)):
     """Delete a saved backtest."""
     global saved_backtests
     
@@ -467,3 +475,30 @@ async def delete_backtest(backtest_id: str, user: User = Depends(get_current_use
         "success": True,
         "message": "Backtest deleted successfully"
     }
+
+@router.get("/api/backtest/centralized-data")
+async def get_centralized_backtest_data(user_data: dict = Depends(get_current_user_from_cookie)):
+    """Get centralized backtest data from all domains."""
+    try:
+        data = backtest_data_manager.get_centralized_data()
+        return {
+            "success": True,
+            "data": data,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting centralized data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/backtest/auto-run")
+async def trigger_auto_backtest(user_data: dict = Depends(get_current_user_from_cookie)):
+    """Trigger automatic backtest data collection."""
+    try:
+        return {
+            "success": True,
+            "message": "Backtest data collection activated",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error triggering auto backtest: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

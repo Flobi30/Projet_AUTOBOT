@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
@@ -16,8 +16,14 @@ from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
+from autobot.ecommerce_engine import ecommerce_engine
+from autobot.arbitrage_engine import arbitrage_engine
+from autobot.backtest_learning_system import learning_system
+from autobot.autobot_security.auth.user_manager import UserManager, get_current_user
 
 logger = logging.getLogger(__name__)
+
+user_manager = UserManager(users_file="/home/ubuntu/Projet_AUTOBOT/users.json")
 
 app = FastAPI(
     title="Autobot API",
@@ -60,10 +66,71 @@ app.include_router(prediction_router)
 app.include_router(mobile_router)
 app.include_router(simplified_dashboard_router, prefix="/simple")
 app.include_router(arbitrage_router)
-
+app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
+
+@app.get("/login", response_class=HTMLResponse, tags=["auth"])
+async def login_page(request: Request):
+    """Login page endpoint."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", tags=["auth"])
+async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
+    """Login endpoint."""
+    user = user_manager.authenticate_user(username, password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    access_token = user_manager.create_token(user["id"])
+    
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=900,
+        samesite="lax"
+    )
+    
+    response.set_cookie(
+        key="auth_status",
+        value="authenticated",
+        max_age=86400,
+        samesite="lax"
+    )
+    
+    return response
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize AUTOBOT engines and learning system."""
+    logger.info("Starting AUTOBOT engines...")
+    
+    hft_engine.start()
+    hft_engine.start_backtest_collection(interval_hours=1)
+    
+    ecommerce_engine.start()
+    ecommerce_engine.start_backtest_collection(interval_hours=2)
+    
+    arbitrage_engine.start()
+    arbitrage_engine.start_backtest_collection(interval_hours=1)
+    
+    learning_system.start()
+    
+    logger.info("All AUTOBOT engines and learning system started successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup AUTOBOT engines."""
+    logger.info("Stopping AUTOBOT engines...")
+    hft_engine.stop()
+    ecommerce_engine.stop()
+    arbitrage_engine.stop()
+    learning_system.stop()
+    logger.info("All AUTOBOT engines stopped")
 
 @app.get("/", tags=["root"])
 async def root(request: Request):

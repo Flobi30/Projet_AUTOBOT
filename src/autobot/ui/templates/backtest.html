@@ -3,14 +3,75 @@
 {% block title %}Backtest{% endblock %}
 
 {% block header_title %}
-<h1 class="neon-text">Backtest</h1>
+<h1 class="neon-text">Backtest Centralisé</h1>
 {% endblock %}
 
 {% block content %}
+    <div class="dashboard-grid">
+        <!-- Performance Summary Cards -->
+        <div class="metric-cards"></div>
+                <div class="metric-card">
+                    <span class="metric-title">Performance HFT</span>
+                    <span class="metric-value">{{ centralized_data.hft_backtests|length }} tests</span>
+                    <span class="metric-status">Trading haute fréquence</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Performance E-commerce</span>
+                    <span class="metric-value">{{ centralized_data.ecommerce_backtests|length }} tests</span>
+                    <span class="metric-status">Optimisation e-commerce</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Performance Arbitrage</span>
+                    <span class="metric-value">{{ centralized_data.arbitrage_backtests|length }} tests</span>
+                    <span class="metric-status">Arbitrage multi-exchanges</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Performance Globale</span>
+                    <span class="metric-value">{{ "%.2f"|format(centralized_data.performance_summary.average_return) }}%</span>
+                    <span class="metric-status">Rendement moyen</span>
+                </div>
+            </div>
+
+            <!-- Learning Metrics -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="neon-text">Métriques d'Apprentissage AUTOBOT</h3>
+                </div>
+                <div class="card-body">
+                    <div class="metrics-row">
+                        <div class="metric-item">
+                            <div class="metric-label">Total Backtests</div>
+                            <div class="metric-value neon-text">{{ centralized_data.total_backtests }}</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">Taux de Réussite</div>
+                            <div class="metric-value neon-text">{{ "%.1f"|format(centralized_data.performance_summary.win_rate) }}%</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">Meilleure Stratégie</div>
+                            <div class="metric-value neon-text">{{ centralized_data.performance_summary.best_strategy.strategy if centralized_data.performance_summary.best_strategy else "Aucune" }}</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">Objectif Quotidien</div>
+                            <div class="metric-value neon-text">10.00%</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">Apprentissage</div>
+                            <div class="metric-value neon-text">{{ "Actif" if learning_status.running else "Inactif" }}</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">Rendement Total</div>
+                            <div class="metric-value neon-text">{{ "%.2f"|format(centralized_data.performance_summary.total_return) }}%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             
-            <div class="grid">
-                <div class="card">
-                    <h3>Configuration du Backtest</h3>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="neon-text">Configuration du Backtest</h3>
+                </div>
+                <div class="card-body">
                     <form id="backtest-form">
                         <div class="form-group">
                             <label for="strategy">Stratégie</label>
@@ -69,9 +130,13 @@
                         <button type="submit" class="btn btn-primary">Lancer le Backtest</button>
                     </form>
                 </div>
+            </div>
                 
-                <div class="card">
-                    <h3>Résultats du Backtest</h3>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="neon-text">Résultats du Backtest</h3>
+                </div>
+                <div class="card-body">
                     <div id="results-loading" style="display: none;">
                         <div class="loading-spinner"></div>
                         <p>Exécution du backtest en cours...</p>
@@ -142,7 +207,7 @@
             <div class="card" id="trades-section" style="display: none;">
                 <h3>Trades</h3>
                 <div class="table-container">
-                    <table>
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -160,9 +225,9 @@
             </div>
             
             <div class="card">
-                <h3>Backtests Sauvegardés</h3>
+                <h3 class="neon-text">Historique des Backtests Centralisés</h3>
                 <div class="table-container">
-                    <table>
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -193,6 +258,7 @@
                     </table>
                 </div>
             </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}

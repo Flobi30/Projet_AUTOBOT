@@ -2,7 +2,7 @@ import jwt
 import time
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 
 from autobot.autobot_security.config import SECRET_KEY, ALGORITHM
@@ -72,6 +72,41 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+def get_current_user_from_cookie(request: Request) -> Dict[str, Any]:
+    """
+    Get the current authenticated user from cookie token.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Dict: User data from the token
+    """
+    try:
+        token = request.cookies.get("access_token")
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

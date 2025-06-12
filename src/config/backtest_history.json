@@ -1,0 +1,311 @@
+{
+  "hft_backtests": [
+    {
+      "id": "hft_1749769666",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.044881582260131836,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:07:46.226171"
+    },
+    {
+      "id": "hft_1749769898",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.04502081871032715,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:11:38.585538"
+    },
+    {
+      "id": "hft_1749769921",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.045110464096069336,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:12:01.254545"
+    },
+    {
+      "id": "hft_1749770167",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.0418241024017334,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:16:07.417026"
+    },
+    {
+      "id": "hft_1749770460",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.04056072235107422,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:21:00.358613"
+    },
+    {
+      "id": "hft_1749771917",
+      "strategy": "HFT_Optimized",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "total_return": 0.0,
+      "orders_processed": 0,
+      "efficiency": 100.0,
+      "latency_avg": 0,
+      "uptime": 0.041069984436035156,
+      "domain": "hft",
+      "timestamp": "2025-06-12T23:45:17.916260"
+    }
+  ],
+  "ecommerce_backtests": [
+    {
+      "id": "ecommerce_1749769666",
+      "strategy": "Dynamic_Pricing_Optimization",
+      "platform": "Multi-Platform",
+      "timeframe": "2h",
+      "total_return": 29.205729140558006,
+      "products_sold": 68,
+      "revenue": 13047.011158532694,
+      "profit": 2667.3323179296062,
+      "profit_margin": 20.444010398390603,
+      "domain": "ecommerce",
+      "timestamp": "2025-06-12T23:07:46.227294"
+    },
+    {
+      "id": "ecommerce_1749770428",
+      "strategy": "Dynamic_Pricing_Optimization",
+      "platform": "Multi-Platform",
+      "timeframe": "2h",
+      "total_return": 47.48946919788864,
+      "products_sold": 166,
+      "revenue": 7745.74393577876,
+      "profit": 2574.8888763702867,
+      "profit_margin": 33.24262843852204,
+      "domain": "ecommerce",
+      "timestamp": "2025-06-12T23:20:28.656982"
+    }
+  ],
+  "arbitrage_backtests": [
+    {
+      "id": "arbitrage_1749769666",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 2.4342348460775227,
+      "opportunities_found": 10,
+      "trades_executed": 7,
+      "success_rate": 74.97730637108072,
+      "avg_profit_per_trade": 0.3477478351539318,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:07:46.229058"
+    },
+    {
+      "id": "arbitrage_1749769898",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 6.333165229676685,
+      "opportunities_found": 45,
+      "trades_executed": 36,
+      "success_rate": 81.94883613290787,
+      "avg_profit_per_trade": 0.17592125637990794,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:11:38.587698"
+    },
+    {
+      "id": "arbitrage_1749769921",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 3.855346617139563,
+      "opportunities_found": 50,
+      "trades_executed": 30,
+      "success_rate": 60.987631023563424,
+      "avg_profit_per_trade": 0.1285115539046521,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:12:01.256376"
+    },
+    {
+      "id": "arbitrage_1749770167",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 1.5096279290223236,
+      "opportunities_found": 13,
+      "trades_executed": 10,
+      "success_rate": 79.22639782402639,
+      "avg_profit_per_trade": 0.15096279290223236,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:16:07.419191"
+    },
+    {
+      "id": "arbitrage_1749770428",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 4.535697335694283,
+      "opportunities_found": 32,
+      "trades_executed": 22,
+      "success_rate": 70.33849028483885,
+      "avg_profit_per_trade": 0.20616806071337648,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:20:28.660631"
+    },
+    {
+      "id": "arbitrage_1749771917",
+      "strategy": "Cross_Exchange_Arbitrage",
+      "exchanges": [
+        "Binance",
+        "Coinbase",
+        "Kraken"
+      ],
+      "timeframe": "1h",
+      "total_return": 3.3165186075477373,
+      "opportunities_found": 21,
+      "trades_executed": 14,
+      "success_rate": 68.20169248175618,
+      "avg_profit_per_trade": 0.23689418625340983,
+      "domain": "arbitrage",
+      "timestamp": "2025-06-12T23:45:17.918562"
+    }
+  ],
+  "learning_metrics": {
+    "total_backtests": 14,
+    "average_performance": 7.048556350257483,
+    "best_strategies": {
+      "hft": {
+        "strategy": "HFT_Optimized",
+        "performance": 0.0,
+        "timestamp": "2025-06-12T23:07:46.226171"
+      },
+      "ecommerce": {
+        "strategy": "Dynamic_Pricing_Optimization",
+        "performance": 47.48946919788864,
+        "timestamp": "2025-06-12T23:20:28.656982"
+      },
+      "arbitrage": {
+        "strategy": "Cross_Exchange_Arbitrage",
+        "performance": 6.333165229676685,
+        "timestamp": "2025-06-12T23:11:38.587698"
+      }
+    },
+    "performance_trend": [
+      {
+        "timestamp": "2025-06-12T23:07:46.226171",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:07:46.227294",
+        "performance": 29.205729140558006,
+        "domain": "ecommerce"
+      },
+      {
+        "timestamp": "2025-06-12T23:07:46.229058",
+        "performance": 2.4342348460775227,
+        "domain": "arbitrage"
+      },
+      {
+        "timestamp": "2025-06-12T23:11:38.585538",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:11:38.587698",
+        "performance": 6.333165229676685,
+        "domain": "arbitrage"
+      },
+      {
+        "timestamp": "2025-06-12T23:12:01.254545",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:12:01.256376",
+        "performance": 3.855346617139563,
+        "domain": "arbitrage"
+      },
+      {
+        "timestamp": "2025-06-12T23:16:07.417026",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:16:07.419191",
+        "performance": 1.5096279290223236,
+        "domain": "arbitrage"
+      },
+      {
+        "timestamp": "2025-06-12T23:20:28.656982",
+        "performance": 47.48946919788864,
+        "domain": "ecommerce"
+      },
+      {
+        "timestamp": "2025-06-12T23:20:28.660631",
+        "performance": 4.535697335694283,
+        "domain": "arbitrage"
+      },
+      {
+        "timestamp": "2025-06-12T23:21:00.358613",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:45:17.916260",
+        "performance": 0.0,
+        "domain": "hft"
+      },
+      {
+        "timestamp": "2025-06-12T23:45:17.918562",
+        "performance": 3.3165186075477373,
+        "domain": "arbitrage"
+      }
+    ]
+  },
+  "global_settings": {
+    "target_daily_return": 0.1,
+    "learning_enabled": true
+  }
+}
