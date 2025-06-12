@@ -131,22 +131,54 @@ def process_train_model_task(task: Dict[str, Any]):
         task['error'] = str(e)
 
 def process_backtest_task(task: Dict[str, Any]):
-    """Process a backtest task."""
+    """Process a backtest task with ultra-high performance optimizations."""
     try:
-        logger.info(f"Running backtest with parameters: {task.get('parameters')}")
+        from autobot.backtest_engine import get_backtest_engine
         
-        time.sleep(2)
+        parameters = task.get('parameters', {})
+        symbol = parameters.get('symbol', 'BTC/USD')
+        optimization_level = parameters.get('optimization_level', 'EXTREME')
+        num_iterations = parameters.get('num_iterations', 10000)
+        parallel_strategies = parameters.get('parallel_strategies', 50)
         
-        task['result'] = {
-            'sharpe_ratio': 1.23,
-            'total_return': 0.15,
-            'max_drawdown': -0.08,
-            'win_rate': 0.65,
-            'profit_factor': 1.8
-        }
+        logger.info(f"Running ultra-performance backtest for {symbol} with {optimization_level} optimization")
+        
+        engine = get_backtest_engine()
+        
+        start_time = time.time()
+        
+        def update_progress():
+            elapsed = time.time() - start_time
+            estimated_total = 300
+            progress = min(95, (elapsed / estimated_total) * 100)
+            task['progress'] = progress
+            
+            if not shutdown_flag.is_set():
+                threading.Timer(10.0, update_progress).start()
+        
+        update_progress()
+        
+        results = engine.run_intensive_backtest(
+            symbol=symbol,
+            strategy_params=parameters.get('strategy_params'),
+            num_iterations=num_iterations,
+            parallel_strategies=parallel_strategies
+        )
+        
+        task['progress'] = 100
+        task['result'] = results
+        
+        performance = results.get('performance_metrics', {})
+        daily_return = performance.get('daily_return', 0)
+        calculations_per_second = results.get('calculations_per_second', 0)
+        
+        logger.info(f"Backtest completed: {calculations_per_second:,} calc/s, daily return: {daily_return:.4f}")
+        
+        if daily_return >= 0.10:
+            logger.info("🎯 TARGET ACHIEVED: 10% daily return reached!")
         
     except Exception as e:
-        logger.exception(f"Error running backtest: {str(e)}")
+        logger.exception(f"Error running ultra-performance backtest: {str(e)}")
         task['status'] = 'failed'
         task['error'] = str(e)
 
