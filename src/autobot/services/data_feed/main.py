@@ -2,12 +2,14 @@ import asyncio
 import logging
 import signal
 import sys
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from .config import DataFeedConfig
 from .cache import RedisCache
 from .connections import WebSocketManager
 
+os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=getattr(logging, DataFeedConfig.LOG_LEVEL.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -96,14 +98,13 @@ if __name__ == "__main__":
     import uvicorn
     import os
     
-    os.makedirs('logs', exist_ok=True)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
         uvicorn.run(
-            "main:app",
+            app,
             host="0.0.0.0",
             port=DataFeedConfig.HEALTH_CHECK_PORT,
             log_level=DataFeedConfig.LOG_LEVEL.lower(),
