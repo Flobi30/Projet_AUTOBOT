@@ -23,3 +23,14 @@ class APIKeysRequest(BaseModel):
 class APIKeysResponse(BaseModel):
     status: str
     message: str
+
+class CapitalStatus(BaseModel):
+    initial_capital: float
+    current_capital: float
+    total_deposits: float
+    total_withdrawals: float
+    trading_profit: float
+    total_profit: float
+    roi: float
+    available_for_withdrawal: float
+    last_updated: str

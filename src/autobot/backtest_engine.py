@@ -82,13 +82,7 @@ class UltraPerformanceBacktestEngine:
             try:
                 from autobot.trading.hft_performance_enhancements import HFTPerformanceOptimizer
                 self.hft_optimizer = HFTPerformanceOptimizer(self.hft_engine)
-                self.hft_optimizer.apply_optimizations(
-                    batch_size_multiplier=3.0,
-                    throttle_reduction_factor=0.2,
-                    memory_pool_expansion_factor=8.0,
-                    worker_multiplier=2.0,
-                    enable_numa_optimization=True
-                )
+                self.hft_optimizer.apply_optimizations()
             except ImportError:
                 logger.warning("HFTPerformanceOptimizer not available")
         
@@ -97,6 +91,7 @@ class UltraPerformanceBacktestEngine:
             self.market_simulator = MarketSimulator()
         except ImportError:
             self.market_simulator = None
+            logger.warning("MarketSimulator not available")
             logger.warning("MarketSimulator not available")
         
         self.backtest_results = {}
@@ -188,6 +183,63 @@ class UltraPerformanceBacktestEngine:
             'engine_stats': self.hft_engine.get_stats() if self.hft_engine and hasattr(self.hft_engine, 'get_stats') else {},
             'system_performance': self.performance_optimizer.get_performance_stats() if self.performance_optimizer and hasattr(self.performance_optimizer, 'get_performance_stats') else {}
         }
+        
+        self.backtest_results[symbol] = results
+        
+        # Update capital with compounding logic
+        try:
+            from autobot.profit_engine import CapitalManager
+            from db.models import SessionLocal, CapitalHistory, BacktestResult
+            from datetime import datetime
+            import uuid
+            
+            capital_manager = CapitalManager()
+            current_summary = capital_manager.get_capital_summary()
+            old_capital = current_summary["current_capital"] if current_summary["current_capital"] > 0 else self.initial_capital
+            
+            # Calculate new capital with compounding: new_capital = old * (1 + daily_return)
+            new_capital = old_capital * (1 + daily_return)
+            
+            # Insert into capital_history database
+            db = SessionLocal()
+            try:
+                # Create backtest result record
+                backtest_id = str(uuid.uuid4())
+                backtest_record = BacktestResult(
+                    id=backtest_id,
+                    symbol=symbol,
+                    strategy=best_strategy,
+                    initial_capital=old_capital,
+                    final_equity=new_capital,
+                    total_return=best_return,
+                    max_drawdown=max_drawdown,
+                    sharpe_ratio=sharpe_ratio
+                )
+                db.add(backtest_record)
+                
+                # Create capital history record
+                capital_history_record = CapitalHistory(
+                    backtest_id=backtest_id,
+                    timestamp=datetime.utcnow(),
+                    capital_value=new_capital,
+                    equity_change=new_capital - old_capital
+                )
+                db.add(capital_history_record)
+                db.commit()
+                
+                # Update capital manager with new capital
+                capital_data = capital_manager._load_capital_data()
+                capital_data["current_capital"] = new_capital
+                capital_data["trading_profit"] = capital_data.get("trading_profit", 0) + (new_capital - old_capital)
+                capital_manager._save_capital_data(capital_data)
+                
+                logger.info(f"Capital updated: {old_capital:.2f} -> {new_capital:.2f} (daily return: {daily_return:.4f})")
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to update capital history: {e}")
         
         self.backtest_results[symbol] = results
         
