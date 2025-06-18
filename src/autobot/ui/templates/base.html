@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/css/neon_theme.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>function navigateToPrivate(path) {    if (window.location.hostname === "stripe-autobot.fr") {        window.location.href = "http://144.76.16.177" + path;    } else {        window.location.href = path;    }}</script>
 </head>
 <body>
     <div class="app-container">
@@ -21,7 +22,7 @@
             <nav class="nav-menu">
                 <div class="nav-section">
                     <div class="nav-section-title">Tableau de Bord</div>
-                    <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                    <a href="javascript:void(0)" onclick="navigateToPrivate("/dashboard")" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
                         <i class="fas fa-chart-pie"></i>
                         <span class="nav-text">Dashboard</span>
                     </a>
@@ -29,15 +30,11 @@
                 
                 <div class="nav-section">
                     <div class="nav-section-title">Trading & Analyse</div>
-                    <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
+                    <a href="javascript:void(0)" onclick="navigateToPrivate("/trading")" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
                         <i class="fas fa-chart-line"></i>
                         <span class="nav-text">Trading</span>
                     </a>
-                    <a href="/arbitrage" class="nav-item {% if active_page == 'arbitrage' %}active{% endif %}">
-                        <i class="fas fa-exchange-alt"></i>
-                        <span class="nav-text">Arbitrage</span>
-                    </a>
-                    <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                    <a href="javascript:void(0)" onclick="navigateToPrivate("/backtest")" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
                         <i class="fas fa-flask"></i>
                         <span class="nav-text">Backtest</span>
                     </a>
@@ -45,7 +42,7 @@
                 
                 <div class="nav-section">
                     <div class="nav-section-title">Gestion</div>
-                    <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
+                    <a href="javascript:void(0)" onclick="navigateToPrivate("/capital")" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
                         <i class="fas fa-coins"></i>
                         <span class="nav-text">Capital</span>
                     </a>
@@ -53,21 +50,13 @@
                         <i class="fas fa-wallet"></i>
                         <span class="nav-text">Retrait/Dépôt</span>
                     </a>
-                    <a href="/ecommerce" class="nav-item {% if active_page == 'ecommerce' %}active{% endif %}">
-                        <i class="fas fa-shopping-cart"></i>
-                        <span class="nav-text">E-commerce</span>
-                    </a>
                 </div>
                 
                 <div class="nav-section">
                     <div class="nav-section-title">Système</div>
-                    <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
+                    <a href="javascript:void(0)" onclick="navigateToPrivate("/duplication")" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
                         <i class="fas fa-clone"></i>
                         <span class="nav-text">Duplication</span>
-                    </a>
-                    <a href="/parametres" class="nav-item {% if active_page == 'parametres' %}active{% endif %}">
-                        <i class="fas fa-cog"></i>
-                        <span class="nav-text">Paramètres</span>
                     </a>
                 </div>
             </nav>
