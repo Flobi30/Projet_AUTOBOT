@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,6 +14,7 @@ from autobot.ui.backtest_routes import router as backtest_router
 from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
 from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.routers.setup import router as setup_router
+from autobot.routers.funds import router as funds_router
 from autobot.routers.capital import router as capital_router
 from autobot.config import load_api_keys
 from autobot.ui.routes import router as ui_router
@@ -23,14 +25,15 @@ from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 
 logger = logging.getLogger(__name__)
-
 app = FastAPI(
+
     title="Autobot API",
     description="API for Autobot trading system",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["stripe-autobot.fr", "144.76.16.177", "localhost"])
 # Performance optimizations activated for 10% daily return target
 performance_optimizer = PerformanceOptimizer(
     memory_threshold=0.80,
@@ -65,10 +68,13 @@ app.include_router(mobile_router)
 app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
+app.include_router(funds_router)
+app.include_router(funds_router)
 app.include_router(ui_router)
 app.include_router(ghosting_router)
 app.include_router(setup_router)
 app.include_router(capital_router)
+app.include_router(funds_router)
 
 user_manager = UserManager()
 
