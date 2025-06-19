@@ -68,8 +68,6 @@ app.include_router(mobile_router)
 app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
-app.include_router(funds_router)
-app.include_router(funds_router)
 app.include_router(ui_router)
 app.include_router(ghosting_router)
 app.include_router(setup_router)
@@ -89,9 +87,74 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    from autobot.autobot_security.auth.jwt_handler import create_access_token
+    from datetime import timedelta
+    
     user = user_manager.authenticate_user(username, password)
     if user:
-        return RedirectResponse(url="/dashboard", status_code=302)
+        access_token_expires = timedelta(hours=24)
+        access_token = create_access_token(
+            data={"sub": user["username"], "user_id": user["id"]},
+            expires_delta=access_token_expires
+        )
+        
+        response = RedirectResponse(url="/dashboard", status_code=302)
+        response.set_cookie(
+            key="access_token",
+            value=f"Bearer {access_token}",
+            httponly=True,
+            max_age=86400,
+            secure=False,
+            samesite="lax"
+        )
+        return response
+    else:
+        templates = Jinja2Templates(directory=templates_dir)
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Invalid username or password"
+        })
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    from autobot.autobot_security.auth.jwt_handler import create_access_token
+    from datetime import timedelta
+    
+    from autobot.autobot_security.auth.jwt_handler import create_access_token
+    from datetime import timedelta
+    
+    user = user_manager.authenticate_user(username, password)
+    if user:
+        access_token_expires = timedelta(hours=24)
+        access_token = create_access_token(
+            data={"sub": user["username"], "user_id": user["id"]},
+            expires_delta=access_token_expires
+        )
+        
+        response = RedirectResponse(url="/dashboard", status_code=302)
+        response.set_cookie(
+            key="access_token",
+            value=f"Bearer {access_token}",
+            httponly=True,
+            max_age=86400,
+            secure=False,
+            samesite="lax"
+        )
+        return response
+        access_token_expires = timedelta(hours=24)
+        access_token = create_access_token(
+            data={"sub": user["username"], "user_id": user["id"]},
+            expires_delta=access_token_expires
+        )
+        
+        response = RedirectResponse(url="/dashboard", status_code=302)
+        response.set_cookie(
+            key="access_token",
+            value=f"Bearer {access_token}",
+            httponly=True,
+            max_age=86400,
+            secure=False,
+            samesite="lax"
+        )
+        return response
     else:
         templates = Jinja2Templates(directory=templates_dir)
         return templates.TemplateResponse("login.html", {
