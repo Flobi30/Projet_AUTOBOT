@@ -19,7 +19,6 @@
             </div>
             
             <nav class="nav-menu">
-                
                 <div class="nav-section">
                     <div class="nav-section-title">Trading & Analyse</div>
                     <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
@@ -38,7 +37,7 @@
                         <i class="fas fa-coins"></i>
                         <span class="nav-text">Capital</span>
                     </a>
-                    <a href="/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
+                    <a href="https://stripe-autobot.fr/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
                         <i class="fas fa-wallet"></i>
                         <span class="nav-text">Retrait/Dépôt</span>
                     </a>
@@ -80,24 +79,32 @@
                 </div>
             </header>
             
-            {% if self.header_title() %}
-            <div class="page-header">
-                <h1 class="page-title">{% block header_title %}{% endblock %}</h1>
-                <div class="page-actions">
-                    {% block header_actions %}{% endblock %}
+            <div class="page-content">
+                <div class="page-header">
+                    <h1 class="page-title">{% block header_title %}Dashboard{% endblock %}</h1>
+                    {% block page_description %}{% endblock %}
                 </div>
-            </div>
-            {% endif %}
-            
-            <div class="content-wrapper">
-                {% block content %}{% endblock %}
+                
+                {% block content %}
+                <div class="dashboard-grid">
+                    <!-- Default content -->
+                </div>
+                {% endblock %}
             </div>
         </main>
     </div>
-    
+
     <script>
-        document.querySelector('.sidebar-toggle').addEventListener('click', function() {
-            document.querySelector('.sidebar').classList.toggle('collapsed');
+        // Sidebar toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.querySelector('.sidebar-toggle');
+            const sidebar = document.querySelector('.sidebar');
+            
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('active');
+                });
+            }
         });
     </script>
 </body>
