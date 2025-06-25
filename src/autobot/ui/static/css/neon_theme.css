@@ -1286,3 +1286,44 @@ textarea.form-control:focus {
     gap: 12px;
     align-items: center;
 }
+
+/* Force sidebar visibility - Emergency fix for offscreen issue */
+.sidebar {
+    display: block !important;
+    visibility: visible !important;
+    transform: translateX(0) !important;
+    width: 250px !important;
+}
+
+.nav-section {
+    display: block !important;
+    visibility: visible !important;
+}
+
+.nav-item {
+    display: flex !important;
+    visibility: visible !important;
+}
+
+.nav-text {
+    display: inline !important;
+    visibility: visible !important;
+}
+
+.nav-section-title {
+    display: block !important;
+    visibility: visible !important;
+}
+
+.main-content {
+    display: block !important;
+    visibility: visible !important;
+    margin-left: 250px !important;
+}
+
+/* Override any offscreen attributes */
+[offscreen] {
+    display: block !important;
+    visibility: visible !important;
+}
+
