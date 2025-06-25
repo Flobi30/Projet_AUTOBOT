@@ -46,49 +46,8 @@ templates = Jinja2Templates(directory=templates_dir)
 @router.get("/", response_class=HTMLResponse)
 async def root_redirect(request: Request):
     """Redirect root to dashboard"""
-    return RedirectResponse(url="/dashboard", status_code=302)
+    return RedirectResponse(url="/trading", status_code=302)
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, user: User = Depends(get_current_user)):
-    """Dashboard principal"""
-    try:
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "user": user,
-            "active_page": "dashboard",
-            "title": "Dashboard"
-        })
-    except Exception as e:
-        logger.error(f"Error loading dashboard: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-        
-        print("▶️ ROUTES.PY - Formatted logs count:", len(formatted_logs))
-        
-        if not formatted_logs:
-            formatted_logs = [{
-                "time": "00:00:00",
-                "system": "SYSTÈME",
-                "message": "Initialisation du système Guardian..."
-            }]
-            
-    except Exception as e:
-        print("▶️ ROUTES.PY - Guardian error:", str(e))
-        formatted_logs = [{
-            "time": "00:00:00",
-            "system": "ERROR",
-            "message": f"Erreur Guardian: {str(e)}"
-        }]
-    
-    print("▶️ ROUTES.PY - Final guardian_logs for template:", formatted_logs)
-    
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "active_page": "dashboard",
-        "username": "AUTOBOT",
-        "user_role": "admin",
-        "user_role_display": "Administrateur",
-        "guardian_logs": formatted_logs
-    })
 
 @router.get("/trading", response_class=HTMLResponse)
 async def get_trading(request: Request):
