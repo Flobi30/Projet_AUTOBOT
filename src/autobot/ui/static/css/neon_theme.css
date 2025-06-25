@@ -939,10 +939,6 @@ body {
     }
     
     .sidebar:not(.active) .nav-text,
-    .sidebar:not(.active) .nav-section-title,
-    .sidebar:not(.active) .logo-container h1,
-    .sidebar:not(.active) .user-details {
-        display: none;
     }
     
     .main-content {
