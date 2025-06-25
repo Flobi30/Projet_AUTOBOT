@@ -190,12 +190,15 @@ async def get_retrait_depot(request: Request):
     """
     Page de retrait et dépôt.
     """
+    import os
+    stripe_key = os.getenv("STRIPE_PUBLIC_KEY", "")
     return templates.TemplateResponse("retrait_depot.html", {
         "request": request,
         "active_page": "retrait-depot",
         "username": "AUTOBOT",
         "user_role": "admin",
-        "user_role_display": "Administrateur"
+        "user_role_display": "Administrateur",
+        "stripe_publishable_key": stripe_key
     })
 
 
