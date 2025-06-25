@@ -1,21 +1,272 @@
 {% extends "base.html" %}
 
 {% block title %}Trading{% endblock %}
-
 {% block header_title %}Trading{% endblock %}
 
 {% block header_actions %}
-<script src="{{ url_for('static', path='js/metrics.js') }}"></script>
 {% endblock %}
 
 {% block content %}
 <!-- Market Overview -->
 <div class="metric-cards">
-    {% include 'partials/metrics_grid.html' %}
+    <div class="metric-card">
+        <span class="metric-title">BTC/EUR</span>
+        <span class="metric-value">{{ btc_price|default('42,580.25 €') }}</span>
+        <span class="metric-change positive">+2.4%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">ETH/EUR</span>
+        <span class="metric-value">{{ eth_price|default('2,345.78 €') }}</span>
+        <span class="metric-change positive">+1.8%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">XRP/EUR</span>
+        <span class="metric-value">{{ xrp_price|default('0.5423 €') }}</span>
+        <span class="metric-change negative">-0.7%</span>
+    </div>
 </div>
 
-<div class="metric-card">
-    <h3>Trading Dashboard</h3>
-    <p>Trading functionality will be displayed here.</p>
+<!-- Trading Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Graphique de Trading</h3>
+        <div class="card-actions">
+            <select id="pairSelector" class="form-select">
+                <option value="BTC/EUR">BTC/EUR</option>
+                <option value="ETH/EUR">ETH/EUR</option>
+                <option value="XRP/EUR">XRP/EUR</option>
+            </select>
+            <select id="timeframeSelector" class="form-select">
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+                <option value="1h" selected>1h</option>
+                <option value="4h">4h</option>
+                <option value="1d">1d</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="tradingChart"></canvas>
+        </div>
+    </div>
 </div>
+
+<!-- Recent Trades and Open Orders -->
+<div class="dashboard-split">
+    <div class="card">
+        <div class="card-header">
+            <h3>Trades Récents</h3>
+        </div>
+        <div class="card-body">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Paire</th>
+                            <th>Type</th>
+                            <th>Prix</th>
+                            <th>Montant</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentTradesTable">
+                        {% for trade in recent_trades|default([
+                            {'date': '18:42', 'pair': 'BTC/EUR', 'type': 'buy', 'price': '42,580.25 €', 'amount': '0.05 BTC', 'total': '2,129.01 €'},
+                            {'date': '17:30', 'pair': 'ETH/EUR', 'type': 'sell', 'price': '2,345.78 €', 'amount': '1.2 ETH', 'total': '2,814.94 €'},
+                            {'date': '16:15', 'pair': 'XRP/EUR', 'type': 'buy', 'price': '0.5423 €', 'amount': '1000 XRP', 'total': '542.30 €'}
+                        ]) %}
+                        <tr>
+                            <td>{{ trade.date }}</td>
+                            <td>{{ trade.pair }}</td>
+                            <td class="{% if trade.type == 'buy' %}positive{% else %}negative{% endif %}">
+                                {{ trade.type|upper }}
+                            </td>
+                            <td>{{ trade.price }}</td>
+                            <td>{{ trade.amount }}</td>
+                            <td>{{ trade.total }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3>Ordres Ouverts</h3>
+        </div>
+        <div class="card-body">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Paire</th>
+                            <th>Type</th>
+                            <th>Prix</th>
+                            <th>Montant</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openOrdersTable">
+                        {% for order in open_orders|default([
+                            {'date': '18:45', 'pair': 'BTC/EUR', 'type': 'buy', 'price': '41,500.00 €', 'amount': '0.1 BTC'},
+                            {'date': '18:30', 'pair': 'ETH/EUR', 'type': 'sell', 'price': '2,400.00 €', 'amount': '2.0 ETH'}
+                        ]) %}
+                        <tr>
+                            <td>{{ order.date }}</td>
+                            <td>{{ order.pair }}</td>
+                            <td class="{% if order.type == 'buy' %}positive{% else %}negative{% endif %}">
+                                {{ order.type|upper }}
+                            </td>
+                            <td>{{ order.price }}</td>
+                            <td>{{ order.amount }}</td>
+                            <td>
+                                <span class="status-badge">{{ order.status|default('En attente') }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Trading Chart
+    const ctx = document.getElementById('tradingChart').getContext('2d');
+    const tradingChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'],
+            datasets: [{
+                label: 'BTC/EUR',
+                data: [42100, 42300, 42150, 42400, 42600, 42500, 42300, 42450, 42580, 42580.25],
+                borderColor: '#00ff9d',
+                backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888'
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) {
+                            return value + ' €';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Pair selector change event
+    const pairSelector = document.getElementById('pairSelector');
+    if (pairSelector) {
+        pairSelector.addEventListener('change', function() {
+            // Update chart data based on selected pair
+            // This would be implemented with real data in production
+            const pair = this.value;
+            let newData;
+            
+            if (pair === 'BTC/EUR') {
+                newData = [42100, 42300, 42150, 42400, 42600, 42500, 42300, 42450, 42580, 42580.25];
+            } else if (pair === 'ETH/EUR') {
+                newData = [2320, 2330, 2310, 2350, 2370, 2360, 2340, 2330, 2345, 2345.78];
+            } else if (pair === 'XRP/EUR') {
+                newData = [0.55, 0.54, 0.53, 0.54, 0.55, 0.56, 0.55, 0.54, 0.53, 0.5423];
+            }
+            
+            tradingChart.data.datasets[0].label = pair;
+            tradingChart.data.datasets[0].data = newData;
+            tradingChart.update();
+        });
+    }
+    
+    // Timeframe selector change event
+    const timeframeSelector = document.getElementById('timeframeSelector');
+    if (timeframeSelector) {
+        timeframeSelector.addEventListener('change', function() {
+            // Update chart data based on selected timeframe
+            // This would be implemented with real data in production
+            const timeframe = this.value;
+            // Simulate different timeframes with different label formats
+            let newLabels;
+            
+            if (timeframe === '1m' || timeframe === '5m' || timeframe === '15m') {
+                newLabels = ['18:00', '18:05', '18:10', '18:15', '18:20', '18:25', '18:30', '18:35', '18:40', '18:45'];
+            } else if (timeframe === '1h') {
+                newLabels = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+            } else if (timeframe === '4h') {
+                newLabels = ['02:00', '06:00', '10:00', '14:00', '18:00', '22:00', '02:00', '06:00', '10:00', '14:00'];
+            } else if (timeframe === '1d') {
+                newLabels = ['10/05', '11/05', '12/05', '13/05', '14/05', '15/05', '16/05', '17/05', '18/05', '19/05'];
+            }
+            
+            tradingChart.data.labels = newLabels;
+            tradingChart.update();
+        });
+    }
+    
+    // New Trade button click event
+    const newTradeBtn = document.getElementById('newTrade');
+    if (newTradeBtn) {
+        newTradeBtn.addEventListener('click', function() {
+            // Open new trade modal or form
+            alert('Fonctionnalité de nouveau trade à implémenter');
+        });
+    }
+    
+    // Edit order button click events
+    document.querySelectorAll('.edit-order').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const orderId = this.getAttribute('data-id');
+            // Open edit order modal or form
+            alert(`Éditer l'ordre #${orderId}`);
+        });
+    });
+    
+    // Cancel order button click events
+    document.querySelectorAll('.cancel-order').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const orderId = this.getAttribute('data-id');
+            if (confirm(`Êtes-vous sûr de vouloir annuler l'ordre #${orderId} ?`)) {
+                // Cancel order logic
+                alert(`Ordre #${orderId} annulé`);
+            }
+        });
+    });
+});
+</script>
 {% endblock %}
