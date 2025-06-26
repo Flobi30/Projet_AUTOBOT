@@ -6,13 +6,6 @@
 
 {% block content %}
 <style>
-.backtest-container {
-    padding: 15px;
-    max-width: 1400px;
-    margin: 0 auto;
-    margin-left: 270px; /* Account for sidebar width + reduce spacing */
-}
-
 .status-header {
     background: linear-gradient(135deg, rgba(0, 255, 157, 0.2), rgba(0, 255, 157, 0.05));
     border: 2px solid #00ff9d;
@@ -180,9 +173,9 @@
 }
 </style>
 
-<div class="backtest-container">
+<div class="dashboard-grid">
     <!-- Status Header -->
-    <div class="status-header">
+    <div class="status-header" style="grid-column: span 12;">
         <div class="status-indicator">
             <div class="status-dot"></div>
             <h2 class="neon-text">Moteur de Backtest AUTOBOT</h2>
@@ -192,7 +185,7 @@
     </div>
 
     <!-- Performance Metrics -->
-    <div class="metrics-grid">
+    <div class="metrics-grid" style="grid-column: span 12;">
         <div class="metric-card">
             <div class="metric-label">Rendement Total</div>
             <div class="metric-value" id="total-return">+0.00%</div>
