@@ -9,7 +9,8 @@
 /* Fix excessive spacing between sidebar and content */
 .main-content {
     margin-left: 250px !important;
-    padding: 10px 15px !important;
+    padding: 0 15px !important;
+    width: calc(100% - 265px) !important;
 }
 
 /* Ensure dashboard grid is properly positioned and compact */
@@ -23,23 +24,41 @@
 
 /* Reduce page content padding for more compact layout */
 .page-content {
-    padding: 10px 0 !important;
+    padding: 0 !important;
 }
 
 /* Optimize card and content spacing */
 .card {
-    margin-bottom: 15px !important;
+    margin-bottom: 10px !important;
 }
 
 /* Ensure status header and metrics are properly aligned */
 .status-header {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
+    margin: 0 0 20px 0 !important;
+    padding: 20px !important;
 }
 
 .metrics-grid {
     margin: 0 !important;
     padding: 0 !important;
+}
+
+/* Override any conflicting CSS rules with higher specificity */
+body .main-content {
+    margin-left: 250px !important;
+    padding-left: 15px !important;
+}
+
+/* Ensure content wrapper is properly positioned */
+.content-wrapper {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+/* Additional override for the specific backtest page layout */
+.backtest-page .main-content {
+    margin-left: 250px !important;
+    padding-left: 15px !important;
 }
 
 .status-header {
