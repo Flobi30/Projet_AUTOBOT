@@ -6,28 +6,25 @@
 
 {% block content %}
 <style>
-/* FINAL CSS FIX: Eliminate gap between sidebar and content */
+/* Fix excessive spacing between sidebar and content blocks */
 .main-content {
     margin-left: 250px !important;
-    padding: 0 20px !important;
-    width: calc(100% - 250px) !important;
-    box-sizing: border-box !important;
+    padding-left: 20px !important;
 }
 
-/* Dashboard grid - compact layout */
+/* Ensure dashboard grid is properly positioned */
 .dashboard-grid {
-    margin: 0 !important;
-    padding: 0 !important;
-    gap: 20px !important;
-    display: grid !important;
-    grid-template-columns: repeat(12, 1fr) !important;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
 }
 
-/* Status header */
 .status-header {
-    margin: 0 0 20px 0 !important;
-    padding: 25px !important;
-    grid-column: span 12 !important;
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.2), rgba(0, 255, 157, 0.05));
+    border: 2px solid #00ff9d;
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 30px;
+    text-align: center;
 }
 
 .status-header {
