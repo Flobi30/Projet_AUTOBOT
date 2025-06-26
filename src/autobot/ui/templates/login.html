@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOBOT - Login</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #0a0a0a !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+            color: #ccc !important;
+            min-height: 100vh !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        
+        .login-container {
+            background: #1a1a1a !important;
+            border: 1px solid #00ff88 !important;
+            border-radius: 12px !important;
+            padding: 40px !important;
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.3) !important;
+            width: 100% !important;
+            max-width: 400px !important;
+        }
+        
+        .login-header {
+            text-align: center !important;
+            margin-bottom: 30px !important;
+        }
+        
+        .login-header h1 {
+            color: #00ff88 !important;
+            font-size: 32px !important;
+            margin: 0 0 10px 0 !important;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5) !important;
+        }
+        
+        .login-header p {
+            color: #888 !important;
+            margin: 0 !important;
+            font-size: 16px !important;
+        }
+        
+        .form-group {
+            margin-bottom: 20px !important;
+        }
+        
+        .form-group label {
+            display: block !important;
+            color: #ccc !important;
+            margin-bottom: 8px !important;
+            font-weight: 500 !important;
+        }
+        
+        .form-control {
+            width: 100% !important;
+            padding: 12px !important;
+            background: #0a0a0a !important;
+            border: 1px solid #333 !important;
+            border-radius: 6px !important;
+            color: #ccc !important;
+            font-size: 16px !important;
+            box-sizing: border-box !important;
+        }
+        
+        .form-control:focus {
+            outline: none !important;
+            border-color: #00ff88 !important;
+            box-shadow: 0 0 5px rgba(0, 255, 136, 0.3) !important;
+        }
+        
+        .btn {
+            width: 100% !important;
+            padding: 14px !important;
+            background: #00ff88 !important;
+            border: none !important;
+            border-radius: 6px !important;
+            color: #000 !important;
+            font-size: 16px !important;
+            font-weight: bold !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .btn:hover {
+            background: #00cc6a !important;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.4) !important;
+        }
+        
+        .error-message {
+            color: #ff4444 !important;
+            text-align: center !important;
+            margin-top: 15px !important;
+            padding: 10px !important;
+            background: rgba(255, 68, 68, 0.1) !important;
+            border: 1px solid #ff4444 !important;
+            border-radius: 6px !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>AUTOBOT</h1>
+            <p>Trading and Automation Framework</p>
+        </div>
+        
+        <form id="login-form" method="post" action="/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="license_key">License Key</label>
+                <input type="text" id="license_key" name="license_key" class="form-control" required>
+            </div>
+            
+            <button type="submit" class="btn">Login</button>
+            
+            {% if error %}
+            <div class="error-message">
+                {{ error }}
+            </div>
+            {% endif %}
+        </form>
+    </div>
+    
+    <script>
+        // Remove JavaScript form handling to use native form submission
+        // The form will submit directly to /login endpoint which handles the redirect
+    </script>
+</body>
+</html>

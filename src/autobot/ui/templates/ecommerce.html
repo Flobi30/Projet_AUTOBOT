@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}E-commerce{% endblock %}
+{% block header_title %}E-commerce{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline" id="syncInventory">
+    <i class="fas fa-sync"></i> Synchroniser Inventaire
+</button>
+<button class="btn btn-primary" id="optimizePrices">
+    <i class="fas fa-magic"></i> Optimiser Prix
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- E-commerce Stats -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Produits Invendus</span>
+        <span class="metric-value">{{ unsold_products|default('0') }}</span>
+        <span class="metric-change">Valeur: {{ unsold_value|default('12,00 €') }}</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Économies Potentielles</span>
+        <span class="metric-value">{{ potential_savings|default('0 €') }}</span>
+        <span class="metric-change positive">0.0%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Commandes Recyclées</span>
+        <span class="metric-value">{{ recycled_orders|default('0') }}</span>
+        <span class="metric-change">Ce mois</span>
+    </div>
+</div>
+
+<!-- Optimization Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Optimisation des Prix</h3>
+        <div class="card-actions">
+            <button class="btn-sm">Journalier</button>
+            <button class="btn-sm active">Hebdomadaire</button>
+            <button class="btn-sm">Mensuel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="optimizationChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Unsold Products Table -->
+<div class="card">
+    <div class="card-header">
+        <h3>Produits Invendus</h3>
+        <div class="card-actions">
+            <select id="categoryFilter" class="form-select">
+                <option value="all">Toutes catégories</option>
+                <option value="electronics">Électronique</option>
+                <option value="clothing">Vêtements</option>
+                <option value="home">Maison</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Produit</th>
+                        <th>SKU</th>
+                        <th>Catégorie</th>
+                        <th>Prix Original</th>
+                        <th>Prix Optimisé</th>
+                        <th>Stock</th>
+                        <th>Jours en Stock</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="unsoldProductsTable">
+                    {% for product in unsold_products_list|default([
+                        {'name': 'Smartphone XYZ', 'sku': 'SM-XYZ-123', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '499.99 €', 'stock': 15, 'days': 0},
+                        {'name': 'Écouteurs Bluetooth', 'sku': 'EB-BT-06', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '89.99 €', 'stock': 32, 'days': 60},
+                        {'name': 'Montre Connectée', 'sku': 'MC-789', 'category': 'electronics', 'original_price': '0.00 €', 'optimized_price': '199.99 €', 'stock': 8, 'days': 30},
+                        {'name': 'T-shirt Premium', 'sku': 'TS-PRE-101', 'category': 'clothing', 'original_price': '39.99 €', 'optimized_price': '29.99 €', 'stock': 0, 'days': 90},
+                        {'name': 'Lampe Design', 'sku': 'LD-202', 'category': 'home', 'original_price': '89.99 €', 'optimized_price': '69.99 €', 'stock': 12, 'days': 75}
+                    ]) %}
+                    <tr data-category="{{ product.category }}">
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.sku }}</td>
+                        <td>{{ product.category|capitalize }}</td>
+                        <td>{{ product.original_price }}</td>
+                        <td>{{ product.optimized_price }}</td>
+                        <td>{{ product.stock }}</td>
+                        <td>{{ product.days }}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon apply-price" data-sku="{{ product.sku }}">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn-icon edit-product" data-sku="{{ product.sku }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recycling Suggestions -->
+<div class="card">
+    <div class="card-header">
+        <h3>Suggestions de Recyclage</h3>
+    </div>
+    <div class="card-body">
+        <div class="suggestions-container">
+            {% for suggestion in recycling_suggestions|default([
+                {'title': 'Regrouper les smartphones', 'description': 'Créer un pack avec les smartphones invendus et accessoires', 'savings': '0 €', 'complexity': 'Moyenne'},
+                {'title': 'Promotion croisée', 'description': 'Offrir une remise sur les écouteurs avec achat de smartphone', 'savings': '0 €', 'complexity': 'Faible'},
+                {'title': '', 'description': '', 'savings': '0 €', 'complexity': ''}
+            ]) %}
+            <div class="suggestion-card">
+                <h4>{{ suggestion.title }}</h4>
+                <p>{{ suggestion.description }}</p>
+                <div class="suggestion-details">
+                    <span class="suggestion-savings">Économies: {{ suggestion.savings }}</span>
+                    <span class="suggestion-complexity">Complexité: {{ suggestion.complexity }}</span>
+                </div>
+                <button class="btn btn-outline btn-sm">Appliquer</button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Optimization Chart
+    const ctx = document.getElementById('optimizationChart').getContext('2d');
+    const optimizationChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+            datasets: [
+                {
+                    label: 'Prix Original',
+                    data: [050, 050, 050, 050, 050, 050, 050],
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Prix Optimisé',
+                    data: [050, 11800, 11200, 10500, 10000, 9700, 9560],
+                    backgroundColor: 'rgba(0, 255, 157, 0.5)',
+                    borderColor: 'rgba(0, 255, 157, 1)',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888'
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) {
+                            return value + ' €';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Category filter
+    const categoryFilter = document.getElementById('categoryFilter');
+    if (categoryFilter) {
+        categoryFilter.addEventListener('change', function() {
+            const selectedCategory = this.value;
+            const rows = document.querySelectorAll('#unsoldProductsTable tr');
+            
+            rows.forEach(row => {
+                const category = row.getAttribute('data-category');
+                if (selectedCategory === 'all' || category === selectedCategory) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+    
+    // Sync Inventory button
+    const syncInventoryBtn = document.getElementById('syncInventory');
+    if (syncInventoryBtn) {
+        syncInventoryBtn.addEventListener('click', function() {
+            // Simulate synchronization
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Synchronisation...';
+            
+            setTimeout(() => {
+                this.disabled = false;
+                this.innerHTML = '<i class="fas fa-sync"></i> Synchroniser Inventaire';
+                showNotification('Inventaire synchronisé avec succès', 'success');
+            }, 2000);
+        });
+    }
+    
+    // Optimize Prices button
+    const optimizePricesBtn = document.getElementById('optimizePrices');
+    if (optimizePricesBtn) {
+        optimizePricesBtn.addEventListener('click', function() {
+            // Simulate optimization
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Optimisation...';
+            
+            setTimeout(() => {
+                this.disabled = false;
+                this.innerHTML = '<i class="fas fa-magic"></i> Optimiser Prix';
+                showNotification('Prix optimisés avec succès', 'success');
+            }, 2000);
+        });
+    }
+    
+    // Apply price buttons
+    document.querySelectorAll('.apply-price').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sku = this.getAttribute('data-sku');
+            // Apply optimized price logic
+            showNotification(`Prix optimisé appliqué pour ${sku}`, 'success');
+        });
+    });
+    
+    // Edit product buttons
+    document.querySelectorAll('.edit-product').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sku = this.getAttribute('data-sku');
+            // Open edit product modal or form
+            alert(`Éditer le produit ${sku}`);
+        });
+    });
+    
+    // Utility function to show notifications
+    function showNotification(message, type = 'info') {
+        // This function is defined in common.js
+        if (window.showNotification) {
+            window.showNotification(message, type);
+        } else {
+            alert(message);
+        }
+    }
+});
+</script>
+{% endblock %}

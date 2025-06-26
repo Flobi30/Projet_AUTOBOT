@@ -1,0 +1,1045 @@
+{% extends "base.html" %}
+
+{% block title %}Capital{% endblock %}
+
+{% block header_title %}Gestion du Capital{% endblock %}
+
+{% block header_actions %}
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- Résumé du Capital -->
+    <div class="card" style="grid-column: span 12;">
+        <div class="card-header">
+            <h3 class="neon-text">Résumé du Capital</h3>
+        </div>
+        <div class="card-body">
+            <div class="metrics-row">
+                <div class="metric-item">
+                    <div class="metric-label">Capital Initial</div>
+                    <div class="metric-value neon-text">500 €</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Capital Actuel</div>
+                    <div class="metric-value neon-text">{{ current_capital|default('578.45') }} €</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Profit</div>
+                    <div class="metric-value neon-text">{{ profit|default('78.45') }} €</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">ROI</div>
+                    <div class="metric-value neon-text">{{ roi|default('15.69') }} %</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Graphique d'évolution du capital -->
+    <div class="card" style="grid-column: span 8;">
+        <div class="card-header">
+            <h3>Évolution du Capital</h3>
+        </div>
+        <div class="card-body">
+            <div class="chart-container" style="height: 300px;">
+                <canvas id="capitalChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Allocation du Capital -->
+    <div class="card" style="grid-column: span 4;">
+        <div class="card-header">
+            <h3>Allocation du Capital</h3>
+        </div>
+        <div class="card-body">
+            <div class="chart-container" style="height: 300px;">
+                <canvas id="allocationChart"></canvas>
+            </div>
+            <div class="allocation-legend">
+                <div class="allocation-item">
+                    <div class="allocation-color" style="background-color: var(--primary-color);"></div>
+                    <div class="allocation-label">Trading</div>
+                    <div class="allocation-value">{{ trading_allocation|default('65') }}%</div>
+                </div>
+                <div class="allocation-item">
+                    <div class="allocation-color" style="background-color: var(--info-color);"></div>
+                    <div class="allocation-label">E-commerce</div>
+                    <div class="allocation-value">{{ ecommerce_allocation|default('35') }}%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Historique des transactions -->
+    <div class="card" style="grid-column: span 12;">
+        <div class="card-header">
+            <h3>Historique des Transactions</h3>
+        </div>
+        <div class="card-body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Montant</th>
+                        <th>Source</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in transactions|default([
+                        {'date': '2025-05-15', 'type': 'Dépôt', 'amount': '500.00', 'source': 'Compte bancaire', 'status': 'Complété'},
+                        {'date': '2025-05-16', 'type': 'Profit', 'amount': '12.35', 'source': 'Trading BTC/USD', 'status': 'Complété'},
+                        {'date': '2025-05-17', 'type': 'Profit', 'amount': '8.75', 'source': 'E-commerce', 'status': 'Complété'},
+                        {'date': '2025-05-18', 'type': 'Profit', 'amount': '57.35', 'source': 'Trading ETH/USD', 'status': 'Complété'}
+                    ]) %}
+                    <tr>
+                        <td>{{ transaction.date }}</td>
+                        <td>{{ transaction.type }}</td>
+                        <td>{{ transaction.amount }} €</td>
+                        <td>{{ transaction.source }}</td>
+                        <td>
+                            <span class="status-badge status-{{ transaction.status|lower }}">
+                                {{ transaction.status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Deposit/Withdrawal Section -->
+    <div class="card" style="grid-column: span 12;">
+        <div class="card-header">
+            <h3>Dépôts et Retraits</h3>
+            <div class="card-header-actions">
+                <button class="btn btn-primary" onclick="showDepositModal()">
+                    <i class="fas fa-plus"></i> Nouveau Dépôt
+                </button>
+                <button class="btn btn-outline" onclick="showWithdrawModal()">
+                    <i class="fas fa-minus"></i> Nouveau Retrait
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="metrics-row">
+                <div class="metric-item">
+                    <div class="metric-label">Disponible pour Retrait</div>
+                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('350.00') }} €</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">En Cours d'Utilisation</div>
+                    <div class="metric-value neon-text">{{ in_use|default('228.45') }} €</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<div id="depositModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Nouveau Dépôt</h3>
+            <span class="close" onclick="closeDepositModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="depositForm">
+                <div class="form-group">
+                    <label for="depositAmount">Montant (€)</label>
+                    <input type="number" id="depositAmount" min="10" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="depositMethod">Méthode de paiement</label>
+                    <select id="depositMethod" required>
+                        <option value="bank">Virement bancaire</option>
+                        <option value="card">Carte bancaire</option>
+                    </select>
+                </div>
+                <div class="form-group" id="bankDetails" style="display: block;">
+                    <label for="depositIban">IBAN</label>
+                    <input type="text" id="depositIban" placeholder="FR76 1234 5678 9012 3456 7890 123">
+                    <label for="depositBic">BIC</label>
+                    <input type="text" id="depositBic" placeholder="BNPAFRPP">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeDepositModal()">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Confirmer le Dépôt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="withdrawModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Nouveau Retrait</h3>
+            <span class="close" onclick="closeWithdrawModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="withdrawForm">
+                <div class="form-group">
+                    <label for="withdrawAmount">Montant (€)</label>
+                    <input type="number" id="withdrawAmount" min="10" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="withdrawMethod">Méthode de retrait</label>
+                    <select id="withdrawMethod" required>
+                        <option value="bank">Virement bancaire</option>
+                        <option value="card">Carte bancaire</option>
+                    </select>
+                </div>
+                <div class="form-group" id="withdrawBankDetails" style="display: block;">
+                    <label for="withdrawIban">IBAN</label>
+                    <input type="text" id="withdrawIban" placeholder="FR76 1234 5678 9012 3456 7890 123" required>
+                    <label for="withdrawBic">BIC</label>
+                    <input type="text" id="withdrawBic" placeholder="BNPAFRPP" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeWithdrawModal()">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Confirmer le Retrait</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<!-- Deposit Modal -->
+<div class="modal" id="depositModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div class="modal-dialog" style="position: relative; margin: 15% auto; width: 500px;">
+        <div class="modal-content" style="background: #1a1a1a; border: 1px solid #00ff88; border-radius: 12px; padding: 0;">
+            <div class="modal-header" style="padding: 20px; border-bottom: 1px solid #333;">
+                <h5 class="modal-title neon-text" style="color: #00ff88; margin: 0;">Nouveau Dépôt</h5>
+                <button type="button" class="close" onclick="closeDepositModal()" style="background: none; border: none; color: #ccc; font-size: 24px; cursor: pointer; float: right;">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <form id="depositForm">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="deposit-amount" style="color: #ccc; display: block; margin-bottom: 5px;">Montant (€)</label>
+                        <input type="number" id="deposit-amount" class="form-control" min="10" step="0.01" required style="width: 100%; padding: 10px; background: #0a0a0a; border: 1px solid #333; border-radius: 4px; color: #ccc;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="deposit-method" style="color: #ccc; display: block; margin-bottom: 5px;">Méthode de Paiement</label>
+                        <select id="deposit-method" class="form-control" required style="width: 100%; padding: 10px; background: #0a0a0a; border: 1px solid #333; border-radius: 4px; color: #ccc;">
+                            <option value="bank">Virement Bancaire</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="padding: 20px; border-top: 1px solid #333; text-align: right;">
+                <button type="button" class="btn btn-outline" onclick="closeDepositModal()" style="padding: 10px 20px; background: transparent; border: 1px solid #666; color: #ccc; border-radius: 4px; margin-right: 10px; cursor: pointer;">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="submitDeposit()" style="padding: 10px 20px; background: #00ff88; border: none; color: #000; border-radius: 4px; font-weight: bold; cursor: pointer;">Confirmer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Withdrawal Modal -->
+<div class="modal" id="withdrawalModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div class="modal-dialog" style="position: relative; margin: 15% auto; width: 500px;">
+        <div class="modal-content" style="background: #1a1a1a; border: 1px solid #00ff88; border-radius: 12px; padding: 0;">
+            <div class="modal-header" style="padding: 20px; border-bottom: 1px solid #333;">
+                <h5 class="modal-title neon-text" style="color: #00ff88; margin: 0;">Nouveau Retrait</h5>
+                <button type="button" class="close" onclick="closeWithdrawalModal()" style="background: none; border: none; color: #ccc; font-size: 24px; cursor: pointer; float: right;">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <form id="withdrawalForm">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="withdrawal-amount" style="color: #ccc; display: block; margin-bottom: 5px;">Montant (€)</label>
+                        <input type="number" id="withdrawal-amount" class="form-control" min="10" step="0.01" required style="width: 100%; padding: 10px; background: #0a0a0a; border: 1px solid #333; border-radius: 4px; color: #ccc;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="withdrawal-method" style="color: #ccc; display: block; margin-bottom: 5px;">Méthode de Retrait</label>
+                        <select id="withdrawal-method" class="form-control" required style="width: 100%; padding: 10px; background: #0a0a0a; border: 1px solid #333; border-radius: 4px; color: #ccc;">
+                            <option value="bank">Virement Bancaire</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="padding: 20px; border-top: 1px solid #333; text-align: right;">
+                <button type="button" class="btn btn-outline" onclick="closeWithdrawalModal()" style="padding: 10px 20px; background: transparent; border: 1px solid #666; color: #ccc; border-radius: 4px; margin-right: 10px; cursor: pointer;">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="submitWithdrawal()" style="padding: 10px 20px; background: #00ff88; border: none; color: #000; border-radius: 4px; font-weight: bold; cursor: pointer;">Confirmer</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Dépôts et Retraits</h3>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 20px !important; margin-bottom: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Nouveau Dépôt</h4>
+                <button style="width: 100% !important; padding: 12px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="openDepositModal()">Effectuer un Dépôt</button>
+                <div style="color: #ccc !important; font-size: 12px !important; margin-top: 10px !important;">Virement bancaire ou carte</div>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Nouveau Retrait</h4>
+                <button style="width: 100% !important; padding: 12px !important; background: transparent !important; border: 1px solid #00ff88 !important; border-radius: 6px !important; color: #00ff88 !important; font-weight: bold !important; cursor: pointer !important;" onclick="openWithdrawalModal()">Effectuer un Retrait</button>
+                <div style="color: #ccc !important; font-size: 12px !important; margin-top: 10px !important;">Virement bancaire</div>
+            </div>
+        </div>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <div style="color: #888 !important; font-size: 14px !important; margin-bottom: 10px !important;">Disponible pour Retrait</div>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important;">350.00 €</div>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <div style="color: #888 !important; font-size: 14px !important; margin-bottom: 10px !important;">En Cours d'Utilisation</div>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important;">228.45 €</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="depositModal" style="display: none !important; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background: rgba(0, 0, 0, 0.8) !important; z-index: 1000 !important;">
+    <div style="position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 30px !important; width: 400px !important; max-width: 90% !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Nouveau Dépôt</h3>
+        <div style="margin-bottom: 20px !important;">
+            <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Montant (€)</label>
+            <input type="number" id="deposit-amount" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" min="10" step="0.01" placeholder="Montant minimum: 10€">
+        </div>
+        <div style="margin-bottom: 20px !important;">
+            <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Méthode de Paiement</label>
+            <select id="deposit-method" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;">
+                <option value="bank">Virement Bancaire</option>
+                <option value="card">Carte Bancaire</option>
+            </select>
+        </div>
+        <div style="display: flex !important; gap: 10px !important; justify-content: flex-end !important;">
+            <button style="padding: 10px 20px !important; background: transparent !important; border: 1px solid #666 !important; border-radius: 6px !important; color: #ccc !important; cursor: pointer !important;" onclick="closeDepositModal()">Annuler</button>
+            <button style="padding: 10px 20px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="submitDeposit()">Confirmer</button>
+        </div>
+    </div>
+</div>
+
+<div id="withdrawalModal" style="display: none !important; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background: rgba(0, 0, 0, 0.8) !important; z-index: 1000 !important;">
+    <div style="position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 30px !important; width: 400px !important; max-width: 90% !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Nouveau Retrait</h3>
+        <div style="margin-bottom: 20px !important;">
+            <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Montant (€)</label>
+            <input type="number" id="withdrawal-amount" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" min="10" step="0.01" placeholder="Montant minimum: 10€">
+        </div>
+        <div style="margin-bottom: 20px !important;">
+            <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Méthode de Retrait</label>
+            <select id="withdrawal-method" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;">
+                <option value="bank">Virement Bancaire</option>
+                <option value="card">Carte Bancaire</option>
+            </select>
+        </div>
+        <div style="display: flex !important; gap: 10px !important; justify-content: flex-end !important;">
+            <button style="padding: 10px 20px !important; background: transparent !important; border: 1px solid #666 !important; border-radius: 6px !important; color: #ccc !important; cursor: pointer !important;" onclick="closeWithdrawalModal()">Annuler</button>
+            <button style="padding: 10px 20px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="submitWithdrawal()">Confirmer</button>
+        </div>
+    </div>
+
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <div style="display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 20px !important;">
+            <h3 style="color: #00ff88 !important; margin: 0 !important;">Dépôts et Retraits</h3>
+            <div style="display: flex !important; gap: 15px !important;">
+                <button style="padding: 10px 20px !important; background: #00ff88 !important; border: none !important; border-radius: 6px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="openDepositModal()">
+                    <i class="fas fa-plus" style="margin-right: 8px !important;"></i>Nouveau Dépôt
+                </button>
+                <button style="padding: 10px 20px !important; background: transparent !important; border: 1px solid #00ff88 !important; border-radius: 6px !important; color: #00ff88 !important; font-weight: bold !important; cursor: pointer !important;" onclick="openWithdrawalModal()">
+                    <i class="fas fa-minus" style="margin-right: 8px !important;"></i>Nouveau Retrait
+                </button>
+            </div>
+        </div>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Disponible pour Retrait</div>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important;">350.00 €</div>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important; text-align: center !important;">
+                <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">En Cours d'Utilisation</div>
+                <div style="color: #00ff88 !important; font-size: 24px !important; font-weight: bold !important;">228.45 €</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="depositModal" style="display: none !important; position: fixed !important; z-index: 1000 !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; background-color: rgba(0,0,0,0.8) !important;">
+    <div style="background: #1a1a1a !important; margin: 15% auto !important; padding: 20px !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; width: 400px !important;">
+        <div style="display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 20px !important;">
+            <h3 style="color: #00ff88 !important; margin: 0 !important;">Nouveau Dépôt</h3>
+            <button style="background: none !important; border: none !important; color: #ccc !important; font-size: 24px !important; cursor: pointer !important;" onclick="closeDepositModal()">&times;</button>
+        </div>
+        <form id="depositForm">
+            <div style="margin-bottom: 15px !important;">
+                <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Montant (€)</label>
+                <input type="number" id="deposit-amount" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" min="10" step="0.01" required>
+            </div>
+            <div style="margin-bottom: 20px !important;">
+                <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Méthode de Paiement</label>
+                <select id="deposit-method" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" required>
+                    <option value="bank">Virement Bancaire</option>
+                    <option value="card">Carte Bancaire</option>
+                </select>
+            </div>
+            <div style="display: flex !important; gap: 10px !important;">
+                <button type="button" style="flex: 1 !important; padding: 10px !important; background: transparent !important; border: 1px solid #666 !important; border-radius: 4px !important; color: #ccc !important; cursor: pointer !important;" onclick="closeDepositModal()">Annuler</button>
+                <button type="button" style="flex: 1 !important; padding: 10px !important; background: #00ff88 !important; border: none !important; border-radius: 4px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="submitDeposit()">Confirmer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="withdrawalModal" style="display: none !important; position: fixed !important; z-index: 1000 !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; background-color: rgba(0,0,0,0.8) !important;">
+    <div style="background: #1a1a1a !important; margin: 15% auto !important; padding: 20px !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; width: 400px !important;">
+        <div style="display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 20px !important;">
+            <h3 style="color: #00ff88 !important; margin: 0 !important;">Nouveau Retrait</h3>
+            <button style="background: none !important; border: none !important; color: #ccc !important; font-size: 24px !important; cursor: pointer !important;" onclick="closeWithdrawalModal()">&times;</button>
+        </div>
+        <form id="withdrawalForm">
+            <div style="margin-bottom: 15px !important;">
+                <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Montant (€)</label>
+                <input type="number" id="withdrawal-amount" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" min="10" step="0.01" required>
+            </div>
+            <div style="margin-bottom: 20px !important;">
+                <label style="color: #ccc !important; display: block !important; margin-bottom: 5px !important;">Méthode de Retrait</label>
+                <select id="withdrawal-method" style="width: 100% !important; padding: 10px !important; background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 4px !important; color: #ccc !important;" required>
+                    <option value="bank">Virement Bancaire</option>
+                    <option value="card">Carte Bancaire</option>
+                </select>
+            </div>
+            <div style="display: flex !important; gap: 10px !important;">
+                <button type="button" style="flex: 1 !important; padding: 10px !important; background: transparent !important; border: 1px solid #666 !important; border-radius: 4px !important; color: #ccc !important; cursor: pointer !important;" onclick="closeWithdrawalModal()">Annuler</button>
+                <button type="button" style="flex: 1 !important; padding: 10px !important; background: #00ff88 !important; border: none !important; border-radius: 4px !important; color: #000 !important; font-weight: bold !important; cursor: pointer !important;" onclick="submitWithdrawal()">Confirmer</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Deposit/Withdrawal Section -->
+    <div class="card" style="grid-column: span 12;">
+        <div class="card-header">
+            <h3>Dépôts et Retraits</h3>
+            <div class="card-header-actions">
+                <button class="btn btn-primary" onclick="showDepositModal()">
+                    <i class="fas fa-plus"></i> Nouveau Dépôt
+                </button>
+                <button class="btn btn-outline" onclick="showWithdrawModal()">
+                    <i class="fas fa-minus"></i> Nouveau Retrait
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="metrics-row">
+                <div class="metric-item">
+                    <div class="metric-label">Disponible pour Retrait</div>
+                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('350.00') }} €</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">En Cours d'Utilisation</div>
+                    <div class="metric-value neon-text">{{ in_use|default('228.45') }} €</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Deposit Modal -->
+<div class="modal" id="depositModal" style="display: none;">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title neon-text">Nouveau Dépôt</h5>
+                <button type="button" class="close" onclick="closeDepositModal()">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="depositForm">
+                    <div class="form-group">
+                        <label for="deposit-amount">Montant (€)</label>
+                        <input type="number" id="deposit-amount" class="form-control" min="10" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="deposit-method">Méthode de Paiement</label>
+                        <select id="deposit-method" class="form-control" required>
+                            <option value="bank">Virement Bancaire</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeDepositModal()">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="submitDeposit()">Confirmer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Withdrawal Modal -->
+<div class="modal" id="withdrawalModal" style="display: none;">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title neon-text">Nouveau Retrait</h5>
+                <button type="button" class="close" onclick="closeWithdrawalModal()">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="withdrawalForm">
+                    <div class="form-group">
+                        <label for="withdrawal-amount">Montant (€)</label>
+                        <input type="number" id="withdrawal-amount" class="form-control" min="10" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="withdrawal-method">Méthode de Retrait</label>
+                        <select id="withdrawal-method" class="form-control" required>
+                            <option value="bank">Virement Bancaire</option>
+                            <option value="card">Carte Bancaire</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeWithdrawalModal()">Annuler</button>
+                <button type="button" class="btn btn-primary" onclick="submitWithdrawal()">Confirmer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showDepositModal() {
+        document.getElementById('depositModal').style.display = 'block';
+    }
+    
+    function closeDepositModal() {
+        document.getElementById('depositModal').style.display = 'none';
+    }
+    
+    function showWithdrawModal() {
+        document.getElementById('withdrawModal').style.display = 'block';
+    }
+    
+    function closeWithdrawModal() {
+        document.getElementById('withdrawModal').style.display = 'none';
+    }
+    
+    async function submitWithdrawal() {
+        const amount = document.getElementById('withdrawal-amount').value;
+        const method = document.getElementById('withdrawal-method').value;
+        
+        if (!amount || amount < 10) {
+            alert('Veuillez entrer un montant valide (minimum 10€)');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/withdraw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('Retrait effectué avec succès');
+                closeWithdrawalModal();
+                location.reload();
+            } else {
+                alert('Erreur lors du retrait: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du retrait');
+        }
+    }
+
+    function openDepositModal() {
+        document.getElementById('depositModal').style.display = 'block';
+    }
+    
+    function closeDepositModal() {
+        document.getElementById('depositModal').style.display = 'none';
+        document.getElementById('depositForm').reset();
+    }
+    
+    function openWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'block';
+    }
+    
+    function closeWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'none';
+        document.getElementById('withdrawalForm').reset();
+    }
+    
+    async function submitDeposit() {
+        const amount = document.getElementById('deposit-amount').value;
+        const method = document.getElementById('deposit-method').value;
+        
+        if (!amount || amount < 10) {
+            alert('Montant minimum: 10€');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/deposit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Dépôt effectué avec succès');
+                closeDepositModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du dépôt');
+        }
+    }
+    
+    async function submitWithdrawal() {
+        const amount = document.getElementById('withdrawal-amount').value;
+        const method = document.getElementById('withdrawal-method').value;
+        
+        if (!amount || amount < 10) {
+            alert('Montant minimum: 10€');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/withdraw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Retrait effectué avec succès');
+                closeWithdrawalModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du retrait');
+        }
+    }
+    
+    function openDepositModal() {
+        document.getElementById('depositModal').style.display = 'block';
+    }
+    
+    function closeDepositModal() {
+        document.getElementById('depositModal').style.display = 'none';
+        document.getElementById('depositForm').reset();
+    }
+    
+    function openWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'block';
+    }
+    
+    function closeWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'none';
+        document.getElementById('withdrawalForm').reset();
+    }
+    
+    async function submitDeposit() {
+        const amount = document.getElementById('deposit-amount').value;
+        const method = document.getElementById('deposit-method').value;
+        
+        if (!amount || amount < 10) {
+            alert('Montant minimum: 10€');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/deposit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Dépôt effectué avec succès');
+                closeDepositModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du dépôt');
+        }
+    }
+    
+    async function submitWithdrawal() {
+        const amount = document.getElementById('withdrawal-amount').value;
+        const method = document.getElementById('withdrawal-method').value;
+        
+        if (!amount || amount < 10) {
+            alert('Montant minimum: 10€');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/withdraw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount),
+                    method: method
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert('Retrait effectué avec succès');
+                closeWithdrawalModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du retrait');
+        }
+    }
+    
+    function openDepositModal() {
+        document.getElementById('depositModal').style.display = 'block';
+    }
+    
+    function closeDepositModal() {
+        document.getElementById('depositModal').style.display = 'none';
+    }
+    
+    function openWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'block';
+    }
+    
+    function closeWithdrawalModal() {
+        document.getElementById('withdrawalModal').style.display = 'none';
+    }
+    
+    async function submitDeposit() {
+        const amount = document.getElementById('deposit-amount').value;
+        const method = document.getElementById('deposit-method').value;
+        
+        if (!amount || amount <= 0) {
+            alert('Veuillez entrer un montant valide');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/deposit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ amount: parseFloat(amount), method: method })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert(result.message);
+                closeDepositModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du dépôt');
+        }
+    }
+    
+    async function submitWithdrawal() {
+        const amount = document.getElementById('withdrawal-amount').value;
+        const method = document.getElementById('withdrawal-method').value;
+        const iban = document.getElementById('withdrawal-iban').value;
+        const bic = document.getElementById('withdrawal-bic').value;
+        
+        if (!amount || amount <= 0) {
+            alert('Veuillez entrer un montant valide');
+            return;
+        }
+        
+        if (method === 'bank' && (!iban || !bic)) {
+            alert('Veuillez renseigner l\'IBAN et le code BIC pour un virement bancaire');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/withdraw', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    amount: parseFloat(amount), 
+                    method: method,
+                    iban: iban,
+                    bic: bic
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                alert(result.message);
+                closeWithdrawalModal();
+                location.reload();
+            } else {
+                alert('Erreur: ' + result.message);
+            }
+        } catch (error) {
+            alert('Erreur lors du retrait');
+        }
+    }
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Graphique d'évolution du capital
+        const capitalCtx = document.getElementById('capitalChart').getContext('2d');
+        const capitalChart = new Chart(capitalCtx, {
+            type: 'line',
+            data: {
+                labels: ['1 Mai', '5 Mai', '10 Mai', '15 Mai', '20 Mai', 'Aujourd\'hui'],
+                datasets: [{
+                    label: 'Capital (€)',
+                    data: [500, 510, 525, 545, 560, 578.45],
+                    borderColor: '#00ff9d',
+                    backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#00ff9d',
+                    pointRadius: 4,
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#00ff9d',
+                        bodyColor: '#ffffff',
+                        borderColor: '#00ff9d',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#cccccc'
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#cccccc',
+                            callback: function(value) {
+                                return value + ' €';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Graphique d'allocation du capital
+        const allocationCtx = document.getElementById('allocationChart').getContext('2d');
+        const allocationChart = new Chart(allocationCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Trading', 'E-commerce'],
+                datasets: [{
+                    data: [65, 35],
+                    backgroundColor: [
+                        '#00ff9d',
+                        '#00ccff'
+                    ],
+                    borderColor: '#1e1e1e',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#00ff9d',
+                        bodyColor: '#ffffff',
+                        borderColor: '#00ff9d',
+                        borderWidth: 1
+                    }
+                },
+                cutout: '70%'
+            }
+        });
+    });
+        
+        // Deposit/Withdrawal Modal Functions
+        document.addEventListener('DOMContentLoaded', function() {
+            if (document.getElementById('depositMethod')) {
+                document.getElementById('depositMethod').addEventListener('change', function() {
+                    const bankDetails = document.getElementById('bankDetails');
+                    if (this.value === 'bank') {
+                        bankDetails.style.display = 'block';
+                        document.getElementById('depositIban').required = true;
+                        document.getElementById('depositBic').required = true;
+                    } else {
+                        bankDetails.style.display = 'none';
+                        document.getElementById('depositIban').required = false;
+                        document.getElementById('depositBic').required = false;
+                    }
+                });
+            }
+            
+            if (document.getElementById('withdrawMethod')) {
+                document.getElementById('withdrawMethod').addEventListener('change', function() {
+                    const bankDetails = document.getElementById('withdrawBankDetails');
+                    if (this.value === 'bank') {
+                        bankDetails.style.display = 'block';
+                        document.getElementById('withdrawIban').required = true;
+                        document.getElementById('withdrawBic').required = true;
+                    } else {
+                        bankDetails.style.display = 'none';
+                        document.getElementById('withdrawIban').required = false;
+                        document.getElementById('withdrawBic').required = false;
+                    }
+                });
+            }
+            
+            if (document.getElementById('depositForm')) {
+                document.getElementById('depositForm').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const amount = document.getElementById('depositAmount').value;
+                    const method = document.getElementById('depositMethod').value;
+                    const iban = document.getElementById('depositIban').value;
+                    const bic = document.getElementById('depositBic').value;
+                    
+                    try {
+                        const response = await fetch('/api/deposit', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                amount: parseFloat(amount),
+                                method: method,
+                                iban: iban,
+                                bic: bic
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.status === 'success') {
+                            alert(result.message);
+                            closeDepositModal();
+                            location.reload();
+                        } else {
+                            alert('Erreur: ' + result.message);
+                        }
+                    } catch (error) {
+                        alert('Erreur lors du dépôt: ' + error.message);
+                    }
+                });
+            }
+            
+            if (document.getElementById('withdrawForm')) {
+                document.getElementById('withdrawForm').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const amount = document.getElementById('withdrawAmount').value;
+                    const method = document.getElementById('withdrawMethod').value;
+                    const iban = document.getElementById('withdrawIban').value;
+                    const bic = document.getElementById('withdrawBic').value;
+                    
+                    try {
+                        const response = await fetch('/api/withdraw', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                amount: parseFloat(amount),
+                                method: method,
+                                iban: iban,
+                                bic: bic
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.status === 'success') {
+                            alert(result.message);
+                            closeWithdrawModal();
+                            location.reload();
+                        } else {
+                            alert('Erreur: ' + result.message);
+                        }
+                    } catch (error) {
+                        alert('Erreur lors du retrait: ' + error.message);
+                    }
+                });
+            }
+        });
+
+</script>
+{% endblock %}

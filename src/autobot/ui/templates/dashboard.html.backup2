@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block header_title %}Dashboard Principal{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline">
+    <i class="fas fa-sync"></i> Rafraîchir
+</button>
+<button class="btn btn-primary">
+    <i class="fas fa-bolt"></i> Actions rapides
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Metric Cards -->
+<div class="metric-cards">
+    <div class="metric-card">
+        <span class="metric-title">Capital Total</span>
+        <span class="metric-value"><span id="totalCapital">Chargement...</span></span>
+        <span class="metric-change" id="capitalChange">+0,00%</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Instances Actives</span>
+        <span class="metric-value"><span id="activeInstances">Chargement...</span></span>
+        <span class="metric-change" id="instanceChange">+0</span>
+    </div>
+    
+    <div class="metric-card">
+        <span class="metric-title">Performance</span>
+        <span class="metric-value"><span id="performance">Chargement...</span></span>
+        <span class="metric-status">Temps réel</span>
+    </div>
+</div>
+
+<!-- Performance Chart -->
+<div class="chart-section card">
+    <div class="card-header">
+        <h3>Graphique Performance</h3>
+        <div class="card-actions">
+            <button class="btn-sm">Journalier</button>
+            <button class="btn-sm active">Hebdomadaire</button>
+            <button class="btn-sm">Mensuel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- System Logs and AI Insights -->
+<div class="dashboard-split">
+    <div class="logs-section card">
+        <div class="card-header">
+            <h3>Logs Système</h3>
+            <button class="btn-sm">
+                <i class="fas fa-download"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="logs-container" id="systemLogs">
+                <div class="log-item">
+                    <span class="log-time" id="currentTime"></span>
+                    <span class="log-system">[SYSTÈME]</span> 
+                    <span class="log-message">En attente de configuration des clés API...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="ai-section card">
+        <div class="card-header">
+            <h3>Insights IA</h3>
+        </div>
+        <div class="card-body">
+            <div class="ai-container">
+                {% for insight in ai_insights|default([
+                    {'icon': 'fa-lightbulb', 'title': 'Opportunité', 'message': 'Le marché BTC montre une tendance haussière'},
+                    {'icon': 'fa-chart-line', 'title': 'Performance', 'message': 'La stratégie A surperforme de 5.2%'}
+                ]) %}
+                <div class="ai-insight">
+                    <div class="insight-icon">
+                        <i class="fas {{ insight.icon }}"></i>
+                    </div>
+                    <div class="insight-content">
+                        <h4>{{ insight.title }}</h4>
+                        <p>{{ insight.message }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat avec l'IA -->
+<div class="chat-section card">
+    <div class="card-header">
+        <h3>Chat avec AutobotMaster</h3>
+    </div>
+    <div class="card-body">
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message message-bot">
+                    Bonjour, je suis AutobotMaster. Comment puis-je vous aider aujourd'hui?
+                </div>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="chatInput" placeholder="Tapez votre message ici...">
+                <button id="sendMessage"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Performance Chart
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    const performanceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+            datasets: [{
+                label: 'Performance',
+                data: [0, 0, 0, 0, 0, 0, 0],
+                borderColor: '#00ff9d',
+                backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888'
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)'
+                    },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) {
+                            return value + ' €';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Initialize chat functionality
+    const chatInput = document.getElementById('chatInput');
+    const sendMessageBtn = document.getElementById('sendMessage');
+    const chatMessages = document.getElementById('chatMessages');
+    
+    function sendMessage() {
+        const message = chatInput.value.trim();
+        if (message) {
+            // Add user message to chat
+            const userMessageDiv = document.createElement('div');
+            userMessageDiv.className = 'message message-user';
+            userMessageDiv.textContent = message;
+            chatMessages.appendChild(userMessageDiv);
+            
+            // Clear input
+            chatInput.value = '';
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Send to server via WebSocket (handled in common.js)
+            if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+                window.socket.send(JSON.stringify({
+                    type: 'chat_message',
+                    message: message
+                }));
+            }
+            
+            // Simulate bot response (in real implementation, this would come from the server)
+            setTimeout(() => {
+                const botMessageDiv = document.createElement('div');
+                botMessageDiv.className = 'message message-bot';
+                botMessageDiv.textContent = 'Je traite votre demande...';
+                chatMessages.appendChild(botMessageDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }, 500);
+        }
+    }
+    
+    sendMessageBtn.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    // Real-time automation log streaming functionality
+    console.log('Initializing AUTOBOT real-time log streaming...');
+    
+    function updateCurrentTime() {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('fr-FR', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        const timeElement = document.getElementById('currentTime');
+        if (timeElement) {
+            timeElement.textContent = timeString;
+        }
+    }
+    
+    // Enhanced log entry function with professional styling
+    function addLogEntry(time, system, message, type = 'info') {
+        const logsContainer = document.getElementById('systemLogs');
+        if (!logsContainer) return;
+        
+        const logItem = document.createElement('div');
+        logItem.className = 'log-item';
+        logItem.style.cssText = `
+            margin: 2px 0; 
+            padding: 5px; 
+            border-left: 3px solid #00ff41; 
+            background: rgba(0,255,65,0.1);
+            border-radius: 3px;
+            transition: all 0.3s ease;
+        `;
+        
+        logItem.innerHTML = `
+            <span style="color: #00ff41; font-weight: bold; margin-right: 8px;">${time}</span>
+            <span style="color: #00ff41; margin-right: 8px; font-weight: bold;">[${system}]</span> 
+            <span style="color: #fff;">${message}</span>
+        `;
+        
+        // Add to top of logs with animation
+        logItem.style.opacity = '0';
+        logItem.style.transform = 'translateY(-10px)';
+        logsContainer.insertBefore(logItem, logsContainer.firstChild);
+        
+        // Animate in
+        setTimeout(() => {
+            logItem.style.opacity = '1';
+            logItem.style.transform = 'translateY(0)';
+        }, 50);
+        
+        // Keep only last 15 logs for performance
+        while (logsContainer.children.length > 15) {
+            logsContainer.removeChild(logsContainer.lastChild);
+        }
+    }
+    
+    // Main function to fetch and display real automation logs
+    function fetchAutomationLogs() {
+        fetch('/api/automation/logs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.logs && data.logs.length > 0) {
+                    // Clear existing logs to avoid duplicates
+                    const logsContainer = document.getElementById('systemLogs');
+                    if (logsContainer) {
+                        logsContainer.innerHTML = '';
+                        
+                        // Add each real log entry
+                        data.logs.forEach((log, index) => {
+                            setTimeout(() => {
+                                addLogEntry(log.time, log.system, log.message, log.type || 'info');
+                            }, index * 50); // Stagger for smooth visual effect
+                        });
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching automation logs:', error);
+                addLogEntry(
+                    new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    'SYSTÈME',
+                    'Erreur lors de la récupération des logs',
+                    'error'
+                );
+            });
+    }
+    
+    // WebSocket for real-time log streaming
+    let logWebSocket = null;
+    
+    function initializeLogWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/automation/logs`;
+        
+        logWebSocket = new WebSocket(wsUrl);
+        
+        logWebSocket.onopen = function(event) {
+            console.log('✅ Log WebSocket connected');
+        };
+        
+        logWebSocket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => {
+                        addLogEntry(log.time, log.system, log.message, log.type);
+                    });
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error);
+            }
+        };
+        
+        logWebSocket.onclose = function(event) {
+            console.log('Log WebSocket disconnected, attempting to reconnect...');
+            setTimeout(initializeLogWebSocket, 5000); // Reconnect after 5 seconds
+        };
+        
+        logWebSocket.onerror = function(error) {
+            console.error('Log WebSocket error:', error);
+        };
+    }
+    
+    // Add live indicator
+    function addLiveIndicator() {
+        const indicator = document.createElement('div');
+        indicator.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #00ff41;
+            color: #000;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1000;
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 10px rgba(0,255,65,0.5);
+        `;
+        indicator.textContent = '🔴 LIVE AUTOMATION';
+        document.body.appendChild(indicator);
+        
+        // Add pulse animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes pulse {
+                0% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.7; transform: scale(1.05); }
+                100% { opacity: 1; transform: scale(1); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Update time every second
+    setInterval(updateCurrentTime, 1000);
+    updateCurrentTime();
+    
+    // Initialize WebSocket connection
+    initializeLogWebSocket();
+    
+    // Fallback: fetch logs every 10 seconds if WebSocket fails
+    setInterval(fetchAutomationLogs, 10000);
+    
+    // Add live indicator
+    addLiveIndicator();
+    
+    // Initial log fetch
+    fetchAutomationLogs();
+    
+    // Real-time dashboard metrics updates
+
+// Real-time dashboard metrics update function
+function updateDashboardMetrics() {
+    // Fetch real capital data
+    fetch("/api/metrics/dashboard")
+        .then(response => response.json())
+        .then(data => {
+            const capitalElement = document.getElementById("totalCapital");
+            if (capitalElement) {
+                capitalElement.textContent = `${Math.round(data.current_capital).toLocaleString("fr-FR")} €`;
+            }
+            
+            const performancePercent = ((data.current_capital - data.initial_deposit) / data.initial_deposit) * 100;
+            const performanceElement = document.getElementById("performance");
+            if (performanceElement) {
+                performanceElement.textContent = `+${performancePercent.toFixed(2)}%`;
+            }
+            
+            console.log("Capital metrics updated:", data);
+        })
+        .catch(error => console.error("Error fetching capital:", error));
+    
+    // Fetch duplication status
+    fetch("/api/duplication/status")
+        .then(response => response.json())
+        .then(data => {
+            const instancesElement = document.getElementById("activeInstances");
+            if (instancesElement) {
+                instancesElement.textContent = data.active_instances;
+            }
+            console.log("Duplication status updated:", data);
+        })
+        .catch(error => console.error("Error fetching duplication status:", error));
+}
+
+// Initialize dashboard updates when page loads
+document.addEventListener("DOMContentLoaded", function() {
+    updateDashboardMetrics();
+    setInterval(updateDashboardMetrics, 5000);
+    console.log("✅ Dashboard real-time metrics initialized");
+});
+</script>
+{% endblock %}

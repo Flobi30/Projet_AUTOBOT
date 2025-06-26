@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Retrait et Dépôt{% endblock %}
+
+{% block content %}
+<script src="https://js.stripe.com/v3/"></script>
+<div class="container">
+    <h1 class="page-title">Retrait et Dépôt</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Solde actuel</h2>
+                </div>
+                <div class="card-body">
+                    <h3 class="balance-amount">1000.00 €</h3>
+                    <div class="button-group">
+                        <button class="btn btn-primary" data-action="deposit">Ajouter des fonds</button>
+                        <button class="btn btn-secondary" data-action="withdraw">Retirer des fonds</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Historique des transactions</h2>
+                </div>
+                <div class="card-body">
+                    <div class="transaction-history">
+                        <div class="transaction">
+                            <div class="transaction-date">2025-05-25</div>
+                            <div class="transaction-type deposit">Dépôt</div>
+                            <div class="transaction-amount">+500.00 €</div>
+                        </div>
+                        <div class="transaction">
+                            <div class="transaction-date">2025-05-20</div>
+                            <div class="transaction-type withdrawal">Retrait</div>
+                            <div class="transaction-amount">-200.00 €</div>
+                        </div>
+                        <div class="transaction">
+                            <div class="transaction-date">2025-05-15</div>
+                            <div class="transaction-type deposit">Dépôt</div>
+                            <div class="transaction-amount">+700.00 €</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Initialize Stripe (you'll need to add your publishable key)
+const stripe = Stripe('pk_test_51234567890abcdef'); // Replace with actual publishable key
+
+document.querySelector('[data-action="deposit"]').addEventListener('click', async function() {
+    const amount = prompt('Montant à déposer (€):');
+    if (!amount || isNaN(amount) || amount <= 0) {
+        alert('Veuillez entrer un montant valide');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/payments/deposit', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({amount: parseFloat(amount)})
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            // Handle Stripe payment flow
+            const {error} = await stripe.confirmCardPayment(result.client_secret);
+            if (!error) {
+                alert('Dépôt réussi!');
+                location.reload();
+            } else {
+                alert('Erreur lors du paiement: ' + error.message);
+            }
+        } else {
+            alert('Erreur lors du dépôt');
+        }
+    } catch (error) {
+        alert('Erreur lors du dépôt: ' + error.message);
+    }
+});
+
+document.querySelector('[data-action="withdraw"]').addEventListener('click', async function() {
+    const amount = prompt('Montant à retirer (€):');
+    if (!amount || isNaN(amount) || amount <= 0) {
+        alert('Veuillez entrer un montant valide');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/payments/withdraw', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                amount: parseFloat(amount),
+                account_details: {account_id: 'acct_default'}
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            alert('Retrait initié avec succès!');
+            location.reload();
+        } else {
+            alert('Erreur lors du retrait');
+        }
+    } catch (error) {
+        alert('Erreur lors du retrait: ' + error.message);
+    }
+});
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function processDeposit() {
+    const amount = document.getElementById('deposit-amount').value;
+    if (!amount || amount <= 0) {
+        alert('Veuillez saisir un montant valide');
+        return;
+    }
+    
+    fetch('/api/deposit', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({amount: parseFloat(amount)})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Dépôt initié avec succès: ' + data.message);
+            document.getElementById('deposit-amount').value = '';
+        } else {
+            alert('Erreur: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors du traitement du dépôt');
+    });
+}
+
+function processWithdrawal() {
+    const amount = document.getElementById('withdrawal-amount').value;
+    if (!amount || amount <= 0) {
+        alert('Veuillez saisir un montant valide');
+        return;
+    }
+    
+    fetch('/api/withdraw', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({amount: parseFloat(amount)})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Retrait traité avec succès: ' + data.message);
+            document.getElementById('withdrawal-amount').value = '';
+        } else {
+            alert('Erreur: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors du traitement du retrait');
+    });
+}
+</script>
+{% endblock %}

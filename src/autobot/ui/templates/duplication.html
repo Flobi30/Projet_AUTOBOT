@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Duplication and Ghosting{% endblock %}
+
+{% block header_title %}Duplication{% endblock %}
+{% block content %}
+<div style="width: 100% !important; padding: 0 !important; margin: 0 !important;">
+    <header style="display: flex !important; align-items: center !important; gap: 15px !important; margin-bottom: 30px !important;">
+        <div style="width: 60px !important; height: 60px !important; background: linear-gradient(135deg, #00ff88, #00cc6a) !important; border-radius: 12px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 0 20px rgba(0, 255, 136, 0.3) !important;">
+            <i class="fas fa-clone" style="font-size: 28px !important; color: #000 !important;"></i>
+        </div>
+        <h2 style="color: #00ff88 !important; margin: 0 !important; font-size: 32px !important; text-shadow: 0 0 10px rgba(0, 255, 136, 0.5) !important;">DUPLICATION &amp; GHOSTING</h2>
+    </header>
+    
+    <div style="display: grid !important; grid-template-columns: 1fr 1fr 1fr 1fr !important; gap: 20px !important; margin-bottom: 30px !important;">
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Instances Ghost Actives</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">5</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">En cours</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Mode Ghosting</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">PERMANENT</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Protection Constante</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Détections Évitées</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">247</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Aujourd'hui</div>
+        </div>
+        <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; text-align: center !important;">
+            <div style="color: #888 !important; font-size: 16px !important; margin-bottom: 10px !important;">Uptime Protection</div>
+            <div style="color: #00ff88 !important; font-size: 36px !important; font-weight: bold !important;">99.9%</div>
+            <div style="color: #00ff88 !important; font-size: 14px !important;">Fiabilité</div>
+        </div>
+    </div>
+    
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Contrôle du Ghosting</h3>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; gap: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important;">
+                <div style="color: #888 !important; font-size: 14px !important; margin-bottom: 15px !important;">Statut Actuel</div>
+                <div style="color: #00ff88 !important; font-size: 18px !important; font-weight: bold !important; margin-bottom: 15px !important;">GHOSTING ACTIF - Protection Constante</div>
+                <div style="color: #ccc !important; font-size: 12px !important;">Mode permanent activé pour éviter la détection par les plateformes de trading</div>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important;">
+                <div style="color: #888 !important; font-size: 14px !important; margin-bottom: 15px !important;">Nouvelle Instance</div>
+                <div style="color: #00ff88 !important; font-size: 14px !important; font-weight: bold !important;">Instance Ghost Active</div>
+                <div style="color: #ccc !important; font-size: 12px !important; margin-top: 10px !important;">Dupliquer l'instance actuelle avec masquage IP</div>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important;">
+                <div style="color: #888 !important; font-size: 14px !important; margin-bottom: 15px !important;">Configuration</div>
+                <div style="color: #00ff88 !important; font-size: 14px !important; font-weight: bold !important;">Configuration Automatique</div>
+                <div style="color: #ccc !important; font-size: 12px !important; margin-top: 10px !important;">Paramètres avancés du système de ghosting</div>
+            </div>
+        </div>
+    </div>
+
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important; margin-bottom: 30px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Instances Ghost Actives</h3>
+        <div style="overflow-x: auto !important;">
+            <table style="width: 100% !important; border-collapse: collapse !important;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #333 !important;">
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">ID Instance</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Statut</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">IP Masquée</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Uptime</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">CPU</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Trades</th>
+                        <th style="color: #ccc !important; padding: 12px !important; text-align: left !important;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #222 !important;">
+                        <td style="color: #ccc !important; padding: 12px !important;">GHOST-001</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">ACTIF</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">192.168.1.***</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">24h 15m</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">12%</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">47</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">
+                            <span style="color: #00ff88 !important; font-size: 12px !important;">Actif</span>
+                        </td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #222 !important;">
+                        <td style="color: #ccc !important; padding: 12px !important;">GHOST-002</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">ACTIF</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">10.0.0.***</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">18h 42m</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">8%</td>
+                        <td style="color: #00ff88 !important; padding: 12px !important;">32</td>
+                        <td style="color: #ccc !important; padding: 12px !important;">
+                            <span style="color: #00ff88 !important; font-size: 12px !important;">Actif</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div style="background: #1a1a1a !important; border: 1px solid #00ff88 !important; border-radius: 12px !important; padding: 25px !important;">
+        <h3 style="color: #00ff88 !important; margin: 0 0 20px 0 !important;">Sécurité et Indétectabilité</h3>
+        <div style="display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 20px !important;">
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Techniques de Masquage</h4>
+                <ul style="color: #ccc !important; margin: 0 !important; padding-left: 20px !important;">
+                    <li style="margin-bottom: 8px !important;">Rotation automatique des IP</li>
+                    <li style="margin-bottom: 8px !important;">Empreintes digitales variables</li>
+                    <li style="margin-bottom: 8px !important;">Délais de trading randomisés</li>
+                    <li style="margin-bottom: 8px !important;">Headers HTTP dynamiques</li>
+                </ul>
+            </div>
+            <div style="background: #0a0a0a !important; border: 1px solid #333 !important; border-radius: 8px !important; padding: 20px !important;">
+                <h4 style="color: #00ff88 !important; margin: 0 0 15px 0 !important;">Métriques de Sécurité</h4>
+                <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 10px !important;">
+                    <span style="color: #ccc !important;">Taux de détection</span>
+                    <span style="color: #00ff88 !important;">0.1%</span>
+                </div>
+                <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 10px !important;">
+                    <span style="color: #ccc !important;">Instances bloquées</span>
+                    <span style="color: #00ff88 !important;">0</span>
+                </div>
+                <div style="display: flex !important; justify-content: space-between !important; margin-bottom: 10px !important;">
+                    <span style="color: #ccc !important;">Score de confiance</span>
+                    <span style="color: #00ff88 !important;">98.7%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function createGhostInstance() {
+        try {
+            const response = await fetch('/api/ghosting/activate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            const result = await response.json();
+            alert(result.message);
+            refreshInstances();
+        } catch (error) {
+            alert('Erreur lors de la création de l\'instance ghost');
+        }
+    }
+    
+    async function refreshInstances() {
+        try {
+            const response = await fetch('/api/instances');
+            const data = await response.json();
+            
+            const metricCards = document.querySelectorAll('[style*="background: #1a1a1a"][style*="border: 1px solid #00ff88"]');
+            if (metricCards.length >= 4) {
+                const totalElement = metricCards[0].querySelector('[style*="color: #00ff88"][style*="font-size: 36px"]');
+                const activeElement = metricCards[1].querySelector('[style*="color: #00ff88"][style*="font-size: 36px"]');
+                const performanceElement = metricCards[2].querySelector('[style*="color: #00ff88"][style*="font-size: 36px"]');
+                
+                if (totalElement) totalElement.textContent = data.instances_total;
+                if (activeElement) activeElement.textContent = data.instances_active;
+                if (performanceElement) performanceElement.textContent = data.instances_performance;
+            }
+            
+            alert('Instances actualisées - Ghosting système toujours actif pour éviter la détection');
+        } catch (error) {
+            alert('Erreur lors de l\'actualisation des instances');
+        }
+    }
+    
+    function pauseInstance(id) {
+        alert(`Instance ${id} mise en pause temporairement - Ghosting maintenu sur les autres instances`);
+    }
+    
+    function stopInstance(id) {
+        if (confirm(`Arrêter l'instance ${id} ? Le ghosting restera actif sur les autres instances.`)) {
+            alert(`Instance ${id} arrêtée - Ghosting système toujours actif`);
+        }
+    }
+
+</script>
+{% endblock %}

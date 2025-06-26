@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block title %}Paramètres{% endblock %}
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <div class="page-title-section">
+            <div class="page-icon">
+                <i class="fas fa-cog"></i>
+            </div>
+            <h1 class="page-title">PARAMÈTRES</h1>
+        </div>
+    </div>
+
+    <!-- Configuration API Automatisée -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-key"></i> Configuration API - Mode Automatique</h3>
+            <div class="auto-mode-indicator">
+                <i class="fas fa-robot"></i> Optimisation Automatique Activée
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="auto-config-notice">
+                <div class="notice-content">
+                    <i class="fas fa-info-circle"></i>
+                    <div>
+                        <strong>Mode Automatique:</strong> Saisissez uniquement vos clés API. 
+                        Tous les paramètres sont optimisés automatiquement pour un rendement de 10% quotidien.
+                    </div>
+                </div>
+            </div>
+            <form id="api-settings-form" method="post">
+                <div class="form-group">
+                    <label for="binance-api-key">Binance API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="binance-api-key" name="binance_api_key" class="form-control" value="{{ binance_api_key|default('') }}" placeholder="Entrez votre clé API Binance">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="binance-api-secret">Binance API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="binance-api-secret" name="binance_api_secret" class="form-control" value="{{ binance_api_secret|default('') }}" placeholder="Entrez votre secret API Binance">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="binance-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="coinbase-api-key">Coinbase API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="coinbase-api-key" name="coinbase_api_key" class="form-control" value="{{ coinbase_api_key|default('') }}" placeholder="Entrez votre clé API Coinbase">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="coinbase-api-secret">Coinbase API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="coinbase-api-secret" name="coinbase_api_secret" class="form-control" value="{{ coinbase_api_secret|default('') }}" placeholder="Entrez votre secret API Coinbase">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="coinbase-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="kraken-api-key">Kraken API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="kraken-api-key" name="kraken_api_key" class="form-control" value="{{ kraken_api_key|default('') }}" placeholder="Entrez votre clé API Kraken">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="kraken-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="stripe-api-key">Stripe API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="stripe-api-key" name="stripe_api_key" class="form-control" value="{{ stripe_api_key|default('') }}" placeholder="Entrez votre clé API Stripe">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="stripe-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="newsapi-api-key">NewsAPI Key</label>
+                    <div class="input-group">
+                        <input type="password" id="newsapi-api-key" name="newsapi_api_key" class="form-control" value="{{ newsapi_api_key|default('') }}" placeholder="Entrez votre clé API NewsAPI">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="newsapi-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="twelve-data-api-key">Twelve Data API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="twelve-data-api-key" name="twelve_data_api_key" class="form-control" value="{{ twelve_data_api_key|default('') }}" placeholder="Entrez votre clé API Twelve Data">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="twelve-data-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fred-api-key">FRED API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="fred-api-key" name="fred_api_key" class="form-control" value="{{ fred_api_key|default('') }}" placeholder="Entrez votre clé API FRED">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="fred-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="shopify-api-key">Shopify API Key</label>
+                    <div class="input-group">
+                        <input type="password" id="shopify-api-key" name="shopify_api_key" class="form-control" value="{{ shopify_api_key|default('') }}" placeholder="Entrez votre clé API Shopify">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="shopify-api-secret">Shopify API Secret</label>
+                    <div class="input-group">
+                        <input type="password" id="shopify-api-secret" name="shopify_api_secret" class="form-control" value="{{ shopify_api_secret|default('') }}" placeholder="Entrez votre secret API Shopify">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="shopify-api-secret">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="shopify-shop-name">Shopify Shop Name</label>
+                    <div class="input-group">
+                        <input type="text" id="shopify-shop-name" name="shopify_shop_name" class="form-control" value="{{ shopify_shop_name|default('') }}" placeholder="Entrez le nom de votre boutique Shopify (ex: monshop)">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline toggle-password" type="button" data-target="shopify-shop-name">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Sauvegarder et Optimiser Automatiquement
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .auto-mode-indicator {
+        color: #00ff9d;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+    }
+    
+    .auto-config-notice {
+        background: rgba(0, 255, 157, 0.1);
+        border: 1px solid #00ff9d;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 25px;
+    }
+    
+    .notice-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        color: #ffffff;
+    }
+    
+    .notice-content i {
+        color: #00ff9d;
+        font-size: 18px;
+        margin-top: 2px;
+    }
+    
+    .notice-content strong {
+        color: #00ff9d;
+    }
+    
+    .page-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .btn-primary {
+        background: linear-gradient(135deg, #00ff9d, #00cc7a);
+        border: none;
+        color: #000;
+        font-weight: bold;
+        padding: 12px 24px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-primary:hover {
+        background: linear-gradient(135deg, #00cc7a, #00ff9d);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 255, 157, 0.3);
+    }
+</style>
+
+<script>
+document.getElementById('api-settings-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    // Collect all API keys in APIKeysRequest schema format
+    const apiKeys = {
+        binance: {
+            api_key: document.getElementById("binance-api").value,
+            api_secret: document.getElementById("binance-secret-api").value
+        },
+        coinbase: {
+            api_key: document.getElementById("coinbase-api-key").value,
+            api_secret: document.getElementById("coinbase-secret").value
+        },
+        kraken: {
+            api_key: document.getElementById("kraken-api-key").value,
+            api_secret: document.getElementById("kraken-secret").value
+        },
+        other: {
+            stripe: {
+                api_key: document.getElementById("stripe-api").value,
+                api_secret: document.getElementById("stripe-secret").value
+            },
+            twelve_data: document.getElementById("twelve-data-api").value,
+            fred: document.getElementById("fred-api").value,
+            news_api: {
+                api_key: document.getElementById("news-api").value,
+                api_secret: ""
+            },
+            shopify: {
+                api_key: document.getElementById("shopify-api-key").value,
+                api_secret: document.getElementById("shopify-api-secret").value,
+                shop_name: document.getElementById("shopify-shop-name").value
+            }
+        }
+    };
+    
+    // Save API keys
+    fetch('/setup', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(apiKeys)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Show success message
+            alert('Configuration sauvegardée avec succès! Optimisation automatique activée.');
+            
+            // Automatically trigger backtest optimization
+            fetch('/api/backtest/auto-run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    alert('Backtest automatique lancé avec succès! Consultez la page Backtest pour les résultats.');
+                }
+            })
+            .catch(error => {
+                console.error('Erreur lors du lancement du backtest automatique:', error);
+            });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+        } else {
+            alert('Erreur lors de la sauvegarde: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la sauvegarde des paramètres');
+    });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+});
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+
+// Toggle password visibility
+document.querySelectorAll('.toggle-password').forEach(button => {
+    button.addEventListener('click', function() {
+        const targetId = this.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        const icon = this.querySelector('i');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+        }
+    });
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+});
+// Load existing API keys on page load
+window.addEventListener("DOMContentLoaded", function() {
+    fetch("/api/get-api-keys")
+        .then(response => response.json())
+        .then(data => {
+            if (data.twelve_data) document.getElementById("twelve-data-api").value = data.twelve_data;
+            if (data.fred) document.getElementById("fred-api").value = data.fred;
+            if (data.binance_api) document.getElementById("binance-api-key").value = data.binance_api;
+        })
+        .catch(error => {
+            console.error("Error loading API keys:", error);
+        });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AUTOBOT{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/neon_theme.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-robot neon-text"></i>
+                    <span class="neon-text">AUTOBOT</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <div class="nav-section">
+                    <div class="nav-section-title">Trading & Analyse</div>
+                    <a href="/trading" class="nav-item {% if active_page == 'trading' %}active{% endif %}">
+                        <i class="fas fa-chart-line"></i>
+                        <span class="nav-text">Trading</span>
+                    </a>
+                    <a href="/backtest" class="nav-item {% if active_page == 'backtest' %}active{% endif %}">
+                        <i class="fas fa-flask"></i>
+                        <span class="nav-text">Backtest</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Gestion</div>
+                    <a href="/capital" class="nav-item {% if active_page == 'capital' %}active{% endif %}">
+                        <i class="fas fa-coins"></i>
+                        <span class="nav-text">Capital</span>
+                    </a>
+                    <a href="https://stripe-autobot.fr/retrait-depot" class="nav-item {% if active_page == 'retrait-depot' %}active{% endif %}">
+                        <i class="fas fa-wallet"></i>
+                        <span class="nav-text">Retrait/Dépôt</span>
+                    </a>
+                </div>
+                
+                <div class="nav-section">
+                    <div class="nav-section-title">Système</div>
+                    <a href="/duplication" class="nav-item {% if active_page == 'duplication' %}active{% endif %}">
+                        <i class="fas fa-clone"></i>
+                        <span class="nav-text">Duplication</span>
+                    </a>
+                </div>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="username">{{ username or 'AUTOBOT' }}</span>
+                        <span class="user-role">{{ user_role_display or 'Administrateur' }}</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <button class="sidebar-toggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+                <div class="header-right">
+                    <div class="header-actions">
+                        <!-- Removed unnecessary bell and gear buttons -->
+                    </div>
+                </div>
+            </header>
+            
+            <div class="page-content">
+                <div class="page-header">
+                    <h1 class="page-title">{% block header_title %}Dashboard{% endblock %}</h1>
+                    {% block page_description %}{% endblock %}
+                </div>
+                
+                {% block content %}
+                <div class="dashboard-grid">
+                    <!-- Default content -->
+                </div>
+                {% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Sidebar toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.querySelector('.sidebar-toggle');
+            const sidebar = document.querySelector('.sidebar');
+            
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('active');
+                });
+            }
+        });
+    </script>
+</body>
+</html>
