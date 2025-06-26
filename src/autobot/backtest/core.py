@@ -21,8 +21,12 @@ class RealBacktestEngine:
                             params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Run backtest with real market data"""
         try:
-            # Get real historical data
-            df = self.pipeline.get_historical_data(symbol, periods)
+            if '/' in symbol and any(fx in symbol for fx in ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD']):
+                df = self.pipeline.get_forex_data(symbol, periods)
+            elif any(commodity in symbol for commodity in ['XAU', 'XAG', 'WTI', 'NG', 'XPT']):
+                df = self.pipeline.get_commodity_data(symbol, periods)
+            else:
+                df = self.pipeline.get_historical_data(symbol, periods)
             
             if df.empty:
                 return {
@@ -90,6 +94,14 @@ class RealBacktestEngine:
                 return self._rsi_strategy(df, params)
             elif strategy_name == "macd_strategy":
                 return self._macd_strategy(df, params)
+            elif strategy_name == "carry_trade":
+                return self._carry_trade_strategy(df, params)
+            elif strategy_name == "currency_correlation":
+                return self._currency_correlation_strategy(df, params)
+            elif strategy_name == "economic_indicator":
+                return self._economic_indicator_strategy(df, params)
+            elif strategy_name == "commodity_momentum":
+                return self._commodity_momentum_strategy(df, params)
             else:
                 return self._moving_average_strategy(df, params)
                 
@@ -157,7 +169,68 @@ class RealBacktestEngine:
         
         return df
     
-    def _calculate_performance_metrics(self, df: pd.DataFrame, 
+    def _carry_trade_strategy(self, df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """Carry Trade Strategy for forex"""
+        interest_rate_diff = params.get('interest_rate_diff', 0.02)  # 2% difference
+        
+        df = df.copy()
+        df['returns'] = df['close'].pct_change()
+        df['volatility'] = df['returns'].rolling(window=20).std()
+        
+        df['signal'] = 0
+        df.loc[df['volatility'] < df['volatility'].quantile(0.3), 'signal'] = 1 if interest_rate_diff > 0 else -1
+        
+        return df
+
+    def _currency_correlation_strategy(self, df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """Currency correlation strategy"""
+        correlation_threshold = params.get('correlation_threshold', 0.7)
+        
+        df = df.copy()
+        df['returns'] = df['close'].pct_change()
+        df['ma_20'] = df['close'].rolling(window=20).mean()
+        df['ma_50'] = df['close'].rolling(window=50).mean()
+        
+        df['signal'] = 0
+        df.loc[df['ma_20'] > df['ma_50'], 'signal'] = 1
+        df.loc[df['ma_20'] < df['ma_50'], 'signal'] = -1
+        
+        return df
+
+    def _economic_indicator_strategy(self, df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """Strategy based on economic indicators"""
+        df = df.copy()
+        
+        momentum_period = params.get('momentum_period', 14)
+        df['momentum'] = df['close'].pct_change(momentum_period)
+        df['ma_momentum'] = df['momentum'].rolling(window=5).mean()
+        
+        df['signal'] = 0
+        df.loc[df['ma_momentum'] > 0, 'signal'] = 1
+        df.loc[df['ma_momentum'] < 0, 'signal'] = -1
+        
+        return df
+    
+    def _commodity_momentum_strategy(self, df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+        """Momentum strategy optimized for commodities"""
+        df = df.copy()
+        
+        momentum_period = params.get('momentum_period', 21)  # Longer period for commodities
+        volatility_period = params.get('volatility_period', 14)
+        
+        df['returns'] = df['close'].pct_change()
+        df['momentum'] = df['close'].pct_change(momentum_period)
+        df['volatility'] = df['returns'].rolling(window=volatility_period).std()
+        
+        df['vol_adj_momentum'] = df['momentum'] / (df['volatility'] + 1e-8)  # Avoid division by zero
+        
+        df['signal'] = 0
+        df.loc[df['vol_adj_momentum'] > df['vol_adj_momentum'].quantile(0.7), 'signal'] = 1
+        df.loc[df['vol_adj_momentum'] < df['vol_adj_momentum'].quantile(0.3), 'signal'] = -1
+        
+        return df
+    
+    def _calculate_performance_metrics(self, df: pd.DataFrame,
                                      initial_capital: float) -> Dict[str, Any]:
         """Calculate comprehensive performance metrics"""
         df = df.copy()

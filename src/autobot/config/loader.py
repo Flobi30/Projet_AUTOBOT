@@ -17,58 +17,26 @@ def load_api_keys():
         # Map JSON structure to environment variables
         loaded_count = 0
         
-        # Binance
-        if 'binance' in api_keys:
-            if api_keys['binance'].get('api_key'):
-                os.environ['BINANCE_API_KEY'] = api_keys['binance']['api_key']
-                loaded_count += 1
-            if api_keys['binance'].get('secret_key'):
-                os.environ['BINANCE_API_SECRET'] = api_keys['binance']['secret_key']
-                loaded_count += 1
+        key_mapping = {
+            'BINANCE_API_KEY': 'BINANCE_API_KEY',
+            'BINANCE_SECRET_KEY': 'BINANCE_API_SECRET',
+            'ALPHA_VANTAGE_API_KEY': 'ALPHA_VANTAGE_API_KEY',
+            'TWELVE_DATA_API_KEY': 'TWELVE_DATA_API_KEY',
+            'FRED_API_KEY': 'FRED_API_KEY',
+            'NEWS_API_KEY': 'NEWSAPI_KEY',
+            'COINBASE_API_KEY': 'COINBASE_API_KEY',
+            'COINBASE_SECRET_KEY': 'COINBASE_API_SECRET',
+            'KRAKEN_API_KEY': 'KRAKEN_API_KEY',
+            'KRAKEN_SECRET_KEY': 'KRAKEN_API_SECRET',
+            'SHOPIFY_API_KEY': 'SHOPIFY_API_KEY',
+            'SHOPIFY_SECRET_KEY': 'SHOPIFY_SECRET_KEY'
+        }
         
-        # Coinbase
-        if 'coinbase' in api_keys:
-            if api_keys['coinbase'].get('api_key'):
-                os.environ['COINBASE_API_KEY'] = api_keys['coinbase']['api_key']
+        for config_key, env_key in key_mapping.items():
+            if config_key in api_keys and api_keys[config_key]:
+                os.environ[env_key] = api_keys[config_key]
                 loaded_count += 1
-            if api_keys['coinbase'].get('secret_key'):
-                os.environ['COINBASE_API_SECRET'] = api_keys['coinbase']['secret_key']
-                loaded_count += 1
-        
-        # Kraken
-        if 'kraken' in api_keys:
-            if api_keys['kraken'].get('api_key'):
-                os.environ['KRAKEN_API_KEY'] = api_keys['kraken']['api_key']
-                loaded_count += 1
-            if api_keys['kraken'].get('secret_key'):
-                os.environ['KRAKEN_API_SECRET'] = api_keys['kraken']['secret_key']
-                loaded_count += 1
-        
-        # Data providers
-        if 'alpha_vantage' in api_keys:
-            os.environ['ALPHA_VANTAGE_API_KEY'] = api_keys['alpha_vantage']
-            loaded_count += 1
-        
-        if 'twelve_data' in api_keys:
-            os.environ['TWELVE_DATA_API_KEY'] = api_keys['twelve_data']
-            loaded_count += 1
-        
-        if 'fred' in api_keys:
-            os.environ['FRED_API_KEY'] = api_keys['fred']
-            loaded_count += 1
-        
-        if 'news_api' in api_keys:
-            os.environ['NEWSAPI_KEY'] = api_keys['news_api']
-            loaded_count += 1
-        
-        # Shopify
-        if 'shopify' in api_keys:
-            if api_keys['shopify'].get('api_key'):
-                os.environ['SHOPIFY_API_KEY'] = api_keys['shopify']['api_key']
-                loaded_count += 1
-            if api_keys['shopify'].get('shop_name'):
-                os.environ['SHOPIFY_SHOP_NAME'] = api_keys['shopify']['shop_name']
-                loaded_count += 1
+                print(f"Loaded {config_key} -> {env_key}")
                 
         print(f"Loaded {loaded_count} API keys into environment variables")
         return loaded_count

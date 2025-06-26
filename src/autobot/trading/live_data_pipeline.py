@@ -107,6 +107,89 @@ class LiveDataPipeline:
     def stop_streaming(self):
         """Stop the data streaming"""
         self.running = False
+    
+    def get_forex_data(self, symbol: str = "EUR/USD", periods: int = 100) -> pd.DataFrame:
+        """Get forex historical data"""
+        try:
+            data = twelvedata.get_forex_data(symbol, "1h")
+            
+            if 'error' not in data and 'values' in data:
+                df = pd.DataFrame(data['values'])
+                df['datetime'] = pd.to_datetime(df['datetime'])
+                df.set_index('datetime', inplace=True)
+                
+                for col in ['open', 'high', 'low', 'close']:
+                    df[col] = pd.to_numeric(df[col])
+                
+                return df.head(periods)
+            
+            from_symbol, to_symbol = symbol.split('/')
+            data = alphavantage.get_fx_daily(from_symbol, to_symbol)
+            
+            if 'error' not in data:
+                time_series_key = f"Time Series FX ({from_symbol}{to_symbol})"
+                if time_series_key in data:
+                    df = pd.DataFrame(data[time_series_key]).T
+                    df.index = pd.to_datetime(df.index)
+                    
+                    for col in ['1. open', '2. high', '3. low', '4. close']:
+                        df[col.split('. ')[1]] = pd.to_numeric(df[col])
+                    
+                    return df[['open', 'high', 'low', 'close']].head(periods)
+            
+            return pd.DataFrame()
+            
+        except Exception as e:
+            print(f"Error in get_forex_data: {e}")
+            return pd.DataFrame()
+
+    def get_commodity_data(self, symbol: str = "XAU/USD", periods: int = 100) -> pd.DataFrame:
+        """Get commodity historical data"""
+        try:
+            symbol_mapping = {
+                'XAU/USD': ['GOLD', 'XAU/USD', 'XAUUSD', 'GC=F'],
+                'XAG/USD': ['SILVER', 'XAG/USD', 'XAGUSD', 'SI=F'], 
+                'WTI/USD': ['CRUDE_OIL_WTI', 'WTI/USD', 'WTIUSD', 'CL=F'],
+                'NG/USD': ['NATURAL_GAS', 'NG/USD', 'NGAS', 'NG=F'],
+                'XPT/USD': ['PLATINUM', 'XPT/USD', 'XPTUSD', 'PL=F']
+            }
+            
+            symbols_to_try = symbol_mapping.get(symbol, [symbol])
+            
+            for try_symbol in symbols_to_try:
+                try:
+                    data = twelvedata.get_commodity_data(try_symbol, "1day")
+                    
+                    if 'error' not in data and 'values' in data:
+                        df = pd.DataFrame(data['values'])
+                        df['datetime'] = pd.to_datetime(df['datetime'])
+                        df.set_index('datetime', inplace=True)
+                        
+                        for col in ['open', 'high', 'low', 'close']:
+                            df[col] = pd.to_numeric(df[col])
+                        
+                        return df.head(periods)
+                    
+                    data = alphavantage.get_commodity_data(try_symbol)
+                    
+                    if 'error' not in data and 'Time Series (Daily)' in data:
+                        df = pd.DataFrame(data['Time Series (Daily)']).T
+                        df.index = pd.to_datetime(df.index)
+                        
+                        for col in ['1. open', '2. high', '3. low', '4. close']:
+                            df[col.split('. ')[1]] = pd.to_numeric(df[col])
+                        
+                        return df[['open', 'high', 'low', 'close']].head(periods)
+                        
+                except Exception as e:
+                    print(f"Error trying symbol {try_symbol}: {e}")
+                    continue
+            
+            return pd.DataFrame()
+            
+        except Exception as e:
+            print(f"Error in get_commodity_data: {e}")
+            return pd.DataFrame()
 
 # Global instance
 live_pipeline = LiveDataPipeline()
