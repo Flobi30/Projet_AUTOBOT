@@ -1318,7 +1318,6 @@ textarea.form-control:focus {
 .main-content {
     display: block !important;
     visibility: visible !important;
-    margin-left: 250px !important;
 }
 
 /* Override any offscreen attributes */
