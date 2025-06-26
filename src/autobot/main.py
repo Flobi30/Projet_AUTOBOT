@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
 import logging
+import asyncio
+from contextlib import asynccontextmanager
 from autobot.router_clean import router
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
@@ -25,12 +27,51 @@ from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 
 logger = logging.getLogger(__name__)
-app = FastAPI(
 
+strategy_optimizer = None
+backtest_task = None
+
+async def continuous_backtest_loop():
+    """Run continuous backtests every 30 seconds"""
+    global strategy_optimizer
+    
+    while True:
+        try:
+            if strategy_optimizer is None:
+                from autobot.optimization.strategy_optimizer import StrategyOptimizer
+                strategy_optimizer = StrategyOptimizer()
+            
+            logger.info("Running continuous strategy optimization...")
+            results = strategy_optimizer.optimize_all_strategies()
+            
+            if results:
+                best = results[0]
+                logger.info(f"Best strategy: {best.name} - Return: {best.total_return:.4f}, Sharpe: {best.sharpe_ratio:.2f}")
+            
+            await asyncio.sleep(30)
+            
+        except Exception as e:
+            logger.error(f"Error in continuous backtest: {e}")
+            await asyncio.sleep(60)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global backtest_task
+    logger.info("Starting AUTOBOT application...")
+    backtest_task = asyncio.create_task(continuous_backtest_loop())
+    logger.info("Started continuous backtest scheduler")
+    yield
+    logger.info("Shutting down AUTOBOT application...")
+    if backtest_task:
+        backtest_task.cancel()
+        logger.info("Stopped continuous backtest scheduler")
+
+app = FastAPI(
     title="Autobot API",
     description="API for Autobot trading system",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["stripe-autobot.fr", "144.76.16.177", "localhost"])
@@ -86,7 +127,7 @@ async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+async def login(request: Request, username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
     from autobot.autobot_security.auth.jwt_handler import create_access_token
     from datetime import timedelta
     
@@ -98,7 +139,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
             expires_delta=access_token_expires
         )
         
-        response = RedirectResponse(url="/dashboard", status_code=302)
+        response = RedirectResponse(url="/trading", status_code=302)
         response.set_cookie(
             key="access_token",
             value=f"Bearer {access_token}",
@@ -114,3 +155,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
             "request": request,
             "error": "Invalid username or password"
         })
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

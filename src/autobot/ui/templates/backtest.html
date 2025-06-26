@@ -5,38 +5,165 @@
 {% block header_title %}Backtest{% endblock %}
 
 {% block content %}
+<style>
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin: 20px;
+    padding: 0;
+}
+
+.capital-chart-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+}
+
+.modules-card,
+.metrics-card {
+    grid-column: span 1;
+    width: 100%;
+    max-width: none;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .modules-card,
+    .metrics-card {
+        grid-column: 1;
+    }
+}
+
+.card {
+    background: rgba(0, 255, 157, 0.1);
+    border: 1px solid #00ff9d;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 200px;
+}
+
+.metrics-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: space-between;
+    margin: 10px 0;
+}
+
+.metric-item {
+    flex: 1;
+    min-width: 150px;
+    text-align: center;
+    padding: 10px;
+    background: rgba(0, 255, 157, 0.05);
+    border-radius: 5px;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin: 20px;
+    padding: 0;
+}
+
+.capital-chart-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+}
+
+.modules-card,
+.metrics-card {
+    grid-column: span 1;
+    width: 100%;
+    max-width: none;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .modules-card,
+    .metrics-card {
+        grid-column: 1;
+    }
+}
+
+.card {
+    background: rgba(0, 255, 157, 0.1);
+    border: 1px solid #00ff9d;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 200px;
+}
+
+.metrics-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: space-between;
+    margin: 10px 0;
+}
+
+.metric-item {
+    flex: 1;
+    min-width: 150px;
+    text-align: center;
+    padding: 10px;
+    background: rgba(0, 255, 157, 0.05);
+    border-radius: 5px;
+}
+</style>
+
 <div class="dashboard-grid">
     <!-- Automatic Backtest Status -->
     <div class="card">
         <div class="card-header">
-            <h3 class="neon-text">Configuration Automatique Active</h3>
-            <p>AUTOBOT optimise automatiquement les stratégies</p>
-            <p id="auto-status">Initialisation en cours...</p>
+            <h3 class="neon-text">Backtest Automatique</h3>
         </div>
-    </div>
-
-    <!-- Performance Metrics -->
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Rendement Total</div>
-            <div class="metric-value neon-text" id="auto-total-return">+0.00%</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Rendement Quotidien</div>
-            <div class="metric-value neon-text" id="auto-daily-return">+0.00%</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Ratio de Sharpe</div>
-            <div class="metric-value neon-text" id="auto-sharpe">+0.00</div>
+        <div class="card-body">
+            <div class="status-indicator">
+                <span id="auto-status">Initialisation...</span>
+            </div>
+            
+            <div class="metrics-row">
+                <div class="metric-item">
+                    <div class="metric-label">Rendement total</div>
+                    <div class="metric-value neon-text" id="auto-total-return">0.00%</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Rendement journalier</div>
+                    <div class="metric-value neon-text" id="auto-daily-return">0.00%</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Ratio de Sharpe</div>
+                    <div class="metric-value neon-text" id="auto-sharpe">0.00</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Source de données</div>
+                    <div class="metric-value neon-text" id="data-source">API Live</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label" id="last-update">Dernière mise à jour: --</div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Évolution du Capital Fictif -->
-    <div class="card" style="grid-column: span 4;">
+    <div class="card capital-chart-card">
         <div class="card-header">
             <h3 class="neon-text">Évolution du Capital Fictif (500€ Initial)</h3>
         </div>
@@ -62,7 +189,7 @@
     </div>
 
     <!-- Module Activity Status -->
-    <div class="card" style="grid-column: span 4;">
+    <div class="card modules-card">
         <div class="card-header">
             <h3 class="neon-text">Activité des Modules</h3>
         </div>
@@ -88,7 +215,7 @@
     </div>
 
     <!-- Métriques Détaillées -->
-    <div class="card" style="grid-column: span 4;">
+    <div class="card metrics-card">
         <div class="card-header">
             <h3 class="neon-text">Métriques de Performance Détaillées</h3>
         </div>
@@ -258,6 +385,77 @@ function startAutomaticBacktest() {
 }
 
 function updateAutomaticBacktest() {
+    fetch('/api/backtest/status')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Backtest status update:', data);
+            
+            if (data.data_source === 'live_api') {
+                document.getElementById('auto-status').textContent = 'Données de marché en temps réel actives';
+                
+                if (data.total_return !== undefined) {
+                    const totalReturnElement = document.getElementById('auto-total-return');
+                    const dailyReturnElement = document.getElementById('auto-daily-return');
+                    
+                    if (totalReturnElement) {
+                        totalReturnElement.textContent = (data.total_return * 100).toFixed(2) + '%';
+                    }
+                    if (dailyReturnElement) {
+                        dailyReturnElement.textContent = (data.daily_return * 100).toFixed(2) + '%';
+                    }
+                    
+                    const newCapital = 500 + (500 * data.total_return);
+                    updateCapitalChart(newCapital);
+                    
+                    const lastUpdateElement = document.getElementById('last-update');
+                    if (lastUpdateElement) {
+                        const now = new Date().toLocaleTimeString();
+                        lastUpdateElement.textContent = `Dernière mise à jour: ${now}`;
+                    }
+                    
+                    const dataSourceElement = document.getElementById('data-source');
+                    if (dataSourceElement) {
+                        dataSourceElement.textContent = data.data_source || 'API Live';
+                    }
+                    
+                    const lastUpdateElement = document.getElementById('last-update');
+                    if (lastUpdateElement) {
+                        const now = new Date().toLocaleTimeString();
+                        lastUpdateElement.textContent = `Dernière mise à jour: ${now}`;
+                    }
+                    
+                    console.log('Backtest data updated:', data);
+                }
+                
+                if (data.sharpe_ratio !== undefined) {
+                    const sharpeElement = document.getElementById('auto-sharpe');
+                    if (sharpeElement) {
+                        sharpeElement.textContent = data.sharpe_ratio.toFixed(2);
+                    }
+                }
+                
+                const tradingStatusElement = document.getElementById('trading-status');
+                const tradingProfitElement = document.getElementById('trading-profit');
+                const totalTradesElement = document.getElementById('total-trades');
+                
+                if (tradingStatusElement) {
+                    tradingStatusElement.textContent = `${data.active_positions || 0} positions actives`;
+                }
+                if (tradingProfitElement) {
+                    tradingProfitElement.textContent = ((data.total_return || 0) * 1000).toFixed(2) + '€';
+                }
+                if (totalTradesElement) {
+                    totalTradesElement.textContent = data.active_positions || 0;
+                }
+            } else {
+                document.getElementById('auto-status').textContent = 'Configuration des clés API requise';
+            }
+        })
+        .catch(error => {
+            console.error('Error updating backtest:', error);
+            document.getElementById('auto-status').textContent = 'Erreur de connexion au serveur';
+        });
+    
     fetch('/api/backtest/optimization-status')
         .then(response => response.json())
         .then(data => {
