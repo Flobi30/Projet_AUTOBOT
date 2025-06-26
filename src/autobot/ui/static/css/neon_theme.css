@@ -942,8 +942,8 @@ body {
     }
     
     .main-content {
-        width: 100vw;
-        margin-left: 0;
+        width: calc(100vw - 250px);
+        margin-left: 250px;
         padding: 16px;
     }
     
