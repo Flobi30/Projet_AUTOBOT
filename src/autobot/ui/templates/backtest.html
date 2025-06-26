@@ -5,6 +5,28 @@
 {% block header_title %}Backtest{% endblock %}
 
 {% block content %}
+<style>
+/* Fix excessive spacing between sidebar and content */
+.main-content {
+    margin-left: 250px !important;
+    padding-left: 20px !important;
+}
+
+/* Ensure dashboard grid is properly positioned */
+.dashboard-grid {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+.status-header {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.2), rgba(0, 255, 157, 0.05));
+    border: 2px solid #00ff9d;
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 30px;
+    text-align: center;
+}
+</style>
 <div class="dashboard-grid">
     <!-- Status Header -->
     <div class="status-header" style="grid-column: span 12;">
