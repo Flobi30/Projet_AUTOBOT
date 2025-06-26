@@ -6,159 +6,256 @@
 
 {% block content %}
 <style>
-.dashboard-grid {
+.backtest-container {
+    padding: 15px;
+    max-width: 1400px;
+    margin: 0 auto;
+    margin-left: 270px; /* Account for sidebar width + reduce spacing */
+}
+
+.status-header {
+    background: linear-gradient(135deg, rgba(0, 255, 157, 0.2), rgba(0, 255, 157, 0.05));
+    border: 2px solid #00ff9d;
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00ff9d;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.metrics-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-    margin: 20px;
-    padding: 0;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
 }
 
-.capital-chart-card {
-    grid-column: 1 / -1;
-    width: 100%;
-    max-width: none;
+.metric-card {
+    background: rgba(0, 255, 157, 0.08);
+    border: 1px solid #00ff9d;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.3s ease;
 }
 
-.modules-card,
-.metrics-card {
-    grid-column: span 1;
-    width: 100%;
-    max-width: none;
+.metric-card:hover {
+    background: rgba(0, 255, 157, 0.15);
+    transform: translateY(-2px);
+}
+
+.metric-value {
+    font-size: 2.2em;
+    font-weight: bold;
+    color: #00ff9d;
+    margin: 10px 0;
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
+}
+
+.metric-label {
+    font-size: 0.9em;
+    color: #ccc;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.activity-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 20px;
 }
 
 @media (max-width: 768px) {
-    .dashboard-grid {
+    .activity-section {
         grid-template-columns: 1fr;
     }
-    
-    .modules-card,
-    .metrics-card {
-        grid-column: 1;
-    }
 }
 
-.card {
-    background: rgba(0, 255, 157, 0.1);
-    border: 1px solid #00ff9d;
-    border-radius: 8px;
-    padding: 20px;
-    margin: 0;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 200px;
-}
-
-.metrics-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    justify-content: space-between;
-    margin: 10px 0;
-}
-
-.metric-item {
-    flex: 1;
-    min-width: 150px;
-    text-align: center;
-    padding: 10px;
+.activity-card {
     background: rgba(0, 255, 157, 0.05);
-    border-radius: 5px;
-}
-
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-    margin: 20px;
-    padding: 0;
-}
-
-.capital-chart-card {
-    grid-column: 1 / -1;
-    width: 100%;
-    max-width: none;
-}
-
-.modules-card,
-.metrics-card {
-    grid-column: span 1;
-    width: 100%;
-    max-width: none;
-}
-
-@media (max-width: 768px) {
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .modules-card,
-    .metrics-card {
-        grid-column: 1;
-    }
-}
-
-.card {
-    background: rgba(0, 255, 157, 0.1);
     border: 1px solid #00ff9d;
-    border-radius: 8px;
-    padding: 20px;
-    margin: 0;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 200px;
+    border-radius: 10px;
+    padding: 15px;
 }
 
-.metrics-row {
+.activity-header {
     display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
     justify-content: space-between;
-    margin: 10px 0;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(0, 255, 157, 0.3);
 }
 
-.metric-item {
-    flex: 1;
-    min-width: 150px;
-    text-align: center;
-    padding: 10px;
-    background: rgba(0, 255, 157, 0.05);
+.activity-log {
+    height: 200px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.3);
     border-radius: 5px;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+
+.log-entry {
+    margin-bottom: 5px;
+    padding: 2px 0;
+}
+
+.log-timestamp {
+    color: #888;
+    margin-right: 10px;
+}
+
+.log-success {
+    color: #00ff9d;
+}
+
+.log-warning {
+    color: #ffaa00;
+}
+
+.log-error {
+    color: #ff4444;
+}
+
+.strategy-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.strategy-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 5px 0;
+    background: rgba(0, 255, 157, 0.1);
+    border-radius: 5px;
+    border-left: 3px solid #00ff9d;
+}
+
+.strategy-name {
+    font-weight: bold;
+    color: #00ff9d;
+}
+
+.strategy-performance {
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+.chart-container {
+    background: rgba(0, 255, 157, 0.05);
+    border: 1px solid #00ff9d;
+    border-radius: 10px;
+    padding: 20px;
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 </style>
 
-<div class="dashboard-grid">
-    <!-- Automatic Backtest Status -->
-    <div class="card">
-        <div class="card-header">
-            <h3 class="neon-text">Backtest Automatique</h3>
+<div class="backtest-container">
+    <!-- Status Header -->
+    <div class="status-header">
+        <div class="status-indicator">
+            <div class="status-dot"></div>
+            <h2 class="neon-text">Moteur de Backtest AUTOBOT</h2>
         </div>
-        <div class="card-body">
-            <div class="status-indicator">
-                <span id="auto-status">Initialisation...</span>
+        <p id="system-status">Optimisation des stratégies en cours...</p>
+        <p id="last-update" style="font-size: 0.9em; color: #888;">Dernière mise à jour: --</p>
+    </div>
+
+    <!-- Performance Metrics -->
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-label">Rendement Total</div>
+            <div class="metric-value" id="total-return">+0.00%</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Rendement Journalier</div>
+            <div class="metric-value" id="daily-return">+0.00%</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Ratio de Sharpe</div>
+            <div class="metric-value" id="sharpe-ratio">0.00</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Positions Actives</div>
+            <div class="metric-value" id="active-positions">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Stratégies Testées</div>
+            <div class="metric-value" id="strategies-tested">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Source de Données</div>
+            <div class="metric-value" id="data-source" style="font-size: 1.2em;">API Live</div>
+        </div>
+    </div>
+
+    <!-- Activity Section -->
+    <div class="activity-section">
+        <!-- Real-time Activity Log -->
+        <div class="activity-card">
+            <div class="activity-header">
+                <h3 class="neon-text">Activité en Temps Réel</h3>
+                <span id="log-count">0 événements</span>
             </div>
-            
-            <div class="metrics-row">
-                <div class="metric-item">
-                    <div class="metric-label">Rendement total</div>
-                    <div class="metric-value neon-text" id="auto-total-return">0.00%</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Rendement journalier</div>
-                    <div class="metric-value neon-text" id="auto-daily-return">0.00%</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Ratio de Sharpe</div>
-                    <div class="metric-value neon-text" id="auto-sharpe">0.00</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Source de données</div>
-                    <div class="metric-value neon-text" id="data-source">API Live</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label" id="last-update">Dernière mise à jour: --</div>
+            <div class="activity-log" id="activity-log">
+                <div class="log-entry">
+                    <span class="log-timestamp">--:--:--</span>
+                    <span class="log-success">Initialisation du moteur de backtest...</span>
                 </div>
             </div>
+        </div>
+
+        <!-- Active Strategies -->
+        <div class="activity-card">
+            <div class="activity-header">
+                <h3 class="neon-text">Stratégies Actives</h3>
+                <span id="strategy-count">0 stratégies</span>
+            </div>
+            <div class="strategy-list" id="strategy-list">
+                <div class="strategy-item">
+                    <div class="strategy-name">Initialisation...</div>
+                    <div class="strategy-performance">--</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Chart -->
+    <div class="chart-container">
+        <div style="text-align: center; color: #888;">
+            <h3 class="neon-text">Évolution des Performances</h3>
+            <p>Graphique en temps réel des performances de trading</p>
+            <canvas id="performance-chart" width="800" height="200"></canvas>
         </div>
     </div>
 
@@ -388,21 +485,18 @@ function updateAutomaticBacktest() {
     fetch('/api/backtest/status')
         .then(response => response.json())
         .then(data => {
-            console.log('Backtest status update:', data);
+            console.log('Strategy performance update:', data);
             
-            if (data.data_source === 'live_api') {
-                document.getElementById('auto-status').textContent = 'Données de marché en temps réel actives';
+            if (data.status === 'running') {
+                document.getElementById('system-status').textContent = 'Stratégies actives - Performance en temps réel';
                 
                 if (data.total_return !== undefined) {
-                    const totalReturnElement = document.getElementById('auto-total-return');
-                    const dailyReturnElement = document.getElementById('auto-daily-return');
-                    
-                    if (totalReturnElement) {
-                        totalReturnElement.textContent = (data.total_return * 100).toFixed(2) + '%';
-                    }
-                    if (dailyReturnElement) {
-                        dailyReturnElement.textContent = (data.daily_return * 100).toFixed(2) + '%';
-                    }
+                    // Update main metrics with simplified display
+                    document.getElementById('total-return').textContent = (data.total_return * 100).toFixed(2) + '%';
+                    document.getElementById('daily-return').textContent = (data.daily_return * 100).toFixed(2) + '%';
+                    document.getElementById('sharpe-ratio').textContent = data.sharpe_ratio.toFixed(2);
+                    document.getElementById('active-positions').textContent = data.active_positions || 0;
+                    document.getElementById('strategies-tested').textContent = data.strategies_tested || 0;
                     
                     const newCapital = 500 + (500 * data.total_return);
                     updateCapitalChart(newCapital);
@@ -413,39 +507,43 @@ function updateAutomaticBacktest() {
                         lastUpdateElement.textContent = `Dernière mise à jour: ${now}`;
                     }
                     
-                    const dataSourceElement = document.getElementById('data-source');
-                    if (dataSourceElement) {
-                        dataSourceElement.textContent = data.data_source || 'API Live';
+                    // Update data source with simplified display
+                    document.getElementById('data-source').textContent = data.current_strategy || 'Multi-API Strategy';
+                    
+                    // Update timestamp
+                    const now = new Date().toLocaleTimeString();
+                    document.getElementById('last-update').textContent = `Dernière mise à jour: ${now}`;
+                    
+                    // Update activity log with simplified strategy info
+                    const activityLog = document.getElementById('activity-log');
+                    const now = new Date().toLocaleTimeString();
+                    
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    logEntry.innerHTML = `
+                        <span class="log-timestamp">${now}</span>
+                        <span class="log-success">Stratégie: ${data.current_strategy} - Performance: ${(data.total_return * 100).toFixed(2)}%</span>
+                    `;
+                    
+                    activityLog.insertBefore(logEntry, activityLog.firstChild);
+                    
+                    // Keep only last 5 entries
+                    while (activityLog.children.length > 5) {
+                        activityLog.removeChild(activityLog.lastChild);
                     }
                     
-                    const lastUpdateElement = document.getElementById('last-update');
-                    if (lastUpdateElement) {
-                        const now = new Date().toLocaleTimeString();
-                        lastUpdateElement.textContent = `Dernière mise à jour: ${now}`;
-                    }
+                    // Update strategy list
+                    const strategyList = document.getElementById('strategy-list');
+                    strategyList.innerHTML = `
+                        <div class="strategy-item">
+                            <div class="strategy-name">${data.current_strategy}</div>
+                            <div class="strategy-performance">${(data.total_return * 100).toFixed(2)}% - ${data.active_positions} positions</div>
+                        </div>
+                    `;
                     
-                    console.log('Backtest data updated:', data);
-                }
-                
-                if (data.sharpe_ratio !== undefined) {
-                    const sharpeElement = document.getElementById('auto-sharpe');
-                    if (sharpeElement) {
-                        sharpeElement.textContent = data.sharpe_ratio.toFixed(2);
-                    }
-                }
-                
-                const tradingStatusElement = document.getElementById('trading-status');
-                const tradingProfitElement = document.getElementById('trading-profit');
-                const totalTradesElement = document.getElementById('total-trades');
-                
-                if (tradingStatusElement) {
-                    tradingStatusElement.textContent = `${data.active_positions || 0} positions actives`;
-                }
-                if (tradingProfitElement) {
-                    tradingProfitElement.textContent = ((data.total_return || 0) * 1000).toFixed(2) + '€';
-                }
-                if (totalTradesElement) {
-                    totalTradesElement.textContent = data.active_positions || 0;
+                    // Update counts
+                    document.getElementById('log-count').textContent = `${activityLog.children.length} événements`;
+                    document.getElementById('strategy-count').textContent = `${data.strategies_tested || 1} stratégies`;
                 }
             } else {
                 document.getElementById('auto-status').textContent = 'Configuration des clés API requise';

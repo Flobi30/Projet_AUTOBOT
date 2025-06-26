@@ -29,7 +29,9 @@ from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 logger = logging.getLogger(__name__)
 
 strategy_optimizer = None
+decision_engine = None
 backtest_task = None
+decision_task = None
 
 async def continuous_backtest_loop():
     """Run continuous backtests every 30 seconds"""
@@ -54,17 +56,47 @@ async def continuous_backtest_loop():
             logger.error(f"Error in continuous backtest: {e}")
             await asyncio.sleep(60)
 
+async def intelligent_decision_loop():
+    """Run enhanced intelligent decision engine with WebSocket support"""
+    global decision_engine
+    
+    while True:
+        try:
+            from autobot.trading.intelligent_decision_engine import IntelligentDecisionEngine
+            
+            if decision_engine is None:
+                decision_engine = IntelligentDecisionEngine()
+                await decision_engine.initialize()
+            
+            logger.info("🚀 Starting Enhanced Intelligent Decision Engine with WebSocket streams...")
+            await decision_engine.continuous_analysis_loop()
+            
+        except Exception as e:
+            logger.error(f"❌ Error in enhanced intelligent decision engine: {e}")
+            logger.info("🔄 Restarting decision engine in 60 seconds...")
+            await asyncio.sleep(60)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global backtest_task
+    global backtest_task, decision_task
     logger.info("Starting AUTOBOT application...")
+    
     backtest_task = asyncio.create_task(continuous_backtest_loop())
     logger.info("Started continuous backtest scheduler")
+    
+    decision_task = asyncio.create_task(intelligent_decision_loop())
+    logger.info("🤖 Started Intelligent Decision Engine")
+    
     yield
+    
     logger.info("Shutting down AUTOBOT application...")
     if backtest_task:
         backtest_task.cancel()
         logger.info("Stopped continuous backtest scheduler")
+    
+    if decision_task:
+        decision_task.cancel()
+        logger.info("🤖 Stopped Intelligent Decision Engine")
 
 app = FastAPI(
     title="Autobot API",
