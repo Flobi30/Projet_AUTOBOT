@@ -6,47 +6,13 @@
 
 {% block content %}
 <style>
-/* MOCKUP MATCH: Position content exactly like user's hand-drawn design */
-.main-content {
-    margin-left: 250px !important;
-    padding: 0 !important;
-    width: calc(100% - 250px) !important;
-    box-sizing: border-box !important;
-}
-
-/* Zero spacing to match mockup - content directly adjacent to sidebar */
-.page-content {
-    padding: 0 !important;
-    margin: 0 !important;
-}
-
-.page-header {
-    padding: 10px 15px !important;
-    margin: 0 !important;
-    background: transparent !important;
-}
-
-/* Dashboard grid positioned immediately next to sidebar edge */
+/* Remove all custom spacing overrides - use base template layout */
 .dashboard-grid {
-    margin: 0 !important;
-    padding: 10px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
     display: grid !important;
     grid-template-columns: repeat(12, 1fr) !important;
     gap: 15px !important;
-}
-
-/* Ensure content blocks are tight against sidebar */
-body .main-content {
-    margin-left: 250px !important;
-    padding-left: 0 !important;
-}
-
-/* Override any conflicting styles */
-.container, .content-wrapper {
-    padding-left: 0 !important;
-    margin-left: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* Status header styling */
