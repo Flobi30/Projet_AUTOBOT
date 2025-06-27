@@ -23,6 +23,7 @@ from autobot.ui.routes import router as ui_router
 load_api_keys()
 # from .api.ghosting_routes import router as ghosting_router
 from .autobot_security.auth.user_manager import UserManager
+from .adaptive import adaptive_capital_manager
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 
@@ -95,6 +96,13 @@ async def lifespan(app: FastAPI):
     keys_loaded = load_api_keys()
     logger.info(f"Loaded {keys_loaded} API keys into environment variables")
     
+    try:
+        logger.info("Initializing Adaptive Capital Management System...")
+        adaptive_capital_manager.meta_learner.start_adaptation()
+        logger.info("✅ Adaptive Capital Management System initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Adaptive Capital Management: {e}")
+    
     logger.info("Background tasks disabled for debugging - server should start successfully")
     backtest_task = None
     decision_task = None
@@ -102,6 +110,11 @@ async def lifespan(app: FastAPI):
     yield
     
     logger.info("Shutting down AUTOBOT application...")
+    try:
+        adaptive_capital_manager.meta_learner.stop_adaptation()
+    except:
+        pass
+    
     if backtest_task:
         backtest_task.cancel()
         logger.info("Stopped continuous backtest scheduler")

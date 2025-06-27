@@ -18,8 +18,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..autobot_security.auth.user_manager import User, get_current_user
+from ..adaptive.capital_manager import AdaptiveCapitalManager
 
 logger = logging.getLogger(__name__)
+
+adaptive_capital_manager = AdaptiveCapitalManager(initial_capital=500.0)
 
 router = APIRouter()
 
