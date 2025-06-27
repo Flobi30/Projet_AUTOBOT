@@ -259,8 +259,8 @@ function initializeCapitalChart() {
 }
 
 function updateCapitalChart(newCapital) {
-    const now = new Date();
-    const timeLabel = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
+    const chartNow = new Date();
+    const timeLabel = chartNow.getHours() + ':' + String(chartNow.getMinutes()).padStart(2, '0');
     
     capitalData.push(newCapital);
     capitalLabels.push(timeLabel);
@@ -350,25 +350,25 @@ function updateAutomaticBacktest() {
                     
                     const lastUpdateElement = document.getElementById('last-update');
                     if (lastUpdateElement) {
-                        const now = new Date().toLocaleTimeString();
-                        lastUpdateElement.textContent = `Dernière mise à jour: ${now}`;
+                        const updateTime = new Date().toLocaleTimeString();
+                        lastUpdateElement.textContent = `Dernière mise à jour: ${updateTime}`;
                     }
                     
                     // Update data source with simplified display
                     document.getElementById('data-source').textContent = data.current_strategy || 'Multi-API Strategy';
                     
                     // Update timestamp
-                    const now = new Date().toLocaleTimeString();
-                    document.getElementById('last-update').textContent = `Dernière mise à jour: ${now}`;
+                    const timestampNow = new Date().toLocaleTimeString();
+                    document.getElementById('last-update').textContent = `Dernière mise à jour: ${timestampNow}`;
                     
                     // Update activity log with simplified strategy info
                     const activityLog = document.getElementById('activity-log');
-                    const now = new Date().toLocaleTimeString();
+                    const logTime = new Date().toLocaleTimeString();
                     
                     const logEntry = document.createElement('div');
                     logEntry.className = 'log-entry';
                     logEntry.innerHTML = `
-                        <span class="log-timestamp">${now}</span>
+                        <span class="log-timestamp">${logTime}</span>
                         <span class="log-success">Stratégie: ${data.current_strategy} - Performance: ${(data.total_return * 100).toFixed(2)}%</span>
                     `;
                     
