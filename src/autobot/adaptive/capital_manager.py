@@ -27,8 +27,8 @@ class AdaptiveCapitalManager:
             auto_adapt=True,
             visible_interface=True
         )
-        self.profit_optimizer = ProfitOptimizer(initial_capital=initial_capital)
-        self.experience_buffer = ExperienceBuffer(max_size=1000)
+        self.profit_optimizer = ProfitOptimizer(config={"initial_capital": initial_capital})
+        self.experience_buffer = ExperienceBuffer(capacity=1000)
         self.capital_manager = CapitalManager(initial_capital=initial_capital)
         
         self.capital_performance_history = {}
@@ -105,13 +105,22 @@ class AdaptiveCapitalManager:
         strategy_id = f"{strategy_name}_{capital_range}"
         self.meta_learner.update_performance(strategy_id, returns, sharpe, drawdown, win_rate)
         
-        experience = {
-            'state': {'capital': capital, 'capital_range': capital_range},
-            'action': {'strategy': strategy_name},
-            'reward': returns,
-            'next_state': {'capital': capital * (1 + returns / 100)}
-        }
-        self.experience_buffer.add_experience(experience)
+        # Create experience in the format expected by ExperienceBuffer
+        from ..rl.accelerated_learning import Experience
+        import numpy as np
+        
+        state = np.array([capital, hash(capital_range) % 1000])  # Simple state representation
+        next_state = np.array([capital * (1 + returns / 100), hash(capital_range) % 1000])
+        
+        experience = Experience(
+            state=state,
+            action=hash(strategy_name) % 10,  # Simple action encoding
+            reward=returns,
+            next_state=next_state,
+            done=False,
+            info={'strategy': strategy_name, 'capital_range': capital_range}
+        )
+        self.experience_buffer.add(experience)
         
         self._save_performance_to_db(strategy_name, capital, returns, sharpe, drawdown)
     
@@ -172,7 +181,7 @@ class AdaptiveCapitalManager:
             db = SessionLocal()
             
             result = BacktestResult(
-                id=f"{strategy_name}_{int(datetime.utcnow().timestamp())}",
+                id=f"{strategy_name}_{capital}_{int(datetime.utcnow().timestamp() * 1000000)}",
                 symbol="ADAPTIVE",
                 strategy=strategy_name,
                 initial_capital=capital,
@@ -200,5 +209,5 @@ class AdaptiveCapitalManager:
             'total_return': ((self.current_capital - self.initial_capital) / self.initial_capital) * 100,
             'performance_history': self.capital_performance_history,
             'active_strategies': len(self.meta_learner.get_all_strategies()),
-            'experience_count': len(self.experience_buffer.experiences)
+            'experience_count': self.experience_buffer.size
         }
