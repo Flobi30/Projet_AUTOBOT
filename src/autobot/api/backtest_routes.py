@@ -28,19 +28,19 @@ async def start_backtest(module: str):
         logger.error(f"Error starting backtest for {module}: {e}")
         raise HTTPException(status_code=500, detail=f"Error starting {module} backtest")
 
-@router.get("/api/backtest/status")
-async def get_backtest_status():
-    """Get status of all running backtests"""
-    try:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "trading": {"status": "running", "progress": "67%", "roi": "+84.2%"},
-                "arbitrage": {"status": "running", "progress": "45%", "roi": "+23.1%"},
-                "e-commerce": {"status": "running", "progress": "78%", "roi": "+15.7%"},
-                "global_performance": "+41.0%"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error getting backtest status: {e}")
-        raise HTTPException(status_code=500, detail="Error retrieving backtest status")
+# @router.get("/api/backtest/status")
+# async def get_backtest_status():
+#     """Get status of all running backtests"""
+#     try:
+#         return JSONResponse(
+#             status_code=200,
+#             content={
+#                 "trading": {"status": "running", "progress": "67%", "roi": "+84.2%"},
+#                 "arbitrage": {"status": "running", "progress": "45%", "roi": "+23.1%"},
+#                 "e-commerce": {"status": "running", "progress": "78%", "roi": "+15.7%"},
+#                 "global_performance": "+41.0%"
+#             }
+#         )
+#     except Exception as e:
+#         logger.error(f"Error getting backtest status: {e}")
+#         raise HTTPException(status_code=500, detail="Error retrieving backtest status")

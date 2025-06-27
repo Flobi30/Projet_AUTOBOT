@@ -7,21 +7,21 @@ import os
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from autobot.router_clean import router
-from autobot.routes.health_routes import router as health_router
-from autobot.routes.prediction_routes import router as prediction_router
-from autobot.ui.mobile_routes import router as mobile_router
+# from autobot.router import router
+# from autobot.routes.health_routes import router as health_router
+# from autobot.routes.prediction_routes import router as prediction_router
+# from autobot.ui.mobile_routes import router as mobile_router
 
 from autobot.ui.backtest_routes import router as backtest_router
-from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
-from autobot.ui.chat_routes_custom import router as chat_router
-from autobot.routers.setup import router as setup_router
-from autobot.routers.funds import router as funds_router
-from autobot.routers.capital import router as capital_router
+# from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
+# from autobot.ui.chat_routes_custom import router as chat_router
+# from autobot.routers.setup import router as setup_router
+# from autobot.routers.funds import router as funds_router
+# from autobot.routers.capital import router as capital_router
 from autobot.config import load_api_keys
 from autobot.ui.routes import router as ui_router
 load_api_keys()
-from .api.ghosting_routes import router as ghosting_router
+# from .api.ghosting_routes import router as ghosting_router
 from .autobot_security.auth.user_manager import UserManager
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
@@ -40,8 +40,13 @@ async def continuous_backtest_loop():
     while True:
         try:
             if strategy_optimizer is None:
-                from autobot.optimization.strategy_optimizer import StrategyOptimizer
-                strategy_optimizer = StrategyOptimizer()
+                try:
+                    from autobot.optimization.strategy_optimizer import StrategyOptimizer
+                    strategy_optimizer = StrategyOptimizer()
+                except ImportError as e:
+                    logger.warning(f"Strategy optimizer not available: {e}")
+                    await asyncio.sleep(300)  # Wait 5 minutes before retry
+                    continue
             
             logger.info("Running continuous strategy optimization...")
             results = strategy_optimizer.optimize_all_strategies()
@@ -62,7 +67,12 @@ async def intelligent_decision_loop():
     
     while True:
         try:
-            from autobot.trading.intelligent_decision_engine import IntelligentDecisionEngine
+            try:
+                from autobot.trading.intelligent_decision_engine import IntelligentDecisionEngine
+            except ImportError as e:
+                logger.warning(f"Intelligent decision engine not available: {e}")
+                await asyncio.sleep(300)  # Wait 5 minutes before retry
+                continue
             
             if decision_engine is None:
                 decision_engine = IntelligentDecisionEngine()
@@ -81,11 +91,13 @@ async def lifespan(app: FastAPI):
     global backtest_task, decision_task
     logger.info("Starting AUTOBOT application...")
     
-    backtest_task = asyncio.create_task(continuous_backtest_loop())
-    logger.info("Started continuous backtest scheduler")
+    from autobot.config import load_api_keys
+    keys_loaded = load_api_keys()
+    logger.info(f"Loaded {keys_loaded} API keys into environment variables")
     
-    decision_task = asyncio.create_task(intelligent_decision_loop())
-    logger.info("🤖 Started Intelligent Decision Engine")
+    logger.info("Background tasks disabled for debugging - server should start successfully")
+    backtest_task = None
+    decision_task = None
     
     yield
     
@@ -134,18 +146,18 @@ templates_dir = os.path.join(current_dir, "ui", "templates")
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-app.include_router(router)
-app.include_router(health_router)
-app.include_router(prediction_router)
-app.include_router(mobile_router)
+# app.include_router(router)
+# app.include_router(health_router)
+# app.include_router(prediction_router)
+# app.include_router(mobile_router)
 app.include_router(backtest_router)
-app.include_router(deposit_withdrawal_router)
-app.include_router(chat_router)
+# app.include_router(deposit_withdrawal_router)
+# app.include_router(chat_router)
 app.include_router(ui_router)
-app.include_router(ghosting_router)
-app.include_router(setup_router)
-app.include_router(capital_router)
-app.include_router(funds_router)
+# app.include_router(ghosting_router)
+# app.include_router(setup_router)
+# app.include_router(capital_router)
+# app.include_router(funds_router)
 
 user_manager = UserManager()
 

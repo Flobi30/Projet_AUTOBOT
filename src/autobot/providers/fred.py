@@ -4,9 +4,8 @@ import requests
 if os.getenv("USE_MOCK") == "1":
     from autobot.data.providers.fred import *
 else:
-    KEY = os.getenv("FRED_API_KEY", "")
-    
     def get_series(series_id: str) -> dict:
+        KEY = os.getenv("FRED_API_KEY", "")
         if not KEY:
             return {"error": "FRED API key not configured"}
         r = requests.get("https://api.stlouisfed.org/fred/series/observations", params={
@@ -19,6 +18,7 @@ else:
 
     def get_economic_data(series_id: str, limit: int = 100) -> dict:
         """Get economic data from FRED API"""
+        KEY = os.getenv("FRED_API_KEY", "")
         if not KEY:
             return {"error": "FRED API key not configured"}
         try:
@@ -29,9 +29,12 @@ else:
                 "limit": limit
             })
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            if "error_message" in data:
+                return {"error": f"FRED error: {data['error_message']}"}
+            return data
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"FRED connection error: {str(e)}"}
 
     def get_interest_rates(country_code: str = "US") -> dict:
         """Get interest rates for forex fundamental analysis"""

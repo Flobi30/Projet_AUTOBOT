@@ -22,9 +22,15 @@ else:
         return base64.b64encode(signature).decode()
     
     def get_ticker(product_id: str = "BTC-USD") -> dict:
-        r = requests.get(f"{BASE_URL}/products/{product_id}/ticker")
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = requests.get(f"{BASE_URL}/products/{product_id}/ticker")
+            r.raise_for_status()
+            data = r.json()
+            if "message" in data:
+                return {"error": f"Coinbase error: {data['message']}"}
+            return data
+        except Exception as e:
+            return {"error": f"Coinbase connection error: {str(e)}"}
     
     def get_products() -> dict:
         r = requests.get(f"{BASE_URL}/products")

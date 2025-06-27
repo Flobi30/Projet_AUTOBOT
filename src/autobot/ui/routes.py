@@ -582,22 +582,22 @@ async def get_transactions_metrics():
             }
         })
 
-# Backtest API endpoints for UI polling
-@router.get("/backtest/status")
-async def backtest_status():
-    """API endpoint for backtest status updates"""
-    import random
-    base_capital = 500.0
-    variation = random.uniform(-50, 100)
-    current_capital = base_capital + variation
-    
-    return JSONResponse({
-        "status": "running",
-        "capital": current_capital,
-        "last_return": (variation / base_capital) * 100,
-        "drawdown": max(0, -variation / base_capital * 100),
-        "timestamp": datetime.now().isoformat()
-    })
+# Backtest API endpoints for UI polling - DISABLED: Real implementation in backtest_routes.py
+# @router.get("/backtest/status")
+# async def backtest_status():
+#     """API endpoint for backtest status updates"""
+#     import random
+#     base_capital = 500.0
+#     variation = random.uniform(-50, 100)
+#     current_capital = base_capital + variation
+#     
+#     return JSONResponse({
+#         "status": "running",
+#         "capital": current_capital,
+#         "last_return": (variation / base_capital) * 100,
+#         "drawdown": max(0, -variation / base_capital * 100),
+#         "timestamp": datetime.now().isoformat()
+#     })
 
 @router.get("/api/capital-status")
 async def capital_status_backtest():
