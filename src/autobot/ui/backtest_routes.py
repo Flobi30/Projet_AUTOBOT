@@ -363,6 +363,124 @@ async def run_backtest_strategy(request: BacktestRequest):
         logger.error(f"Error running backtest: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/api/backtest/status")
+async def get_backtest_status_multi_api():
+    """Get simplified backtest status with strategy results only"""
+    logger.info("API backtest status endpoint called")
+    try:
+        from autobot.data.multi_api_fusion import MultiAPIDataFusion
+        from autobot.trading.intelligent_decision_engine import IntelligentDecisionEngine
+        
+        try:
+            from autobot.main import decision_engine
+            if decision_engine:
+                logger.info("Using decision engine for backtest status")
+                engine_summary = decision_engine.get_engine_summary()
+                
+                return {
+                    "status": "running",
+                    "current_strategy": "Multi-API Fusion",
+                    "total_return": engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02),
+                    "daily_return": engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02) / 30,
+                    "sharpe_ratio": engine_summary.get('performance_metrics', {}).get('sharpe_ratio', 1.2),
+                    "max_drawdown": abs(engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02)) * 0.3,
+                    "active_positions": engine_summary.get('active_positions', 0),
+                    "strategies_tested": len(engine_summary.get('recent_decisions', [])),
+                    "data_source": "WebSocket Priority"
+                }
+        except Exception as e:
+            logger.warning(f"Decision engine not available: {e}")
+        
+        logger.info("Using MultiAPIDataFusion for backtest status")
+        fusion_system = MultiAPIDataFusion()
+        
+        symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
+        total_return = 0.0
+        daily_return = 0.0
+        sharpe_ratio = 0.0
+        active_positions = 0
+        strategies_tested = 0
+        
+        for symbol in symbols:
+            try:
+                fusion_data = fusion_system.collect_all_data_simultaneously(symbol)
+                if fusion_data and len(fusion_data.get('sources', [])) > 0:
+                    combined_signal = fusion_data.get('combined_signal', 0.0)
+                    data_quality = fusion_data.get('data_quality_score', 0.0)
+                    
+                    strategy_return = combined_signal * data_quality * 0.015
+                    total_return += strategy_return
+                    daily_return += strategy_return * 0.2
+                    sharpe_ratio += data_quality * 0.8
+                    
+                    if abs(combined_signal) > 0.2:
+                        active_positions += 1
+                    
+                    strategies_tested += 1
+                    logger.info(f"Strategy {symbol}: Return={strategy_return:.4f}, Quality={data_quality:.2f}")
+                    
+            except Exception as e:
+                logger.warning(f"Strategy calculation failed for {symbol}: {e}")
+        
+        if strategies_tested > 0:
+            total_return /= strategies_tested
+            daily_return /= strategies_tested
+            sharpe_ratio /= strategies_tested
+        
+        if active_positions == 0:
+            try:
+                from autobot.optimization.strategy_optimizer import StrategyOptimizer
+                optimizer = StrategyOptimizer()
+                results = optimizer.optimize_all_strategies(symbols)
+                if results and len(results) > 0:
+                    best = results[0]
+                    total_return = best.total_return
+                    daily_return = best.total_return / 30
+                    sharpe_ratio = best.sharpe_ratio
+                    active_positions = len(results)
+                    logger.info(f"Using strategy optimizer results: Return={total_return:.4f}, Strategies={len(results)}")
+                else:
+                    total_return = 0.001
+                    daily_return = 0.001 / 30
+                    sharpe_ratio = 0.1
+                    active_positions = 1
+                    logger.info("Using minimal fallback values")
+            except Exception as e:
+                logger.warning(f"Strategy optimizer failed: {e}")
+                total_return = 0.001
+                daily_return = 0.001 / 30
+                sharpe_ratio = 0.1
+                active_positions = 1
+        
+        result = {
+            "status": "running",
+            "current_strategy": "Multi-API Strategy",
+            "total_return": float(total_return),
+            "daily_return": float(daily_return),
+            "sharpe_ratio": float(sharpe_ratio),
+            "max_drawdown": abs(float(total_return)) * 0.25,
+            "active_positions": active_positions,
+            "strategies_tested": strategies_tested,
+            "data_source": "WebSocket + API Fusion"
+        }
+        logger.info(f"Returning backtest status: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Error in backtest status: {e}")
+        error_result = {
+            "status": "error",
+            "current_strategy": "none",
+            "total_return": 0.0,
+            "daily_return": 0.0,
+            "sharpe_ratio": 0.0,
+            "max_drawdown": 0.0,
+            "active_positions": 0,
+            "data_source": "error",
+            "error": str(e)
+        }
+        logger.error(f"Returning error result: {error_result}")
+        return error_result
+
 @router.get("/api/backtest/{backtest_id}")
 async def get_backtest(backtest_id: str):
     """Get a saved backtest."""
@@ -800,115 +918,3 @@ async def get_optimization_status():
     except Exception as e:
         logger.error(f"Error getting real backtest status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-        
-
-@router.get("/api/backtest/status")
-async def get_backtest_status_multi_api():
-    """Get simplified backtest status with strategy results only"""
-    try:
-        from autobot.data.multi_api_fusion import MultiAPIDataFusion
-        from autobot.trading.intelligent_decision_engine import IntelligentDecisionEngine
-        
-        try:
-            from autobot.main import decision_engine
-            if decision_engine:
-                engine_summary = decision_engine.get_engine_summary()
-                
-                return {
-                    "status": "running",
-                    "current_strategy": "Multi-API Fusion",
-                    "total_return": engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02),
-                    "daily_return": engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02) / 30,
-                    "sharpe_ratio": engine_summary.get('performance_metrics', {}).get('sharpe_ratio', 1.2),
-                    "max_drawdown": abs(engine_summary.get('performance_metrics', {}).get('total_pnl', 0.02)) * 0.3,
-                    "active_positions": engine_summary.get('active_positions', 0),
-                    "strategies_tested": len(engine_summary.get('recent_decisions', [])),
-                    "data_source": "WebSocket Priority"
-                }
-        except Exception as e:
-            logger.warning(f"Decision engine not available: {e}")
-        
-        fusion_system = MultiAPIDataFusion()
-        
-        symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
-        total_return = 0.0
-        daily_return = 0.0
-        sharpe_ratio = 0.0
-        active_positions = 0
-        strategies_tested = 0
-        
-        for symbol in symbols:
-            try:
-                fusion_data = fusion_system.collect_all_data_simultaneously(symbol)
-                if fusion_data and len(fusion_data.get('sources', [])) > 0:
-                    combined_signal = fusion_data.get('combined_signal', 0.0)
-                    data_quality = fusion_data.get('data_quality_score', 0.0)
-                    
-                    strategy_return = combined_signal * data_quality * 0.015  # Enhanced scaling
-                    total_return += strategy_return
-                    daily_return += strategy_return * 0.2  # Daily component
-                    sharpe_ratio += data_quality * 0.8
-                    
-                    if abs(combined_signal) > 0.2:  # Active signal threshold
-                        active_positions += 1
-                    
-                    strategies_tested += 1
-                    logger.info(f"Strategy {symbol}: Return={strategy_return:.4f}, Quality={data_quality:.2f}")
-                    
-            except Exception as e:
-                logger.warning(f"Strategy calculation failed for {symbol}: {e}")
-        
-        if strategies_tested > 0:
-            total_return /= strategies_tested
-            daily_return /= strategies_tested
-            sharpe_ratio /= strategies_tested
-        
-        if active_positions == 0:
-            try:
-                from autobot.optimization.strategy_optimizer import StrategyOptimizer
-                optimizer = StrategyOptimizer()
-                results = optimizer.optimize_all_strategies(symbols)
-                if results and len(results) > 0:
-                    best = results[0]
-                    total_return = best.total_return
-                    daily_return = best.total_return / 30
-                    sharpe_ratio = best.sharpe_ratio
-                    active_positions = len(results)
-                    logger.info(f"Using strategy optimizer results: Return={total_return:.4f}, Strategies={len(results)}")
-                else:
-                    total_return = 0.001
-                    daily_return = 0.001 / 30
-                    sharpe_ratio = 0.1
-                    active_positions = 1
-                    logger.info("Using minimal fallback values")
-            except Exception as e:
-                logger.warning(f"Strategy optimizer failed: {e}")
-                total_return = 0.001
-                daily_return = 0.001 / 30
-                sharpe_ratio = 0.1
-                active_positions = 1
-        
-        return {
-            "status": "running",
-            "current_strategy": "Multi-API Strategy",
-            "total_return": float(total_return),
-            "daily_return": float(daily_return),
-            "sharpe_ratio": float(sharpe_ratio),
-            "max_drawdown": abs(float(total_return)) * 0.25,
-            "active_positions": active_positions,
-            "strategies_tested": strategies_tested,
-            "data_source": "WebSocket + API Fusion"
-        }
-    except Exception as e:
-        logger.error(f"Error in backtest status: {e}")
-        return {
-            "status": "error",
-            "current_strategy": "none",
-            "total_return": 0.0,
-            "daily_return": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-            "active_positions": 0,
-            "data_source": "error",
-            "error": str(e)
-        }

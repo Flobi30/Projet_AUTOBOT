@@ -23,9 +23,15 @@ else:
         return sigdigest.decode()
     
     def get_ticker(pair: str = "XBTUSD") -> dict:
-        r = requests.get(f"{BASE_URL}/0/public/Ticker", params={"pair": pair})
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = requests.get(f"{BASE_URL}/0/public/Ticker", params={"pair": pair})
+            r.raise_for_status()
+            data = r.json()
+            if "error" in data and data["error"]:
+                return {"error": f"Kraken error: {', '.join(data['error'])}"}
+            return data
+        except Exception as e:
+            return {"error": f"Kraken connection error: {str(e)}"}
     
     def get_ohlc(pair: str = "XBTUSD", interval: int = 60) -> dict:
         r = requests.get(f"{BASE_URL}/0/public/OHLC", params={

@@ -9,14 +9,22 @@ else:
         KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
         if not KEY:
             return {"error": "Alpha Vantage API key not configured"}
-        r = requests.get(BASE, params={
-            "function": "TIME_SERIES_INTRADAY",
-            "symbol": symbol,
-            "interval": interval,
-            "apikey": KEY
-        })
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = requests.get(BASE, params={
+                "function": "TIME_SERIES_INTRADAY",
+                "symbol": symbol,
+                "interval": interval,
+                "apikey": KEY
+            })
+            r.raise_for_status()
+            data = r.json()
+            if "Error Message" in data:
+                return {"error": f"Alpha Vantage error: {data['Error Message']}"}
+            elif "Note" in data:
+                return {"error": f"Alpha Vantage rate limit: {data['Note']}"}
+            return data
+        except Exception as e:
+            return {"error": f"Alpha Vantage connection error: {str(e)}"}
     
     def get_time_series(symbol: str, series_type: str = "DAILY") -> dict:
         KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
@@ -97,6 +105,10 @@ else:
             return r.json()
         except Exception as e:
             return {"error": str(e)}
+
+def get_stock_data(symbol: str = "AAPL") -> dict:
+    """Get stock data for connectivity testing"""
+    return get_intraday(symbol, "1min")
 
 get_alphavantage = get_intraday
 get_alphavantage_ts = get_time_series

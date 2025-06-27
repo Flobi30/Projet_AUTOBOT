@@ -1,6 +1,14 @@
 import asyncio
 import os
 from typing import Dict, Any
+
+try:
+    from autobot.config import load_api_keys
+    keys_loaded = load_api_keys()
+    print(f"Loaded {keys_loaded} API keys for connectivity testing")
+except Exception as e:
+    print(f"Warning: Could not load API keys: {e}")
+
 from . import binance, alphavantage, twelvedata, fred, newsapi, shopify, coinbase, kraken
 
 async def test_all_providers() -> Dict[str, Any]:
