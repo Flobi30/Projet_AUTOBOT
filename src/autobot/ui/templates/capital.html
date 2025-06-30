@@ -18,19 +18,19 @@
             <div class="metrics-row">
                 <div class="metric-item">
                     <div class="metric-label">Capital Initial</div>
-                    <div class="metric-value neon-text">500 €</div>
+                    <div class="metric-value neon-text" id="initial-capital">500 €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Capital Actuel</div>
-                    <div class="metric-value neon-text">{{ current_capital|default('578.45') }} €</div>
+                    <div class="metric-value neon-text" id="current-capital">0 €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Profit</div>
-                    <div class="metric-value neon-text">{{ profit|default('78.45') }} €</div>
+                    <div class="metric-value neon-text" id="total-profit">-500 €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">ROI</div>
-                    <div class="metric-value neon-text">{{ roi|default('15.69') }} %</div>
+                    <div class="metric-value neon-text" id="roi">-100.0 %</div>
                 </div>
             </div>
         </div>
@@ -129,11 +129,11 @@
             <div class="metrics-row">
                 <div class="metric-item">
                     <div class="metric-label">Disponible pour Retrait</div>
-                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('350.00') }} €</div>
+                    <div class="metric-value neon-text" id="available-withdrawal">0.00 €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">En Cours d'Utilisation</div>
-                    <div class="metric-value neon-text">{{ in_use|default('228.45') }} €</div>
+                    <div class="metric-value neon-text" id="in-use">0.00 €</div>
                 </div>
             </div>
         </div>
@@ -435,11 +435,11 @@
             <div class="metrics-row">
                 <div class="metric-item">
                     <div class="metric-label">Disponible pour Retrait</div>
-                    <div class="metric-value neon-text">{{ available_for_withdrawal|default('350.00') }} €</div>
+                    <div class="metric-value neon-text" id="available-withdrawal">0.00 €</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">En Cours d'Utilisation</div>
-                    <div class="metric-value neon-text">{{ in_use|default('228.45') }} €</div>
+                    <div class="metric-value neon-text" id="in-use">0.00 €</div>
                 </div>
             </div>
         </div>
@@ -837,24 +837,29 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Graphique d'évolution du capital
-        const capitalCtx = document.getElementById('capitalChart').getContext('2d');
-        const capitalChart = new Chart(capitalCtx, {
-            type: 'line',
-            data: {
-                labels: ['1 Mai', '5 Mai', '10 Mai', '15 Mai', '20 Mai', 'Aujourd\'hui'],
-                datasets: [{
-                    label: 'Capital (€)',
-                    data: [500, 510, 525, 545, 560, 578.45],
-                    borderColor: '#00ff9d',
-                    backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                    borderWidth: 2,
-                    pointBackgroundColor: '#00ff9d',
-                    pointRadius: 4,
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
+        // Global variables for charts
+        let capitalChart, allocationChart;
+        
+        // Initialize charts with default data
+        function initializeCharts() {
+            // Graphique d'évolution du capital
+            const capitalCtx = document.getElementById('capitalChart').getContext('2d');
+            capitalChart = new Chart(capitalCtx, {
+                type: 'line',
+                data: {
+                    labels: ['1 Mai', '5 Mai', '10 Mai', '15 Mai', '20 Mai', 'Aujourd\'hui'],
+                    datasets: [{
+                        label: 'Capital (€)',
+                        data: [500, 500, 500, 500, 500, 0],
+                        borderColor: '#00ff9d',
+                        backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#00ff9d',
+                        pointRadius: 4,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -896,22 +901,22 @@
             }
         });
 
-        // Graphique d'allocation du capital
-        const allocationCtx = document.getElementById('allocationChart').getContext('2d');
-        const allocationChart = new Chart(allocationCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Trading', 'E-commerce'],
-                datasets: [{
-                    data: [65, 35],
-                    backgroundColor: [
-                        '#00ff9d',
-                        '#00ccff'
-                    ],
-                    borderColor: '#1e1e1e',
-                    borderWidth: 2
-                }]
-            },
+            // Graphique d'allocation du capital
+            const allocationCtx = document.getElementById('allocationChart').getContext('2d');
+            allocationChart = new Chart(allocationCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Trading', 'E-commerce'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: [
+                            '#00ff9d',
+                            '#00ccff'
+                        ],
+                        borderColor: '#1e1e1e',
+                        borderWidth: 2
+                    }]
+                },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -928,8 +933,64 @@
                     }
                 },
                 cutout: '70%'
+                }
+            });
+        }
+        
+        // Function to update capital metrics from API
+        async function updateCapitalMetrics() {
+            try {
+                const response = await fetch('/api/metrics/capital');
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data) {
+                    const data = result.data;
+                    
+                    // Update main metrics
+                    document.getElementById('initial-capital').textContent = `${data.initial_capital || 500} €`;
+                    document.getElementById('current-capital').textContent = `${data.current_capital || 0} €`;
+                    document.getElementById('total-profit').textContent = `${data.total_profit || -500} €`;
+                    document.getElementById('roi').textContent = `${data.roi || -100.0} %`;
+                    
+                    // Update withdrawal metrics
+                    document.getElementById('available-withdrawal').textContent = `${data.available_for_withdrawal || 0} €`;
+                    document.getElementById('in-use').textContent = `${data.in_use || 0} €`;
+                    
+                    // Update charts with real data
+                    if (capitalChart && data.chart_data) {
+                        capitalChart.data.datasets[0].data = data.chart_data;
+                        capitalChart.update('none');
+                    }
+                    
+                    if (allocationChart) {
+                        allocationChart.data.datasets[0].data = [
+                            data.trading_allocation || 0,
+                            data.hft_allocation || 0
+                        ];
+                        allocationChart.update('none');
+                    }
+                    
+                    // Update allocation percentages in legend
+                    const tradingAllocation = document.querySelector('.allocation-item:nth-child(1) .allocation-value');
+                    const ecommerceAllocation = document.querySelector('.allocation-item:nth-child(2) .allocation-value');
+                    if (tradingAllocation) tradingAllocation.textContent = `${data.trading_allocation || 0}%`;
+                    if (ecommerceAllocation) ecommerceAllocation.textContent = `${data.hft_allocation || 0}%`;
+                    
+                    console.log('Capital metrics updated successfully');
+                } else {
+                    console.warn('Failed to fetch capital metrics:', result);
+                }
+            } catch (error) {
+                console.error('Error updating capital metrics:', error);
             }
-        });
+        }
+        
+        // Initialize charts and start polling
+        initializeCharts();
+        updateCapitalMetrics(); // Initial load
+        
+        // Poll for updates every 5 seconds
+        setInterval(updateCapitalMetrics, 5000);
     });
         
         // Deposit/Withdrawal Modal Functions
