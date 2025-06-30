@@ -830,15 +830,15 @@
             alert('Erreur lors du retrait');
         }
     }
-</script>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    // Global variables for charts
+    let capitalChart, allocationChart;
+    
     document.addEventListener('DOMContentLoaded', function() {
-        // Global variables for charts
-        let capitalChart, allocationChart;
         
         // Initialize charts with default data
         function initializeCharts() {
@@ -860,46 +860,46 @@
                         fill: true
                     }]
                 },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#00ff9d',
-                        bodyColor: '#ffffff',
-                        borderColor: '#00ff9d',
-                        borderWidth: 1
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
                         },
-                        ticks: {
-                            color: '#cccccc'
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#00ff9d',
+                            bodyColor: '#ffffff',
+                            borderColor: '#00ff9d',
+                            borderWidth: 1
                         }
                     },
-                    y: {
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
+                    scales: {
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#cccccc'
+                            }
                         },
-                        ticks: {
-                            color: '#cccccc',
-                            callback: function(value) {
-                                return value + ' €';
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#cccccc',
+                                callback: function(value) {
+                                    return value + ' €';
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
 
             // Graphique d'allocation du capital
             const allocationCtx = document.getElementById('allocationChart').getContext('2d');
@@ -917,22 +917,22 @@
                         borderWidth: 2
                     }]
                 },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#00ff9d',
+                            bodyColor: '#ffffff',
+                            borderColor: '#00ff9d',
+                            borderWidth: 1
+                        }
                     },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#00ff9d',
-                        bodyColor: '#ffffff',
-                        borderColor: '#00ff9d',
-                        borderWidth: 1
-                    }
-                },
-                cutout: '70%'
+                    cutout: '70%'
                 }
             });
         }
@@ -945,19 +945,42 @@
                     if (result.status === 'success' && result.data) {
                         const data = result.data;
                         
-                        // Update main metrics with real API data
-                        document.getElementById('initial-capital').textContent = `${data.initial_capital} €`;
-                        document.getElementById('current-capital').textContent = `${data.current_capital} €`;
-                        document.getElementById('total-profit').textContent = `${data.total_profit} €`;
-                        document.getElementById('roi').textContent = `${data.roi} %`;
+                        // Update main metrics using DOM traversal (since elements don't have IDs)
+                        const allElements = document.querySelectorAll('*');
                         
-                        // Update withdrawal metrics
-                        if (document.getElementById('available-withdrawal')) {
-                            document.getElementById('available-withdrawal').textContent = `${data.available_for_withdrawal.toFixed(2)} €`;
-                        }
-                        if (document.getElementById('in-use')) {
-                            document.getElementById('in-use').textContent = `${data.in_use.toFixed(2)} €`;
-                        }
+                        allElements.forEach(el => {
+                            const text = el.textContent.trim();
+                            
+                            // Update Capital Actuel
+                            if (text.includes('€') && el.previousElementSibling && 
+                                el.previousElementSibling.textContent.includes('Capital Actuel')) {
+                                el.textContent = `${data.current_capital} €`;
+                            }
+                            
+                            // Update Profit
+                            if (text.includes('€') && el.previousElementSibling && 
+                                el.previousElementSibling.textContent.includes('Profit')) {
+                                el.textContent = `${data.total_profit} €`;
+                            }
+                            
+                            // Update ROI
+                            if (text.includes('%') && el.previousElementSibling && 
+                                el.previousElementSibling.textContent.includes('ROI')) {
+                                el.textContent = `${data.roi} %`;
+                            }
+                            
+                            // Update Disponible pour Retrait
+                            if (text.includes('€') && el.previousElementSibling && 
+                                el.previousElementSibling.textContent.includes('Disponible pour Retrait')) {
+                                el.textContent = `${(data.available_for_withdrawal || 0).toFixed(2)} €`;
+                            }
+                            
+                            // Update En Cours d'Utilisation
+                            if (text.includes('€') && el.previousElementSibling && 
+                                el.previousElementSibling.textContent.includes('En Cours d\'Utilisation')) {
+                                el.textContent = `${(data.in_use || 0).toFixed(2)} €`;
+                            }
+                        });
                         
                         // Update charts with real data
                         if (window.capitalChart && data.chart_data) {
