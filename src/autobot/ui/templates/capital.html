@@ -938,52 +938,63 @@
         }
         
         // Function to update capital metrics from API
-        async function updateCapitalMetrics() {
-            try {
-                const response = await fetch('/api/metrics/capital');
-                const result = await response.json();
-                
-                if (result.status === 'success' && result.data) {
-                    const data = result.data;
-                    
-                    // Update main metrics
-                    document.getElementById('initial-capital').textContent = `${data.initial_capital || 500} €`;
-                    document.getElementById('current-capital').textContent = `${data.current_capital || 0} €`;
-                    document.getElementById('total-profit').textContent = `${data.total_profit || -500} €`;
-                    document.getElementById('roi').textContent = `${data.roi || -100.0} %`;
-                    
-                    // Update withdrawal metrics
-                    document.getElementById('available-withdrawal').textContent = `${data.available_for_withdrawal || 0} €`;
-                    document.getElementById('in-use').textContent = `${data.in_use || 0} €`;
-                    
-                    // Update charts with real data
-                    if (capitalChart && data.chart_data) {
-                        capitalChart.data.datasets[0].data = data.chart_data;
-                        capitalChart.update('none');
+        function updateCapitalMetrics() {
+            fetch('/api/metrics/capital')
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === 'success' && result.data) {
+                        const data = result.data;
+                        
+                        // Update main metrics with real API data
+                        document.getElementById('initial-capital').textContent = `${data.initial_capital} €`;
+                        document.getElementById('current-capital').textContent = `${data.current_capital} €`;
+                        document.getElementById('total-profit').textContent = `${data.total_profit} €`;
+                        document.getElementById('roi').textContent = `${data.roi} %`;
+                        
+                        // Update withdrawal metrics
+                        if (document.getElementById('available-withdrawal')) {
+                            document.getElementById('available-withdrawal').textContent = `${data.available_for_withdrawal.toFixed(2)} €`;
+                        }
+                        if (document.getElementById('in-use')) {
+                            document.getElementById('in-use').textContent = `${data.in_use.toFixed(2)} €`;
+                        }
+                        
+                        // Update charts with real data
+                        if (window.capitalChart && data.chart_data) {
+                            window.capitalChart.data.datasets[0].data = data.chart_data;
+                            window.capitalChart.update('none');
+                        }
+                        
+                        if (window.allocationChart) {
+                            window.allocationChart.data.datasets[0].data = [
+                                data.trading_allocation,
+                                data.hft_allocation
+                            ];
+                            window.allocationChart.update('none');
+                        }
+                        
+                        // Update allocation percentages in legend
+                        const tradingAllocation = document.querySelector('.allocation-item:nth-child(1) .allocation-value');
+                        const ecommerceAllocation = document.querySelector('.allocation-item:nth-child(2) .allocation-value');
+                        if (tradingAllocation) tradingAllocation.textContent = `${data.trading_allocation}%`;
+                        if (ecommerceAllocation) ecommerceAllocation.textContent = `${data.hft_allocation}%`;
+                        
+                        console.log('✅ Capital metrics updated successfully:', {
+                            capital: data.current_capital,
+                            profit: data.total_profit,
+                            roi: data.roi
+                        });
+                    } else {
+                        console.warn('❌ Failed to fetch capital metrics:', result);
                     }
-                    
-                    if (allocationChart) {
-                        allocationChart.data.datasets[0].data = [
-                            data.trading_allocation || 0,
-                            data.hft_allocation || 0
-                        ];
-                        allocationChart.update('none');
-                    }
-                    
-                    // Update allocation percentages in legend
-                    const tradingAllocation = document.querySelector('.allocation-item:nth-child(1) .allocation-value');
-                    const ecommerceAllocation = document.querySelector('.allocation-item:nth-child(2) .allocation-value');
-                    if (tradingAllocation) tradingAllocation.textContent = `${data.trading_allocation || 0}%`;
-                    if (ecommerceAllocation) ecommerceAllocation.textContent = `${data.hft_allocation || 0}%`;
-                    
-                    console.log('Capital metrics updated successfully');
-                } else {
-                    console.warn('Failed to fetch capital metrics:', result);
-                }
-            } catch (error) {
-                console.error('Error updating capital metrics:', error);
-            }
+                })
+                .catch(error => {
+                    console.error('❌ Error updating capital metrics:', error);
+                });
         }
+        
+        // Make function globally accessible
+        window.updateCapitalMetrics = updateCapitalMetrics;
         
         // Initialize charts and start polling
         initializeCharts();
@@ -991,116 +1002,114 @@
         
         // Poll for updates every 5 seconds
         setInterval(updateCapitalMetrics, 5000);
-    });
         
         // Deposit/Withdrawal Modal Functions
-        document.addEventListener('DOMContentLoaded', function() {
-            if (document.getElementById('depositMethod')) {
-                document.getElementById('depositMethod').addEventListener('change', function() {
-                    const bankDetails = document.getElementById('bankDetails');
-                    if (this.value === 'bank') {
-                        bankDetails.style.display = 'block';
-                        document.getElementById('depositIban').required = true;
-                        document.getElementById('depositBic').required = true;
+        if (document.getElementById('depositMethod')) {
+            document.getElementById('depositMethod').addEventListener('change', function() {
+                const bankDetails = document.getElementById('bankDetails');
+                if (this.value === 'bank') {
+                    bankDetails.style.display = 'block';
+                    document.getElementById('depositIban').required = true;
+                    document.getElementById('depositBic').required = true;
+                } else {
+                    bankDetails.style.display = 'none';
+                    document.getElementById('depositIban').required = false;
+                    document.getElementById('depositBic').required = false;
+                }
+            });
+        }
+        
+        if (document.getElementById('withdrawMethod')) {
+            document.getElementById('withdrawMethod').addEventListener('change', function() {
+                const bankDetails = document.getElementById('withdrawBankDetails');
+                if (this.value === 'bank') {
+                    bankDetails.style.display = 'block';
+                    document.getElementById('withdrawIban').required = true;
+                    document.getElementById('withdrawBic').required = true;
+                } else {
+                    bankDetails.style.display = 'none';
+                    document.getElementById('withdrawIban').required = false;
+                    document.getElementById('withdrawBic').required = false;
+                }
+            });
+        }
+        
+        if (document.getElementById('depositForm')) {
+            document.getElementById('depositForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const amount = document.getElementById('depositAmount').value;
+                const method = document.getElementById('depositMethod').value;
+                const iban = document.getElementById('depositIban').value;
+                const bic = document.getElementById('depositBic').value;
+                
+                try {
+                    const response = await fetch('/api/deposit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            amount: parseFloat(amount),
+                            method: method,
+                            iban: iban,
+                            bic: bic
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        alert(result.message);
+                        closeDepositModal();
+                        location.reload();
                     } else {
-                        bankDetails.style.display = 'none';
-                        document.getElementById('depositIban').required = false;
-                        document.getElementById('depositBic').required = false;
+                        alert('Erreur: ' + result.message);
                     }
-                });
-            }
-            
-            if (document.getElementById('withdrawMethod')) {
-                document.getElementById('withdrawMethod').addEventListener('change', function() {
-                    const bankDetails = document.getElementById('withdrawBankDetails');
-                    if (this.value === 'bank') {
-                        bankDetails.style.display = 'block';
-                        document.getElementById('withdrawIban').required = true;
-                        document.getElementById('withdrawBic').required = true;
+                } catch (error) {
+                    alert('Erreur lors du dépôt: ' + error.message);
+                }
+            });
+        }
+        
+        if (document.getElementById('withdrawForm')) {
+            document.getElementById('withdrawForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const amount = document.getElementById('withdrawAmount').value;
+                const method = document.getElementById('withdrawMethod').value;
+                const iban = document.getElementById('withdrawIban').value;
+                const bic = document.getElementById('withdrawBic').value;
+                
+                try {
+                    const response = await fetch('/api/withdraw', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            amount: parseFloat(amount),
+                            method: method,
+                            iban: iban,
+                            bic: bic
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        alert(result.message);
+                        closeWithdrawModal();
+                        location.reload();
                     } else {
-                        bankDetails.style.display = 'none';
-                        document.getElementById('withdrawIban').required = false;
-                        document.getElementById('withdrawBic').required = false;
+                        alert('Erreur: ' + result.message);
                     }
-                });
-            }
-            
-            if (document.getElementById('depositForm')) {
-                document.getElementById('depositForm').addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    
-                    const amount = document.getElementById('depositAmount').value;
-                    const method = document.getElementById('depositMethod').value;
-                    const iban = document.getElementById('depositIban').value;
-                    const bic = document.getElementById('depositBic').value;
-                    
-                    try {
-                        const response = await fetch('/api/deposit', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                amount: parseFloat(amount),
-                                method: method,
-                                iban: iban,
-                                bic: bic
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (result.status === 'success') {
-                            alert(result.message);
-                            closeDepositModal();
-                            location.reload();
-                        } else {
-                            alert('Erreur: ' + result.message);
-                        }
-                    } catch (error) {
-                        alert('Erreur lors du dépôt: ' + error.message);
-                    }
-                });
-            }
-            
-            if (document.getElementById('withdrawForm')) {
-                document.getElementById('withdrawForm').addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    
-                    const amount = document.getElementById('withdrawAmount').value;
-                    const method = document.getElementById('withdrawMethod').value;
-                    const iban = document.getElementById('withdrawIban').value;
-                    const bic = document.getElementById('withdrawBic').value;
-                    
-                    try {
-                        const response = await fetch('/api/withdraw', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                amount: parseFloat(amount),
-                                method: method,
-                                iban: iban,
-                                bic: bic
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (result.status === 'success') {
-                            alert(result.message);
-                            closeWithdrawModal();
-                            location.reload();
-                        } else {
-                            alert('Erreur: ' + result.message);
-                        }
-                    } catch (error) {
-                        alert('Erreur lors du retrait: ' + error.message);
-                    }
-                });
-            }
-        });
+                } catch (error) {
+                    alert('Erreur lors du retrait: ' + error.message);
+                }
+            });
+        }
+    });
 
 </script>
 {% endblock %}
