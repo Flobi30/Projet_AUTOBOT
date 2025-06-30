@@ -388,14 +388,14 @@ function updateAutomaticBacktest() {
                 document.getElementById('system-status').textContent = 'Stratégies actives - Performance en temps réel';
                 
                 if (data.total_return !== undefined) {
-                    // Update main metrics with simplified display
-                    document.getElementById('total-return').textContent = (data.total_return * 100).toFixed(2) + '%';
-                    document.getElementById('daily-return').textContent = (data.daily_return * 100).toFixed(2) + '%';
+                    // Update main metrics with real data (API already returns percentages)
+                    document.getElementById('total-return').textContent = data.total_return.toFixed(2) + '%';
+                    document.getElementById('daily-return').textContent = data.daily_return.toFixed(2) + '%';
                     document.getElementById('sharpe-ratio').textContent = data.sharpe_ratio.toFixed(2);
                     document.getElementById('active-positions').textContent = data.active_positions || 0;
                     document.getElementById('strategies-tested').textContent = data.strategies_tested || 0;
                     
-                    const newCapital = 500 + (500 * data.total_return);
+                    const newCapital = data.backtest_details?.cumulative_capital || (500 + (500 * data.total_return / 100));
                     updateCapitalChart(newCapital);
                     
                     const lastUpdateElement = document.getElementById('last-update');
@@ -419,7 +419,7 @@ function updateAutomaticBacktest() {
                     logEntry.className = 'log-entry';
                     logEntry.innerHTML = `
                         <span class="log-timestamp">${logTime}</span>
-                        <span class="log-success">Stratégie: ${data.current_strategy} - Performance: ${(data.total_return * 100).toFixed(2)}%</span>
+                        <span class="log-success">Stratégie: ${data.current_strategy} - Performance: ${data.total_return.toFixed(2)}%</span>
                     `;
                     
                     activityLog.insertBefore(logEntry, activityLog.firstChild);
@@ -434,7 +434,7 @@ function updateAutomaticBacktest() {
                     strategyList.innerHTML = `
                         <div class="strategy-item">
                             <div class="strategy-name">${data.current_strategy}</div>
-                            <div class="strategy-performance">${(data.total_return * 100).toFixed(2)}% - ${data.active_positions} positions</div>
+                            <div class="strategy-performance">${data.total_return.toFixed(2)}% - ${data.active_positions} positions</div>
                         </div>
                     `;
                     
@@ -458,10 +458,10 @@ function updateAutomaticBacktest() {
             console.log('Auto metrics update:', data);
             
             if (data.status === 'running') {
-                // Update Auto metrics using the same real data
+                // Update Auto metrics using the same real data (API already returns percentages)
                 if (data.total_return !== undefined) {
-                    document.getElementById('auto-total-return').textContent = (data.total_return * 100).toFixed(2) + '%';
-                    document.getElementById('auto-daily-return').textContent = (data.daily_return * 100).toFixed(2) + '%';
+                    document.getElementById('auto-total-return').textContent = data.total_return.toFixed(2) + '%';
+                    document.getElementById('auto-daily-return').textContent = data.daily_return.toFixed(2) + '%';
                 }
                 
                 if (data.sharpe_ratio !== undefined) {
