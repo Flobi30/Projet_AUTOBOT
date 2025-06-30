@@ -10,6 +10,7 @@ import time
 import uuid
 import random
 import numpy as np
+import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +20,7 @@ from pydantic import BaseModel
 
 from ..autobot_security.auth.user_manager import User, get_current_user
 from ..adaptive.capital_manager import AdaptiveCapitalManager
+from ..db.models import SessionLocal, BacktestResult as DBBacktestResult, CapitalHistory as DBCapitalHistory
 
 logger = logging.getLogger(__name__)
 
@@ -813,22 +815,25 @@ async def get_optimization_status():
             crypto_result = engine.run_comprehensive_backtest(symbol="BTCUSDT", strategy="crypto", periods=100, initial_capital=300.0)
             if 'error' not in crypto_result:
                 real_results['trading'] = crypto_result
-        except:
-            pass
+                _save_backtest_to_database("crypto", "BTCUSDT", crypto_result, 300.0)
+        except Exception as e:
+            logger.error(f"Crypto backtest error: {e}")
         
         try:
             stock_result = engine.run_comprehensive_backtest(symbol="AAPL", strategy="stock", periods=100, initial_capital=100.0)
             if 'error' not in stock_result:
                 real_results['ecommerce'] = stock_result
-        except:
-            pass
+                _save_backtest_to_database("stock", "AAPL", stock_result, 100.0)
+        except Exception as e:
+            logger.error(f"Stock backtest error: {e}")
         
         try:
             forex_result = engine.run_comprehensive_backtest(symbol="EUR/USD", strategy="forex", periods=100, initial_capital=100.0)
             if 'error' not in forex_result:
                 real_results['arbitrage'] = forex_result
-        except:
-            pass
+                _save_backtest_to_database("forex", "EUR/USD", forex_result, 100.0)
+        except Exception as e:
+            logger.error(f"Forex backtest error: {e}")
         
         total_profit = 0.0
         
@@ -862,8 +867,26 @@ async def get_optimization_status():
         auto_backtest_state["total_profit"] = round(total_profit, 2)
         auto_backtest_state["optimization_progress"] = min(100, int(elapsed_minutes * 2))
         
-        total_return = round((total_profit / 500) * 100, 2)
-        daily_return = round(total_return / max(1, elapsed_minutes / 60 / 24), 2)  # Actual daily rate
+        cumulative_data = _load_cumulative_performance()
+        
+        if cumulative_data['performance_count'] > 0:
+            total_return = round(cumulative_data['total_return'], 2)
+            cumulative_capital = cumulative_data['cumulative_capital']
+            total_trades = cumulative_data['total_trades']
+            avg_sharpe = cumulative_data['avg_sharpe']
+            
+            days_active = max(1, cumulative_data['days_active'])
+            daily_return = round(total_return / days_active, 2)
+            
+            logger.info(f"📊 USING REAL CUMULATIVE DATA: {total_return}% return over {days_active} days from {cumulative_data['performance_count']} backtests")
+            logger.info(f"📊 Cumulative capital: {cumulative_capital}€, Daily return: {daily_return}%")
+        else:
+            total_return = round((total_profit / 500) * 100, 2)
+            daily_return = round(total_return / max(1, elapsed_minutes / 60 / 24), 2)
+            cumulative_capital = 500.0 + total_profit
+            total_trades = sum(module.get('current_trades', 0) for module in auto_backtest_state["modules"].values())
+            avg_sharpe = 0.0
+            logger.info(f"📊 Using session data (no historical data): {total_return}% return")
         
         best_sharpe = 0.0
         best_drawdown = 0.0
@@ -876,7 +899,7 @@ async def get_optimization_status():
                 best_sharpe = sharpe
                 best_drawdown = drawdown
         
-        sharpe_ratio = best_sharpe if best_sharpe > 0 else round(total_return / 10, 2)  # Rough estimate
+        sharpe_ratio = avg_sharpe if avg_sharpe > 0 else (best_sharpe if best_sharpe > 0 else round(total_return / 10, 2))
         max_drawdown = best_drawdown if best_drawdown > 0 else round(abs(min(0, total_return)) * 0.3, 2)
         
         target_achieved = daily_return >= 5.0  # More realistic target
@@ -895,7 +918,14 @@ async def get_optimization_status():
         
         return {
             "status": "running",
-            "optimization_level": "REAL_DATA",
+            "optimization_level": "REAL_CUMULATIVE_DATA",
+            "current_strategy": "Real Historical Backtests",
+            "total_return": total_return,
+            "daily_return": daily_return,
+            "sharpe_ratio": round(sharpe_ratio, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "active_positions": sum(module.get('current_trades', 0) for module in auto_backtest_state["modules"].values()),
+            "strategies_tested": cumulative_data['performance_count'] if cumulative_data['performance_count'] > 0 else 6,
             "metrics": {
                 "total_return": total_return,
                 "daily_return": daily_return,
@@ -907,11 +937,127 @@ async def get_optimization_status():
             "modules": auto_backtest_state["modules"],
             "status_messages": status_messages,
             "optimization_progress": auto_backtest_state["optimization_progress"],
-            "total_trades": auto_backtest_state["modules"]["trading"]["current_trades"],
+            "total_trades": total_trades,
+            "cumulative_capital": round(cumulative_capital, 2),
             "real_data_sources": list(real_results.keys()),
-            "data_quality": "LIVE_MARKET_DATA"
+            "data_quality": "REAL_CUMULATIVE_DATA",
+            "data_source": "Real Historical Performance"
         }
         
     except Exception as e:
         logger.error(f"Error getting real backtest status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _save_backtest_to_database(strategy_name: str, symbol: str, result: dict, initial_capital: float):
+    """Save backtest results to database for historical tracking."""
+    logger.info(f"🔄 _save_backtest_to_database called: {strategy_name} on {symbol}")
+    try:
+        logger.info(f"🔄 Creating database session...")
+        db = SessionLocal()
+        
+        total_return = result.get('total_return', 0.0)
+        final_capital = initial_capital * (1 + total_return)
+        
+        # Create backtest result record using SQLAlchemy model
+        backtest_result = DBBacktestResult(
+            id=f"{strategy_name}_{symbol}_{int(datetime.now().timestamp())}",
+            symbol=symbol,
+            strategy=strategy_name,
+            initial_capital=initial_capital,
+            final_capital=final_capital,
+            total_return=total_return * 100,  # Convert to percentage
+            sharpe_ratio=result.get('sharpe_ratio', 0.0),
+            max_drawdown=result.get('max_drawdown', 0.0),
+            strategy_params=json.dumps(result.get('params', {}))
+        )
+        
+        db.add(backtest_result)
+        
+        # Create capital history record using SQLAlchemy model
+        capital_history = DBCapitalHistory(
+            backtest_id=backtest_result.id,
+            capital_value=final_capital,
+            strategy_name=strategy_name,
+            performance_metrics=json.dumps({
+                'total_return': total_return * 100,
+                'sharpe_ratio': result.get('sharpe_ratio', 0.0),
+                'max_drawdown': result.get('max_drawdown', 0.0),
+                'total_trades': result.get('total_trades', 0)
+            })
+        )
+        
+        db.add(capital_history)
+        db.commit()
+        
+        logger.info(f"✅ Saved {strategy_name} backtest to database: {total_return*100:.2f}% return")
+        
+        try:
+            from ..adaptive.capital_manager import adaptive_capital_manager
+            adaptive_capital_manager.update_performance(
+                strategy_name, initial_capital, total_return * 100,
+                result.get('sharpe_ratio', 0.0), result.get('max_drawdown', 0.0)
+            )
+            logger.info(f"✅ Updated adaptive capital manager with {strategy_name} performance")
+        except Exception as e:
+            logger.warning(f"Could not update adaptive capital manager: {e}")
+        
+        db.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to save backtest to database: {e}")
+        import traceback
+        logger.error(f"❌ Database save traceback: {traceback.format_exc()}")
+
+
+def _load_cumulative_performance():
+    """Load cumulative performance from database for display."""
+    try:
+        db = SessionLocal()
+        
+        results = db.query(DBBacktestResult).order_by(DBBacktestResult.timestamp.desc()).all()
+        
+        if not results:
+            db.close()
+            return {
+                'total_return': 0.0,
+                'total_trades': 0,
+                'avg_sharpe': 0.0,
+                'cumulative_capital': 500.0,
+                'performance_count': 0,
+                'days_active': 1
+            }
+        
+        oldest_record = min(results, key=lambda x: x.timestamp)
+        newest_record = max(results, key=lambda x: x.timestamp)
+        days_active = max(1, (newest_record.timestamp - oldest_record.timestamp).days)
+        
+        total_return = sum(result.total_return for result in results)  # Sum all returns for cumulative
+        total_trades = sum(json.loads(result.strategy_params or '{}').get('total_trades', 1) for result in results)
+        avg_sharpe = sum(result.sharpe_ratio for result in results) / len(results)
+        
+        cumulative_capital = 500.0 + (total_return * 500.0 / 100)  # Base capital + total gains
+        
+        db.close()
+        
+        logger.info(f"📊 Loaded {len(results)} records spanning {days_active} days")
+        
+        return {
+            'total_return': total_return,
+            'total_trades': total_trades,
+            'avg_sharpe': avg_sharpe,
+            'cumulative_capital': cumulative_capital,
+            'performance_count': len(results),
+            'days_active': days_active
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load cumulative performance: {e}")
+        return {
+            'total_return': 0.0,
+            'total_trades': 0,
+            'avg_sharpe': 0.0,
+            'cumulative_capital': 500.0,
+            'performance_count': 0,
+            'days_active': 1
+        }
