@@ -509,5 +509,75 @@ window.addEventListener('beforeunload', function() {
         clearInterval(autoBacktestInterval);
     }
 });
+
+// Permanent JavaScript fix for real-time data display
+function updateBacktestMetricsPermanent() {
+    fetch('/api/backtest/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'running') {
+                console.log('✅ Updating Backtest page with real API data');
+                
+                // Update all metric elements
+                const allElements = document.querySelectorAll('*');
+                
+                allElements.forEach(el => {
+                    const text = el.textContent.trim();
+                    
+                    // Update Rendement Total
+                    if (text === '+0.00%' && el.previousElementSibling && 
+                        el.previousElementSibling.textContent.includes('RENDEMENT TOTAL')) {
+                        el.textContent = `+${data.total_return.toFixed(2)}%`;
+                        el.style.color = '#00ff9d';
+                    }
+                    
+                    // Update Rendement Journalier
+                    if (text === '+0.00%' && el.previousElementSibling && 
+                        el.previousElementSibling.textContent.includes('RENDEMENT JOURNALIER')) {
+                        el.textContent = `+${data.daily_return.toFixed(2)}%`;
+                        el.style.color = '#00ff9d';
+                    }
+                    
+                    // Update Strategies Testées
+                    if (text === '0' && el.previousElementSibling && 
+                        el.previousElementSibling.textContent.includes('STRATÉGIES TESTÉES')) {
+                        el.textContent = data.strategies_tested.toString();
+                        el.style.color = '#00ff9d';
+                    }
+                    
+                    // Update Positions Actives
+                    if (text === '0' && el.previousElementSibling && 
+                        el.previousElementSibling.textContent.includes('POSITIONS ACTIVES')) {
+                        el.textContent = data.active_positions.toString();
+                        el.style.color = '#00ff9d';
+                    }
+                    
+                    // Update Ratio de Sharpe
+                    if (text === '0.00' && el.previousElementSibling && 
+                        el.previousElementSibling.textContent.includes('RATIO DE SHARPE')) {
+                        el.textContent = data.sharpe_ratio.toFixed(2);
+                        el.style.color = '#00ff9d';
+                    }
+                });
+                
+                console.log('✅ Backtest page updated successfully with real data');
+            }
+        })
+        .catch(error => {
+            console.error('❌ Error updating backtest metrics:', error);
+        });
+}
+
+// Make function globally accessible and start polling
+window.updateBacktestMetricsPermanent = updateBacktestMetricsPermanent;
+
+// Set up permanent polling every 5 seconds
+if (window.backtestUpdateInterval) {
+    clearInterval(window.backtestUpdateInterval);
+}
+window.backtestUpdateInterval = setInterval(updateBacktestMetricsPermanent, 5000);
+
+// Initial update
+updateBacktestMetricsPermanent();
 </script>
 {% endblock %}
