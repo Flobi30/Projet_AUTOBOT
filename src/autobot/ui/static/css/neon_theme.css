@@ -1320,6 +1320,28 @@ textarea.form-control:focus {
     visibility: visible !important;
 }
 
+/* Stripe status indicators */
+.stripe-status-ok {
+    color: #00ff88;
+    font-weight: bold;
+}
+
+.stripe-status-warning {
+    color: #ffaa00;
+    font-weight: bold;
+}
+
+.trading-performance {
+    border-left: 3px solid #00ff88;
+    padding-left: 10px;
+    margin-top: 10px;
+}
+
+.trading-performance small {
+    color: #888;
+    font-style: italic;
+}
+
 /* Override any offscreen attributes */
 [offscreen] {
     display: block !important;

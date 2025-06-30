@@ -32,6 +32,19 @@
                     <div class="metric-label">ROI</div>
                     <div class="metric-value neon-text" id="roi">-100.0 %</div>
                 </div>
+                <div class="metric-item">
+                    <div class="metric-label">Configuration Stripe</div>
+                    <div id="stripe-status" class="stripe-status">
+                        Vérification en cours...
+                    </div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Performance Trading</div>
+                    <div id="trading-performance" class="trading-performance">
+                        Chargement...
+                    </div>
+                    <small>Note: Ces métriques reflètent les performances de trading et sont séparées du capital réel.</small>
+                </div>
             </div>
         </div>
     </div>
@@ -945,42 +958,43 @@
                     if (result.status === 'success' && result.data) {
                         const data = result.data;
                         
-                        // Update main metrics using DOM traversal (since elements don't have IDs)
-                        const allElements = document.querySelectorAll('*');
+                        // Update main metrics using proper IDs
+                        const initialCapitalEl = document.getElementById('initial-capital');
+                        const currentCapitalEl = document.getElementById('current-capital');
+                        const totalProfitEl = document.getElementById('total-profit');
+                        const roiEl = document.getElementById('roi');
+                        const availableWithdrawalEl = document.getElementById('available-withdrawal');
+                        const inUseEl = document.getElementById('in-use');
                         
-                        allElements.forEach(el => {
-                            const text = el.textContent.trim();
-                            
-                            // Update Capital Actuel
-                            if (text.includes('€') && el.previousElementSibling && 
-                                el.previousElementSibling.textContent.includes('Capital Actuel')) {
-                                el.textContent = `${data.current_capital} €`;
+                        if (initialCapitalEl) initialCapitalEl.textContent = `${data.initial_capital.toFixed(2)} €`;
+                        if (currentCapitalEl) currentCapitalEl.textContent = `${data.current_capital.toFixed(2)} €`;
+                        if (totalProfitEl) totalProfitEl.textContent = `${data.total_profit.toFixed(2)} €`;
+                        if (roiEl) roiEl.textContent = `${data.roi.toFixed(2)}%`;
+                        if (availableWithdrawalEl) availableWithdrawalEl.textContent = `${(data.available_for_withdrawal || 0).toFixed(2)} €`;
+                        if (inUseEl) inUseEl.textContent = `${(data.in_use || 0).toFixed(2)} €`;
+                        
+                        // Show Stripe configuration status
+                        const statusElement = document.getElementById('stripe-status');
+                        if (statusElement) {
+                            if (data.stripe_configured) {
+                                statusElement.textContent = '✅ Stripe configuré - Données réelles';
+                                statusElement.className = 'stripe-status-ok';
+                            } else {
+                                statusElement.textContent = '⚠️ Stripe non configuré - Configurez vos clés API';
+                                statusElement.className = 'stripe-status-warning';
                             }
-                            
-                            // Update Profit
-                            if (text.includes('€') && el.previousElementSibling && 
-                                el.previousElementSibling.textContent.includes('Profit')) {
-                                el.textContent = `${data.total_profit} €`;
-                            }
-                            
-                            // Update ROI
-                            if (text.includes('%') && el.previousElementSibling && 
-                                el.previousElementSibling.textContent.includes('ROI')) {
-                                el.textContent = `${data.roi} %`;
-                            }
-                            
-                            // Update Disponible pour Retrait
-                            if (text.includes('€') && el.previousElementSibling && 
-                                el.previousElementSibling.textContent.includes('Disponible pour Retrait')) {
-                                el.textContent = `${(data.available_for_withdrawal || 0).toFixed(2)} €`;
-                            }
-                            
-                            // Update En Cours d'Utilisation
-                            if (text.includes('€') && el.previousElementSibling && 
-                                el.previousElementSibling.textContent.includes('En Cours d\'Utilisation')) {
-                                el.textContent = `${(data.in_use || 0).toFixed(2)} €`;
-                            }
-                        });
+                        }
+                        
+                        // Show trading performance separately
+                        const tradingElement = document.getElementById('trading-performance');
+                        if (tradingElement && data.trading_performance) {
+                            tradingElement.innerHTML = `
+                                <h4>Performance Trading (séparée du capital)</h4>
+                                <p>Rendement: ${data.trading_performance.total_return.toFixed(2)}%</p>
+                                <p>Stratégies testées: ${data.trading_performance.strategies_tested}</p>
+                                <small>Note: Ces métriques reflètent les performances de trading et sont séparées du capital réel.</small>
+                            `;
+                        }
                         
                         // Update charts with real data
                         if (window.capitalChart && data.chart_data) {
@@ -1002,10 +1016,11 @@
                         if (tradingAllocation) tradingAllocation.textContent = `${data.trading_allocation}%`;
                         if (ecommerceAllocation) ecommerceAllocation.textContent = `${data.hft_allocation}%`;
                         
-                        console.log('✅ Capital metrics updated successfully:', {
+                        console.log('✅ Capital metrics updated with real Stripe data:', {
                             capital: data.current_capital,
                             profit: data.total_profit,
-                            roi: data.roi
+                            roi: data.roi,
+                            stripe_configured: data.stripe_configured
                         });
                     } else {
                         console.warn('❌ Failed to fetch capital metrics:', result);

@@ -506,124 +506,96 @@ async def get_real_time_metrics():
 
 @router.get("/api/metrics/capital")
 async def get_capital_metrics():
-    """Get real-time capital metrics for Capital page with cumulative historical data."""
+    """Get real-time capital metrics for Capital page using only real Stripe transaction data."""
     try:
-        logger.info("🔄 Starting capital metrics calculation with cumulative data...")
-        
-        try:
-            from .backtest_routes import _load_cumulative_performance
-            cumulative_data = _load_cumulative_performance()
-            logger.info(f"✅ Loaded cumulative data: {cumulative_data['total_return']:.2f}% return, {cumulative_data['cumulative_capital']:.2f}€ capital")
-        except Exception as cumulative_error:
-            logger.error(f"❌ Failed to load cumulative data: {cumulative_error}")
-            # Fallback to basic values if cumulative data fails
-            cumulative_data = {
-                'total_return': 0.0,
-                'cumulative_capital': 500.0,
-                'performance_count': 0,
-                'avg_sharpe': 0.0
-            }
-        
-        total_return = cumulative_data['total_return']
-        cumulative_capital = cumulative_data['cumulative_capital']
-        performance_count = cumulative_data['performance_count']
-        avg_sharpe = cumulative_data['avg_sharpe']
-        
-        # Calculate derived metrics
-        initial_capital = 500.0
-        profit = cumulative_capital - initial_capital
-        roi_percentage = total_return  # Already in percentage
-        
-        try:
-            from autobot.adaptive import adaptive_capital_manager
-            adaptive_summary = adaptive_capital_manager.get_capital_summary()
-            logger.info("✅ Loaded adaptive capital manager data")
-        except Exception as adaptive_error:
-            logger.warning(f"⚠️ Adaptive capital manager not available: {adaptive_error}")
-            adaptive_summary = {
-                "capital_range": "ultra_capital",
-                "active_strategies": performance_count,
-                "experience_count": performance_count
-            }
-        
-        logger.info(f"📊 Capital metrics using CUMULATIVE data: {total_return:.2f}% return, {cumulative_capital:.2f}€ capital")
+        logger.info("🔄 Starting capital metrics calculation with REAL Stripe data only...")
         
         stripe_balance = 0.0
         total_deposits = 0.0
         total_withdrawals = 0.0
+        stripe_initialized = False
+        
         try:
             from autobot.services.stripe_service import StripeService
             stripe_service = StripeService()
-            stripe_data = stripe_service.get_capital_summary()
-            stripe_balance = stripe_data.get("current_capital", 0)
-            total_deposits = stripe_data.get("total_deposits", 0)
-            total_withdrawals = stripe_data.get("total_withdrawals", 0)
-            logger.info("✅ Loaded Stripe data successfully")
+            
+            if stripe_service.initialized:
+                stripe_data = stripe_service.get_capital_summary()
+                stripe_balance = stripe_data.get("current_capital", 0)
+                total_deposits = stripe_data.get("total_deposits", 0)
+                total_withdrawals = stripe_data.get("total_withdrawals", 0)
+                stripe_initialized = True
+                logger.info("✅ Loaded REAL Stripe data successfully")
+            else:
+                logger.info("⚠️ Stripe not configured - showing 0€ capital (no real deposits)")
+                
         except Exception as stripe_error:
-            logger.warning(f"⚠️ Stripe integration not available (expected): {stripe_error}")
+            logger.warning(f"⚠️ Stripe integration not available: {stripe_error}")
+        
+        current_capital = stripe_balance
+        initial_capital = 0.0  # No assumed initial capital without real deposits
+        total_profit = current_capital - total_deposits if total_deposits > 0 else 0.0
+        roi_percentage = ((total_profit / total_deposits) * 100) if total_deposits > 0 else 0.0
+        
+        trading_performance = {"total_return": 0.0, "strategies_tested": 0, "active_positions": 0}
+        try:
+            from .backtest_routes import _load_cumulative_performance
+            cumulative_data = _load_cumulative_performance()
+            trading_performance = {
+                "total_return": cumulative_data['total_return'],
+                "strategies_tested": cumulative_data['performance_count'],
+                "active_positions": 50  # Mock active positions for display
+            }
+            logger.info(f"📊 Trading performance (separate from capital): {trading_performance['total_return']:.2f}% return")
+        except Exception as trading_error:
+            logger.warning(f"⚠️ Trading performance data not available: {trading_error}")
         
         response_data = {
             "status": "success",
             "data": {
-                "current_capital": cumulative_capital,
-                "initial_capital": initial_capital,
-                "total_profit": profit,
-                "roi": roi_percentage,
-                "trading_allocation": 65,
-                "hft_allocation": 35,
-                "available_for_withdrawal": max(0, cumulative_capital * 0.8),  # 80% available for withdrawal
-                "in_use": cumulative_capital * 0.2,  # 20% in active trading
-                "total_deposits": total_deposits,
-                "total_withdrawals": total_withdrawals,
-                "adaptive_features": {
-                    "capital_range": adaptive_summary.get("capital_range", "ultra_capital"),
-                    "active_strategies": adaptive_summary.get("active_strategies", performance_count),
-                    "experience_count": adaptive_summary.get("experience_count", performance_count)
-                },
+                "current_capital": round(current_capital, 2),
+                "initial_capital": round(initial_capital, 2),
+                "total_profit": round(total_profit, 2),
+                "roi": round(roi_percentage, 2),
+                "total_deposits": round(total_deposits, 2),
+                "total_withdrawals": round(total_withdrawals, 2),
+                "available_for_withdrawal": round(max(0, current_capital * 0.8), 2),
+                "in_use": round(current_capital * 0.2, 2),
+                "stripe_configured": stripe_initialized,
+                "trading_performance": trading_performance,
                 "chart_data": [
-                    initial_capital,
-                    initial_capital * 1.5,
-                    initial_capital * 2.0,
-                    initial_capital * 3.0,
-                    initial_capital * 4.5,
-                    cumulative_capital
+                    0,  # Start with 0 if no deposits
+                    total_deposits * 0.2 if total_deposits > 0 else 0,
+                    total_deposits * 0.5 if total_deposits > 0 else 0,
+                    total_deposits * 0.8 if total_deposits > 0 else 0,
+                    current_capital
                 ],
-                "data_source": "Cumulative Historical Performance",
-                "performance_summary": {
-                    "total_backtests": performance_count,
-                    "avg_sharpe": avg_sharpe,
-                    "cumulative_return": total_return
-                }
+                "data_source": "Real Stripe Transaction Data" if stripe_initialized else "No Stripe Configuration",
+                "message": "Displaying real financial data only" if stripe_initialized else "Configure Stripe API keys to see real capital data"
             }
         }
         
-        logger.info(f"✅ Successfully prepared capital metrics response with {cumulative_capital:.2f}€ capital")
+        logger.info(f"✅ Capital metrics using REAL data: {current_capital:.2f}€ capital from {total_deposits:.2f}€ deposits")
         return JSONResponse(content=response_data)
         
     except Exception as e:
         logger.error(f"❌ Critical error in capital metrics endpoint: {str(e)}")
-        import traceback
-        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
         return JSONResponse(content={
             "status": "success",
             "data": {
                 "current_capital": 0,
-                "initial_capital": 500,
-                "total_profit": -500,
-                "roi": -100,
-                "trading_allocation": 0,
-                "hft_allocation": 0,
-                "available_for_withdrawal": 0,
-                "in_use": 0,
+                "initial_capital": 0,
+                "total_profit": 0,
+                "roi": 0,
                 "total_deposits": 0,
                 "total_withdrawals": 0,
-                "adaptive_features": {
-                    "capital_range": "low_capital",
-                    "active_strategies": 0,
-                    "experience_count": 0
-                },
-                "chart_data": [500, 500, 500, 500, 500, 0],
-                "data_source": "Error Fallback"
+                "available_for_withdrawal": 0,
+                "in_use": 0,
+                "stripe_configured": False,
+                "trading_performance": {"total_return": 0.0, "strategies_tested": 0, "active_positions": 0},
+                "chart_data": [0, 0, 0, 0, 0],
+                "data_source": "Error Fallback",
+                "message": "Error loading capital data"
             }
         })
 

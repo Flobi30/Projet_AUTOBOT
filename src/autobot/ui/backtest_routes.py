@@ -1055,7 +1055,6 @@ def _load_cumulative_performance():
                 'total_return': 0.0,
                 'total_trades': 0,
                 'avg_sharpe': 0.0,
-                'cumulative_capital': 500.0,
                 'performance_count': 0,
                 'days_active': 1
             }
@@ -1068,8 +1067,6 @@ def _load_cumulative_performance():
         total_trades = sum(json.loads(result.strategy_params or '{}').get('total_trades', 1) for result in results)
         avg_sharpe = sum(result.sharpe_ratio for result in results) / len(results)
         
-        cumulative_capital = 500.0 + (total_return * 500.0 / 100)  # Base capital + total gains
-        
         db.close()
         
         logger.info(f"📊 Loaded {len(results)} records spanning {days_active} days")
@@ -1078,7 +1075,6 @@ def _load_cumulative_performance():
             'total_return': total_return,
             'total_trades': total_trades,
             'avg_sharpe': avg_sharpe,
-            'cumulative_capital': cumulative_capital,
             'performance_count': len(results),
             'days_active': days_active
         }
@@ -1089,7 +1085,6 @@ def _load_cumulative_performance():
             'total_return': 0.0,
             'total_trades': 0,
             'avg_sharpe': 0.0,
-            'cumulative_capital': 500.0,
             'performance_count': 0,
             'days_active': 1
         }
