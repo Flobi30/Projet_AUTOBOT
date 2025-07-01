@@ -35,10 +35,10 @@
         </div>
     </div>
 
-    <!-- Évolution du Capital Fictif -->
+    <!-- Évolution du Capital Dynamique -->
     <div class="card" style="grid-column: span 4;">
         <div class="card-header">
-            <h3 class="neon-text">Évolution du Capital Fictif (500€ Initial)</h3>
+            <h3 class="neon-text">Évolution du Capital Dynamique ({{ real_data.capital_mode }})</h3>
         </div>
         <div class="card-body">
             <div class="chart-container">
@@ -47,7 +47,7 @@
             <div class="metrics-row" style="margin-top: 20px;">
                 <div class="metric-item">
                     <div class="metric-label">Capital Actuel</div>
-                    <div class="metric-value neon-text" id="current-capital">500.00€</div>
+                    <div class="metric-value neon-text" id="current-capital">{{ "%.2f"|format(real_data.current_capital) }}€</div>
                 </div>
                 <div class="metric-item">
                     <div class="metric-label">Variation</div>
@@ -122,7 +122,7 @@
 <script>
 let autoBacktestInterval;
 let capitalChart;
-let capitalData = [500]; // Start with initial 500€
+let capitalData = [{{ real_data.current_capital }}]; // Start with dynamic capital
 let capitalLabels = ['Début'];
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -205,8 +205,9 @@ function updateCapitalChart(newCapital) {
     capitalChart.update();
     
     // Update capital metrics
-    const variation = newCapital - 500;
-    const performance = ((newCapital - 500) / 500) * 100;
+    const initialCapital = {{ real_data.current_capital }};
+    const variation = newCapital - initialCapital;
+    const performance = ((newCapital - initialCapital) / initialCapital) * 100;
     
     document.getElementById('current-capital').textContent = newCapital.toFixed(2) + '€';
     document.getElementById('capital-change').textContent = (variation >= 0 ? '+' : '') + variation.toFixed(2) + '€';
@@ -273,7 +274,8 @@ function updateAutomaticBacktest() {
                     document.getElementById('auto-daily-return').textContent = dailyReturn.toFixed(2) + '%';
                     
                     // Calculate new capital based on total return
-                    const newCapital = 500 + (500 * data.metrics.total_return / 100);
+                    const initialCapital = {{ real_data.current_capital }};
+                    const newCapital = initialCapital + (initialCapital * data.metrics.total_return / 100);
                     updateCapitalChart(newCapital);
                 }
                 
