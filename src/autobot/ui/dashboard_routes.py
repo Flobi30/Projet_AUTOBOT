@@ -17,12 +17,6 @@ from starlette.responses import RedirectResponse
 
 from autobot.autobot_security.auth.jwt_handler import decode_token, verify_license_key
 from autobot.autobot_security.auth.user_manager import UserManager
-from autobot.autobot_security.auth.models import User
-from autobot.trading.strategy import Strategy, MovingAverageStrategy
-from autobot.rl.train import get_training_status
-from autobot.agents.orchestrator import AgentOrchestrator
-from autobot.ecommerce.inventory_manager import InventoryManager
-from autobot.ui.dashboard import Dashboard, DashboardManager, create_default_trading_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +28,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 templates = Jinja2Templates(directory=templates_dir)
 
-dashboard_manager = DashboardManager()
+# dashboard_manager = DashboardManager()  # Commented out - not needed for authentication
 
 class ConnectionManager:
     def __init__(self):
@@ -62,7 +56,18 @@ manager = ConnectionManager()
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        return await call_next(request)
+        if request.url.path in ["/login", "/"] or request.url.path.startswith("/static"):
+            return await call_next(request)
+        
+        try:
+            from autobot.autobot_security.auth.jwt_handler import get_current_user
+            user = get_current_user(request)
+            request.state.user = user
+            return await call_next(request)
+        except HTTPException:
+            return RedirectResponse(url="/login", status_code=302)
+        except Exception:
+            return RedirectResponse(url="/login", status_code=302)
 
 @router.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):

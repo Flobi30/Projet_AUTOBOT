@@ -167,6 +167,9 @@ app.include_router(backtest_router)
 # app.include_router(deposit_withdrawal_router)
 # app.include_router(chat_router)
 app.include_router(ui_router)
+
+from autobot.ui.dashboard_routes import AuthMiddleware
+app.add_middleware(AuthMiddleware)
 # app.include_router(ghosting_router)
 # app.include_router(setup_router)
 # app.include_router(capital_router)
@@ -188,30 +191,43 @@ async def login(request: Request, username: str = Form(...), password: str = For
     from autobot.autobot_security.auth.jwt_handler import create_access_token
     from datetime import timedelta
     
+    logger.info(f"Login attempt - Username: '{username}', Password length: {len(password)}, License key length: {len(license_key)}")
+    
     user = user_manager.authenticate_user(username, password)
+    logger.info(f"Authentication result: {user is not None}")
+    
     if user:
-        access_token_expires = timedelta(hours=24)
-        access_token = create_access_token(
-            data={"sub": user["username"], "user_id": user["id"]},
-            expires_delta=access_token_expires
-        )
+        license_valid = user_manager.verify_license(user["id"], license_key)
+        logger.info(f"License verification result: {license_valid}")
         
-        response = RedirectResponse(url="/trading", status_code=302)
-        response.set_cookie(
-            key="access_token",
-            value=f"Bearer {access_token}",
-            httponly=True,
-            max_age=86400,
-            secure=False,
-            samesite="lax"
-        )
-        return response
+        if license_valid:
+            access_token_expires = timedelta(hours=24)
+            access_token = create_access_token(
+                data={"sub": user["username"], "user_id": user["id"]},
+                expires_delta=access_token_expires
+            )
+            
+            logger.info("Login successful - redirecting to /trading")
+            response = RedirectResponse(url="/trading", status_code=302)
+            response.set_cookie(
+                key="access_token",
+                value=f"Bearer {access_token}",
+                httponly=True,
+                max_age=86400,
+                secure=False,
+                samesite="lax"
+            )
+            return response
+        else:
+            logger.warning("License verification failed")
     else:
-        templates = Jinja2Templates(directory=templates_dir)
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Invalid username or password"
-        })
+        logger.warning("User authentication failed")
+    
+    templates = Jinja2Templates(directory=templates_dir)
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": "Invalid username, password, or license key"
+    })
 
 if __name__ == "__main__":
     import uvicorn

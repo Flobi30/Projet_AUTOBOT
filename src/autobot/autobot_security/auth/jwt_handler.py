@@ -47,11 +47,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         return payload
     except jwt.PyJWTError:
         raise ValueError("Invalid token")
-        cookie_token = request.cookies.get("access_token")
-        if cookie_token and cookie_token.startswith("Bearer "):
-            token = cookie_token[7:]  # Remove "Bearer " prefix
-        else:
-            token = None
+
 def get_current_user(request: Request) -> Dict[str, Any]:
     """
     Get the current authenticated user from the token (cookie or header).
