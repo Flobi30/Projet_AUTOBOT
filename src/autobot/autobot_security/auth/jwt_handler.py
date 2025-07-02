@@ -48,8 +48,12 @@ def decode_token(token: str) -> Dict[str, Any]:
     except jwt.PyJWTError:
         raise ValueError("Invalid token")
         cookie_token = request.cookies.get("access_token")
-        if cookie_token and cookie_token.startswith("Bearer "):
-            token = cookie_token[7:]  # Remove "Bearer " prefix
+        if cookie_token:
+            # Handle both Bearer prefixed and direct token cookies
+            if cookie_token.startswith("Bearer "):
+                token = cookie_token[7:]  # Remove "Bearer " prefix
+            else:
+                token = cookie_token  # Use token directly
         else:
             token = None
 def get_current_user(request: Request) -> Dict[str, Any]:
@@ -63,9 +67,18 @@ def get_current_user(request: Request) -> Dict[str, Any]:
         Dict: User data from the token
     """
     try:
+        # DEBUG: Log all cookies and headers
+        logger.info(f"=== GET_CURRENT_USER DEBUG ===")
+        logger.info(f"Request URL: {request.url}")
+        logger.info(f"All cookies: {dict(request.cookies)}")
+        logger.info(f"Authorization header: {request.headers.get('Authorization')}")
         cookie_token = request.cookies.get("access_token")
-        if cookie_token and cookie_token.startswith("Bearer "):
-            token = cookie_token[7:]  # Remove "Bearer " prefix
+        if cookie_token:
+            # Handle both Bearer prefixed and direct token cookies
+            if cookie_token.startswith("Bearer "):
+                token = cookie_token[7:]  # Remove "Bearer " prefix
+            else:
+                token = cookie_token  # Use token directly
         else:
             token = None
         

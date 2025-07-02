@@ -199,13 +199,14 @@ class UserManager:
         
         return self._clean_user_data(user)
     
-    def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+    def authenticate_user(self, username: str, password: str, license_key: str = None) -> Optional[Dict[str, Any]]:
         """
         Authenticate a user.
         
         Args:
             username: Username
             password: Password
+            license_key: License key for validation
             
         Returns:
             Dict: User data if authentication successful, None otherwise
@@ -219,6 +220,18 @@ class UserManager:
         
         if password_hash != user["password_hash"]:
             return None
+        
+        # Validate license key if provided
+        if license_key and "licenses" in user:
+            valid_license = False
+            for license_info in user["licenses"]:
+                if license_info.get("key") == license_key and license_info.get("active", False):
+                    valid_license = True
+                    break
+            if not valid_license:
+                return None
+        
+        return user
         
         user["last_login"] = datetime.now().isoformat()
         self._save_users()

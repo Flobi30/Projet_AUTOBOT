@@ -16,6 +16,7 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Request, WebSocket, Form
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -47,6 +48,23 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
+# Debug middleware to log authentication headers
+@app.middleware("http")
+async def debug_auth_middleware(request: Request, call_next):
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Request cookies: {dict(request.cookies)}")
+    
+    response = await call_next(request)
+    
+    logger.info(f"Response status: {response.status_code}")
+    if hasattr(response, 'headers'):
+        logger.info(f"Response headers: {dict(response.headers)}")
+    
+    return response
+
+
 app = FastAPI(
     title="AUTOBOT",
     description="Trading and Automation Framework",
@@ -63,9 +81,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add SessionMiddleware for cookie-based authentication
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+
 app.include_router(router)
 
-user_manager = UserManager()
+user_manager = UserManager("/root/Projet_AUTOBOT/users.json")
 risk_manager = RiskManagerEnhanced()
 agent_orchestrator = AgentOrchestrator()
 inventory_manager = InventoryManager()
@@ -96,23 +119,66 @@ async def login_page(request: Request):
     """
     return templates.TemplateResponse("login.html", {"request": request})
 
-@app.post("/login", tags=["auth"])
-async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
-    """
-    Login endpoint.
-    """
-    response = RedirectResponse(url="/dashboard", status_code=303)
-    
 
+async def get_current_user(request: Request):
+    """
+    Get current user from session data.
+    """
+    print(f"=== GET_CURRENT_USER DEBUG: Checking session data")
+    print(f"=== GET_CURRENT_USER DEBUG: Session contents: {dict(request.session)}")
     
-    response.set_cookie(
-        key="auth_status",
-        value="authenticated",
-        max_age=86400,  # 24 hours
-        samesite="lax"
-    )
+    if not request.session.get("authenticated"):
+        print("=== GET_CURRENT_USER DEBUG: No authenticated session found")
+        raise HTTPException(status_code=401, detail="Not authenticated")
     
-    return response
+    username = request.session.get("user")
+    if not username:
+        print("=== GET_CURRENT_USER DEBUG: No user in session")
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    print(f"=== GET_CURRENT_USER DEBUG: Found authenticated user: {username}")
+    return {"username": username, "id": request.session.get("user_id")}
+
+
+
+@app.get("/debug-session")
+async def debug_session(request: Request):
+    """Debug endpoint to test session functionality"""
+    print("=== DEBUG SESSION ENDPOINT HIT ===")
+    session_data = dict(request.session)
+    print(f"Session data: {session_data}")
+    return {"session": session_data, "test": "session_working"}
+
+@app.post("/login", tags=["auth"])
+async def login(request: Request, username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
+    """
+    Login endpoint with proper authentication.
+    """
+    print(f"=== LOGIN DEBUG: Received credentials - username: {username}, password: {'*' * len(password)}, license_key: {license_key[:20]}...")
+    print(f"=== LOGIN DEBUG: About to call user_manager.authenticate_user")
+    try:
+        # Authenticate user with UserManager
+        user = user_manager.authenticate_user(username, password, license_key)
+        print(f"=== LOGIN DEBUG: authenticate_user returned: {user}")
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Set session data instead of JWT cookies
+        request.session["user"] = user["username"]
+        request.session["user_id"] = user.get("id")
+        request.session["authenticated"] = True
+        
+        print(f"=== LOGIN DEBUG: Session set for user: {user['username']}")
+        
+        # Create redirect response
+        response = RedirectResponse(url="/dashboard", status_code=302)
+        print("=== LOGIN DEBUG: Returning redirect to /dashboard")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
 @app.post("/register", tags=["auth"])
 async def register(username: str, password: str, email: str):
