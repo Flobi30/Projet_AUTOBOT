@@ -89,30 +89,7 @@ async def health_check():
     """
     return {"status": "ok"}
 
-@app.get("/login", response_class=HTMLResponse, tags=["auth"])
-async def login_page(request: Request):
-    """
-    Login page endpoint.
-    """
-    return templates.TemplateResponse("login.html", {"request": request})
-
-@app.post("/login", tags=["auth"])
-async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
-    """
-    Login endpoint.
-    """
-    response = RedirectResponse(url="/dashboard", status_code=303)
-    
-
-    
-    response.set_cookie(
-        key="auth_status",
-        value="authenticated",
-        max_age=86400,  # 24 hours
-        samesite="lax"
-    )
-    
-    return response
+# Login endpoints removed to avoid conflicts with main.py
 
 @app.post("/register", tags=["auth"])
 async def register(username: str, password: str, email: str):
