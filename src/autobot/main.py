@@ -131,7 +131,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["stripe-autobot.fr", "144.76.16.177", "localhost"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["stripe-autobot.fr", "144.76.16.177", "localhost", "127.0.0.1"])
 # Performance optimizations activated for 10% daily return target
 performance_optimizer = PerformanceOptimizer(
     memory_threshold=0.80,
@@ -175,7 +175,7 @@ app.add_middleware(AuthMiddleware)
 # app.include_router(capital_router)
 # app.include_router(funds_router)
 
-user_manager = UserManager()
+user_manager = UserManager(users_file="../users.json")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -191,13 +191,22 @@ async def login(request: Request, username: str = Form(...), password: str = For
     from autobot.autobot_security.auth.jwt_handler import create_access_token
     from datetime import timedelta
     
+    print(f"=== LOGIN ATTEMPT DEBUG ===")
+    print(f"Username: '{username}'")
+    print(f"Password length: {len(password)}")
+    print(f"License key length: {len(license_key)}")
+    print(f"Password starts with: '{password[:10]}...'")
+    print(f"License key starts with: '{license_key[:20]}...'")
+    
     logger.info(f"Login attempt - Username: '{username}', Password length: {len(password)}, License key length: {len(license_key)}")
     
     user = user_manager.authenticate_user(username, password)
+    print(f"Authentication result: {user is not None}")
     logger.info(f"Authentication result: {user is not None}")
     
     if user:
         license_valid = user_manager.verify_license(user["id"], license_key)
+        print(f"License verification result: {license_valid}")
         logger.info(f"License verification result: {license_valid}")
         
         if license_valid:
@@ -207,6 +216,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
                 expires_delta=access_token_expires
             )
             
+            print("LOGIN SUCCESSFUL - redirecting to /trading")
             logger.info("Login successful - redirecting to /trading")
             response = RedirectResponse(url="/trading", status_code=302)
             response.set_cookie(
@@ -219,10 +229,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
             )
             return response
         else:
+            print("LICENSE VERIFICATION FAILED")
             logger.warning("License verification failed")
     else:
+        print("USER AUTHENTICATION FAILED")
         logger.warning("User authentication failed")
     
+    print("=== RETURNING LOGIN PAGE WITH ERROR ===")
     templates = Jinja2Templates(directory=templates_dir)
     return templates.TemplateResponse("login.html", {
         "request": request,
