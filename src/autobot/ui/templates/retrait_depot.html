@@ -14,7 +14,7 @@
                     <h2>Solde actuel</h2>
                 </div>
                 <div class="card-body">
-                    <h3 class="balance-amount">1000.00 €</h3>
+                    <h3 class="balance-amount" id="current-balance">1000.00 €</h3>
                     <div class="button-group">
                         <button class="btn btn-primary" data-action="deposit">Ajouter des fonds</button>
                         <button class="btn btn-secondary" data-action="withdraw">Retirer des fonds</button>
@@ -30,21 +30,8 @@
                 </div>
                 <div class="card-body">
                     <div class="transaction-history">
-                        <div class="transaction">
-                            <div class="transaction-date">2025-05-25</div>
-                            <div class="transaction-type deposit">Dépôt</div>
-                            <div class="transaction-amount">+500.00 €</div>
-                        </div>
-                        <div class="transaction">
-                            <div class="transaction-date">2025-05-20</div>
-                            <div class="transaction-type withdrawal">Retrait</div>
-                            <div class="transaction-amount">-200.00 €</div>
-                        </div>
-                        <div class="transaction">
-                            <div class="transaction-date">2025-05-15</div>
-                            <div class="transaction-type deposit">Dépôt</div>
-                            <div class="transaction-amount">+700.00 €</div>
-                        </div>
+                        <h3>Historique des transactions</h3>
+                        <div id="transaction-loading">Chargement des transactions...</div>
                     </div>
                 </div>
             </div>
@@ -54,7 +41,7 @@
 
 <script>
 // Initialize Stripe (you'll need to add your publishable key)
-const stripe = Stripe('pk_test_51234567890abcdef'); // Replace with actual publishable key
+const stripe = Stripe('pk_live_51RWghBGH8AOThq2l7NrQW0g7V8qcF6Qsg1eRJotdD8orUfZrgy3gLI9IP10G7t1qOzXthmeR6TnyiWsBvEBVVEL900FGck3gMV');
 
 document.querySelector('[data-action="deposit"]').addEventListener('click', async function() {
     const amount = prompt('Montant à déposer (€):');
@@ -116,6 +103,52 @@ document.querySelector('[data-action="withdraw"]').addEventListener('click', asy
         alert('Erreur lors du retrait: ' + error.message);
     }
 });
+
+async function loadStripeData() {
+    try {
+        const response = await fetch('/api/stripe/summary');
+        const data = await response.json();
+        
+        document.getElementById('current-balance').textContent = `${data.available_balance.toFixed(2)} €`;
+        
+        const historyContainer = document.querySelector('.transaction-history');
+        const loadingElement = document.getElementById('transaction-loading');
+        
+        if (loadingElement) {
+            loadingElement.remove();
+        }
+        
+        if (data.recent_transactions && data.recent_transactions.length > 0) {
+            data.recent_transactions.forEach(tx => {
+                const txElement = document.createElement('div');
+                txElement.className = 'transaction-item';
+                txElement.innerHTML = `
+                    <span class="date">${new Date(tx.created).toLocaleDateString()}</span>
+                    <span class="description">${tx.description}</span>
+                    <span class="amount ${tx.amount > 0 ? 'positive' : 'negative'}">
+                        ${tx.amount > 0 ? '+' : ''}${tx.amount.toFixed(2)} €
+                    </span>
+                `;
+                historyContainer.appendChild(txElement);
+            });
+        } else {
+            const noTxElement = document.createElement('div');
+            noTxElement.className = 'transaction-item';
+            noTxElement.innerHTML = '<span class="description">Aucune transaction trouvée</span>';
+            historyContainer.appendChild(noTxElement);
+        }
+    } catch (error) {
+        console.error('Error loading Stripe data:', error);
+        const historyContainer = document.querySelector('.transaction-history');
+        const loadingElement = document.getElementById('transaction-loading');
+        
+        if (loadingElement) {
+            loadingElement.textContent = 'Erreur lors du chargement des transactions';
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadStripeData);
 </script>
 {% endblock %}
 

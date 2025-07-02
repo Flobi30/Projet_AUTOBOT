@@ -201,6 +201,7 @@ async def run_backtest_strategy(request: BacktestRequest):
             elif "bb_std" in request.params:
                 volatility *= float(request.params["bb_std"])
         
+        
         try:
             from autobot.data.real_market_data import RealBacktestEngine
             engine = RealBacktestEngine()
@@ -213,10 +214,10 @@ async def run_backtest_strategy(request: BacktestRequest):
             )
             
             if 'error' not in result:
-                daily_return = result.get('daily_return', 0.001)
+                total_return_pct = result.get('total_return_pct', 0.0)
+                daily_return = (total_return_pct / 100) / len(date_range) if len(date_range) > 0 else 0.0
                 for i in range(1, len(date_range)):
-                    change = daily_return * (1 + np.random.normal(0, 0.1))
-                    equity.append(equity[-1] * (1 + change))
+                    equity.append(equity[-1] * (1 + daily_return))
             else:
                 for i in range(1, len(date_range)):
                     try:
@@ -230,7 +231,11 @@ async def run_backtest_strategy(request: BacktestRequest):
                         )
                         change = result.get('daily_return', 0.0005)
                     except:
-                        change = np.random.normal(0.0005, volatility)
+                        cumulative_data = _load_cumulative_performance()
+                        if cumulative_data['total_trades'] > 0:
+                            change = (cumulative_data['total_return'] / 100) / max(cumulative_data['days_active'], 1)
+                        else:
+                            change = 0.0  # Conservative flat performance
                     equity.append(equity[-1] * (1 + change))
         except Exception as e:
             logger.warning(f"Failed to use real data, falling back to simulation: {e}")
@@ -246,40 +251,100 @@ async def run_backtest_strategy(request: BacktestRequest):
                     )
                     change = result.get('daily_return', 0.0005)
                 except:
-                    change = np.random.normal(0.0005, volatility)
+                    cumulative_data = _load_cumulative_performance()
+                    if cumulative_data['total_trades'] > 0:
+                        change = (cumulative_data['total_return'] / 100) / max(cumulative_data['days_active'], 1)
+                    else:
+                        change = 0.0  # Conservative flat performance
                 equity.append(equity[-1] * (1 + change))
         
         trades = []
         current_position = None
         
-        for i in range(1, len(date_range) - 1):
-            if current_position is None and random.random() < 0.1:
-                price = equity[i] / 10  # Mock price
-                size = initial_capital / price * 0.1  # Use 10% of capital
-                
-                current_position = {
-                    "type": "BUY",
-                    "date": date_range[i],
-                    "price": price,
-                    "size": size
-                }
-                
-                trades.append(current_position)
+        try:
+            from autobot.data.real_market_data import RealBacktestEngine
+            engine = RealBacktestEngine()
             
-            elif current_position is not None and random.random() < 0.2:
-                price = equity[i] / 10  # Mock price
-                pl = (price - current_position["price"]) * current_position["size"]
+            market_data = engine.data_provider.get_crypto_data("BTCUSDT", limit=len(date_range))
+            
+            if not market_data.empty and len(market_data) >= len(date_range):
+                for i in range(1, len(date_range) - 1):
+                    real_price = market_data.iloc[min(i, len(market_data)-1)]['close']
+                    
+                    if i > 1:
+                        equity_change = (equity[i] - equity[i-1]) / equity[i-1]
+                        
+                        if current_position is None and equity_change > 0.001:  # 0.1% threshold
+                            size = initial_capital / real_price * 0.1  # Use 10% of capital
+                            
+                            current_position = {
+                                "type": "BUY",
+                                "date": date_range[i],
+                                "price": real_price,
+                                "size": size
+                            }
+                            trades.append(current_position)
+                        
+                        elif current_position is not None and equity_change < -0.001:  # -0.1% threshold
+                            pl = (real_price - current_position["price"]) * current_position["size"]
+                            
+                            trades.append({
+                                "type": "SELL",
+                                "date": date_range[i],
+                                "price": real_price,
+                                "size": current_position["size"],
+                                "pl": pl,
+                                "cumulative": pl
+                            })
+                            current_position = None
+            else:
+                for i in range(1, min(3, len(date_range) - 1)):  # Maximum 2 trades
+                    price = initial_capital / 100  # Conservative price estimate
+                    
+                    if i == 1:  # Single buy trade
+                        trades.append({
+                            "type": "BUY",
+                            "date": date_range[i],
+                            "price": price,
+                            "size": initial_capital / price * 0.5
+                        })
+                    elif i == 2 and len(trades) > 0:  # Single sell trade
+                        buy_trade = trades[0]
+                        final_equity = equity[-1] if equity else initial_capital
+                        pl = final_equity - initial_capital
+                        
+                        trades.append({
+                            "type": "SELL",
+                            "date": date_range[i],
+                            "price": price * (final_equity / initial_capital),
+                            "size": buy_trade["size"],
+                            "pl": pl,
+                            "cumulative": pl
+                        })
+                        
+        except Exception as e:
+            logger.error(f"Error generating real trades: {e}")
+            if len(date_range) >= 3:
+                final_equity = equity[-1] if equity else initial_capital
+                performance_ratio = final_equity / initial_capital
+                price = initial_capital / 100
                 
-                trades.append({
-                    "type": "SELL",
-                    "date": date_range[i],
-                    "price": price,
-                    "size": current_position["size"],
-                    "pl": pl,
-                    "cumulative": pl  # Will be updated below
-                })
-                
-                current_position = None
+                trades = [
+                    {
+                        "type": "BUY",
+                        "date": date_range[1],
+                        "price": price,
+                        "size": initial_capital / price * 0.5
+                    },
+                    {
+                        "type": "SELL", 
+                        "date": date_range[-2],
+                        "price": price * performance_ratio,
+                        "size": initial_capital / price * 0.5,
+                        "pl": final_equity - initial_capital,
+                        "cumulative": final_equity - initial_capital
+                    }
+                ]
         
         cumulative = 0
         for trade in trades:
@@ -537,52 +602,133 @@ async def get_backtest(backtest_id: str):
     
     volatility = 0.01
     
-    for i in range(1, len(date_range)):
+    try:
+        from autobot.data.real_market_data import RealBacktestEngine
+        engine = RealBacktestEngine()
+        
+        result = engine.run_comprehensive_backtest(
+            symbol="BTCUSDT",
+            asset_type="crypto",
+            initial_capital=initial_capital
+        )
+        
+        if 'error' not in result and 'total_return_pct' in result:
+            total_return_pct = result['total_return_pct']
+            daily_return = (total_return_pct / 100) / len(date_range) if len(date_range) > 0 else 0.0
+            
+            for i in range(1, len(date_range)):
+                equity.append(equity[-1] * (1 + daily_return))
+        else:
+            cumulative_data = _load_cumulative_performance()
+            if cumulative_data['total_trades'] > 0:
+                avg_daily_return = (cumulative_data['total_return'] / 100) / max(cumulative_data['days_active'], 1)
+                for i in range(1, len(date_range)):
+                    equity.append(equity[-1] * (1 + avg_daily_return))
+            else:
+                for i in range(1, len(date_range)):
+                    equity.append(equity[-1])
+                    
+    except Exception as e:
+        logger.error(f"Error in real algorithm calculation: {e}")
         try:
-            from autobot.data.real_market_data import RealBacktestEngine
-            engine = RealBacktestEngine()
-            result = engine.run_comprehensive_backtest(
-                symbol="BTCUSDT",
-                strategy="moving_average_crossover",
-                periods=1,
-                initial_capital=equity[-1]
-            )
-            change = result.get('daily_return', 0.0005)
+            cumulative_data = _load_cumulative_performance()
+            if cumulative_data['total_trades'] > 0:
+                avg_daily_return = (cumulative_data['total_return'] / 100) / max(cumulative_data['days_active'], 1)
+                for i in range(1, len(date_range)):
+                    equity.append(equity[-1] * (1 + avg_daily_return))
+            else:
+                for i in range(1, len(date_range)):
+                    equity.append(equity[-1])
         except:
-            change = np.random.normal(0.0005, volatility)  # Slight upward bias
-        equity.append(equity[-1] * (1 + change))
+            for i in range(1, len(date_range)):
+                equity.append(equity[-1])
     
     trades = []
     current_position = None
     
-    for i in range(1, len(date_range) - 1):
-        if current_position is None and random.random() < 0.1:
-            price = equity[i] / 10  # Mock price
-            size = initial_capital / price * 0.1  # Use 10% of capital
-            
-            current_position = {
-                "type": "BUY",
-                "date": date_range[i],
-                "price": price,
-                "size": size
-            }
-            
-            trades.append(current_position)
+    try:
+        from autobot.data.real_market_data import RealBacktestEngine
+        engine = RealBacktestEngine()
         
-        elif current_position is not None and random.random() < 0.2:
-            price = equity[i] / 10  # Mock price
-            pl = (price - current_position["price"]) * current_position["size"]
+        market_data = engine.data_provider.get_crypto_data("BTCUSDT", limit=len(date_range))
+        
+        if not market_data.empty and len(market_data) >= len(date_range):
+            for i in range(1, len(date_range) - 1):
+                real_price = market_data.iloc[min(i, len(market_data)-1)]['close']
+                
+                if i > 1:
+                    equity_change = (equity[i] - equity[i-1]) / equity[i-1] if equity[i-1] > 0 else 0
+                    
+                    if current_position is None and equity_change > 0.002:  # 0.2% threshold
+                        size = initial_capital / real_price * 0.1
+                        
+                        current_position = {
+                            "type": "BUY",
+                            "date": date_range[i],
+                            "price": real_price,
+                            "size": size
+                        }
+                        trades.append(current_position)
+                    
+                    elif current_position is not None and equity_change < -0.002:  # -0.2% threshold
+                        pl = (real_price - current_position["price"]) * current_position["size"]
+                        
+                        trades.append({
+                            "type": "SELL",
+                            "date": date_range[i],
+                            "price": real_price,
+                            "size": current_position["size"],
+                            "pl": pl,
+                            "cumulative": pl
+                        })
+                        current_position = None
+        else:
+            final_equity = equity[-1] if equity else initial_capital
+            performance_ratio = final_equity / initial_capital
             
-            trades.append({
-                "type": "SELL",
-                "date": date_range[i],
-                "price": price,
-                "size": current_position["size"],
-                "pl": pl,
-                "cumulative": pl  # Will be updated below
-            })
-            
-            current_position = None
+            if len(date_range) >= 3 and abs(performance_ratio - 1.0) > 0.01:  # Only if significant change
+                price_start = initial_capital / 100
+                price_end = price_start * performance_ratio
+                
+                trades = [
+                    {
+                        "type": "BUY",
+                        "date": date_range[1],
+                        "price": price_start,
+                        "size": initial_capital / price_start * 0.3
+                    },
+                    {
+                        "type": "SELL",
+                        "date": date_range[-2],
+                        "price": price_end,
+                        "size": initial_capital / price_start * 0.3,
+                        "pl": final_equity - initial_capital,
+                        "cumulative": final_equity - initial_capital
+                    }
+                ]
+                
+    except Exception as e:
+        logger.error(f"Error generating real trades in get_backtest: {e}")
+        final_equity = equity[-1] if equity else initial_capital
+        if abs(final_equity - initial_capital) > initial_capital * 0.01:  # Only if >1% change
+            trades = [
+                {
+                    "type": "BUY",
+                    "date": date_range[1] if len(date_range) > 1 else "2023-01-02",
+                    "price": initial_capital / 100,
+                    "size": 1.0,
+                    "pl": 0,
+                    "cumulative": 0
+                },
+                {
+                    "type": "SELL",
+                    "date": date_range[-2] if len(date_range) > 2 else "2023-12-30",
+                    "price": final_equity / 100,
+                    "size": 1.0,
+                    "pl": final_equity - initial_capital,
+                    "cumulative": final_equity - initial_capital
+                }
+            ]
     
     cumulative = 0
     for trade in trades:
@@ -1076,7 +1222,8 @@ def _load_cumulative_performance():
             'total_trades': total_trades,
             'avg_sharpe': avg_sharpe,
             'performance_count': len(results),
-            'days_active': days_active
+            'days_active': days_active,
+            'cumulative_capital': 1000.0 + (total_return * 10.0)  # Calculate capital based on returns
         }
         
     except Exception as e:
@@ -1086,5 +1233,6 @@ def _load_cumulative_performance():
             'total_trades': 0,
             'avg_sharpe': 0.0,
             'performance_count': 0,
-            'days_active': 1
+            'days_active': 1,
+            'cumulative_capital': 1000.0  # Default starting capital
         }

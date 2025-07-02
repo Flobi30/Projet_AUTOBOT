@@ -1,6 +1,9 @@
 import json
 import os
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 def load_api_keys():
     """Load API keys from config/api_keys.json into environment variables"""
@@ -29,7 +32,10 @@ def load_api_keys():
             'KRAKEN_API_KEY': 'KRAKEN_API_KEY',
             'KRAKEN_SECRET_KEY': 'KRAKEN_API_SECRET',
             'SHOPIFY_API_KEY': 'SHOPIFY_API_KEY',
-            'SHOPIFY_SECRET_KEY': 'SHOPIFY_SECRET_KEY'
+            'SHOPIFY_SECRET_KEY': 'SHOPIFY_SECRET_KEY',
+            'STRIPE_API_KEY': 'STRIPE_API_KEY',
+            'STRIPE_PUBLISHABLE_KEY': 'STRIPE_PUBLISHABLE_KEY',
+            'STRIPE_WEBHOOK_SECRET': 'STRIPE_WEBHOOK_SECRET'
         }
         
         for config_key, env_key in key_mapping.items():
@@ -37,6 +43,7 @@ def load_api_keys():
                 os.environ[env_key] = api_keys[config_key]
                 loaded_count += 1
                 print(f"Loaded {config_key} -> {env_key}")
+                logger.info(f"Set environment variable {env_key} from config key {config_key}")
                 
         print(f"Loaded {loaded_count} API keys into environment variables")
         return loaded_count

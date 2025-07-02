@@ -413,6 +413,47 @@ async def withdraw(request: Request):
             content={"status": "error", "message": "Erreur lors du traitement du retrait"}
         )
 
+@router.post("/api/payments/deposit")
+async def payments_deposit(request: Request):
+    """
+    Handle deposit requests from the retrait/dépôt page JavaScript.
+    """
+    return await deposit(request)
+
+@router.post("/api/payments/withdraw")
+async def payments_withdraw(request: Request):
+    """
+    Handle withdrawal requests from the retrait/dépôt page JavaScript.
+    """
+    return await withdraw(request)
+
+@router.get("/api/stripe/summary")
+async def get_stripe_summary():
+    """
+    Get Stripe account summary including balance and recent transactions.
+    """
+    try:
+        from autobot.services.stripe_service import StripeService
+        stripe_service = StripeService()
+        
+        if not stripe_service.initialized:
+            return JSONResponse(content={
+                "available_balance": 0.0,
+                "pending_balance": 0.0,
+                "recent_transactions": []
+            })
+        
+        summary = stripe_service.get_capital_summary()
+        return JSONResponse(content=summary)
+        
+    except Exception as e:
+        logger.error(f"Error getting Stripe summary: {e}")
+        return JSONResponse(content={
+            "available_balance": 0.0,
+            "pending_balance": 0.0,
+            "recent_transactions": []
+        })
+
 @router.get("/api/metrics")
 async def get_real_time_metrics():
     """
