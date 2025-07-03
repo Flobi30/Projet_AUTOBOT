@@ -23,12 +23,25 @@ router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=templates_dir)
 
 @router.get("/", response_class=HTMLResponse)
-async def get_trading_redirect(request: Request, current_user: User = Depends(get_current_user)):
+async def get_dashboard_redirect(request: Request, current_user: User = Depends(get_current_user)):
     """
-    Redirect to trading page (dashboard removed).
+    Redirect to dashboard page.
     """
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/trading", status_code=302)
+    return RedirectResponse(url="/dashboard", status_code=302)
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard(request: Request, current_user: User = Depends(get_current_user)):
+    """
+    Page principale du dashboard.
+    """
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "active_page": "dashboard",
+        "username": current_user.username,
+        "user_role": current_user.role,
+        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    })
 
 @router.get("/trading", response_class=HTMLResponse)
 async def get_trading(request: Request, current_user: User = Depends(get_current_user)):
