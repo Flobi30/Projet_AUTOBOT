@@ -12,7 +12,6 @@ from fastapi.templating import Jinja2Templates
 
 from autobot.autobot_security.auth.jwt_handler import get_current_user
 from autobot.autobot_security.auth.user_manager import User, UserManager
-from autobot.profit_engine import get_user_capital_data
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,7 @@ async def get_dashboard(request: Request, current_user: User = Depends(get_curre
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active_page": "dashboard",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+        "username": current_user.username
     })
 
 @router.get("/trading", response_class=HTMLResponse)
@@ -51,9 +48,7 @@ async def get_trading(request: Request, current_user: User = Depends(get_current
     return templates.TemplateResponse("trading.html", {
         "request": request,
         "active_page": "trading",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+        "username": current_user.username
     })
 
 
@@ -63,15 +58,10 @@ async def get_backtest(request: Request, current_user: User = Depends(get_curren
     """
     Page de backtest.
     """
-    capital_data = get_user_capital_data(current_user.username)
-    
     return templates.TemplateResponse("backtest.html", {
         "request": request,
         "active_page": "backtest",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
-        "initial_capital": capital_data["initial_capital"] if capital_data["initial_capital"] > 0 else 1000
+        "username": current_user.username
     })
 
 @router.get("/capital", response_class=HTMLResponse)
@@ -79,21 +69,10 @@ async def get_capital(request: Request, current_user: User = Depends(get_current
     """
     Page de gestion du capital.
     """
-    capital_data = get_user_capital_data(current_user.username)
-    
     return templates.TemplateResponse("capital.html", {
         "request": request,
         "active_page": "capital",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
-        "initial_capital": capital_data["initial_capital"],
-        "current_capital": capital_data["current_capital"],
-        "profit": capital_data["profit"],
-        "roi": capital_data["roi"],
-        "trading_allocation": capital_data["trading_allocation"],
-        "capital_history": capital_data["capital_history"],
-        "transactions": capital_data["transactions"]
+        "username": current_user.username
     })
 
 @router.get("/duplication", response_class=HTMLResponse)
@@ -104,9 +83,7 @@ async def get_duplication(request: Request, current_user: User = Depends(get_cur
     return templates.TemplateResponse("duplication.html", {
         "request": request,
         "active_page": "duplication",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+        "username": current_user.username
     })
 
 @router.get("/retrait-depot", response_class=HTMLResponse)
@@ -114,25 +91,10 @@ async def get_retrait_depot(request: Request, current_user: User = Depends(get_c
     """
     Page de retrait et dépôt.
     """
-    capital_data = get_user_capital_data(current_user.username)
-    
     return templates.TemplateResponse("retrait_depot.html", {
         "request": request,
         "active_page": "retrait-depot",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
-        "total_capital": capital_data["total_capital"],
-        "available_for_withdrawal": capital_data["available_for_withdrawal"],
-        "in_use": capital_data["in_use"],
-        "transactions": capital_data["transactions"],
-        "payment_methods": [],
-        "daily_withdrawal_limit": 0,
-        "monthly_withdrawal_limit": 0,
-        "withdrawal_fee": 0,
-        "deposit_fee": 0,
-        "min_withdrawal": 0,
-        "min_deposit": 0
+        "username": current_user.username
     })
 
 @router.get("/parametres", response_class=HTMLResponse)
@@ -143,9 +105,7 @@ async def get_parametres(request: Request, current_user: User = Depends(get_curr
     return templates.TemplateResponse("parametres.html", {
         "request": request,
         "active_page": "parametres",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+        "username": current_user.username
     })
 
 @router.post("/api/save-settings", response_class=JSONResponse)
