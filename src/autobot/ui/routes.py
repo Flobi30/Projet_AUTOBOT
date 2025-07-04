@@ -10,8 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from autobot.autobot_security.auth.jwt_handler import get_current_user
-from autobot.autobot_security.auth.user_manager import User, UserManager
+from ..auth_simple import get_current_user, User, UserManager
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,7 @@ async def get_backtest(request: Request, current_user: User = Depends(get_curren
     """
     Page de backtest.
     """
-    from autobot.profit_engine import get_user_capital_data
+    from ..profit_engine import get_user_capital_data
     capital_data = get_user_capital_data(current_user.username)
     
     return templates.TemplateResponse("backtest.html", {
