@@ -1,317 +1,138 @@
 {% extends "base.html" %}
 
-{% block title %}Backtest - AUTOBOT{% endblock %}
-
 {% block header_title %}Backtest{% endblock %}
 
 {% block content %}
-<div class="dashboard-grid">
-    <!-- Automatic Backtest Status -->
-    <div class="card">
-        <div class="card-header">
-            <h3 class="neon-text">Configuration Automatique Active</h3>
-            <p>AUTOBOT optimise automatiquement les stratégies</p>
-            <p id="auto-status">Initialisation en cours...</p>
+<div class="backtest-container">
+    <div class="backtest-header">
+        <h2 class="neon-text">Configuration Automatique Active</h2>
+        <p>AUTOBOT optimise automatiquement les stratégies Crypto/FOREX</p>
+        <div class="status-indicator">
+            <span id="status-text">En attente de données...</span>
         </div>
     </div>
-
-    <!-- Performance Metrics -->
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Rendement Total</div>
-            <div class="metric-value neon-text" id="auto-total-return">+0.00%</div>
+    
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <h3>Rendement Total</h3>
+            <div class="metric-value" id="total-return">0.00%</div>
+        </div>
+        <div class="metric-card">
+            <h3>Rendement Quotidien</h3>
+            <div class="metric-value" id="daily-return">0.00%</div>
+        </div>
+        <div class="metric-card">
+            <h3>Ratio de Sharpe</h3>
+            <div class="metric-value" id="sharpe-ratio">0.00</div>
+        </div>
+        <div class="metric-card">
+            <h3>Capital Actuel</h3>
+            <div class="metric-value" id="current-capital">{{ initial_capital }}€</div>
         </div>
     </div>
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Rendement Quotidien</div>
-            <div class="metric-value neon-text" id="auto-daily-return">+0.00%</div>
+    
+    <div class="module-status">
+        <h3><i class="fas fa-chart-line"></i> Statut des Modules</h3>
+        <div class="module-item">
+            <span class="module-name">Trading Crypto/FOREX</span>
+            <span class="module-status-text" id="trading-status">En attente...</span>
+            <span class="module-profit" id="trading-profit">0.00€</span>
         </div>
     </div>
-    <div class="card">
-        <div class="metric-item">
-            <div class="metric-label">Ratio de Sharpe</div>
-            <div class="metric-value neon-text" id="auto-sharpe">+0.00</div>
-        </div>
-    </div>
-
-    <!-- Évolution du Capital Dynamique -->
-    <div class="card" style="grid-column: span 4;">
-        <div class="card-header">
-            <h3 class="neon-text">Évolution du Capital Dynamique ({{ real_data.capital_mode }})</h3>
-        </div>
-        <div class="card-body">
-            <div class="chart-container">
-                <canvas id="capitalChart" height="300"></canvas>
-            </div>
-            <div class="metrics-row" style="margin-top: 20px;">
-                <div class="metric-item">
-                    <div class="metric-label">Capital Actuel</div>
-                    <div class="metric-value neon-text" id="current-capital">{{ "%.2f"|format(real_data.current_capital) }}€</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Variation</div>
-                    <div class="metric-value" id="capital-change">0.00€</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Performance</div>
-                    <div class="metric-value" id="capital-performance">0.00%</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Module Activity Status -->
-    <div class="card" style="grid-column: span 4;">
-        <div class="card-header">
-            <h3 class="neon-text">Activité des Modules</h3>
-        </div>
-        <div class="card-body">
-            <div class="module-status">
-                <div class="metric-item">
-                    <div class="metric-label">Trading Crypto/FOREX Crypto/FOREX</div>
-                    <div class="metric-value" id="trading-status">En attente...</div>
-                    <div class="metric-value neon-text" id="trading-profit">0.00€</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Métriques Détaillées -->
-    <div class="card" style="grid-column: span 4;">
-        <div class="card-header">
-            <h3 class="neon-text">Métriques de Performance Détaillées</h3>
-        </div>
-        <div class="card-body">
-            <div class="metrics-row">
-                <div class="metric-item">
-                    <div class="metric-label">Trades Total</div>
-                    <div class="metric-value" id="total-trades">0</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Facteur de Profit</div>
-                    <div class="metric-value" id="profit-factor">0.00</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Trade Moyen</div>
-                    <div class="metric-value" id="avg-trade">0.00€</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Drawdown Max</div>
-                    <div class="metric-value" id="max-drawdown">0.00%</div>
-                </div>
-                <div class="metric-item">
-                    <div class="metric-label">Rendement Annualisé</div>
-                    <div class="metric-value" id="annual-return">0.00%</div>
-                </div>
-            </div>
-        </div>
+    
+    <div class="chart-container">
+        <h3><i class="fas fa-chart-area"></i> Évolution du Capital Dynamique (Training Mode 500€)</h3>
+        <canvas id="capitalChart"></canvas>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-let autoBacktestInterval;
-let capitalChart;
-let capitalData = [{{ real_data.current_capital }}]; // Start with dynamic capital
-let capitalLabels = ['Début'];
-
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Backtest page loaded');
+    let chart;
+    let capitalData = [{{ initial_capital }}];
+    let timeLabels = ['Start'];
     
-    // Initialize capital chart
-    initializeCapitalChart();
-    
-    // Initialize automatic backtest system
-    startAutomaticBacktest();
-});
-
-function initializeCapitalChart() {
     const ctx = document.getElementById('capitalChart').getContext('2d');
-    
-    capitalChart = new Chart(ctx, {
+    chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: capitalLabels,
+            labels: timeLabels,
             datasets: [{
                 label: 'Capital (€)',
                 data: capitalData,
                 borderColor: '#00ff9d',
                 backgroundColor: 'rgba(0, 255, 157, 0.1)',
                 borderWidth: 2,
-                fill: true,
-                tension: 0.4
+                fill: true
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    labels: {
-                        color: '#ffffff'
-                    }
+                    labels: { color: '#ffffff' }
                 }
             },
             scales: {
                 x: {
-                    ticks: {
-                        color: '#ffffff'
-                    },
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
-                    }
+                    ticks: { color: '#ffffff' },
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
                 },
                 y: {
-                    ticks: {
-                        color: '#ffffff',
-                        callback: function(value) {
-                            return value + '€';
-                        }
-                    },
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
-                    }
+                    ticks: { color: '#ffffff' },
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
                 }
             }
         }
     });
-}
-
-function updateCapitalChart(newCapital) {
-    const now = new Date();
-    const timeLabel = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
     
-    capitalData.push(newCapital);
-    capitalLabels.push(timeLabel);
-    
-    // Keep only last 20 data points
-    if (capitalData.length > 20) {
-        capitalData.shift();
-        capitalLabels.shift();
+    function fetchOptimizationStatus() {
+        fetch('/api/backtest/optimization-status')
+            .then(response => response.json())
+            .then(data => {
+                updateInterface(data);
+            })
+            .catch(error => {
+                console.error('Error fetching optimization status:', error);
+                document.getElementById('status-text').textContent = 'Initialisation...';
+            });
     }
     
-    capitalChart.data.labels = capitalLabels;
-    capitalChart.data.datasets[0].data = capitalData;
-    capitalChart.update();
-    
-    // Update capital metrics
-    const initialCapital = {{ real_data.current_capital }};
-    const variation = newCapital - initialCapital;
-    const performance = ((newCapital - initialCapital) / initialCapital) * 100;
-    
-    document.getElementById('current-capital').textContent = newCapital.toFixed(2) + '€';
-    document.getElementById('capital-change').textContent = (variation >= 0 ? '+' : '') + variation.toFixed(2) + '€';
-    document.getElementById('capital-performance').textContent = (performance >= 0 ? '+' : '') + performance.toFixed(2) + '%';
-    
-    // Update color based on performance
-    const changeElement = document.getElementById('capital-change');
-    const performanceElement = document.getElementById('capital-performance');
-    
-    if (variation >= 0) {
-        changeElement.style.color = '#00ff9d';
-        performanceElement.style.color = '#00ff9d';
-    } else {
-        changeElement.style.color = '#ff4757';
-        performanceElement.style.color = '#ff4757';
-    }
-}
-
-function startAutomaticBacktest() {
-    console.log('Starting automatic backtest system...');
-    
-    // Start the automatic backtest
-    fetch('/api/backtest/auto-run', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
+    function updateInterface(data) {
+        if (data.status === 'running') {
+            document.getElementById('status-text').textContent = 'Configuration automatique active';
         }
-    })
-    .then(response => response.json())
-    .then(data => {
-        console.log('Auto backtest started:', data);
         
-        if (data.success) {
-            document.getElementById('auto-status').textContent = 'Backtests automatiques actifs';
-            
-            // Start periodic updates
-            autoBacktestInterval = setInterval(updateAutomaticBacktest, 3000);
-            
-            // Initial update
-            setTimeout(updateAutomaticBacktest, 1000);
-        } else {
-            document.getElementById('auto-status').textContent = 'Erreur lors du démarrage';
+        if (data.metrics) {
+            document.getElementById('total-return').textContent = (data.metrics.total_return || 0).toFixed(2) + '%';
+            document.getElementById('daily-return').textContent = (data.metrics.avg_daily_return || 0).toFixed(4) + '%';
+            document.getElementById('sharpe-ratio').textContent = (data.metrics.sharpe_ratio || 0).toFixed(2);
+            document.getElementById('current-capital').textContent = (data.current_capital || {{ initial_capital }}).toFixed(2) + '€';
         }
-    })
-    .catch(error => {
-        console.error('Error starting automatic backtest:', error);
-        document.getElementById('auto-status').textContent = 'Erreur de connexion au serveur';
-    });
-}
-
-function updateAutomaticBacktest() {
-    fetch('/api/backtest/optimization-status')
-        .then(response => response.json())
-        .then(data => {
-            console.log('Optimization status update:', data);
-            
-            if (data.status === 'running' && data.metrics) {
-                // Update main metrics (with safety checks)
-                if (data.metrics.total_return !== undefined) {
-                    document.getElementById('auto-total-return').textContent = data.metrics.total_return.toFixed(2) + '%';
-                    
-                    // Calculate daily return (assuming monthly data)
-                    const dailyReturn = data.metrics.total_return / 30;
-                    document.getElementById('auto-daily-return').textContent = dailyReturn.toFixed(2) + '%';
-                    
-                    // Calculate new capital based on total return
-                    const initialCapital = {{ real_data.current_capital }};
-                    const newCapital = initialCapital + (initialCapital * data.metrics.total_return / 100);
-                    updateCapitalChart(newCapital);
-                }
-                
-                if (data.metrics.sharpe !== undefined) {
-                    document.getElementById('auto-sharpe').textContent = data.metrics.sharpe.toFixed(2);
-                }
-                
-                // Update module status - Trading Crypto/FOREX only (Crypto/FOREX)
-                if (data.modules && data.modules.trading) {
-                    const trading = data.modules.trading;
-                    document.getElementById('trading-status').textContent = `${trading.current_trades || 0} positions actives`;
-                    document.getElementById('trading-profit').textContent = (trading.profit || 0).toFixed(2) + '€';
-                }
-                
-                // Update detailed metrics
-                if (data.total_trades !== undefined) {
-                    document.getElementById('total-trades').textContent = data.total_trades;
-                }
-                
-                // Update status messages
-                if (data.status_messages && data.status_messages.length > 0) {
-                    document.getElementById('auto-status').textContent = data.status_messages.join(' | ');
-                }
-                
-            } else if (data.status === 'inactive') {
-                document.getElementById('auto-status').textContent = 'Configuration des clés API requise';
-                
-                // Reset metrics to initial state
-                document.getElementById('auto-total-return').textContent = '0.00%';
-                document.getElementById('auto-daily-return').textContent = '0.00%';
-                document.getElementById('auto-sharpe').textContent = '0.00';
-                
-                document.getElementById('trading-status').textContent = 'En attente...';
-            }
-        })
-        .catch(error => {
-            console.error('Error updating automatic backtest:', error);
-            document.getElementById('auto-status').textContent = 'Erreur de connexion au serveur';
-        });
-}
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', function() {
-    if (autoBacktestInterval) {
-        clearInterval(autoBacktestInterval);
+        
+        if (data.modules && data.modules.trading) {
+            const trading = data.modules.trading;
+            document.getElementById('trading-status').textContent = `${trading.current_trades || 0} positions actives`;
+            document.getElementById('trading-profit').textContent = (trading.profit || 0).toFixed(2) + '€';
+        }
+        
+        if (data.capital_evolution && data.capital_evolution.length > 0) {
+            updateCapitalChart(data.capital_evolution);
+        }
     }
+    
+    function updateCapitalChart(newData) {
+        capitalData = newData;
+        timeLabels = newData.map((_, index) => `T${index}`);
+        
+        chart.data.labels = timeLabels;
+        chart.data.datasets[0].data = capitalData;
+        chart.update();
+    }
+    
+    fetchOptimizationStatus();
+    setInterval(fetchOptimizationStatus, 3000);
 });
 </script>
 {% endblock %}
