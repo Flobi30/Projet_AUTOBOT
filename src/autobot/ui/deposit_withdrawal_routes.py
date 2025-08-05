@@ -440,16 +440,18 @@ async def get_transaction_history(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error retrieving transaction history: {str(e)}")
 
 @router.post("/api/stripe/create-checkout-session")
-async def create_checkout_session(request: dict, current_user: User = Depends(get_current_user)):
+async def create_checkout_session(request: dict):
     """
-    Create real Stripe checkout session for deposits
+    Create real Stripe checkout session for deposits - Public access for stripe-autobot.fr
     """
     try:
-        from ..services.stripe_service import get_user_stripe_service
+        import os
+        from ..services.stripe_service import StripeService
         
-        stripe_service = get_user_stripe_service(current_user.id)
-        if not stripe_service:
-            raise HTTPException(status_code=400, detail="Stripe API key not configured")
+        stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
+        if not stripe_api_key:
+            raise HTTPException(status_code=500, detail="Stripe API key not configured")
+        stripe_service = StripeService(api_key=stripe_api_key)
         
         amount = request.get("amount", 5000)
         currency = request.get("currency", "eur")
@@ -465,16 +467,18 @@ async def create_checkout_session(request: dict, current_user: User = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/stripe/create-payout")
-async def create_payout(request: dict, current_user: User = Depends(get_current_user)):
+async def create_payout(request: dict):
     """
-    Create real Stripe payout for withdrawals
+    Create real Stripe payout for withdrawals - Public access for stripe-autobot.fr
     """
     try:
-        from ..services.stripe_service import get_user_stripe_service
+        import os
+        from ..services.stripe_service import StripeService
         
-        stripe_service = get_user_stripe_service(current_user.id)
-        if not stripe_service:
-            raise HTTPException(status_code=400, detail="Stripe API key not configured")
+        stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
+        if not stripe_api_key:
+            raise HTTPException(status_code=500, detail="Stripe API key not configured")
+        stripe_service = StripeService(api_key=stripe_api_key)
         
         amount = request.get("amount", 10000)
         currency = request.get("currency", "eur")
