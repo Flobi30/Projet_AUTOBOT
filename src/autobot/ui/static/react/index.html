@@ -9,5 +9,67 @@
   </head>
   <body class="bg-gray-900">
     <div id="root"></div>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+      // Real Stripe integration fix for Capital page
+      document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(() => {
+          // Override React's handleDepositClick with real Stripe integration
+          const depositButtons = document.querySelectorAll('button');
+          depositButtons.forEach(button => {
+            const buttonText = button.querySelector('span');
+            if (buttonText && buttonText.textContent.includes('Effectuer un Dépôt')) {
+              button.addEventListener('click', async function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Show loading state
+                const span = this.querySelector('span');
+                const icon = this.querySelector('svg');
+                if (span) span.textContent = 'Préparation...';
+                if (icon) icon.classList.add('animate-spin');
+                this.disabled = true;
+                
+                try {
+                  // Call real backend API
+                  const response = await fetch('/api/stripe/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      amount: 5000, // 50€ in cents
+                      currency: 'eur',
+                    }),
+                  });
+                  
+                  const data = await response.json();
+                  console.log("Real Stripe session created:", data);
+                  
+                  // Redirect to Stripe Checkout using the URL
+                  if (data.url) {
+                    window.location.href = data.url;
+                    return; // Don't reset button if redirecting
+                  } else {
+                    console.error("No redirect URL provided by the server");
+                    alert("Erreur: Impossible de rediriger vers la page de paiement");
+                  }
+                } catch (error) {
+                  console.error("Error creating checkout session:", error);
+                  alert("Erreur lors de la création de la session de paiement");
+                }
+                
+                // Reset button state if we're still on the page
+                setTimeout(() => {
+                  if (span) span.textContent = 'Effectuer un Dépôt';
+                  if (icon) icon.classList.remove('animate-spin');
+                  this.disabled = false;
+                }, 2000);
+              });
+            }
+          });
+        }, 1000);
+      });
+    </script>
   </body>
 </html>

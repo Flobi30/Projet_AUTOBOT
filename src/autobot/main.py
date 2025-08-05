@@ -47,6 +47,11 @@ hft_engine = HFTOptimizedEngine(
     adaptive_throttling=True
 )
 
+from autobot.utils.instance_access import set_hft_engine
+set_hft_engine(hft_engine)
+
+hft_engine.start()
+
 logger.info("Performance optimizations activated for 10% daily return target")
 logger.info(f"HFT Engine configured: {hft_engine.batch_size} batch size, {hft_engine.max_workers} workers")
 logger.info(f"Performance Optimizer configured: {performance_optimizer.memory_threshold*100}% memory threshold")
@@ -68,6 +73,27 @@ app.include_router(arbitrage_router)
 
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
+
+@app.middleware("http")
+async def route_middleware(request: Request, call_next):
+    """Middleware to handle routing based on host"""
+    host = request.headers.get("host", "")
+    
+    if request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
+        response = await call_next(request)
+        return response
+    
+    if "stripe-autobot.fr" in host and request.url.path in ["/capital", "/trading", "/backtest", "/analytics"]:
+        react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "react")
+        react_index = os.path.join(react_static_path, "index.html")
+        
+        if os.path.exists(react_index):
+            from fastapi.responses import FileResponse
+            return FileResponse(react_index)
+    
+    response = await call_next(request)
+    return response
+
 app.include_router(ui_router)
 
 user_manager = UserManager()
@@ -121,6 +147,10 @@ react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "rea
 if os.path.exists(react_static_path):
     app.mount("/static/react", StaticFiles(directory=react_static_path), name="react-static")
     
+    react_assets_path = os.path.join(react_static_path, "assets")
+    if os.path.exists(react_assets_path):
+        app.mount("/assets", StaticFiles(directory=react_assets_path), name="react-assets")
+    
     @app.get("/react-app", response_class=HTMLResponse, tags=["frontend"])
     async def serve_react_frontend(request: Request):
         """Serve React frontend for authenticated users only."""
@@ -167,10 +197,15 @@ async def root(request: Request):
     
     return RedirectResponse(url="/login")
 
-@app.get("/public/retrait-depot", response_class=HTMLResponse, tags=["public"])
-async def public_stripe_page(request: Request):
-    """Public Stripe page accessible without authentication."""
+@app.get("/{path:path}", response_class=HTMLResponse, tags=["public"])
+async def serve_public_react(request: Request, path: str):
+    """Serve React frontend for all paths on public domain without authentication."""
     host = request.headers.get("host", "")
+    
+    if path.startswith("assets/") or path.startswith("static/"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Not found")
+    
     if "stripe-autobot.fr" in host:
         react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "react")
         react_index = os.path.join(react_static_path, "index.html")

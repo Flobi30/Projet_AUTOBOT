@@ -440,51 +440,52 @@ async def get_transaction_history(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error retrieving transaction history: {str(e)}")
 
 @router.post("/api/stripe/create-checkout-session")
-async def create_checkout_session(request: dict):
+async def create_checkout_session(request: dict, current_user: User = Depends(get_current_user)):
     """
-    Create Stripe checkout session for deposits - React frontend integration
+    Create real Stripe checkout session for deposits
     """
     try:
-        import random
-        amount = request.get("amount", 5000)  # Amount in centimes
+        from ..services.stripe_service import get_user_stripe_service
+        
+        stripe_service = get_user_stripe_service(current_user.id)
+        if not stripe_service:
+            raise HTTPException(status_code=400, detail="Stripe API key not configured")
+        
+        amount = request.get("amount", 5000)
         currency = request.get("currency", "eur")
         
-        try:
-            from ..services.stripe_service import StripeService
-            stripe_service = StripeService()
-            intent = stripe_service.create_payment_intent(amount, currency)
-            session_id = intent.get("id", f"cs_test_{random.randint(100000, 999999)}")
-        except ImportError:
-            session_id = f"cs_test_{random.randint(100000, 999999)}"
+        session_data = stripe_service.create_checkout_session(amount, currency)
         
-        return {"sessionId": session_id}
+        return {
+            "sessionId": session_data["sessionId"],
+            "url": session_data["url"]
+        }
     except Exception as e:
         logger.error(f"Error creating checkout session: {e}")
-        raise HTTPException(status_code=500, detail="Error creating checkout session")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/stripe/create-payout")
-async def create_payout(request: dict):
+async def create_payout(request: dict, current_user: User = Depends(get_current_user)):
     """
-    Create Stripe payout for withdrawals - React frontend integration
+    Create real Stripe payout for withdrawals
     """
     try:
-        amount = request.get("amount", 10000)  # Amount in centimes
+        from ..services.stripe_service import get_user_stripe_service
+        
+        stripe_service = get_user_stripe_service(current_user.id)
+        if not stripe_service:
+            raise HTTPException(status_code=400, detail="Stripe API key not configured")
+        
+        amount = request.get("amount", 10000)
         currency = request.get("currency", "eur")
-        iban = request.get("iban", "")
-        account_holder_name = request.get("accountHolderName", "")
+        destination = request.get("destination")
         
-        # Validate required fields
-        if not iban or not account_holder_name:
-            raise HTTPException(status_code=400, detail="IBAN and account holder name are required")
+        if not destination:
+            raise HTTPException(status_code=400, detail="Destination account required for payout")
         
-        try:
-            from ..services.stripe_service import StripeService
-            stripe_service = StripeService()
-            payout_result = {"success": True, "message": "Payout initiated successfully"}
-        except ImportError:
-            payout_result = {"success": True, "message": "Payout initiated successfully"}
+        payout_data = stripe_service.create_payout(amount, currency, destination)
         
-        return payout_result
+        return payout_data
     except Exception as e:
         logger.error(f"Error creating payout: {e}")
         raise HTTPException(status_code=500, detail=str(e))
