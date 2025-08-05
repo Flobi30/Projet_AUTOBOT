@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
 import logging
+import asyncio
 from fastapi import FastAPI, Request, Form, HTTPException, status
 from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,10 +33,16 @@ app = FastAPI(
 
 try:
     from autobot.services.backtest_service import get_backtest_service
+    from autobot.services.enhanced_backtest_service import get_enhanced_backtest_service
+    from autobot.services.optimization_engine import get_optimization_engine
+    
     backtest_service = get_backtest_service()
-    logger.info("✅ Backtest service initialized successfully")
+    enhanced_backtest_service = get_enhanced_backtest_service()
+    optimization_engine = get_optimization_engine()
+    
+    logger.info("✅ All backtest and optimization services initialized successfully")
 except Exception as e:
-    logger.warning(f"⚠️ Backtest service initialization failed: {e}")
+    logger.warning(f"⚠️ Service initialization failed: {e}")
 
 performance_optimizer = PerformanceOptimizer(
     memory_threshold=0.80,
@@ -57,6 +64,24 @@ from autobot.utils.instance_access import set_hft_engine
 set_hft_engine(hft_engine)
 
 hft_engine.start()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logger.info("🚀 AUTOBOT starting up with multi-timeframe optimizations...")
+    
+    try:
+        await optimization_engine.initialize_all_optimizations()
+        await optimization_engine.start_optimization_engine()
+        
+        asyncio.create_task(optimization_engine.optimize_multi_timeframe_strategies())
+        
+        logger.info("✅ Advanced optimization engine started successfully")
+        logger.info("🔥 Features activated: Multi-timeframe analysis, Multi-pair trading, Adaptive learning")
+    except Exception as e:
+        logger.error(f"❌ Failed to start optimization engine: {e}")
+    
+    logger.info("🎯 AUTOBOT startup complete with all optimizations active!")
 
 logger.info("Performance optimizations activated for 10% daily return target")
 logger.info(f"HFT Engine configured: {hft_engine.batch_size} batch size, {hft_engine.max_workers} workers")

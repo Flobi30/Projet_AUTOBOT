@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Strategy(ABC):
     """
@@ -415,5 +418,199 @@ class AdaptiveMultiStrategySystem(Strategy):
         
         data.loc[data['signal'] > 0.7, 'signal'] = 2
         data.loc[data['signal'] < -0.7, 'signal'] = -2
+        
+        return data
+
+
+class MultiTimeframeStrategy(Strategy):
+    """Base class for multi-timeframe trading strategies"""
+    
+    def __init__(self, name: str, parameters: Dict[str, Any] = None, timeframes: List[str] = None):
+        super().__init__(name, parameters)
+        self.timeframes = timeframes or ['5m', '15m', '1h', '4h']
+        self.primary_timeframe = self.timeframes[0]
+        self.confirmation_timeframes = self.timeframes[1:]
+    
+    def fetch_multi_timeframe_data(self, symbol: str, start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
+        """Fetch data for all timeframes"""
+        multi_data = {}
+        for tf in self.timeframes:
+            multi_data[tf] = self._generate_timeframe_data(symbol, start_date, end_date, tf)
+        return multi_data
+    
+    def _generate_timeframe_data(self, symbol: str, start_date: str, end_date: str, timeframe: str) -> pd.DataFrame:
+        """Generate realistic data for specific timeframe"""
+        from datetime import datetime
+        import pandas as pd
+        
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        if timeframe == '5m':
+            freq = '5T'
+        elif timeframe == '15m':
+            freq = '15T'
+        elif timeframe == '1h':
+            freq = '1H'
+        elif timeframe == '4h':
+            freq = '4H'
+        else:
+            freq = '1D'
+        
+        date_range = pd.date_range(start, end, freq=freq)
+        days = len(date_range)
+        
+        base_price = 45000 if 'BTC' in symbol else 2500
+        np.random.seed(42)
+        returns = np.random.normal(0.0005, 0.02, days)
+        prices = base_price * np.exp(np.cumsum(returns))
+        
+        return pd.DataFrame({
+            'open': prices * (1 + np.random.normal(0, 0.002, days)),
+            'high': prices * (1 + np.abs(np.random.normal(0, 0.005, days))),
+            'low': prices * (1 - np.abs(np.random.normal(0, 0.005, days))),
+            'close': prices,
+            'volume': np.random.randint(10000, 1000000, days)
+        }, index=date_range)
+    
+    def generate_multi_timeframe_signals(self, multi_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """Generate signals using multi-timeframe confirmation"""
+        primary_signals = self.generate_primary_signals(multi_data[self.primary_timeframe])
+        
+        for tf in self.confirmation_timeframes:
+            confirmation = self.get_timeframe_confirmation(multi_data[tf])
+            primary_signals = self.apply_confirmation_filter(primary_signals, confirmation, tf)
+        
+        return primary_signals
+    
+    def generate_primary_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate primary signals - to be implemented by subclasses"""
+        raise NotImplementedError
+    
+    def get_timeframe_confirmation(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Get confirmation from higher timeframe - to be implemented by subclasses"""
+        raise NotImplementedError
+    
+    def apply_confirmation_filter(self, primary_signals: pd.DataFrame, confirmation: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+        """Apply confirmation filter to primary signals"""
+        if 'trend' not in confirmation.columns:
+            return primary_signals
+        
+        primary_signals = primary_signals.copy()
+        
+        try:
+            confirmation_resampled = confirmation['trend'].resample(primary_signals.index.freq).ffill()
+            confirmation_aligned = confirmation_resampled.reindex(primary_signals.index, method='ffill')
+            
+            primary_signals.loc[confirmation_aligned == -1, 'signal'] *= 0.5
+            primary_signals.loc[confirmation_aligned == 1, 'signal'] *= 1.2
+            
+            primary_signals['signal'] = np.clip(primary_signals['signal'], -1, 1)
+        except Exception as e:
+            logger.warning(f"Error applying confirmation filter for {timeframe}: {e}")
+        
+        return primary_signals
+
+
+class MultiTimeframeRSIStrategy(MultiTimeframeStrategy):
+    """RSI strategy with multi-timeframe confirmation"""
+    
+    def __init__(self, period: int = 21, overbought: float = 75, oversold: float = 25, 
+                 stop_loss_pct: float = 0.05, take_profit_pct: float = 0.10):
+        super().__init__("MultiTimeframe_RSI", {
+            'period': period, 'overbought': overbought, 'oversold': oversold,
+            'stop_loss_pct': stop_loss_pct, 'take_profit_pct': take_profit_pct
+        }, timeframes=['5m', '15m', '1h', '4h'])
+    
+    def generate_primary_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate RSI signals on primary timeframe (5m)"""
+        data = data.copy()
+        period = self.parameters['period']
+        overbought = self.parameters['overbought']
+        oversold = self.parameters['oversold']
+        
+        delta = data['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        data['rsi'] = rsi
+        data['signal'] = 0
+        
+        data.loc[rsi < oversold, 'signal'] = 1
+        data.loc[rsi > overbought, 'signal'] = -1
+        
+        return data
+    
+    def get_timeframe_confirmation(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Get RSI trend confirmation from higher timeframes"""
+        data = data.copy()
+        period = self.parameters['period']
+        
+        delta = data['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        data['rsi'] = rsi
+        data['trend'] = 0
+        
+        data.loc[rsi < 40, 'trend'] = 1
+        data.loc[rsi > 60, 'trend'] = -1
+        
+        return data
+
+
+class MultiTimeframeBollingerStrategy(MultiTimeframeStrategy):
+    """Bollinger Bands strategy with multi-timeframe confirmation"""
+    
+    def __init__(self, window: int = 25, num_std: float = 2.5, 
+                 stop_loss_pct: float = 0.04, take_profit_pct: float = 0.08):
+        super().__init__("MultiTimeframe_Bollinger", {
+            'window': window, 'num_std': num_std,
+            'stop_loss_pct': stop_loss_pct, 'take_profit_pct': take_profit_pct
+        }, timeframes=['15m', '1h', '4h', '1d'])
+    
+    def generate_primary_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate Bollinger Bands signals on primary timeframe"""
+        data = data.copy()
+        window = self.parameters['window']
+        num_std = self.parameters['num_std']
+        
+        rolling_mean = data['close'].rolling(window=window).mean()
+        rolling_std = data['close'].rolling(window=window).std()
+        
+        data['bb_upper'] = rolling_mean + (rolling_std * num_std)
+        data['bb_lower'] = rolling_mean - (rolling_std * num_std)
+        data['bb_middle'] = rolling_mean
+        
+        data['signal'] = 0
+        
+        data.loc[data['close'] <= data['bb_lower'], 'signal'] = 1
+        data.loc[data['close'] >= data['bb_upper'], 'signal'] = -1
+        
+        return data
+    
+    def get_timeframe_confirmation(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Get Bollinger Bands trend confirmation from higher timeframes"""
+        data = data.copy()
+        window = self.parameters['window']
+        num_std = self.parameters['num_std']
+        
+        rolling_mean = data['close'].rolling(window=window).mean()
+        rolling_std = data['close'].rolling(window=window).std()
+        
+        data['bb_upper'] = rolling_mean + (rolling_std * num_std)
+        data['bb_lower'] = rolling_mean - (rolling_std * num_std)
+        data['bb_middle'] = rolling_mean
+        
+        data['trend'] = 0
+        
+        data.loc[data['close'] > data['bb_middle'], 'trend'] = 1
+        data.loc[data['close'] < data['bb_middle'], 'trend'] = -1
         
         return data

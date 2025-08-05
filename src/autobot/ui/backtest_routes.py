@@ -30,6 +30,7 @@ class BacktestRequest(BaseModel):
     end_date: str
     initial_capital: float
     params: Optional[Dict[str, Any]] = None
+    parameters: Optional[Dict[str, Any]] = None
 
 class BacktestResult(BaseModel):
     id: str
@@ -144,46 +145,88 @@ saved_backtests = []
 async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):
     """Run a backtest with real strategy calculations."""
     try:
-        from ..services.backtest_service import get_backtest_service
-        
-        backtest_service = get_backtest_service()
-        
-        result = backtest_service.run_backtest(
-            strategy_id=request.strategy,
-            symbol=request.symbol,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            initial_capital=request.initial_capital,
-            params=request.params
-        )
-        
-        result_id = str(uuid.uuid4())
-        
-        backtest_result = BacktestResult(
-            id=result_id,
-            strategy=request.strategy,
-            symbol=request.symbol,
-            timeframe=request.timeframe,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            initial_capital=request.initial_capital,
-            params=request.params,
-            metrics=result["metrics"],
-            equity_curve=result["equity_curve"],
-            trades=result["trades"]
-        )
-        
-        saved_backtests.append({
-            "id": result_id,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy": next((s["name"] for s in strategies if s["id"] == request.strategy), request.strategy),
-            "symbol": request.symbol,
-            "timeframe": request.timeframe,
-            "return": round(result["metrics"]["total_return"], 2),
-            "sharpe": round(result["metrics"]["sharpe"], 2)
-        })
-        
-        return backtest_result
+        if request.strategy in ["MultiTimeframe_RSI", "MultiTimeframe_Bollinger"]:
+            from ..services.enhanced_backtest_service import run_multi_timeframe_backtest
+            
+            timeframes = request.parameters.get('timeframes', ['5m', '15m', '1h', '4h']) if request.parameters else ['5m', '15m', '1h', '4h']
+            
+            result = run_multi_timeframe_backtest(
+                strategy_name=request.strategy,
+                symbol=request.symbol,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                timeframes=timeframes
+            )
+            
+            result_id = str(uuid.uuid4())
+            
+            backtest_result = BacktestResult(
+                id=result_id,
+                strategy=request.strategy,
+                symbol=request.symbol,
+                timeframe="Multi-TF",
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=request.initial_capital,
+                params=request.parameters,
+                metrics=result.get("metrics", {}),
+                equity_curve=result.get("equity_curve", {"dates": [], "values": []}),
+                trades=result.get("trades", [])
+            )
+            
+            saved_backtests.append({
+                "id": result_id,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "strategy": request.strategy,
+                "symbol": request.symbol,
+                "timeframe": "Multi-TF",
+                "return": round(result.get("total_return", 0), 2),
+                "sharpe": round(result.get("sharpe_ratio", 0), 2),
+                "multi_timeframe": True
+            })
+            
+            return backtest_result
+        else:
+            from ..services.backtest_service import get_backtest_service
+            
+            backtest_service = get_backtest_service()
+            
+            result = backtest_service.run_backtest(
+                strategy_id=request.strategy,
+                symbol=request.symbol,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=request.initial_capital,
+                params=request.params
+            )
+            
+            result_id = str(uuid.uuid4())
+            
+            backtest_result = BacktestResult(
+                id=result_id,
+                strategy=request.strategy,
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=request.initial_capital,
+                params=request.params,
+                metrics=result["metrics"],
+                equity_curve=result["equity_curve"],
+                trades=result["trades"]
+            )
+            
+            saved_backtests.append({
+                "id": result_id,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "strategy": next((s["name"] for s in strategies if s["id"] == request.strategy), request.strategy),
+                "symbol": request.symbol,
+                "timeframe": request.timeframe,
+                "return": round(result["metrics"]["total_return"], 2),
+                "sharpe": round(result["metrics"]["sharpe"], 2)
+            })
+            
+            return backtest_result
         
     except Exception as e:
         logger.error(f"Error running backtest: {str(e)}")
@@ -338,3 +381,105 @@ async def delete_backtest(backtest_id: str, user: User = Depends(get_current_use
         "success": True,
         "message": "Backtest deleted successfully"
     }
+
+@router.post("/api/backtest/run-multi-timeframe")
+async def run_multi_timeframe_backtest(request: BacktestRequest, user: User = Depends(get_current_user)):
+    """Run backtest with multi-timeframe strategy"""
+    try:
+        from ..services.enhanced_backtest_service import run_multi_timeframe_backtest
+        
+        result = run_multi_timeframe_backtest(
+            strategy_name=request.strategy,
+            symbol=request.symbol,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            timeframes=request.parameters.get('timeframes', ['5m', '15m', '1h', '4h']) if request.parameters else ['5m', '15m', '1h', '4h']
+        )
+        
+        backtest_id = str(uuid.uuid4())
+        saved_backtests.append({
+            "id": backtest_id,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "strategy": request.strategy,
+            "symbol": request.symbol,
+            "timeframe": "Multi-TF",
+            "return": round(result.get("total_return", 0), 2),
+            "sharpe": round(result.get("sharpe_ratio", 0), 2),
+            "multi_timeframe": True
+        })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Multi-timeframe backtest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/backtest/strategies")
+async def get_available_strategies(user: User = Depends(get_current_user)):
+    """Get list of available strategies including multi-timeframe ones"""
+    all_strategies = strategies + [
+        {
+            "id": "MultiTimeframe_RSI",
+            "name": "Multi-Timeframe RSI",
+            "params": [
+                {
+                    "name": "period",
+                    "label": "RSI Period",
+                    "type": "number",
+                    "default": 21,
+                    "min": 5,
+                    "max": 50,
+                    "step": 1,
+                    "description": "Period for RSI calculation"
+                },
+                {
+                    "name": "overbought",
+                    "label": "Overbought Level",
+                    "type": "number",
+                    "default": 75,
+                    "min": 60,
+                    "max": 90,
+                    "step": 1,
+                    "description": "RSI overbought threshold"
+                },
+                {
+                    "name": "oversold",
+                    "label": "Oversold Level",
+                    "type": "number",
+                    "default": 25,
+                    "min": 10,
+                    "max": 40,
+                    "step": 1,
+                    "description": "RSI oversold threshold"
+                }
+            ]
+        },
+        {
+            "id": "MultiTimeframe_Bollinger",
+            "name": "Multi-Timeframe Bollinger Bands",
+            "params": [
+                {
+                    "name": "window",
+                    "label": "BB Window",
+                    "type": "number",
+                    "default": 25,
+                    "min": 10,
+                    "max": 50,
+                    "step": 1,
+                    "description": "Bollinger Bands window period"
+                },
+                {
+                    "name": "num_std",
+                    "label": "Standard Deviations",
+                    "type": "number",
+                    "default": 2.5,
+                    "min": 1.0,
+                    "max": 4.0,
+                    "step": 0.1,
+                    "description": "Number of standard deviations"
+                }
+            ]
+        }
+    ]
+    
+    return {"strategies": all_strategies}
