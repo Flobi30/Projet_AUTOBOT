@@ -31,6 +31,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+backtest_service = None
+enhanced_backtest_service = None
+optimization_engine = None
+
 try:
     from autobot.services.backtest_service import get_backtest_service
     from autobot.services.enhanced_backtest_service import get_enhanced_backtest_service
@@ -71,13 +75,16 @@ async def startup_event():
     logger.info("🚀 AUTOBOT starting up with multi-timeframe optimizations...")
     
     try:
-        await optimization_engine.initialize_all_optimizations()
-        await optimization_engine.start_optimization_engine()
-        
-        asyncio.create_task(optimization_engine.optimize_multi_timeframe_strategies())
-        
-        logger.info("✅ Advanced optimization engine started successfully")
-        logger.info("🔥 Features activated: Multi-timeframe analysis, Multi-pair trading, Adaptive learning")
+        if optimization_engine:
+            await optimization_engine.initialize_all_optimizations()
+            await optimization_engine.start_optimization_engine()
+            
+            asyncio.create_task(optimization_engine.optimize_multi_timeframe_strategies())
+            
+            logger.info("✅ Advanced optimization engine started successfully")
+            logger.info("🔥 Features activated: Multi-timeframe analysis, Multi-pair trading, Adaptive learning")
+        else:
+            logger.warning("⚠️ Optimization engine not available, skipping advanced features")
     except Exception as e:
         logger.error(f"❌ Failed to start optimization engine: {e}")
     
