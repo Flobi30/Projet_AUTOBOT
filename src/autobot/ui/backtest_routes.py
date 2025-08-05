@@ -13,8 +13,6 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..autobot_security.auth.user_manager import User, get_current_user
@@ -23,8 +21,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "templates")
-templates = Jinja2Templates(directory=templates_dir)
 
 class BacktestRequest(BaseModel):
     strategy: str
@@ -143,19 +139,6 @@ symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "DOT/USD", "XRP/USD", "DO
 
 saved_backtests = []
 
-@router.get("/backtest", response_class=HTMLResponse)
-async def backtest_page(request: Request, user: User = Depends(get_current_user)):
-    """Render the backtest page."""
-    return templates.TemplateResponse(
-        "backtest.html",
-        {
-            "request": request,
-            "user": user,
-            "strategies": strategies,
-            "symbols": symbols,
-            "saved_backtests": saved_backtests
-        }
-    )
 
 @router.post("/api/backtest/run")
 async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):

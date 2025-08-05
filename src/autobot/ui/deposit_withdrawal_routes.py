@@ -8,8 +8,6 @@ import os
 import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..autobot_security.auth.user_manager import User, get_current_user
@@ -18,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "templates")
-templates = Jinja2Templates(directory=templates_dir)
 
 class DepositRequest(BaseModel):
     amount: float
@@ -272,31 +268,6 @@ def get_impact_color(impact_value: float) -> str:
     else:
         return "#ff3333"  # Red
 
-@router.get("/deposit-withdrawal", response_class=HTMLResponse)
-async def deposit_withdrawal_page(request: Request, user: User = Depends(get_current_user)):
-    """Render the deposit/withdrawal page."""
-    analyzer = get_withdrawal_analyzer()
-    recommendations = analyzer.get_withdrawal_recommendations()
-    system_metrics = analyzer.get_system_metrics()
-    
-    transactions = analyzer.get_transaction_history()
-    
-    return templates.TemplateResponse(
-        "deposit_withdrawal.html",
-        {
-            "request": request,
-            "user": user,
-            "total_balance": system_metrics["total_balance"],
-            "daily_profit": system_metrics["profit_per_day"],
-            "monthly_profit": system_metrics["profit_per_day"] * 30,
-            "profit_percentage": (system_metrics["profit_per_day"] / system_metrics["total_balance"]) * 100 if system_metrics["total_balance"] > 0 else 0,
-            "active_instances": system_metrics["active_instances"],
-            "optimal_withdrawal": recommendations,
-            "withdrawal_impact": None,  # Will be populated via API call
-            "transactions": transactions,
-            "get_impact_color": get_impact_color
-        }
-    )
 
 @router.post("/api/deposit")
 async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):

@@ -3,9 +3,6 @@ Mobile-specific routes for AUTOBOT.
 Provides API endpoints and page routes for mobile interface.
 """
 from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 from typing import Dict, Any, Optional
 import os
 import logging
@@ -14,92 +11,9 @@ from ..autobot_security.auth.jwt_handler import get_current_user
 
 logger = logging.getLogger(__name__)
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-templates_dir = os.path.join(current_dir, "templates")
-
-templates = Jinja2Templates(directory=templates_dir)
 
 router = APIRouter(tags=["Mobile"])
 
-@router.get("/mobile", response_class=HTMLResponse)
-async def mobile_dashboard(request: Request):
-    """
-    Mobile dashboard page.
-    
-    Args:
-        request: Request object
-        
-    Returns:
-        HTMLResponse: Mobile dashboard page
-    """
-    return templates.TemplateResponse(
-        "mobile_dashboard.html",
-        {"request": request}
-    )
-
-@router.get("/mobile/trading", response_class=HTMLResponse)
-async def mobile_trading(request: Request):
-    """
-    Mobile trading page.
-    
-    Args:
-        request: Request object
-        
-    Returns:
-        HTMLResponse: Mobile trading page
-    """
-    return templates.TemplateResponse(
-        "mobile_trading.html",
-        {"request": request}
-    )
-
-@router.get("/mobile/ecommerce", response_class=HTMLResponse)
-async def mobile_ecommerce(request: Request):
-    """
-    Mobile e-commerce page.
-    
-    Args:
-        request: Request object
-        
-    Returns:
-        HTMLResponse: Mobile e-commerce page
-    """
-    return templates.TemplateResponse(
-        "mobile_ecommerce.html",
-        {"request": request}
-    )
-
-@router.get("/mobile/rl-training", response_class=HTMLResponse)
-async def mobile_rl_training(request: Request):
-    """
-    Mobile RL training page.
-    
-    Args:
-        request: Request object
-        
-    Returns:
-        HTMLResponse: Mobile RL training page
-    """
-    return templates.TemplateResponse(
-        "mobile_rl_training.html",
-        {"request": request}
-    )
-
-@router.get("/mobile/settings", response_class=HTMLResponse)
-async def mobile_settings(request: Request):
-    """
-    Mobile settings page.
-    
-    Args:
-        request: Request object
-        
-    Returns:
-        HTMLResponse: Mobile settings page
-    """
-    return templates.TemplateResponse(
-        "mobile_settings.html",
-        {"request": request}
-    )
 
 @router.get("/api/mobile/detect", summary="Detect if client is mobile")
 async def detect_mobile(user_agent: Optional[str] = None):
