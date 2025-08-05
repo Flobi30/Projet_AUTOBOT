@@ -445,13 +445,9 @@ async def create_checkout_session(request: dict):
     Create real Stripe checkout session for deposits - Public access for stripe-autobot.fr
     """
     try:
-        import os
-        from ..services.stripe_service import StripeService
+        from ..services.stripe_service import get_stripe_service
         
-        stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
-        if not stripe_api_key:
-            raise HTTPException(status_code=500, detail="Stripe API key not configured")
-        stripe_service = StripeService(api_key=stripe_api_key)
+        stripe_service = get_stripe_service()
         
         amount = request.get("amount", 5000)
         currency = request.get("currency", "eur")
@@ -472,13 +468,9 @@ async def create_payout(request: dict):
     Create real Stripe payout for withdrawals - Public access for stripe-autobot.fr
     """
     try:
-        import os
-        from ..services.stripe_service import StripeService
+        from ..services.stripe_service import get_stripe_service
         
-        stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
-        if not stripe_api_key:
-            raise HTTPException(status_code=500, detail="Stripe API key not configured")
-        stripe_service = StripeService(api_key=stripe_api_key)
+        stripe_service = get_stripe_service()
         
         amount = request.get("amount", 10000)
         currency = request.get("currency", "eur")

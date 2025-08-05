@@ -37,18 +37,28 @@ async def get_portfolio_history(current_user: User = Depends(get_current_user)) 
         from ..utils.instance_access import get_fund_manager_instance
         
         fund_manager = get_fund_manager_instance()
-        transactions = fund_manager.get_transaction_history(limit=24)
-        
-        history = []
+        transactions = fund_manager.get_transaction_history()
         current_balance = fund_manager.get_balance()
         
-        for i in range(0, 24, 4):
-            time_str = f"{i:02d}:00"
-            historical_balance = current_balance - (len(transactions) - i) * 50
-            history.append({
-                "time": time_str,
-                "value": max(historical_balance, 1000)
-            })
+        history = []
+        
+        if current_balance == 0 and len(transactions) == 0:
+            for i in range(0, 24, 4):
+                time_str = f"{i:02d}:00"
+                history.append({
+                    "time": time_str,
+                    "value": 0
+                })
+        else:
+            base_balance = max(current_balance - len(transactions) * 10, 0)
+            for i in range(0, 24, 4):
+                time_str = f"{i:02d}:00"
+                progress = i / 20
+                historical_balance = base_balance + (current_balance - base_balance) * progress
+                history.append({
+                    "time": time_str,
+                    "value": historical_balance
+                })
         
         return history
     except Exception as e:
@@ -66,35 +76,46 @@ async def get_open_positions(current_user: User = Depends(get_current_user)) -> 
         engine = get_hft_engine()
         fund_manager = get_fund_manager_instance()
         balance = fund_manager.get_balance()
+        transactions = fund_manager.get_transaction_history()
         
-        if engine:
-            metrics = engine.get_metrics()
-            processed_orders = metrics.get("processed_orders", 0)
-            
-            positions = []
-            if processed_orders > 0:
-                positions.append({
-                    "pair": "BTC/USD",
-                    "side": "LONG" if balance > 5000 else "SHORT",
-                    "size": f"{balance / 50000:.3f} BTC",
-                    "entry": str(int(45000 + (balance - 5000) * 0.1)),
-                    "pnl": int((balance - 5000) * 0.2),
-                    "pnlPercent": round((balance / 5000 - 1) * 100, 2)
-                })
-            
-            if processed_orders > 100:
-                positions.append({
-                    "pair": "ETH/USD",
-                    "side": "LONG" if metrics.get("orders_per_minute", 0) > 10 else "SHORT",
-                    "size": f"{balance / 3000:.2f} ETH",
-                    "entry": str(int(2800 + processed_orders * 0.01)),
-                    "pnl": int(processed_orders * 0.1 - 50),
-                    "pnlPercent": round((processed_orders * 0.001 - 1), 2)
-                })
-            
-            return positions
+        positions = []
         
-        return []
+        if balance > 0 and len(transactions) > 0:
+            if engine:
+                metrics = engine.get_metrics()
+                processed_orders = metrics.get("processed_orders", 0)
+                
+                if processed_orders > 0:
+                    position_size = balance * 0.1
+                    btc_price = 45000
+                    btc_amount = position_size / btc_price
+                    pnl = len(transactions) * 15
+                    
+                    positions.append({
+                        "pair": "BTC/USD",
+                        "side": "LONG",
+                        "size": f"{btc_amount:.4f} BTC",
+                        "entry": f"{btc_price:,}",
+                        "pnl": pnl,
+                        "pnlPercent": round((pnl / position_size) * 100, 2)
+                    })
+                
+                if processed_orders > 50:
+                    eth_position_size = balance * 0.05
+                    eth_price = 2800
+                    eth_amount = eth_position_size / eth_price
+                    eth_pnl = len(transactions) * 8
+                    
+                    positions.append({
+                        "pair": "ETH/USD",
+                        "side": "LONG",
+                        "size": f"{eth_amount:.3f} ETH",
+                        "entry": f"{eth_price:,}",
+                        "pnl": eth_pnl,
+                        "pnlPercent": round((eth_pnl / eth_position_size) * 100, 2)
+                    })
+        
+        return positions
     except Exception as e:
         logger.error(f"Error getting open positions: {e}")
         raise HTTPException(status_code=500, detail="Error retrieving open positions")

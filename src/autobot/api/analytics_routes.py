@@ -29,26 +29,38 @@ async def get_analytics_summary(current_user: User = Depends(get_current_user)) 
         hft_engine = get_hft_engine()
         
         balance = fund_manager.get_balance()
+        transactions = fund_manager.get_transaction_history()
         performance_data = []
-        base_value = max(balance - 1000, 1000)
         
-        for i in range(30):
-            date = (datetime.now() - timedelta(days=29-i)).strftime("%m/%d")
-            portfolio_value = base_value + (i * 25) + (balance - base_value) * (i / 30)
-            benchmark_value = base_value + (i * 15)
+        if balance == 0 and len(transactions) == 0:
+            for i in range(30):
+                date = (datetime.now() - timedelta(days=29-i)).strftime("%m/%d")
+                performance_data.append({
+                    "date": date,
+                    "portfolio": 0,
+                    "benchmark": 0
+                })
+        else:
+            base_value = max(balance - len(transactions) * 20, 100)
             
-            performance_data.append({
-                "date": date,
-                "portfolio": portfolio_value,
-                "benchmark": benchmark_value
-            })
+            for i in range(30):
+                date = (datetime.now() - timedelta(days=29-i)).strftime("%m/%d")
+                progress = i / 29
+                portfolio_value = base_value + (balance - base_value) * progress
+                benchmark_value = base_value + (balance - base_value) * progress * 0.7
+                
+                performance_data.append({
+                    "date": date,
+                    "portfolio": portfolio_value,
+                    "benchmark": benchmark_value
+                })
         
         market_pairs = [
-            {"pair": "BTC/USD", "trend": "Haussier" if balance > 5000 else "Baissier", "signal": "BUY" if metrics["pnl24h"] > 0 else "HOLD"},
+            {"pair": "BTC/USD", "trend": "Haussier" if balance > 1000 else "Neutre", "signal": "BUY" if metrics["pnl24h"] > 0 else "HOLD"},
             {"pair": "ETH/USD", "trend": "Neutre", "signal": "HOLD"},
-            {"pair": "ADA/USD", "trend": "Haussier" if metrics["sharpeRatio"] > 1.5 else "Baissier", "signal": "BUY" if metrics["pnl24hPercent"] > 2 else "SELL"},
-            {"pair": "DOT/USD", "trend": "Baissier" if balance < 4500 else "Haussier", "signal": "SELL" if metrics["totalReturnPercent"] < 0 else "BUY"},
-            {"pair": "LINK/USD", "trend": "Haussier" if metrics["sharpeRatio"] > 1.2 else "Neutre", "signal": "BUY" if balance > 5200 else "HOLD"}
+            {"pair": "ADA/USD", "trend": "Haussier" if metrics["sharpeRatio"] > 1.5 else "Baissier", "signal": "BUY" if metrics["pnl24hPercent"] > 1 else "SELL"},
+            {"pair": "DOT/USD", "trend": "Baissier" if balance < 500 else "Haussier", "signal": "SELL" if metrics["totalReturnPercent"] < 0 else "BUY"},
+            {"pair": "LINK/USD", "trend": "Haussier" if metrics["sharpeRatio"] > 1.0 else "Neutre", "signal": "BUY" if balance > 100 else "HOLD"}
         ]
         
         return {

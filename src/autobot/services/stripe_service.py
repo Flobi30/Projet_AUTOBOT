@@ -4,8 +4,8 @@ Real Stripe Service for AUTOBOT payment processing
 
 import stripe
 import logging
+import os
 from typing import Dict, Any, Optional
-from ..autobot_security.auth.user_manager import UserManager
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,9 @@ class StripeService:
         if api_key:
             stripe.api_key = api_key
         else:
-            logger.warning("No Stripe API key provided")
+            stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+            if not stripe.api_key:
+                logger.warning("No Stripe API key provided")
     
     def create_checkout_session(self, amount: int, currency: str = "eur", 
                               success_url: str = None, cancel_url: str = None) -> Dict[str, Any]:
@@ -68,17 +70,6 @@ class StripeService:
             logger.error(f"Error creating Stripe payout: {e}")
             raise
 
-def get_user_stripe_service(user_id: str) -> Optional[StripeService]:
-    """Get StripeService instance for authenticated user"""
-    try:
-        user_manager = UserManager()
-        user = user_manager.get_user(user_id)
-        
-        if user and 'stripe_api_key' in user:
-            return StripeService(api_key=user['stripe_api_key'])
-        
-        logger.warning(f"No Stripe API key found for user {user_id}")
-        return None
-    except Exception as e:
-        logger.error(f"Error getting user Stripe service: {e}")
-        return None
+def get_stripe_service() -> StripeService:
+    """Get StripeService instance with configured API key"""
+    return StripeService()
