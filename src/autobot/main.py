@@ -4,6 +4,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
 import logging
+from fastapi import FastAPI, Request, Form, HTTPException, status
+from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from autobot.router_clean import router
 from autobot.routes.health_routes import router as health_router
 from autobot.routes.prediction_routes import router as prediction_router
@@ -16,6 +20,7 @@ from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
+from autobot.autobot_security.auth.user_manager import UserManager
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +70,38 @@ app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
 
+user_manager = UserManager()
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+templates_dir = os.path.join(current_dir, "ui", "templates")
+templates = Jinja2Templates(directory=templates_dir)
+
+@app.get("/login", response_class=HTMLResponse, tags=["auth"])
+async def login_page(request: Request):
+    """Login page endpoint."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", tags=["auth"])
+async def login(username: str = Form(...), password: str = Form(...), license_key: str = Form(...)):
+    """Login endpoint."""
+    user = user_manager.authenticate_user(username, password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    access_token = user_manager.create_token(user["id"])
+    
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=900,
+        samesite="lax"
+    )
+    
+    return response
+
 try:
     from .api.live_trading_routes import router as live_trading_router
     from .api.analytics_routes import router as analytics_router
@@ -84,14 +121,24 @@ react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "rea
 if os.path.exists(react_static_path):
     app.mount("/static/react", StaticFiles(directory=react_static_path), name="react-static")
     
-    @app.get("/")
-    async def serve_react_app():
-        """Serve React frontend for authenticated users"""
+    @app.get("/react-app", response_class=HTMLResponse, tags=["frontend"])
+    async def serve_react_frontend(request: Request):
+        """Serve React frontend for authenticated users only."""
+        access_token = request.cookies.get("access_token")
+        if not access_token:
+            return RedirectResponse(url="/login")
+        
+        try:
+            from autobot.autobot_security.auth.jwt_handler import decode_token
+            decode_token(access_token)
+        except:
+            return RedirectResponse(url="/login")
+        
         react_index = os.path.join(react_static_path, "index.html")
         if os.path.exists(react_index):
             return FileResponse(react_index)
         else:
-            return {"message": "React frontend not found, using API mode"}
+            return RedirectResponse(url="/dashboard")
     
     logger.info("React frontend mounted successfully")
 else:
@@ -99,19 +146,36 @@ else:
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
-    """
-    Root endpoint that detects device type and redirects accordingly.
-    """
-    user_agent = request.headers.get("user-agent", "")
+    """Root endpoint that redirects to login or dashboard based on authentication."""
+    host = request.headers.get("host", "")
     
-    mobile_keywords = [
-        "android", "iphone", "ipod", "ipad", "windows phone", "blackberry", 
-        "opera mini", "mobile", "tablet"
-    ]
+    if "stripe-autobot.fr" in host:
+        react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "react")
+        react_index = os.path.join(react_static_path, "index.html")
+        
+        if os.path.exists(react_index):
+            return FileResponse(react_index)
     
-    is_mobile = any(keyword in user_agent.lower() for keyword in mobile_keywords)
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        try:
+            from autobot.autobot_security.auth.jwt_handler import decode_token
+            decode_token(access_token)
+            return RedirectResponse(url="/dashboard")
+        except:
+            pass
     
-    if is_mobile:
-        return RedirectResponse(url="/mobile")
-    else:
-        return RedirectResponse(url="/simple")
+    return RedirectResponse(url="/login")
+
+@app.get("/public/retrait-depot", response_class=HTMLResponse, tags=["public"])
+async def public_stripe_page(request: Request):
+    """Public Stripe page accessible without authentication."""
+    host = request.headers.get("host", "")
+    if "stripe-autobot.fr" in host:
+        react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "react")
+        react_index = os.path.join(react_static_path, "index.html")
+        
+        if os.path.exists(react_index):
+            return FileResponse(react_index)
+    
+    return RedirectResponse(url="/login")

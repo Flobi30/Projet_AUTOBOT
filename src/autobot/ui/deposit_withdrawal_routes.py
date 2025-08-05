@@ -440,7 +440,7 @@ async def get_transaction_history(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error retrieving transaction history: {str(e)}")
 
 @router.post("/api/stripe/create-checkout-session")
-async def create_checkout_session(request: dict, user: User = Depends(get_current_user)):
+async def create_checkout_session(request: dict):
     """
     Create Stripe checkout session for deposits - React frontend integration
     """
@@ -463,7 +463,7 @@ async def create_checkout_session(request: dict, user: User = Depends(get_curren
         raise HTTPException(status_code=500, detail="Error creating checkout session")
 
 @router.post("/api/stripe/create-payout")
-async def create_payout(request: dict, user: User = Depends(get_current_user)):
+async def create_payout(request: dict):
     """
     Create Stripe payout for withdrawals - React frontend integration
     """

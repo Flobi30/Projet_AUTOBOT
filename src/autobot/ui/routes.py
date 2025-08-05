@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from autobot.autobot_security.auth.jwt_handler import get_current_user
@@ -34,6 +34,11 @@ async def get_dashboard(request: Request, current_user: User = Depends(get_curre
         "user_role": current_user.role,
         "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
     })
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard_redirect(request: Request, current_user: User = Depends(get_current_user)):
+    """Main dashboard - serve React frontend for authenticated users."""
+    return RedirectResponse(url="/react-app")
 
 @router.get("/trading", response_class=HTMLResponse)
 async def get_trading(request: Request, current_user: User = Depends(get_current_user)):
