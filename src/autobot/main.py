@@ -65,6 +65,38 @@ app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
 
+try:
+    from .api.live_trading_routes import router as live_trading_router
+    from .api.analytics_routes import router as analytics_router
+    
+    app.include_router(live_trading_router)
+    app.include_router(analytics_router)
+    
+    logger.info("Successfully loaded React frontend API routers")
+except ImportError as e:
+    logger.warning(f"Could not load React frontend API routers: {e}")
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+react_static_path = os.path.join(os.path.dirname(__file__), "ui", "static", "react")
+if os.path.exists(react_static_path):
+    app.mount("/static/react", StaticFiles(directory=react_static_path), name="react-static")
+    
+    @app.get("/")
+    async def serve_react_app():
+        """Serve React frontend for authenticated users"""
+        react_index = os.path.join(react_static_path, "index.html")
+        if os.path.exists(react_index):
+            return FileResponse(react_index)
+        else:
+            return {"message": "React frontend not found, using API mode"}
+    
+    logger.info("React frontend mounted successfully")
+else:
+    logger.warning("React frontend directory not found")
+
 @app.get("/", tags=["root"])
 async def root(request: Request):
     """

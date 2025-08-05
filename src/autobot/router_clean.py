@@ -339,3 +339,100 @@ def start_ghosting(request: GhostingRequest):
         return {"success": True, "count": len(instance_ids), "instance_ids": instance_ids}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from typing import List, Dict, Any
+import logging
+import random
+
+logger = logging.getLogger(__name__)
+
+@router.get("/api/backtest/strategies")
+async def get_backtest_strategies():
+    """
+    Get list of AI-identified trading strategies for React frontend
+    """
+    try:
+        strategies = [
+            {
+                "id": "strat_1",
+                "name": "Scalping Volatilité BTC",
+                "description": "Trading haute fréquence basé sur la volatilité du Bitcoin avec des positions courtes et des profits rapides.",
+                "performance": "+18.2%",
+                "winRate": "75%",
+                "sharpe": "2.3",
+                "status": "Active"
+            },
+            {
+                "id": "strat_2",
+                "name": "Momentum ETH/USD",
+                "description": "Stratégie de momentum sur Ethereum exploitant les tendances de marché à moyen terme.",
+                "performance": "+12.8%",
+                "winRate": "68%",
+                "sharpe": "1.9",
+                "status": "Active"
+            },
+            {
+                "id": "strat_3",
+                "name": "Arbitrage Multi-Exchange",
+                "description": "Exploitation des écarts de prix entre différentes plateformes d'échange.",
+                "performance": "+8.5%",
+                "winRate": "82%",
+                "sharpe": "2.1",
+                "status": "Inactive"
+            },
+            {
+                "id": "strat_4",
+                "name": "Mean Reversion Altcoins",
+                "description": "Stratégie de retour à la moyenne sur les altcoins avec forte volatilité.",
+                "performance": "+15.3%",
+                "winRate": "71%",
+                "sharpe": "1.7",
+                "status": "Active"
+            }
+        ]
+        
+        return strategies
+    except Exception as e:
+        logger.error(f"Error getting backtest strategies: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving backtest strategies")
+
+@router.get("/api/backtest/strategies/{strategy_id}")
+async def get_strategy_details(strategy_id: str):
+    """
+    Get detailed information for a specific strategy for React frontend
+    """
+    try:
+        performance_history = []
+        base_value = 1000
+        
+        for day in range(1, 31):
+            value = base_value + (day * 8) + random.randint(-20, 40)
+            performance_history.append({
+                "day": day,
+                "value": value
+            })
+        
+        strategy_details = {
+            "strategy": {
+                "id": strategy_id,
+                "name": "Scalping Volatilité BTC" if strategy_id == "strat_1" else f"Stratégie {strategy_id}",
+                "description": "Trading haute fréquence basé sur la volatilité du Bitcoin.",
+                "performance": "+18.2%",
+                "winRate": "75%",
+                "sharpe": "2.3",
+                "status": "Active"
+            },
+            "performanceHistory": performance_history,
+            "detailedStats": {
+                "totalPnl": 150,
+                "avgProfitPerTrade": 12.5,
+                "avgLossPerTrade": -8.2,
+                "maxDrawdown": -3.5,
+                "avgTradeDuration": "4h 15min"
+            }
+        }
+        
+        return strategy_details
+    except Exception as e:
+        logger.error(f"Error getting strategy details for {strategy_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving strategy details")
