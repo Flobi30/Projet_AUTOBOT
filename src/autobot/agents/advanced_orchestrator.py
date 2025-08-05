@@ -24,7 +24,8 @@ import atexit
 from autobot.agents.anomaly_detection_agent import AnomalyDetectionAgent, AnomalyEvent
 from autobot.agents.sentiment_analysis_agent import SentimentAnalysisAgent, SentimentData
 from autobot.agents.superagi_integration import SuperAGIConnector
-from autobot.agents.specialized_agents import TradingAgent, EcommerceAgent, SecurityAgent
+from autobot.agents.orchestrator import TradingAgent, EcommerceAgent
+from autobot.agents.specialized_agents import SecurityAgent
 from autobot.agents.profit_optimizer import ProfitOptimizer
 from autobot.trading.hft_optimized import OptimizedHFTExecutionEngine
 from autobot.ecommerce.inventory_manager import InventoryManager
