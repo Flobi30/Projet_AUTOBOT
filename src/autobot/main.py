@@ -31,6 +31,13 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+try:
+    from autobot.services.backtest_service import get_backtest_service
+    backtest_service = get_backtest_service()
+    logger.info("✅ Backtest service initialized successfully")
+except Exception as e:
+    logger.warning(f"⚠️ Backtest service initialization failed: {e}")
+
 performance_optimizer = PerformanceOptimizer(
     memory_threshold=0.80,
     cpu_threshold=0.90,

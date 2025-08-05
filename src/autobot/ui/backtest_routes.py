@@ -159,120 +159,24 @@ async def backtest_page(request: Request, user: User = Depends(get_current_user)
 
 @router.post("/api/backtest/run")
 async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):
-    """Run a backtest with the specified strategy and parameters."""
+    """Run a backtest with real strategy calculations."""
     try:
-        strategy = next((s for s in strategies if s["id"] == request.strategy), None)
+        from ..services.backtest_service import get_backtest_service
         
-        if not strategy:
-            raise HTTPException(status_code=404, detail="Strategy not found")
+        backtest_service = get_backtest_service()
         
-        
-        start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
-        end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
-        
-        date_range = []
-        current_date = start_date
-        while current_date <= end_date:
-            if current_date.weekday() < 5:  # Only weekdays
-                date_range.append(current_date.strftime("%Y-%m-%d"))
-            current_date += timedelta(days=1)
-        
-        initial_capital = request.initial_capital
-        equity = [initial_capital]
-        
-        volatility = 0.01
-        if request.strategy == "rsi_strategy":
-            volatility = 0.015
-        elif request.strategy == "bollinger_bands":
-            volatility = 0.02
-        
-        if request.params:
-            if "fast_period" in request.params and "slow_period" in request.params:
-                ratio = float(request.params["fast_period"]) / float(request.params["slow_period"])
-                volatility *= (1 + ratio)
-            elif "rsi_period" in request.params:
-                volatility *= (20 / float(request.params["rsi_period"]))
-            elif "bb_std" in request.params:
-                volatility *= float(request.params["bb_std"])
-        
-        for i in range(1, len(date_range)):
-            change = np.random.normal(0.0005, volatility)  # Slight upward bias
-            equity.append(equity[-1] * (1 + change))
-        
-        trades = []
-        current_position = None
-        
-        for i in range(1, len(date_range) - 1):
-            if current_position is None and random.random() < 0.1:
-                price = equity[i] / 10  # Mock price
-                size = initial_capital / price * 0.1  # Use 10% of capital
-                
-                current_position = {
-                    "type": "BUY",
-                    "date": date_range[i],
-                    "price": price,
-                    "size": size
-                }
-                
-                trades.append(current_position)
-            
-            elif current_position is not None and random.random() < 0.2:
-                price = equity[i] / 10  # Mock price
-                pl = (price - current_position["price"]) * current_position["size"]
-                
-                trades.append({
-                    "type": "SELL",
-                    "date": date_range[i],
-                    "price": price,
-                    "size": current_position["size"],
-                    "pl": pl,
-                    "cumulative": pl  # Will be updated below
-                })
-                
-                current_position = None
-        
-        cumulative = 0
-        for trade in trades:
-            if "pl" in trade:
-                cumulative += trade["pl"]
-                trade["cumulative"] = cumulative
-            else:
-                trade["pl"] = 0
-                trade["cumulative"] = cumulative
-        
-        total_return = ((equity[-1] - initial_capital) / initial_capital) * 100
-        
-        max_equity = equity[0]
-        drawdowns = []
-        
-        for e in equity:
-            max_equity = max(max_equity, e)
-            drawdown = (max_equity - e) / max_equity * 100
-            drawdowns.append(drawdown)
-        
-        max_drawdown = max(drawdowns)
-        
-        returns = [(equity[i] - equity[i-1]) / equity[i-1] for i in range(1, len(equity))]
-        sharpe = (np.mean(returns) / np.std(returns)) * np.sqrt(252) if np.std(returns) > 0 else 0
-        
-        winning_trades = [t for t in trades if "pl" in t and t["pl"] > 0]
-        win_rate = (len(winning_trades) / len(trades)) * 100 if trades else 0
-        
-        profit_factor = sum(t["pl"] for t in trades if "pl" in t and t["pl"] > 0) / abs(sum(t["pl"] for t in trades if "pl" in t and t["pl"] < 0)) if sum(t["pl"] for t in trades if "pl" in t and t["pl"] < 0) != 0 else 0
-        
-        avg_trade = sum(t["pl"] for t in trades if "pl" in t) / len(trades) if trades else 0
-        avg_win = sum(t["pl"] for t in winning_trades) / len(winning_trades) if winning_trades else 0
-        avg_loss = sum(t["pl"] for t in trades if "pl" in t and t["pl"] < 0) / len([t for t in trades if "pl" in t and t["pl"] < 0]) if len([t for t in trades if "pl" in t and t["pl"] < 0]) > 0 else 0
-        
-        best_trade = max([t["pl"] for t in trades if "pl" in t], default=0)
-        worst_trade = min([t["pl"] for t in trades if "pl" in t], default=0)
-        
-        days = (end_date - start_date).days
-        annual_return = ((equity[-1] / equity[0]) ** (365 / days) - 1) * 100 if days > 0 else 0
+        result = backtest_service.run_backtest(
+            strategy_id=request.strategy,
+            symbol=request.symbol,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            params=request.params
+        )
         
         result_id = str(uuid.uuid4())
         
-        result = BacktestResult(
+        backtest_result = BacktestResult(
             id=result_id,
             strategy=request.strategy,
             symbol=request.symbol,
@@ -281,38 +185,22 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
             end_date=request.end_date,
             initial_capital=request.initial_capital,
             params=request.params,
-            metrics={
-                "total_return": total_return,
-                "max_drawdown": max_drawdown,
-                "sharpe": sharpe,
-                "win_rate": win_rate,
-                "total_trades": len(trades),
-                "profit_factor": profit_factor,
-                "avg_trade": avg_trade,
-                "avg_win": avg_win,
-                "avg_loss": avg_loss,
-                "best_trade": best_trade,
-                "worst_trade": worst_trade,
-                "annual_return": annual_return
-            },
-            equity_curve={
-                "dates": date_range,
-                "values": equity
-            },
-            trades=trades
+            metrics=result["metrics"],
+            equity_curve=result["equity_curve"],
+            trades=result["trades"]
         )
         
         saved_backtests.append({
             "id": result_id,
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy": strategy["name"],
+            "strategy": next((s["name"] for s in strategies if s["id"] == request.strategy), request.strategy),
             "symbol": request.symbol,
             "timeframe": request.timeframe,
-            "return": round(total_return, 2),
-            "sharpe": round(sharpe, 2)
+            "return": round(result["metrics"]["total_return"], 2),
+            "sharpe": round(result["metrics"]["sharpe"], 2)
         })
         
-        return result
+        return backtest_result
         
     except Exception as e:
         logger.error(f"Error running backtest: {str(e)}")

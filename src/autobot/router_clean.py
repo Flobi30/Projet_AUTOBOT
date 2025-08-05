@@ -387,27 +387,27 @@ async def get_backtest_strategies():
                     "id": "hft_scalping",
                     "name": "HFT Scalping AUTOBOT",
                     "description": f"Stratégie haute fréquence active avec {processed_orders} ordres traités.",
-                    "performance": f"+{performance_pct:.1f}%",
-                    "winRate": f"{win_rate:.0f}%",
-                    "sharpe": f"{sharpe:.1f}",
+                    "performance": round(performance_pct, 1),
+                    "winRate": round(win_rate, 0),
+                    "sharpe": round(sharpe, 1),
                     "status": "Active" if orders_per_minute > 0 else "Standby"
                 },
                 {
                     "id": "momentum_btc",
                     "name": "Momentum BTC/USD",
                     "description": f"Stratégie momentum basée sur {orders_per_minute:.1f} ordres/min.",
-                    "performance": f"+{max(0, performance_pct * 0.8):.1f}%",
-                    "winRate": f"{max(55, win_rate - 10):.0f}%",
-                    "sharpe": f"{max(1.0, sharpe - 0.3):.1f}",
+                    "performance": round(max(0, performance_pct * 0.8), 1),
+                    "winRate": round(max(55, win_rate - 10), 0),
+                    "sharpe": round(max(1.0, sharpe - 0.3), 1),
                     "status": "Active" if balance > 4500 else "Inactive"
                 },
                 {
                     "id": "fund_management",
                     "name": "Gestion de Fonds Adaptative",
                     "description": f"Balance actuelle: {balance:.2f}€, optimisation continue.",
-                    "performance": f"+{max(0, (balance - 5000) / 50):.1f}%",
-                    "winRate": f"{min(90, max(65, 75 + (balance - 5000) / 100)):.0f}%",
-                    "sharpe": f"{min(2.5, max(1.5, balance / 3000)):.1f}",
+                    "performance": round(max(0, (balance - 5000) / 50), 1),
+                    "winRate": round(min(90, max(65, 75 + (balance - 5000) / 100)), 0),
+                    "sharpe": round(min(2.5, max(1.5, balance / 3000)), 1),
                     "status": "Active"
                 }
             ]
@@ -417,9 +417,9 @@ async def get_backtest_strategies():
                     "id": "initialization",
                     "name": "Initialisation AUTOBOT",
                     "description": "Système en cours de démarrage, stratégies en attente.",
-                    "performance": "+0.0%",
-                    "winRate": "0%",
-                    "sharpe": "0.0",
+                    "performance": 0.0,
+                    "winRate": 0,
+                    "sharpe": 0.0,
                     "status": "Initializing"
                 }
             ]
@@ -491,9 +491,9 @@ async def get_strategy_details(strategy_id: str):
                 "id": strategy_id,
                 "name": strategy_name,
                 "description": description,
-                "performance": f"+{performance_pct:.1f}%",
-                "winRate": f"{min(85, max(55, 65 + performance_pct)):.0f}%",
-                "sharpe": f"{min(3.0, max(1.0, balance / 3000)):.1f}",
+                "performance": round(performance_pct, 1),
+                "winRate": round(min(85, max(55, 65 + performance_pct)), 0),
+                "sharpe": round(min(3.0, max(1.0, balance / 3000)), 1),
                 "status": "Active" if engine else "Initializing"
             },
             "performanceHistory": performance_history,
