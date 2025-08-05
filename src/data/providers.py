@@ -13,7 +13,9 @@ class AlphaVantageProvider:
     Fournisseur de données AlphaVantage.
     """
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("ALPHAVANTAGE_API_KEY", "demo")
+        self.api_key = api_key or os.getenv("ALPHAVANTAGE_API_KEY")
+        if not self.api_key:
+            logger.warning("AlphaVantage API key not found in environment variables")
         logger.debug(f"AlphaVantageProvider initialized")
     
     def _fetch(self, symbol: str) -> Dict[str, Any]:
@@ -43,7 +45,9 @@ class TwelveDataProvider:
     Fournisseur de données TwelveData.
     """
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("TWELVEDATA_API_KEY", "demo")
+        self.api_key = api_key or os.getenv("TWELVEDATA_API_KEY")
+        if not self.api_key:
+            logger.warning("TwelveData API key not found in environment variables")
         logger.debug(f"TwelveDataProvider initialized")
     
     def _fetch(self, symbol: str) -> Dict[str, Any]:

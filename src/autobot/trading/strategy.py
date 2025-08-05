@@ -121,18 +121,23 @@ class RSIStrategy(Strategy):
     """
     Relative Strength Index (RSI) strategy.
     """
-    def __init__(self, rsi_period: int = 14, overbought: int = 70, oversold: int = 30):
+    def __init__(self, rsi_period: int = 21, overbought: int = 75, oversold: int = 25, 
+                 stop_loss_pct: float = 0.05, take_profit_pct: float = 0.10):
         super().__init__(
             name="RSIStrategy",
             parameters={
                 'rsi_period': rsi_period,
                 'overbought': overbought,
-                'oversold': oversold
+                'oversold': oversold,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct
             }
         )
         self.rsi_period = rsi_period
         self.overbought = overbought
         self.oversold = oversold
+        self.stop_loss_pct = stop_loss_pct
+        self.take_profit_pct = take_profit_pct
     
     def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -168,16 +173,21 @@ class BollingerBandsStrategy(Strategy):
     """
     Bollinger Bands trading strategy.
     """
-    def __init__(self, window: int = 20, num_std: float = 2.0):
+    def __init__(self, window: int = 25, num_std: float = 2.5, 
+                 stop_loss_pct: float = 0.04, take_profit_pct: float = 0.08):
         super().__init__(
             name="BollingerBands",
             parameters={
                 'window': window,
-                'num_std': num_std
+                'num_std': num_std,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct
             }
         )
         self.window = window
         self.num_std = num_std
+        self.stop_loss_pct = stop_loss_pct
+        self.take_profit_pct = take_profit_pct
     
     def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """

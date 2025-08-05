@@ -82,14 +82,14 @@ class BacktestService:
                     )
                 elif strategy_id == "rsi_strategy":
                     strategy = strategy_class(
-                        rsi_period=params.get("rsi_period", 14),
-                        overbought=params.get("overbought", 70),
-                        oversold=params.get("oversold", 30)
+                        rsi_period=params.get("rsi_period", 21),
+                        overbought=params.get("overbought", 75),
+                        oversold=params.get("oversold", 25)
                     )
                 elif strategy_id == "bollinger_bands":
                     strategy = strategy_class(
-                        window=params.get("bb_period", 20),
-                        num_std=params.get("bb_std", 2.0)
+                        window=params.get("bb_period", 25),
+                        num_std=params.get("bb_std", 2.5)
                     )
                 else:
                     strategy = strategy_class()
@@ -146,16 +146,45 @@ class BacktestService:
                 trades.append(position)
             
             elif position is not None and (row['signal'] == 0 or row['signal'] * position.get('signal', 1) < 0):
-                pl = (row['close'] - position["price"]) * position["size"]
-                if position["type"] == "SELL":
-                    pl = -pl
+                entry_price = position["price"]
+                stop_loss_pct = 0.05
+                take_profit_pct = 0.10
+                
+                if position["type"] == "BUY":
+                    stop_loss_price = entry_price * (1 - stop_loss_pct)
+                    take_profit_price = entry_price * (1 + take_profit_pct)
+                    
+                    if row['close'] <= stop_loss_price:
+                        exit_price = stop_loss_price
+                        pl = (exit_price - entry_price) * position["size"]
+                    elif row['close'] >= take_profit_price:
+                        exit_price = take_profit_price
+                        pl = (exit_price - entry_price) * position["size"]
+                    else:
+                        exit_price = row['close']
+                        pl = (exit_price - entry_price) * position["size"]
+                else:
+                    stop_loss_price = entry_price * (1 + stop_loss_pct)
+                    take_profit_price = entry_price * (1 - take_profit_pct)
+                    
+                    if row['close'] >= stop_loss_price:
+                        exit_price = stop_loss_price
+                        pl = (entry_price - exit_price) * position["size"]
+                    elif row['close'] <= take_profit_price:
+                        exit_price = take_profit_price
+                        pl = (entry_price - exit_price) * position["size"]
+                    else:
+                        exit_price = row['close']
+                        pl = (entry_price - exit_price) * position["size"]
                 
                 trades.append({
                     "type": "SELL" if position["type"] == "BUY" else "BUY",
                     "date": i.strftime("%Y-%m-%d"),
-                    "price": row['close'],
+                    "price": exit_price,
                     "size": position["size"],
-                    "pl": pl
+                    "pl": pl,
+                    "stop_loss_triggered": (position["type"] == "BUY" and row['close'] <= stop_loss_price) or (position["type"] == "SELL" and row['close'] >= stop_loss_price),
+                    "take_profit_triggered": (position["type"] == "BUY" and row['close'] >= take_profit_price) or (position["type"] == "SELL" and row['close'] <= take_profit_price)
                 })
                 position = None
         
