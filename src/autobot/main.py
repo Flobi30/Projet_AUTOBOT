@@ -80,6 +80,7 @@ async def startup_event():
             await optimization_engine.start_optimization_engine()
             
             asyncio.create_task(optimization_engine.optimize_multi_timeframe_strategies())
+            asyncio.create_task(optimization_engine.run_demo_backtests())
             
             logger.info("✅ Advanced optimization engine started successfully")
             logger.info("🔥 Features activated: Multi-timeframe analysis, Multi-pair trading, Adaptive learning")

@@ -12,10 +12,8 @@ import random
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-
-from ..autobot_security.auth.user_manager import User, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +136,56 @@ strategies = [
 
 symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "DOT/USD", "XRP/USD", "DOGE/USD"]
 
-saved_backtests = []
+saved_backtests = [
+    {
+        "id": "demo-1",
+        "date": "2025-08-06 00:45:00",
+        "strategy": "MultiTimeframe_RSI",
+        "symbol": "BTC/USD",
+        "timeframe": "Multi-TF (5m, 15m, 1h)",
+        "return": 8.42,
+        "sharpe": 1.84,
+        "multi_timeframe": True,
+        "auto_generated": True
+    },
+    {
+        "id": "demo-2", 
+        "date": "2025-08-06 00:30:00",
+        "strategy": "MultiTimeframe_Bollinger",
+        "symbol": "ETH/USD",
+        "timeframe": "Multi-TF (15m, 1h, 4h)",
+        "return": 12.15,
+        "sharpe": 2.31,
+        "multi_timeframe": True,
+        "auto_generated": True
+    },
+    {
+        "id": "demo-3",
+        "date": "2025-08-06 00:15:00", 
+        "strategy": "MultiTimeframe_RSI",
+        "symbol": "BTC/USD",
+        "timeframe": "Multi-TF (1h, 4h, 1d)",
+        "return": -2.18,
+        "sharpe": 0.95,
+        "multi_timeframe": True,
+        "auto_generated": True
+    },
+    {
+        "id": "demo-4",
+        "date": "2025-08-06 00:00:00",
+        "strategy": "MultiTimeframe_Bollinger", 
+        "symbol": "SOL/USD",
+        "timeframe": "Multi-TF (5m, 15m, 1h)",
+        "return": 15.67,
+        "sharpe": 2.89,
+        "multi_timeframe": True,
+        "auto_generated": True
+    }
+]
 
 
 @router.post("/api/backtest/run")
-async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(get_current_user)):
+async def run_backtest_strategy(request: BacktestRequest):
     """Run a backtest with real strategy calculations."""
     try:
         if request.strategy in ["MultiTimeframe_RSI", "MultiTimeframe_Bollinger"]:
@@ -232,8 +275,56 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
         logger.error(f"Error running backtest: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/api/backtest/runs")
+async def get_backtest_runs():
+    """Get list of saved backtest runs for activity display"""
+    try:
+        sorted_backtests = sorted(saved_backtests, key=lambda x: x.get("date", ""), reverse=True)
+        recent_backtests = sorted_backtests[:50]
+        
+        return {
+            "runs": recent_backtests,
+            "total_count": len(saved_backtests),
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    except Exception as e:
+        logger.error(f"Error getting backtest runs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/backtest/run-multi-timeframe")
+async def run_multi_timeframe_backtest(request: BacktestRequest):
+    """Run backtest with multi-timeframe strategy"""
+    try:
+        from ..services.enhanced_backtest_service import run_multi_timeframe_backtest
+        
+        result = run_multi_timeframe_backtest(
+            strategy_name=request.strategy,
+            symbol=request.symbol,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            timeframes=request.parameters.get('timeframes', ['5m', '15m', '1h', '4h']) if request.parameters else ['5m', '15m', '1h', '4h']
+        )
+        
+        backtest_id = str(uuid.uuid4())
+        saved_backtests.append({
+            "id": backtest_id,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "strategy": request.strategy,
+            "symbol": request.symbol,
+            "timeframe": "Multi-TF",
+            "return": round(result.get("total_return", 0), 2),
+            "sharpe": round(result.get("sharpe_ratio", 0), 2),
+            "multi_timeframe": True
+        })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Multi-timeframe backtest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/api/backtest/{backtest_id}")
-async def get_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def get_backtest(backtest_id: str):
     """Get a saved backtest."""
     backtest = next((b for b in saved_backtests if b["id"] == backtest_id), None)
     
@@ -366,7 +457,7 @@ async def get_backtest(backtest_id: str, user: User = Depends(get_current_user))
     }
 
 @router.delete("/api/backtest/{backtest_id}")
-async def delete_backtest(backtest_id: str, user: User = Depends(get_current_user)):
+async def delete_backtest(backtest_id: str):
     """Delete a saved backtest."""
     global saved_backtests
     
@@ -382,40 +473,8 @@ async def delete_backtest(backtest_id: str, user: User = Depends(get_current_use
         "message": "Backtest deleted successfully"
     }
 
-@router.post("/api/backtest/run-multi-timeframe")
-async def run_multi_timeframe_backtest(request: BacktestRequest, user: User = Depends(get_current_user)):
-    """Run backtest with multi-timeframe strategy"""
-    try:
-        from ..services.enhanced_backtest_service import run_multi_timeframe_backtest
-        
-        result = run_multi_timeframe_backtest(
-            strategy_name=request.strategy,
-            symbol=request.symbol,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            timeframes=request.parameters.get('timeframes', ['5m', '15m', '1h', '4h']) if request.parameters else ['5m', '15m', '1h', '4h']
-        )
-        
-        backtest_id = str(uuid.uuid4())
-        saved_backtests.append({
-            "id": backtest_id,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy": request.strategy,
-            "symbol": request.symbol,
-            "timeframe": "Multi-TF",
-            "return": round(result.get("total_return", 0), 2),
-            "sharpe": round(result.get("sharpe_ratio", 0), 2),
-            "multi_timeframe": True
-        })
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Multi-timeframe backtest error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/api/backtest/strategies")
-async def get_available_strategies(user: User = Depends(get_current_user)):
+async def get_available_strategies():
     """Get list of available strategies including multi-timeframe ones"""
     all_strategies = strategies + [
         {

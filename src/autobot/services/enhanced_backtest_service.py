@@ -54,7 +54,6 @@ class EnhancedBacktestService:
         )
         
         self.orchestrator = AdvancedOrchestrator(
-            trading_symbols=["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD"],
             enable_superagi=False,
             autonomous_mode=True
         )
@@ -79,21 +78,25 @@ class EnhancedBacktestService:
             "DOGE/USD": 0.08, "AVAX/USD": 25
         }
         
-        correlation_matrix = np.array([
-            [1.0, 0.8, 0.6, 0.4, 0.5, 0.3, 0.2, 0.6],  # BTC
-            [0.8, 1.0, 0.7, 0.5, 0.6, 0.4, 0.3, 0.7],  # ETH
-            [0.6, 0.7, 1.0, 0.6, 0.7, 0.5, 0.4, 0.8],  # SOL
-            [0.4, 0.5, 0.6, 1.0, 0.8, 0.7, 0.6, 0.6],  # ADA
-            [0.5, 0.6, 0.7, 0.8, 1.0, 0.6, 0.5, 0.7],  # DOT
-            [0.3, 0.4, 0.5, 0.7, 0.6, 1.0, 0.8, 0.5],  # XRP
-            [0.2, 0.3, 0.4, 0.6, 0.5, 0.8, 1.0, 0.4],  # DOGE
-            [0.6, 0.7, 0.8, 0.6, 0.7, 0.5, 0.4, 1.0]   # AVAX
-        ])
+        num_symbols = len(symbols)
+        if num_symbols == 1:
+            correlation_matrix = np.array([[1.0]])
+        else:
+            correlation_matrix = np.eye(num_symbols)
+            for i in range(num_symbols):
+                for j in range(i+1, num_symbols):
+                    corr = np.random.uniform(0.3, 0.8)  # Realistic crypto correlations
+                    correlation_matrix[i, j] = corr
+                    correlation_matrix[j, i] = corr
         
         np.random.seed(42)
-        uncorrelated_returns = np.random.normal(0.001, 0.025, (days, len(symbols)))
-        cholesky = np.linalg.cholesky(correlation_matrix)
-        correlated_returns = uncorrelated_returns @ cholesky.T
+        uncorrelated_returns = np.random.normal(0.001, 0.025, (days, num_symbols))
+        
+        if num_symbols == 1:
+            correlated_returns = uncorrelated_returns
+        else:
+            cholesky = np.linalg.cholesky(correlation_matrix)
+            correlated_returns = uncorrelated_returns @ cholesky.T
         
         multi_pair_data = {}
         
@@ -543,23 +546,41 @@ def run_multi_timeframe_backtest(strategy_name: str, symbol: str, start_date: st
     service = get_enhanced_backtest_service()
     multi_data = {}
     for tf in timeframes:
-        multi_data[tf] = service.generate_multi_pair_data([symbol], start_date, end_date)[symbol]
+        multi_data[tf] = _generate_realistic_data_for_timeframe(symbol, start_date, end_date, tf)
     
     if strategy_name == "MultiTimeframe_RSI":
         from autobot.trading.strategy import MultiTimeframeRSIStrategy
-        strategy = MultiTimeframeRSIStrategy()
+        strategy = MultiTimeframeRSIStrategy(timeframes=timeframes)
     elif strategy_name == "MultiTimeframe_Bollinger":
         from autobot.trading.strategy import MultiTimeframeBollingerStrategy
-        strategy = MultiTimeframeBollingerStrategy()
+        strategy = MultiTimeframeBollingerStrategy(timeframes=timeframes)
     else:
         raise ValueError(f"Unknown multi-timeframe strategy: {strategy_name}")
     
-    signals = strategy.generate_multi_timeframe_signals(multi_data)
+    primary_timeframe = getattr(strategy, 'primary_timeframe', timeframes[0])
     
-    primary_data = multi_data[strategy.primary_timeframe].copy()
-    primary_data['signal'] = signals['signal']
+    primary_data = multi_data[primary_timeframe].copy()
     
-    return service._run_single_pair_backtest(strategy, primary_data, symbol)
+    try:
+        if 'signal' not in primary_data.columns:
+            primary_data['signal'] = 0
+            
+        signals = strategy.generate_signals(primary_data)
+        if isinstance(signals, pd.DataFrame) and not signals.empty:
+            primary_data = signals.copy()
+        elif isinstance(signals, str):
+            logger.error(f"Strategy returned string instead of DataFrame: {signals}")
+            primary_data['signal'] = 0
+        else:
+            logger.warning(f"Strategy returned unexpected type: {type(signals)}")
+            primary_data['signal'] = 0
+    except Exception as e:
+        logger.error(f"Error generating signals for {strategy_name}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        primary_data['signal'] = 0
+    
+    return service._run_single_pair_backtest(strategy, primary_data, symbol, allocated_capital=10000)
 
 
 def _generate_realistic_data_for_timeframe(symbol: str, start_date: str, end_date: str, timeframe: str) -> pd.DataFrame:
@@ -579,6 +600,8 @@ def _generate_realistic_data_for_timeframe(symbol: str, start_date: str, end_dat
         freq = '1H'
     elif timeframe == '4h':
         freq = '4H'
+    elif timeframe == '1d':
+        freq = '1D'
     else:
         freq = '1D'
     

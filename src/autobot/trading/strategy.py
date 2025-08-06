@@ -502,6 +502,8 @@ class MultiTimeframeStrategy(Strategy):
             confirmation_resampled = confirmation['trend'].resample(primary_signals.index.freq).ffill()
             confirmation_aligned = confirmation_resampled.reindex(primary_signals.index, method='ffill')
             
+            primary_signals['signal'] = primary_signals['signal'].astype(float)
+            
             primary_signals.loc[confirmation_aligned == -1, 'signal'] *= 0.5
             primary_signals.loc[confirmation_aligned == 1, 'signal'] *= 1.2
             
@@ -510,17 +512,23 @@ class MultiTimeframeStrategy(Strategy):
             logger.warning(f"Error applying confirmation filter for {timeframe}: {e}")
         
         return primary_signals
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate signals using multi-timeframe analysis"""
+        return self.generate_primary_signals(data)
 
 
 class MultiTimeframeRSIStrategy(MultiTimeframeStrategy):
     """RSI strategy with multi-timeframe confirmation"""
     
     def __init__(self, period: int = 21, overbought: float = 75, oversold: float = 25, 
-                 stop_loss_pct: float = 0.05, take_profit_pct: float = 0.10):
+                 stop_loss_pct: float = 0.05, take_profit_pct: float = 0.10, timeframes=None):
+        if timeframes is None:
+            timeframes = ['5m', '15m', '1h', '4h']
         super().__init__("MultiTimeframe_RSI", {
             'period': period, 'overbought': overbought, 'oversold': oversold,
             'stop_loss_pct': stop_loss_pct, 'take_profit_pct': take_profit_pct
-        }, timeframes=['5m', '15m', '1h', '4h'])
+        }, timeframes=timeframes)
     
     def generate_primary_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate RSI signals on primary timeframe (5m)"""
@@ -543,6 +551,10 @@ class MultiTimeframeRSIStrategy(MultiTimeframeStrategy):
         data.loc[rsi > overbought, 'signal'] = -1
         
         return data
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate RSI signals for single timeframe data"""
+        return self.generate_primary_signals(data)
     
     def get_timeframe_confirmation(self, data: pd.DataFrame) -> pd.DataFrame:
         """Get RSI trend confirmation from higher timeframes"""
@@ -569,11 +581,13 @@ class MultiTimeframeBollingerStrategy(MultiTimeframeStrategy):
     """Bollinger Bands strategy with multi-timeframe confirmation"""
     
     def __init__(self, window: int = 25, num_std: float = 2.5, 
-                 stop_loss_pct: float = 0.04, take_profit_pct: float = 0.08):
+                 stop_loss_pct: float = 0.04, take_profit_pct: float = 0.08, timeframes=None):
+        if timeframes is None:
+            timeframes = ['15m', '1h', '4h', '1d']
         super().__init__("MultiTimeframe_Bollinger", {
             'window': window, 'num_std': num_std,
             'stop_loss_pct': stop_loss_pct, 'take_profit_pct': take_profit_pct
-        }, timeframes=['15m', '1h', '4h', '1d'])
+        }, timeframes=timeframes)
     
     def generate_primary_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate Bollinger Bands signals on primary timeframe"""
@@ -594,6 +608,10 @@ class MultiTimeframeBollingerStrategy(MultiTimeframeStrategy):
         data.loc[data['close'] >= data['bb_upper'], 'signal'] = -1
         
         return data
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate Bollinger Bands signals for single timeframe data"""
+        return self.generate_primary_signals(data)
     
     def get_timeframe_confirmation(self, data: pd.DataFrame) -> pd.DataFrame:
         """Get Bollinger Bands trend confirmation from higher timeframes"""
