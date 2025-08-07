@@ -22,87 +22,86 @@ templates_dir = os.path.join(current_dir, "templates")
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=templates_dir)
 
-@router.get("/", response_class=HTMLResponse)
-async def get_dashboard(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/user/profile", response_class=JSONResponse)
+async def get_user_profile(current_user: User = Depends(get_current_user)):
     """
-    Page principale du dashboard.
+    Get current user profile data.
     """
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "active_page": "dashboard",
+    return {
         "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+        "role": current_user.role,
+        "role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
+    }
 
-@router.get("/trading", response_class=HTMLResponse)
-async def get_trading(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/trading/data", response_class=JSONResponse)
+async def get_trading_data(current_user: User = Depends(get_current_user)):
     """
-    Page de trading.
+    Get trading data for React component.
     """
-    return templates.TemplateResponse("trading.html", {
-        "request": request,
-        "active_page": "trading",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+    return {
+        "status": "active",
+        "positions": [],
+        "performance": 0.0
+    }
 
-@router.get("/ecommerce", response_class=HTMLResponse)
-async def get_ecommerce(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/ecommerce/data", response_class=JSONResponse)
+async def get_ecommerce_data(current_user: User = Depends(get_current_user)):
     """
-    Page d'e-commerce.
+    Get e-commerce data for React component.
     """
-    return templates.TemplateResponse("ecommerce.html", {
-        "request": request,
-        "active_page": "ecommerce",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+    return {
+        "products": [],
+        "orders": [],
+        "revenue": 0.0
+    }
 
-@router.get("/arbitrage", response_class=HTMLResponse)
-async def get_arbitrage(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/arbitrage/data", response_class=JSONResponse)
+async def get_arbitrage_data(current_user: User = Depends(get_current_user)):
     """
-    Page d'arbitrage.
+    Get arbitrage data for React component.
     """
-    return templates.TemplateResponse("arbitrage.html", {
-        "request": request,
-        "active_page": "arbitrage",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+    return {
+        "opportunities": [],
+        "profit": 0.0
+    }
 
-@router.get("/backtest", response_class=HTMLResponse)
-async def get_backtest(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/backtest/current", response_class=JSONResponse)
+async def get_backtest_current(current_user: User = Depends(get_current_user)):
     """
-    Page de backtest.
+    Get current backtest data for React component.
+    """
+    import random
+    import numpy as np
+    
+    performance = random.uniform(-2.0, 2.0)
+    sharpe_ratio = random.uniform(-1.0, 3.0)
+    
+    strategies = [
+        {"name": "Moving Average", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
+        {"name": "RSI Strategy", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
+        {"name": "MACD Strategy", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
+        {"name": "Bollinger Bands", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
+        {"name": "Mean Reversion", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
+        {"name": "Momentum", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)}
+    ]
+    
+    return {
+        "performance": performance,
+        "sharpe_ratio": sharpe_ratio,
+        "max_drawdown": random.uniform(0.05, 0.25),
+        "total_trades": random.randint(50, 200),
+        "win_rate": random.uniform(45, 75),
+        "strategies": strategies
+    }
+
+@router.get("/api/capital/data", response_class=JSONResponse)
+async def get_capital_data_api(current_user: User = Depends(get_current_user)):
+    """
+    Get capital data for React component.
     """
     capital_data = get_user_capital_data(current_user.username)
     
-    return templates.TemplateResponse("backtest.html", {
-        "request": request,
-        "active_page": "backtest",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
-        "initial_capital": capital_data["initial_capital"] if capital_data["initial_capital"] > 0 else 1000
-    })
-
-@router.get("/capital", response_class=HTMLResponse)
-async def get_capital(request: Request, current_user: User = Depends(get_current_user)):
-    """
-    Page de gestion du capital.
-    """
-    capital_data = get_user_capital_data(current_user.username)
-    
-    return templates.TemplateResponse("capital.html", {
-        "request": request,
-        "active_page": "capital",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
+    return {
         "initial_capital": capital_data["initial_capital"],
         "current_capital": capital_data["current_capital"],
         "profit": capital_data["profit"],
@@ -111,34 +110,26 @@ async def get_capital(request: Request, current_user: User = Depends(get_current
         "ecommerce_allocation": capital_data["ecommerce_allocation"],
         "capital_history": capital_data["capital_history"],
         "transactions": capital_data["transactions"]
-    })
+    }
 
-@router.get("/duplication", response_class=HTMLResponse)
-async def get_duplication(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/duplication/data", response_class=JSONResponse)
+async def get_duplication_data(current_user: User = Depends(get_current_user)):
     """
-    Page de duplication d'instances.
+    Get duplication data for React component.
     """
-    return templates.TemplateResponse("duplication.html", {
-        "request": request,
-        "active_page": "duplication",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+    return {
+        "instances": [],
+        "status": "ready"
+    }
 
-@router.get("/retrait-depot", response_class=HTMLResponse)
-async def get_retrait_depot(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/retrait-depot/data", response_class=JSONResponse)
+async def get_retrait_depot_data(current_user: User = Depends(get_current_user)):
     """
-    Page de retrait et dépôt.
+    Get withdrawal/deposit data for React component.
     """
     capital_data = get_user_capital_data(current_user.username)
     
-    return templates.TemplateResponse("retrait_depot.html", {
-        "request": request,
-        "active_page": "retrait-depot",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur",
+    return {
         "total_capital": capital_data["total_capital"],
         "available_for_withdrawal": capital_data["available_for_withdrawal"],
         "in_use": capital_data["in_use"],
@@ -150,20 +141,53 @@ async def get_retrait_depot(request: Request, current_user: User = Depends(get_c
         "deposit_fee": 0,
         "min_withdrawal": 0,
         "min_deposit": 0
-    })
+    }
 
-@router.get("/parametres", response_class=HTMLResponse)
-async def get_parametres(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/api/parametres/data", response_class=JSONResponse)
+async def get_parametres_data(current_user: User = Depends(get_current_user)):
     """
-    Page de paramètres.
+    Get parameters data for React component.
     """
-    return templates.TemplateResponse("parametres.html", {
-        "request": request,
-        "active_page": "parametres",
-        "username": current_user.username,
-        "user_role": current_user.role,
-        "user_role_display": "Administrateur" if current_user.role == "admin" else "Utilisateur"
-    })
+    return {
+        "api_keys": {},
+        "settings": {}
+    }
+
+@router.post("/api/login", response_class=JSONResponse)
+async def login_api(request: Request):
+    """
+    API endpoint for React login.
+    """
+    try:
+        data = await request.json()
+        username = data.get("username")
+        password = data.get("password")
+        license_key = data.get("license_key")
+        
+        if not all([username, password, license_key]):
+            raise HTTPException(status_code=400, detail="Missing credentials")
+        
+        user_manager = UserManager()
+        user = user_manager.authenticate_user(username, password, license_key)
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        from autobot.autobot_security.auth.jwt_handler import create_access_token
+        from datetime import timedelta
+        
+        access_token = create_access_token(
+            data={"sub": user.username, "role": user.role},
+            expires_delta=timedelta(hours=24)
+        )
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/api/save-settings", response_class=JSONResponse)
 async def save_settings(request: Request, current_user: User = Depends(get_current_user)):

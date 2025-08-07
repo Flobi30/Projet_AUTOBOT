@@ -15,6 +15,7 @@ from autobot.ui.backtest_routes import router as backtest_router
 from autobot.ui.deposit_withdrawal_routes import router as deposit_withdrawal_router
 from autobot.ui.chat_routes_custom import router as chat_router
 from autobot.ui.routes import router as ui_router
+from autobot.ui.public_routes import public_router
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 
@@ -40,13 +41,94 @@ async def domain_access_control(request: Request, call_next):
     host = request.headers.get("host", "")
     path = request.url.path
     
+    logger.info(f"Domain access control: host={host}, path={path}")
+    
     if "stripe-autobot.fr" in host:
-        allowed_public_paths = ["/capital", "/deposit", "/withdrawal", "/api/stripe", "/static", "/favicon.ico"]
-        blocked_paths = ["/", "/simple", "/mobile", "/backtest", "/arbitrage", "/trading", "/ecommerce", "/dashboard", "/parametres", "/duplication"]
+        if path.startswith("/api/stripe") or path.startswith("/api/capital"):
+            response = await call_next(request)
+            return response
+            
+        if path.startswith("/static") or path == "/favicon.ico":
+            response = await call_next(request)
+            return response
+            
+        if path == "/" or not path.startswith("/api"):
+            from fastapi.responses import HTMLResponse
+            restricted_html = """
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>AUTOBOT Capital</title>
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        background: #0a0a0a; 
+                        color: #00ff88; 
+                        margin: 0; 
+                        padding: 20px;
+                        text-align: center;
+                    }
+                    .container { 
+                        max-width: 600px; 
+                        margin: 50px auto; 
+                        padding: 30px; 
+                        border: 2px solid #00ff88; 
+                        border-radius: 10px;
+                        background: rgba(0, 255, 136, 0.1);
+                    }
+                    .btn { 
+                        background: #00ff88; 
+                        color: #0a0a0a; 
+                        padding: 15px 30px; 
+                        border: none; 
+                        border-radius: 5px; 
+                        font-size: 18px; 
+                        cursor: pointer; 
+                        margin: 10px;
+                        text-decoration: none;
+                        display: inline-block;
+                    }
+                    .btn:hover { background: #00cc6a; }
+                    h1 { color: #00ff88; margin-bottom: 30px; }
+                    p { margin: 20px 0; line-height: 1.6; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🤖 AUTOBOT Capital</h1>
+                    <p>Plateforme de gestion de capital automatisée</p>
+                    <p>Effectuez vos dépôts et retraits en toute sécurité</p>
+                    <a href="#" class="btn" onclick="createStripeSession()">💳 Effectuer un Dépôt</a>
+                    <a href="#" class="btn" onclick="alert('Fonctionnalité de retrait disponible prochainement')">💰 Effectuer un Retrait</a>
+                </div>
+                
+                <script>
+                async function createStripeSession() {
+                    try {
+                        const response = await fetch('/api/stripe/create-checkout-session', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ amount: 5000, currency: 'eur' })
+                        });
+                        const data = await response.json();
+                        if (data.url) {
+                            window.location.href = data.url;
+                        }
+                    } catch (error) {
+                        console.error('Erreur Stripe:', error);
+                        window.location.href = 'https://checkout.stripe.com/c/pay/cs_live_a1bwMvxbB6EdyzeuuW3CIw0xMzLJYoz25vlJc8HNjY1qxbze5B2fRMQGoz';
+                    }
+                }
+                </script>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=restricted_html)
         
-        if path in blocked_paths or not any(path.startswith(allowed_path) for allowed_path in allowed_public_paths):
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=403, content={"detail": "Access denied"})
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"detail": "Access denied - Public access limited to Capital pages only"})
     
     response = await call_next(request)
     return response
@@ -77,9 +159,105 @@ templates_dir = os.path.join(current_dir, "ui", "templates")
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+@app.get("/{full_path:path}")
+async def serve_react_or_restricted(request: Request, full_path: str):
+    host = request.headers.get("host", "")
+    
+    if "stripe-autobot.fr" in host:
+        from fastapi.responses import HTMLResponse
+        restricted_html = """
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>AUTOBOT Capital</title>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    background: #0a0a0a; 
+                    color: #00ff88; 
+                    margin: 0; 
+                    padding: 20px;
+                    text-align: center;
+                }
+                .container { 
+                    max-width: 600px; 
+                    margin: 50px auto; 
+                    padding: 30px; 
+                    border: 2px solid #00ff88; 
+                    border-radius: 10px;
+                    background: rgba(0, 255, 136, 0.1);
+                }
+                .btn { 
+                    background: #00ff88; 
+                    color: #0a0a0a; 
+                    padding: 15px 30px; 
+                    border: none; 
+                    border-radius: 5px; 
+                    font-size: 18px; 
+                    cursor: pointer; 
+                    margin: 10px;
+                    text-decoration: none;
+                    display: inline-block;
+                }
+                .btn:hover { background: #00cc6a; }
+                h1 { color: #00ff88; margin-bottom: 30px; }
+                p { margin: 20px 0; line-height: 1.6; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 AUTOBOT Capital</h1>
+                <p>Plateforme de gestion de capital automatisée</p>
+                <p>Effectuez vos dépôts et retraits en toute sécurité</p>
+                <a href="#" class="btn" onclick="createStripeSession()">💳 Effectuer un Dépôt</a>
+                <a href="#" class="btn" onclick="alert('Fonctionnalité de retrait disponible prochainement')">💰 Effectuer un Retrait</a>
+            </div>
+            
+            <script>
+            async function createStripeSession() {
+                try {
+                    const response = await fetch('/api/stripe/create-checkout-session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ amount: 5000, currency: 'eur' })
+                    });
+                    const data = await response.json();
+                    if (data.url) {
+                        window.location.href = data.url;
+                    }
+                } catch (error) {
+                    console.error('Erreur Stripe:', error);
+                    window.location.href = 'https://checkout.stripe.com/c/pay/cs_live_a1bwMvxbB6EdyzeuuW3CIw0xMzLJYoz25vlJc8HNjY1qxbze5B2fRMQGoz';
+                }
+            }
+            </script>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=restricted_html)
+    else:
+        react_dir = os.path.join(static_dir, "react")
+        if os.path.exists(react_dir):
+            from fastapi.responses import FileResponse
+            import os
+            
+            if full_path == "" or not full_path.startswith("api"):
+                index_path = os.path.join(react_dir, "index.html")
+                if os.path.exists(index_path):
+                    return FileResponse(index_path)
+            
+            file_path = os.path.join(react_dir, full_path)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                return FileResponse(file_path)
+        
+        return RedirectResponse(url="/simple")
+
 templates = Jinja2Templates(directory=templates_dir)
 
 app.include_router(router)
+app.include_router(public_router)
 app.include_router(health_router)
 app.include_router(prediction_router)
 app.include_router(mobile_router)
