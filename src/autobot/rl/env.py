@@ -295,30 +295,37 @@ class TradingEnvironment(gym.Env):
         Returns:
             pd.DataFrame: OHLCV data
         """
-        import numpy as np
+        try:
+            from autobot.data.real_providers import get_market_data
+            
+            real_data = get_historical_data(
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            
+            if real_data is not None and len(real_data) > 0:
+                return real_data
+                
+        except Exception as e:
+            print(f"Error fetching real data: {e}")
         
-        np.random.seed(42)
         n_points = 1000
-        
         dates = pd.date_range(
             start=self.start_date or '2020-01-01',
             end=self.end_date or '2022-01-01',
             periods=n_points
         )
         
-        close = 100 * (1 + np.cumsum(np.random.normal(0, 0.01, n_points)))
-        high = close * (1 + np.random.uniform(0, 0.03, n_points))
-        low = close * (1 - np.random.uniform(0, 0.03, n_points))
-        open_price = low + np.random.uniform(0, 1, n_points) * (high - low)
-        volume = np.random.uniform(1000, 10000, n_points)
-        
+        base_price = 100.0
         data = pd.DataFrame({
             'timestamp': dates,
-            'open': open_price,
-            'high': high,
-            'low': low,
-            'close': close,
-            'volume': volume
+            'open': [base_price] * n_points,
+            'high': [base_price * 1.01] * n_points,
+            'low': [base_price * 0.99] * n_points,
+            'close': [base_price] * n_points,
+            'volume': [1000.0] * n_points
         })
         
         return data

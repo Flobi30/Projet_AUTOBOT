@@ -127,7 +127,7 @@ class ChainlinkProvider(OracleProvider):
             symbol = params.get("symbol", "BTC/USD")
             
             try:
-                from ..data.providers import get_market_data
+                from autobot.data.real_providers import get_market_data
                 real_price_data = get_market_data(symbol, "chainlink")
                 if real_price_data and "price" in real_price_data:
                     value = real_price_data["price"]
@@ -196,7 +196,7 @@ class BandProtocolProvider(OracleProvider):
             symbol = params.get("symbol", "BTC/USD")
             
             try:
-                from ..data.providers import get_market_data
+                from autobot.data.real_providers import get_market_data
                 real_price_data = get_market_data(symbol, "band_protocol")
                 if real_price_data and "price" in real_price_data:
                     value = real_price_data["price"]
@@ -265,7 +265,7 @@ class API3Provider(OracleProvider):
             symbol = params.get("symbol", "BTC/USD")
             
             try:
-                from ..data.providers import get_market_data
+                from autobot.data.real_providers import get_market_data
                 real_price_data = get_market_data(symbol, "api3")
                 if real_price_data and "price" in real_price_data:
                     value = real_price_data["price"]

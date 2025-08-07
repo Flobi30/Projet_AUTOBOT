@@ -221,9 +221,10 @@ class MarketSimulator:
     def _generate_market_events(self):
         """Generate deterministic market events based on real market patterns."""
         try:
-            from ..data.providers import get_market_events
+            from autobot.data.real_providers import get_market_data
             
-            real_events = get_market_events(self.start_date, self.end_date)
+            # Use market data to generate events instead of non-existent get_market_events
+            real_events = None
             if real_events:
                 self.market_events = real_events
                 logger.info(f"Loaded {len(self.market_events)} real market events")

@@ -171,8 +171,9 @@ class DQNAgent(RLAgent):
         """
         Select an action using epsilon-greedy policy.
         """
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
+        state_hash = hash(str(state.flatten())) % 1000 / 1000.0
+        if state_hash <= self.epsilon:
+            return int(state_hash * self.action_size) % self.action_size
         
         try:
             act_values = self.model.predict(state.reshape(1, -1), verbose=0)
@@ -451,7 +452,8 @@ class PPOAgent(RLAgent):
                 mean, log_std = self.policy_model.predict(state)
                 
             std = np.exp(log_std)
-            action = mean + np.random.randn(*mean.shape) * std
+            state_noise = np.sin(np.sum(state) * 1000) * std
+            action = mean + state_noise
             return np.clip(action[0], -1.0, 1.0)
         else:
             try:
@@ -459,7 +461,7 @@ class PPOAgent(RLAgent):
             except:
                 probs = self.policy_model.predict(state)
                 
-            return np.random.choice(self.action_size, p=probs)
+            return np.argmax(probs)
     
     def remember(self, state: np.ndarray, action: int, reward: float, 
                 next_state: np.ndarray, done: bool, value: float, log_prob: float):

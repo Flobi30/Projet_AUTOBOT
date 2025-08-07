@@ -275,7 +275,7 @@ class MetaLearner:
             Dict: Current market conditions
         """
         try:
-            from ..data.providers import get_market_data
+            from autobot.data.real_providers import get_market_data
             
             market_data = get_market_data("BTC/USD", "binance")
             if market_data:

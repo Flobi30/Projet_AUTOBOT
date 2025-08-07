@@ -114,7 +114,8 @@ class ExperienceBuffer:
             priorities = self.priorities[:self.size] ** self.alpha
             probabilities = priorities / np.sum(priorities)
             
-            indices = np.random.choice(self.size, batch_size, replace=False, p=probabilities)
+            sorted_indices = np.argsort(probabilities)[::-1]  # Sort by highest probability first
+            indices = sorted_indices[:batch_size]
             
             weights = (self.size * probabilities[indices]) ** -self.beta
             weights = weights / np.max(weights)

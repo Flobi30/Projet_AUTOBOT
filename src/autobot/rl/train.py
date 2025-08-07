@@ -264,8 +264,10 @@ def _auto_training_loop() -> None:
     
     while _auto_training_active and not is_shutdown_requested():
         try:
-            symbol = np.random.choice(symbols)
-            timeframe = np.random.choice(timeframes)
+            symbol_index = len(_training_jobs) % len(symbols)
+            timeframe_index = len(_training_jobs) % len(timeframes)
+            symbol = symbols[symbol_index]
+            timeframe = timeframes[timeframe_index]
             
             # Start a new training job
             job_id = start_training(

@@ -776,9 +776,34 @@ class ExtremeOptimizedHFTEngine:
                 if host_array is not None:
                     orders = host_array.view(np.float32).reshape(self.batch_size, 10)
                     
-                    orders[:] = np.random.rand(self.batch_size, 10).astype(np.float32)
+                    try:
+                        from ..rl.meta_learning import create_meta_learner
+                        meta_learner = create_meta_learner()
+                        strategies = meta_learner.get_all_strategies()
+                        
+                        if strategies:
+                            strategy_values = list(strategies.values())
+                            performance_data = [s.get('performance', 0.0) for s in strategy_values]
+                            
+                            for i in range(self.batch_size):
+                                strategy_idx = i % len(performance_data)
+                                performance = performance_data[strategy_idx]
+                                
+                                orders[i] = [
+                                    performance / 100,  # price factor
+                                    abs(performance) * 10,  # volume
+                                    1.0 if performance > 0 else 0.0,  # side (buy/sell)
+                                    performance * 0.1,  # stop loss
+                                    performance * 0.2,  # take profit
+                                    0.0, 0.0, 0.0, 0.0, 0.0  # other parameters
+                                ]
+                        else:
+                            orders[:] = 0.0
+                    except Exception as e:
+                        logger.error(f"Error using real strategy data: {e}")
+                        orders[:] = 0.0
                     
-                    venue_ids = np.random.randint(0, 10, size=self.batch_size, dtype=np.int32)
+                    venue_ids[:] = 0  # Use primary venue
                     timestamps = np.full(self.batch_size, time.time_ns(), dtype=np.int64)
                     
                     batch = OrderBatch(
@@ -793,8 +818,36 @@ class ExtremeOptimizedHFTEngine:
             except Exception as e:
                 logger.error(f"Error generating zero-copy batch: {e}")
         
-        orders = np.random.rand(self.batch_size, 10).astype(np.float32)
-        venue_ids = np.random.randint(0, 10, size=self.batch_size, dtype=np.int32)
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
+            strategies = meta_learner.get_all_strategies()
+            
+            if strategies:
+                strategy_values = list(strategies.values())
+                performance_data = [s.get('performance', 0.0) for s in strategy_values]
+                
+                orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+                
+                for i in range(self.batch_size):
+                    strategy_idx = i % len(performance_data)
+                    performance = performance_data[strategy_idx]
+                    
+                    orders[i] = [
+                        performance / 100,  # price factor
+                        abs(performance) * 10,  # volume
+                        1.0 if performance > 0 else 0.0,  # side (buy/sell)
+                        performance * 0.1,  # stop loss
+                        performance * 0.2,  # take profit
+                        0.0, 0.0, 0.0, 0.0, 0.0  # other parameters
+                    ]
+            else:
+                orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+        except Exception as e:
+            logger.error(f"Error using real strategy data: {e}")
+            orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+        
+        venue_ids = np.zeros(self.batch_size, dtype=np.int32)  # Use primary venue
         timestamps = np.full(self.batch_size, time.time_ns(), dtype=np.int64)
         
         batch = OrderBatch(

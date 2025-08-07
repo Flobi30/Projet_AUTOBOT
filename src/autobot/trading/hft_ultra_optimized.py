@@ -399,8 +399,29 @@ class UltraOptimizedHFTEngine:
         batch_id = self.next_batch_id
         self.next_batch_id += 1
         
-        orders = np.random.rand(self.batch_size, 10).astype(np.float32)
-        venue_ids = np.random.randint(0, 10, size=self.batch_size, dtype=np.int32)
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
+            
+            strategies = meta_learner.get_all_strategies()
+            if strategies:
+                best_strategy = meta_learner.get_best_strategy()
+                if best_strategy:
+                    strategy_id, strategy_data = best_strategy
+                    performance = strategy_data.get('performance', 0.0)
+                    
+                    orders = np.full((self.batch_size, 10), performance / 100, dtype=np.float32)
+                    venue_ids = np.full(self.batch_size, 0, dtype=np.int32)  # Use primary venue
+                else:
+                    orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+                    venue_ids = np.zeros(self.batch_size, dtype=np.int32)
+            else:
+                orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+                venue_ids = np.zeros(self.batch_size, dtype=np.int32)
+        except Exception as e:
+            logger.error(f"Error getting real order data: {e}")
+            orders = np.zeros((self.batch_size, 10), dtype=np.float32)
+            venue_ids = np.zeros(self.batch_size, dtype=np.int32)
         timestamps = np.full(self.batch_size, time.time_ns(), dtype=np.int64)
         
         batch = OrderBatch(

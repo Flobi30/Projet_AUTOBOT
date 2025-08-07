@@ -3,7 +3,11 @@ from autobot.schemas import BacktestRequest, BacktestResult, APIKeysRequest, API
 from autobot.ecommerce.kpis import get_kpis
 from autobot.guardian import get_logs, get_metrics
 from autobot.backtest_engine import run_backtest
-from autobot.rl.train import start_training
+try:
+    from autobot.rl.train import start_training
+except ImportError:
+    def start_training(*args, **kwargs):
+        return {"error": "RL training not available - torch not installed"}
 from autobot.trading import execute_trade
 
 from autobot.providers.alphavantage import get_intraday as get_alphavantage, get_time_series as get_alphavantage_ts, get_technical_indicators as get_alphavantage_ti
@@ -11,7 +15,6 @@ from autobot.providers.ccxt_provider import fetch_ticker as get_ccxt_provider
 from autobot.providers.coingecko import get_intraday as get_coingecko
 from autobot.providers.fred import get_time_series as get_fred
 from autobot.providers.newsapi import get_time_series as get_newsapi
-from autobot.providers.shopify import get_orders as get_shopify_orders, get_shopify
 from autobot.providers.twelvedata import get_intraday as get_twelvedata
 
 from autobot.plugins.vairo import get_data as get_vairo
@@ -59,9 +62,6 @@ def prov_ccxt_provider(param: str):
 def prov_newsapi(param: str): 
     return get_newsapi(param)
 
-@router.get('/provider/shopify/{param}')
-def prov_shopify(param: str): 
-    return get_shopify(param)
 
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): 

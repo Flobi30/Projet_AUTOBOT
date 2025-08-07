@@ -1,18 +1,18 @@
 {
-  "last_maintenance": "2025-08-07T03:05:22.807213",
+  "last_maintenance": "2025-08-07T15:31:44.171741",
   "status": "healthy",
-  "uptime": 3.16,
+  "uptime": 1841.98,
   "disk_usage": {
     "total": 130700505088,
-    "used": 36254224384,
-    "free": 94446280704,
-    "percent": 27.73839654222469
+    "used": 45148446720,
+    "free": 85552058368,
+    "percent": 34.54343706598668
   },
   "memory_usage": {
     "total": 33683222528,
-    "available": 33111347200,
-    "used": 189251584,
-    "percent": 1.7
+    "available": 30823886848,
+    "used": 2118586368,
+    "percent": 8.5
   },
-  "cpu_usage": 18.6
+  "cpu_usage": 15.4
 }
