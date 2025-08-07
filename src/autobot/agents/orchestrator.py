@@ -1112,7 +1112,7 @@ class EcommerceAgent(Agent):
         Args:
             agent_id: Unique ID for this agent
             name: Human-readable name
-            platform: E-commerce platform (e.g., "shopify", "woocommerce")
+            platform: E-commerce platform (e.g., "woocommerce")
             store_id: Store ID
             config: Agent configuration
         """

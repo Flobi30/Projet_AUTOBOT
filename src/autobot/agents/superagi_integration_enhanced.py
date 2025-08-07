@@ -102,7 +102,7 @@ class EnhancedSuperAGIOrchestrator:
                 "enabled": True,
                 "name": "E-commerce Agent",
                 "config": {
-                    "platforms": ["shopify", "amazon", "ebay"],
+                    "platforms": ["amazon", "ebay"]
                     "unsold_threshold_days": 30,
                     "discount_rate": 0.3
                 }
@@ -262,7 +262,7 @@ class EnhancedSuperAGIOrchestrator:
         agent = self.agents["ecommerce"]
         
         try:
-            platforms = agent.config.get("platforms", ["shopify"])
+            platforms = agent.config.get("platforms", ["amazon", "ebay"])
             
             for platform in platforms:
                 task = f"Analyze inventory on {platform}. " \

@@ -23,7 +23,6 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)
@@ -151,7 +150,6 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)
@@ -279,7 +277,6 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)

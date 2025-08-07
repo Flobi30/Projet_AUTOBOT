@@ -319,7 +319,7 @@ class AdvancedOrchestrator:
                 }
             },
             "ecommerce": {
-                "platforms": ["shopify", "amazon", "ebay"],
+                "platforms": ["amazon", "ebay"],
                 "sync_interval": 3600
             },
             "prediction": {

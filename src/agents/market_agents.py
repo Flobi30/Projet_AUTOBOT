@@ -799,9 +799,16 @@ class TrendFollowingAgent(Agent):
             elif self.trends[symbol] == "down":
                 trend_factor = 0.999
         
-        random_factor = random.uniform(0.998, 1.002)
+        try:
+            from ..providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider("binance")
+            ticker = provider.fetch_ticker(symbol.replace("/", ""))
+            if ticker and ticker.get("last"):
+                return float(ticker["last"]) * trend_factor
+        except Exception as e:
+            logger.warning(f"Failed to get real price for {symbol}, using base calculation: {e}")
         
-        return base_price * trend_factor * random_factor
+        return base_price * trend_factor
     
     def update(self):
         """Update agent state (called periodically)"""
@@ -1128,9 +1135,16 @@ class MeanReversionAgent(Agent):
             if z_score is not None:
                 reversion_factor = 1.0 - (z_score * 0.001)
         
-        random_factor = random.uniform(0.998, 1.002)
+        try:
+            from ..providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider("binance")
+            ticker = provider.fetch_ticker(symbol.replace("/", ""))
+            if ticker and ticker.get("last"):
+                return float(ticker["last"]) * reversion_factor
+        except Exception as e:
+            logger.warning(f"Failed to get real price for {symbol}, using base calculation: {e}")
         
-        return base_price * reversion_factor * random_factor
+        return base_price * reversion_factor
     
     def update(self):
         """Update agent state (called periodically)"""

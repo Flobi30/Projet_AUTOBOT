@@ -48,7 +48,7 @@ class Product:
             cost: Product cost
             quantity: Available quantity
             category: Product category
-            platform: E-commerce platform (e.g., 'shopify', 'amazon')
+            platform: E-commerce platform (e.g., 'amazon', 'ebay')
             listing_url: URL to the product listing
             image_urls: List of image URLs
             attributes: Additional product attributes

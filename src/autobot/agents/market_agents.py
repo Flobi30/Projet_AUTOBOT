@@ -269,7 +269,7 @@ class ArbitrageAgent(Agent):
             Real price data from exchange
         """
         try:
-            from ..data.providers import get_market_data
+            from autobot.data.real_providers import get_market_data
             
             market_data = get_market_data(symbol, exchange)
             if market_data:
@@ -515,7 +515,7 @@ class MarketMakerAgent(Agent):
         }
         
         try:
-            from ..data.providers import get_market_data
+            from autobot.data.real_providers import get_market_data
             
             market_data = get_market_data(symbol, exchange)
             if market_data and 'last' in market_data:
@@ -827,7 +827,7 @@ class TrendFollowingAgent(Agent):
                 trend_factor = 0.999
         
         try:
-            from ..data.providers import get_market_data
+            from autobot.data.real_providers import get_market_data
             
             market_data = get_market_data(symbol, "binance")
             if market_data and 'last' in market_data:
@@ -1163,7 +1163,7 @@ class MeanReversionAgent(Agent):
                 reversion_factor = 1.0 - (z_score * 0.001)
         
         try:
-            from ..data.providers import get_market_data
+            from autobot.data.real_providers import get_market_data
             market_data = get_market_data(symbol, exchange)
             if market_data and 'volatility' in market_data:
                 volatility_factor = 1.0 + (market_data['volatility'] * 0.1)

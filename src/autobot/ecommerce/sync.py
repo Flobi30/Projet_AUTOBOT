@@ -2,7 +2,7 @@
 import argparse
 def main():
     parser = argparse.ArgumentParser(description='E-commerce sync utility')
-    parser.add_argument('--sync-products', action='store_true', help='Sync products with Shopify')
+    parser.add_argument('--sync-products', action='store_true', help='Sync products')
     parser.add_argument('--sync-sales', action='store_true', help='Sync sales data')
     args = parser.parse_args()
     if args.sync_products:
