@@ -25,3 +25,4 @@ cloudpickle==2.2.1
 python-multipart==0.0.6
 # SuperAGI dependencies
 PyYAML==6.0.1  # Required for configuration loading
+cryptography>=3.4.8

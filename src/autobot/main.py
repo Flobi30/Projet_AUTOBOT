@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
 from autobot.router_clean import router
@@ -26,19 +27,40 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://144.76.16.177", "https://144.76.16.177"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def domain_access_control(request: Request, call_next):
+    host = request.headers.get("host", "")
+    path = request.url.path
+    
+    if "stripe-autobot.fr" in host:
+        allowed_public_paths = ["/capital", "/deposit", "/withdrawal", "/api/stripe", "/static", "/favicon.ico"]
+        if not any(path.startswith(allowed_path) for allowed_path in allowed_public_paths):
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    response = await call_next(request)
+    return response
+
 performance_optimizer = PerformanceOptimizer(
-    memory_threshold=0.80,
-    cpu_threshold=0.90,
+    memory_threshold=0.75,
+    cpu_threshold=0.85,
     auto_optimize=True,
     visible_interface=True
 )
 
 hft_engine = HFTOptimizedEngine(
-    batch_size=50000,
-    max_workers=16,
-    prefetch_depth=5,
-    artificial_latency=0.00005,
-    memory_pool_size=1000000,
+    batch_size=15000,
+    max_workers=8,
+    prefetch_depth=3,
+    artificial_latency=2.0,
+    memory_pool_size=500000,
     adaptive_throttling=True
 )
 

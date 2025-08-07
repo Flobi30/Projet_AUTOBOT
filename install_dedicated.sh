@@ -38,7 +38,7 @@ echo -e "${BLUE}Configuration de Nginx pour l'accès distant...${RESET}"
 cat > /etc/nginx/sites-available/autobot << 'EOF'
 server {
     listen 80;
-    server_name _;  # Remplacer par votre nom de domaine si disponible
+    server_name 144.76.16.177;
 
     location / {
         proxy_pass http://localhost:8000;
@@ -48,6 +48,25 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+    }
+}
+
+server {
+    listen 80;
+    server_name stripe-autobot.fr;
+
+    location ~ ^/(capital|deposit|withdrawal|api/stripe|static|favicon.ico) {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    location / {
+        return 403;
     }
 }
 EOF
