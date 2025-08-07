@@ -72,10 +72,8 @@ async def get_backtest_current(current_user: User = Depends(get_current_user)):
     """
     try:
         from autobot.rl.meta_learning import create_meta_learner
-        from autobot.agents.advanced_orchestrator import AdvancedOrchestrator
         
         meta_learner = create_meta_learner()
-        orchestrator = AdvancedOrchestrator()
         
         all_strategies = meta_learner.get_all_strategies()
         strategies = []
@@ -109,8 +107,12 @@ async def get_backtest_current(current_user: User = Depends(get_current_user)):
         overall_win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0
         
         try:
-            orchestrator_metrics = orchestrator.get_performance_metrics()
-            max_drawdown = orchestrator_metrics.get('max_drawdown', 0.15)
+            best_strategy = meta_learner.get_best_strategy()
+            if best_strategy:
+                strategy_id, strategy_data = best_strategy
+                max_drawdown = strategy_data.get('max_drawdown', 0.15)
+            else:
+                max_drawdown = 0.15
         except:
             max_drawdown = 0.15
         
