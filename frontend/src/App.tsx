@@ -3,15 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext'
 import { DomainProvider } from './contexts/DomainContext'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import Trading from './pages/Trading'
-import Ecommerce from './pages/Ecommerce'
-import Arbitrage from './pages/Arbitrage'
 import Backtest from './pages/Backtest'
 import Capital from './pages/Capital'
-import Duplication from './pages/Duplication'
-import RetraitDepot from './pages/RetraitDepot'
-import Parametres from './pages/Parametres'
 import Login from './pages/Login'
 import PrivateRoute from './components/PrivateRoute'
 import PublicRoute from './components/PublicRoute'
@@ -146,31 +139,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             
             <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              
-              <Route path="/dashboard" element={
-                <PrivateRoute>
-                  <Dashboard />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/trading" element={
-                <PrivateRoute>
-                  <Trading />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/ecommerce" element={
-                <PrivateRoute>
-                  <Ecommerce />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/arbitrage" element={
-                <PrivateRoute>
-                  <Arbitrage />
-                </PrivateRoute>
-              } />
+              <Route index element={<Navigate to="/capital" replace />} />
               
               <Route path="/backtest" element={
                 <PrivateRoute>
@@ -179,24 +148,6 @@ function App() {
               } />
               
               <Route path="/capital" element={<Capital />} />
-              
-              <Route path="/duplication" element={
-                <PrivateRoute>
-                  <Duplication />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/retrait-depot" element={
-                <PrivateRoute>
-                  <RetraitDepot />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/parametres" element={
-                <PrivateRoute>
-                  <Parametres />
-                </PrivateRoute>
-              } />
             </Route>
             
             <Route path="/deposit" element={

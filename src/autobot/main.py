@@ -263,7 +263,7 @@ app.include_router(prediction_router)
 app.include_router(mobile_router)
 app.include_router(simplified_dashboard_router, prefix="/simple")
 app.include_router(arbitrage_router)
-
+app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
