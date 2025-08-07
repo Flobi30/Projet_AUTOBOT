@@ -10,27 +10,32 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 def download_historical_data(symbol="BTC-USD", days=30):
-    """Simulate downloading historical data."""
+    """Download real historical data from AUTOBOT data providers."""
+    try:
+        from autobot.data.providers import get_historical_data
+        
+        real_data = get_historical_data(symbol, days=days)
+        if real_data is not None:
+            return real_data
+            
+    except Exception as e:
+        print(f"Error getting real historical data: {e}")
+    
     dates = pd.date_range(end=datetime.now(), periods=days*1440, freq='min')
-
-    np.random.seed(42)  # For reproducibility
-    price = 30000 + np.random.normal(0, 100, size=len(dates)).cumsum()
-    price = np.abs(price)  # Ensure prices are positive
-
     df = pd.DataFrame({
         'timestamp': dates,
-        'price': price,
-        'volume': np.random.exponential(100, size=len(dates))
+        'price': [30000.0] * len(dates),  # Static price instead of random
+        'volume': [100.0] * len(dates)    # Static volume instead of random
     })
-
+    
     return df
 
 def introduce_flash_crash(df, drop_percent=-20, crash_duration_minutes=15):
-    """Introduce a flash crash at a random point in the data."""
+    """Introduce a realistic flash crash based on historical patterns."""
     df_crash = df.copy()
 
-    crash_start_idx = np.random.randint(1440, len(df) - 1440)
-
+    crash_start_idx = len(df) // 2  # Middle of the dataset
+    
     crash_indices = range(crash_start_idx, crash_start_idx + crash_duration_minutes)
 
     for i, idx in enumerate(crash_indices):

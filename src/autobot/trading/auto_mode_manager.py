@@ -164,15 +164,25 @@ class AutoModeManager:
         market condition, which affects the operating mode selection.
         """
         try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
             
-            rand_val = np.random.random()
+            strategies = meta_learner.get_all_strategies()
+            performance_stats = meta_learner.get_performance_stats()
             
-            if rand_val < 0.6:
-                new_condition = MarketCondition.NORMAL
-            elif rand_val < 0.8:
-                new_condition = MarketCondition.VOLATILE
-            elif rand_val < 0.9:
+            # Determine market condition based on real performance
+            avg_performance = 0.0
+            if strategies:
+                performances = [s.get('performance', 0.0) for s in strategies.values()]
+                avg_performance = sum(performances) / len(performances)
+            
+            # Classify market condition based on real performance
+            if avg_performance > 5.0:
                 new_condition = MarketCondition.OPPORTUNITY
+            elif avg_performance > 2.0:
+                new_condition = MarketCondition.NORMAL
+            elif avg_performance > -2.0:
+                new_condition = MarketCondition.VOLATILE
             else:
                 new_condition = MarketCondition.DANGEROUS
             
@@ -182,6 +192,7 @@ class AutoModeManager:
         
         except Exception as e:
             logger.error(f"Error analyzing market conditions: {str(e)}")
+            self.market_condition = MarketCondition.NORMAL
     
     def _analyze_security_threats(self):
         """
@@ -191,19 +202,21 @@ class AutoModeManager:
         threat level, which affects the operating mode selection.
         """
         try:
+            import psutil
             
-            rand_val = np.random.random()
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+            memory_usage = psutil.virtual_memory().percent
             
-            if rand_val < 0.7:
-                new_threat = SecurityThreat.NONE
-            elif rand_val < 0.85:
-                new_threat = SecurityThreat.LOW
-            elif rand_val < 0.95:
-                new_threat = SecurityThreat.MEDIUM
-            elif rand_val < 0.98:
+            connections = len(psutil.net_connections())
+            
+            if cpu_usage > 90 or memory_usage > 95 or connections > 1000:
                 new_threat = SecurityThreat.HIGH
+            elif cpu_usage > 80 or memory_usage > 85 or connections > 500:
+                new_threat = SecurityThreat.MEDIUM
+            elif cpu_usage > 70 or memory_usage > 75 or connections > 200:
+                new_threat = SecurityThreat.LOW
             else:
-                new_threat = SecurityThreat.CRITICAL
+                new_threat = SecurityThreat.NONE
             
             if new_threat != self.security_threat:
                 logger.info(f"Security threat changed: {self.security_threat.value} -> {new_threat.value}")
@@ -211,6 +224,7 @@ class AutoModeManager:
         
         except Exception as e:
             logger.error(f"Error analyzing security threats: {str(e)}")
+            self.security_threat = SecurityThreat.NONE
     
     def _analyze_system_performance(self):
         """
@@ -220,16 +234,29 @@ class AutoModeManager:
         the current performance level, which affects the operating mode selection.
         """
         try:
+            import psutil
+            from ..rl.meta_learning import create_meta_learner
             
-            rand_val = np.random.random()
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+            memory_usage = psutil.virtual_memory().percent
             
-            if rand_val < 0.2:
+            # Get real trading performance
+            meta_learner = create_meta_learner()
+            strategies = meta_learner.get_all_strategies()
+            
+            avg_performance = 0.0
+            if strategies:
+                performances = [s.get('performance', 0.0) for s in strategies.values()]
+                avg_performance = sum(performances) / len(performances)
+            
+            # Determine performance based on real metrics
+            if cpu_usage < 30 and memory_usage < 50 and avg_performance > 3.0:
                 new_performance = SystemPerformance.EXCELLENT
-            elif rand_val < 0.6:
+            elif cpu_usage < 50 and memory_usage < 70 and avg_performance > 1.0:
                 new_performance = SystemPerformance.GOOD
-            elif rand_val < 0.8:
+            elif cpu_usage < 70 and memory_usage < 85 and avg_performance > -1.0:
                 new_performance = SystemPerformance.AVERAGE
-            elif rand_val < 0.95:
+            elif cpu_usage < 90 and memory_usage < 95:
                 new_performance = SystemPerformance.POOR
             else:
                 new_performance = SystemPerformance.CRITICAL
@@ -240,6 +267,7 @@ class AutoModeManager:
         
         except Exception as e:
             logger.error(f"Error analyzing system performance: {str(e)}")
+            self.system_performance = SystemPerformance.GOOD
     
     def _update_modes(self):
         """

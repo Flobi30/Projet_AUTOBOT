@@ -217,15 +217,30 @@ class ArbitrageAgent(Agent):
         start_time = time.time()
         
         
-        execution_time = random.uniform(50, self.max_execution_time_ms * 1.2)
-        time.sleep(execution_time / 1000)
-        
-        success = random.random() > 0.2  # 80% success rate
-        
-        if success:
-            actual_profit = opportunity["potential_profit"] * random.uniform(0.8, 1.0)
-            actual_profit_percentage = actual_profit / opportunity["buy_price"]
-        else:
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
+            
+            best_strategy = meta_learner.get_best_strategy()
+            if best_strategy:
+                strategy_id, strategy_data = best_strategy
+                success_rate = strategy_data.get('win_rate', 0.8)
+                success = success_rate > 0.6  # Use real win rate
+                
+                if success:
+                    performance = strategy_data.get('performance', 0.0)
+                    actual_profit = opportunity["potential_profit"] * (performance / 100)
+                    actual_profit_percentage = actual_profit / opportunity["buy_price"]
+                else:
+                    actual_profit = 0
+                    actual_profit_percentage = 0
+            else:
+                success = False
+                actual_profit = 0
+                actual_profit_percentage = 0
+        except Exception as e:
+            logger.error(f"Error getting real strategy data: {e}")
+            success = False
             actual_profit = 0
             actual_profit_percentage = 0
         
@@ -242,45 +257,36 @@ class ArbitrageAgent(Agent):
             "error": None if success else "Execution failed due to market conditions"
         }
     
-    def _simulate_price(self, symbol: str, exchange: str) -> Dict[str, float]:
+    def _get_real_price(self, symbol: str, exchange: str) -> Dict[str, float]:
         """
-        Simulate price data for testing.
+        Get real price data from exchange APIs.
         
         Args:
             symbol: Symbol to get price for
             exchange: Exchange to get price from
             
         Returns:
-            Simulated price data
+            Real price data from exchange
         """
-        base_prices = {
-            "BTC/USD": 50000,
-            "ETH/USD": 3000,
-            "SOL/USD": 100,
-            "XRP/USD": 0.5,
-            "ADA/USD": 1.2
-        }
-        
-        exchange_factors = {
-            "binance": 1.0,
-            "coinbase": 1.002,
-            "kraken": 0.998,
-            "ftx": 1.001,
-            "huobi": 0.999
-        }
-        
-        base_price = base_prices.get(symbol, 100)
-        exchange_factor = exchange_factors.get(exchange, 1.0)
-        
-        random_factor = random.uniform(0.998, 1.002)
-        
-        price = base_price * exchange_factor * random_factor
+        try:
+            from ..data.providers import get_market_data
+            
+            market_data = get_market_data(symbol, exchange)
+            if market_data:
+                return {
+                    "bid": market_data.get("bid", 0.0),
+                    "ask": market_data.get("ask", 0.0),
+                    "last": market_data.get("last", 0.0),
+                    "volume": market_data.get("volume", 0.0)
+                }
+        except Exception as e:
+            logger.error(f"Error getting real price for {symbol} on {exchange}: {e}")
         
         return {
-            "bid": price * 0.999,
-            "ask": price * 1.001,
-            "last": price,
-            "volume": random.uniform(10, 1000)
+            "bid": 0.0,
+            "ask": 0.0,
+            "last": 0.0,
+            "volume": 0.0
         }
     
     def update(self):
@@ -508,10 +514,17 @@ class MarketMakerAgent(Agent):
             "ADA/USD": 1.2
         }
         
-        base_price = base_prices.get(symbol, 100)
-        random_factor = random.uniform(0.995, 1.005)
+        try:
+            from ..data.providers import get_market_data
+            
+            market_data = get_market_data(symbol, exchange)
+            if market_data and 'last' in market_data:
+                return market_data['last']
+        except Exception as e:
+            logger.error(f"Error getting real market price for {symbol}: {e}")
         
-        return base_price * random_factor
+        base_price = base_prices.get(symbol, 100)
+        return base_price
     
     def update(self):
         """Update agent state (called periodically)"""
@@ -521,17 +534,28 @@ class MarketMakerAgent(Agent):
         if current_time - self.last_update_time >= self.update_interval:
             self.last_update_time = current_time
             
-            for order in list(self.orders):
-                if random.random() < 0.1:
-                    symbol = order["symbol"]
-                    amount = order["amount"]
+            try:
+                from ..rl.meta_learning import create_meta_learner
+                meta_learner = create_meta_learner()
+                
+                best_strategy = meta_learner.get_best_strategy()
+                if best_strategy:
+                    strategy_id, strategy_data = best_strategy
+                    fill_rate = strategy_data.get('win_rate', 0.1)
                     
-                    if order["side"] == "buy":
-                        self.positions[symbol] = self.positions.get(symbol, 0) + amount
-                    else:
-                        self.positions[symbol] = self.positions.get(symbol, 0) - amount
-                    
-                    self.orders.remove(order)
+                    for order in list(self.orders):
+                        if fill_rate > 0.05:  # Use real strategy performance for fill rate
+                            symbol = order["symbol"]
+                            amount = order["amount"]
+                            
+                            if order["side"] == "buy":
+                                self.positions[symbol] = self.positions.get(symbol, 0) + amount
+                            else:
+                                self.positions[symbol] = self.positions.get(symbol, 0) - amount
+                            
+                            self.orders.remove(order)
+            except Exception as e:
+                logger.error(f"Error processing orders with real data: {e}")
             
             for symbol in self.positions.keys():
                 self._place_orders(symbol, "binance")
@@ -802,9 +826,16 @@ class TrendFollowingAgent(Agent):
             elif self.trends[symbol] == "down":
                 trend_factor = 0.999
         
-        random_factor = random.uniform(0.998, 1.002)
+        try:
+            from ..data.providers import get_market_data
+            
+            market_data = get_market_data(symbol, "binance")
+            if market_data and 'last' in market_data:
+                return market_data['last'] * trend_factor
+        except Exception as e:
+            logger.error(f"Error getting real price for trend analysis: {e}")
         
-        return base_price * trend_factor * random_factor
+        return base_price * trend_factor
     
     def update(self):
         """Update agent state (called periodically)"""

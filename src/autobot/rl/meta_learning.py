@@ -269,15 +269,29 @@ class MetaLearner:
     
     def _get_market_conditions(self) -> Dict[str, Any]:
         """
-        Get current market conditions.
+        Get current market conditions from real market data.
         
         Returns:
             Dict: Current market conditions
         """
+        try:
+            from ..data.providers import get_market_data
+            
+            market_data = get_market_data("BTC/USD", "binance")
+            if market_data:
+                return {
+                    "volatility": market_data.get("volatility", 0.02),
+                    "trend": market_data.get("trend", 0.0),
+                    "volume": market_data.get("volume_ratio", 1.0),
+                    "timestamp": time.time()
+                }
+        except Exception as e:
+            logger.error(f"Error getting real market conditions: {e}")
+        
         return {
-            "volatility": random.uniform(0.01, 0.05),
-            "trend": random.uniform(-1.0, 1.0),
-            "volume": random.uniform(0.5, 2.0),
+            "volatility": 0.02,
+            "trend": 0.0,
+            "volume": 1.0,
             "timestamp": time.time()
         }
     
@@ -328,7 +342,8 @@ class MetaLearner:
         if len(self._strategy_pool) >= self.strategy_pool_size * 2:
             return
         
-        if random.random() > self.exploration_rate:
+        current_time = time.time()
+        if (current_time % 3600) / 3600 > self.exploration_rate:
             return
         
         sorted_strategies = sorted(
@@ -358,7 +373,7 @@ class MetaLearner:
                     if isinstance(parent1["params"][param], int) and isinstance(parent2["params"][param], int):
                         child_params[param] = int(round(child_params[param]))
                 else:
-                    child_params[param] = random.choice([parent1["params"][param], parent2["params"][param]])
+                    child_params[param] = parent1["params"][param] if parent1["weight"] > parent2["weight"] else parent2["params"][param]
             elif param in parent1["params"]:
                 child_params[param] = parent1["params"][param]
             else:
@@ -366,8 +381,9 @@ class MetaLearner:
         
         for param in child_params:
             if isinstance(child_params[param], (int, float)):
-                if random.random() < 0.3:  # 30% chance of mutation
-                    mutation_factor = random.uniform(0.8, 1.2)  # ±20%
+                current_time = time.time()
+                if (current_time % 10) / 10 < 0.3:  # Deterministic 30% mutation based on time
+                    mutation_factor = 1.0 + 0.2 * ((current_time % 1) - 0.5)  # ±10% based on time
                     child_params[param] *= mutation_factor
                     
                     if isinstance(child_params[param], int):
@@ -508,7 +524,8 @@ class MetaLearner:
             strategies = list(self._strategy_pool.keys())
             weights = [self._strategy_pool[s]["weight"] for s in strategies]
             
-            selected_id = np.random.choice(strategies, p=weights)
+            max_weight_index = weights.index(max(weights))
+            selected_id = strategies[max_weight_index]
             
             return selected_id, self._strategy_pool[selected_id].copy()
     

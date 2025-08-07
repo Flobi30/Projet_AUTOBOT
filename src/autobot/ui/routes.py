@@ -68,31 +68,77 @@ async def get_arbitrage_data(current_user: User = Depends(get_current_user)):
 @router.get("/api/backtest/current", response_class=JSONResponse)
 async def get_backtest_current(current_user: User = Depends(get_current_user)):
     """
-    Get current backtest data for React component.
+    Get current backtest data for React component using real MetaLearner data.
     """
-    import random
-    import numpy as np
-    
-    performance = random.uniform(-2.0, 2.0)
-    sharpe_ratio = random.uniform(-1.0, 3.0)
-    
-    strategies = [
-        {"name": "Moving Average", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
-        {"name": "RSI Strategy", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
-        {"name": "MACD Strategy", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
-        {"name": "Bollinger Bands", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
-        {"name": "Mean Reversion", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)},
-        {"name": "Momentum", "status": "Active" if random.random() > 0.5 else "Inactive", "performance": random.uniform(-1.5, 1.5)}
-    ]
-    
-    return {
-        "performance": performance,
-        "sharpe_ratio": sharpe_ratio,
-        "max_drawdown": random.uniform(0.05, 0.25),
-        "total_trades": random.randint(50, 200),
-        "win_rate": random.uniform(45, 75),
-        "strategies": strategies
-    }
+    try:
+        from autobot.rl.meta_learning import create_meta_learner
+        from autobot.agents.advanced_orchestrator import AdvancedOrchestrator
+        
+        meta_learner = create_meta_learner()
+        orchestrator = AdvancedOrchestrator()
+        
+        all_strategies = meta_learner.get_all_strategies()
+        strategies = []
+        
+        total_performance = 0.0
+        total_sharpe = 0.0
+        total_trades = 0
+        total_wins = 0
+        
+        if all_strategies:
+            for strategy_id, strategy_data in all_strategies.items():
+                performance = strategy_data.get('performance', 0.0)
+                win_rate = strategy_data.get('win_rate', 0.0)
+                sharpe = strategy_data.get('sharpe_ratio', 0.0)
+                trades = strategy_data.get('total_trades', 0)
+                
+                strategies.append({
+                    "name": strategy_id.replace('_', ' ').title(),
+                    "status": "Active" if performance > 0 else "Inactive",
+                    "performance": round(performance, 2)
+                })
+                
+                total_performance += performance
+                total_sharpe += sharpe
+                total_trades += trades
+                total_wins += int(trades * (win_rate / 100))
+        
+        num_strategies = len(strategies) if strategies else 1
+        avg_performance = total_performance / num_strategies
+        avg_sharpe = total_sharpe / num_strategies
+        overall_win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0
+        
+        try:
+            orchestrator_metrics = orchestrator.get_performance_metrics()
+            max_drawdown = orchestrator_metrics.get('max_drawdown', 0.15)
+        except:
+            max_drawdown = 0.15
+        
+        return {
+            "performance": round(avg_performance, 2),
+            "sharpe_ratio": round(avg_sharpe, 2),
+            "max_drawdown": round(max_drawdown, 3),
+            "total_trades": total_trades,
+            "win_rate": round(overall_win_rate, 1),
+            "strategies": strategies
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting real backtest data: {e}")
+        return {
+            "performance": 0.0,
+            "sharpe_ratio": 0.0,
+            "max_drawdown": 0.0,
+            "total_trades": 0,
+            "win_rate": 0.0,
+            "strategies": [
+                {"name": "Momentum", "status": "Inactive", "performance": 0.0},
+                {"name": "Mean Reversion", "status": "Inactive", "performance": 0.0},
+                {"name": "Breakout", "status": "Inactive", "performance": 0.0},
+                {"name": "Trend Following", "status": "Inactive", "performance": 0.0},
+                {"name": "Grid Trading", "status": "Inactive", "performance": 0.0}
+            ]
+        }
 
 @router.get("/api/capital/data", response_class=JSONResponse)
 async def get_capital_data_api(current_user: User = Depends(get_current_user)):

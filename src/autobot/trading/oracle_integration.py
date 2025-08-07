@@ -126,12 +126,26 @@ class ChainlinkProvider(OracleProvider):
         if data_type == "price":
             symbol = params.get("symbol", "BTC/USD")
             
-            if "BTC" in symbol:
-                value = 50000.0 + np.random.normal(0, 500)
-            elif "ETH" in symbol:
-                value = 3000.0 + np.random.normal(0, 100)
-            else:
-                value = 100.0 + np.random.normal(0, 5)
+            try:
+                from ..data.providers import get_market_data
+                real_price_data = get_market_data(symbol, "chainlink")
+                if real_price_data and "price" in real_price_data:
+                    value = real_price_data["price"]
+                else:
+                    if "BTC" in symbol:
+                        value = 50000.0
+                    elif "ETH" in symbol:
+                        value = 3000.0
+                    else:
+                        value = 100.0
+            except Exception as e:
+                logger.error(f"Error getting real price data: {e}")
+                if "BTC" in symbol:
+                    value = 50000.0
+                elif "ETH" in symbol:
+                    value = 3000.0
+                else:
+                    value = 100.0
             
             return OracleData(
                 data_type="price",
@@ -181,12 +195,26 @@ class BandProtocolProvider(OracleProvider):
         if data_type == "price":
             symbol = params.get("symbol", "BTC/USD")
             
-            if "BTC" in symbol:
-                value = 50100.0 + np.random.normal(0, 500)
-            elif "ETH" in symbol:
-                value = 3020.0 + np.random.normal(0, 100)
-            else:
-                value = 101.0 + np.random.normal(0, 5)
+            try:
+                from ..data.providers import get_market_data
+                real_price_data = get_market_data(symbol, "band_protocol")
+                if real_price_data and "price" in real_price_data:
+                    value = real_price_data["price"]
+                else:
+                    if "BTC" in symbol:
+                        value = 50100.0
+                    elif "ETH" in symbol:
+                        value = 3020.0
+                    else:
+                        value = 101.0
+            except Exception as e:
+                logger.error(f"Error getting real price data: {e}")
+                if "BTC" in symbol:
+                    value = 50100.0
+                elif "ETH" in symbol:
+                    value = 3020.0
+                else:
+                    value = 101.0
             
             return OracleData(
                 data_type="price",
@@ -236,12 +264,26 @@ class API3Provider(OracleProvider):
         if data_type == "price":
             symbol = params.get("symbol", "BTC/USD")
             
-            if "BTC" in symbol:
-                value = 49900.0 + np.random.normal(0, 500)
-            elif "ETH" in symbol:
-                value = 2980.0 + np.random.normal(0, 100)
-            else:
-                value = 99.0 + np.random.normal(0, 5)
+            try:
+                from ..data.providers import get_market_data
+                real_price_data = get_market_data(symbol, "api3")
+                if real_price_data and "price" in real_price_data:
+                    value = real_price_data["price"]
+                else:
+                    if "BTC" in symbol:
+                        value = 49900.0
+                    elif "ETH" in symbol:
+                        value = 2980.0
+                    else:
+                        value = 99.0
+            except Exception as e:
+                logger.error(f"Error getting real price data: {e}")
+                if "BTC" in symbol:
+                    value = 49900.0
+                elif "ETH" in symbol:
+                    value = 2980.0
+                else:
+                    value = 99.0
             
             return OracleData(
                 data_type="price",
