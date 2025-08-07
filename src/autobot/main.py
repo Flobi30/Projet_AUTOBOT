@@ -43,7 +43,8 @@ async def domain_access_control(request: Request, call_next):
     if "stripe-autobot.fr" in host:
         allowed_public_paths = ["/capital", "/deposit", "/withdrawal", "/api/stripe", "/static", "/favicon.ico"]
         if not any(path.startswith(allowed_path) for allowed_path in allowed_public_paths):
-            raise HTTPException(status_code=403, detail="Access denied")
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403, content={"detail": "Access denied"})
     
     response = await call_next(request)
     return response
