@@ -399,7 +399,7 @@ async def run_backtest_strategy(request: BacktestRequest, user: User = Depends(g
         logger.error(f"Error running real backtest: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/backtest/live-data")
+@router.get("/live-data")
 async def get_live_backtest_data():
     """Get real-time AUTOBOT backtest data from MetaLearner."""
     logger.info("get_live_backtest_data endpoint called")
