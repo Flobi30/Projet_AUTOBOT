@@ -482,8 +482,10 @@ def network_recovery_strategy(error: Exception, context: ErrorContext) -> bool:
     
     logger.debug(f"Attempting to recover from network error: {str(error)}")
     
-    import random
-    return random.random() < 0.5
+    error_message = str(error).lower()
+    if any(term in error_message for term in ["timeout", "connection reset", "temporary"]):
+        return True  # Recoverable network errors
+    return False  # Non-recoverable network errors
 
 def api_recovery_strategy(error: Exception, context: ErrorContext) -> bool:
     """
@@ -499,8 +501,10 @@ def api_recovery_strategy(error: Exception, context: ErrorContext) -> bool:
     
     logger.debug(f"Attempting to recover from API error: {str(error)}")
     
-    import random
-    return random.random() < 0.7
+    error_message = str(error).lower()
+    if any(term in error_message for term in ["429", "503", "502", "rate limit", "temporary"]):
+        return True  # Recoverable API errors (rate limits, temporary server issues)
+    return False  # Non-recoverable API errors (401, 403, 404, etc.)
 
 def authentication_recovery_strategy(error: Exception, context: ErrorContext) -> bool:
     """
@@ -516,5 +520,7 @@ def authentication_recovery_strategy(error: Exception, context: ErrorContext) ->
     
     logger.debug(f"Attempting to recover from authentication error: {str(error)}")
     
-    import random
-    return random.random() < 0.8
+    error_message = str(error).lower()
+    if any(term in error_message for term in ["token expired", "session expired", "refresh"]):
+        return True  # Recoverable auth errors (expired tokens that can be refreshed)
+    return False  # Non-recoverable auth errors (invalid credentials, revoked access)

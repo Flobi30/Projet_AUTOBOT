@@ -44,6 +44,12 @@ async def domain_access_control(request: Request, call_next):
     print(f"MIDDLEWARE DEBUG: host={host}, path={path}")
     logger.info(f"Domain access control: host={host}, path={path}")
     
+    if path.startswith("/api/"):
+        print(f"MIDDLEWARE DEBUG: Allowing API access: {path}")
+        logger.info(f"Allowing API access: {path}")
+        response = await call_next(request)
+        return response
+    
     if "localhost" in host or "127.0.0.1" in host or "144.76.16.177" in host:
         print(f"MIDDLEWARE DEBUG: Allowing private access: {path}")
         logger.info(f"Allowing private access: {path}")

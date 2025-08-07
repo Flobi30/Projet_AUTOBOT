@@ -395,7 +395,7 @@ class EcommerceSuperAGIAgent(SuperAGIAgent):
         """
         super().__init__(agent_id, name, config, api_key, base_url)
         
-        self.inventory_sources = config.get("inventory_sources", ["shopify", "amazon", "ebay"])
+        self.inventory_sources = config.get("inventory_sources", ["amazon", "ebay"])
         self.pricing_strategy = config.get("pricing_strategy", "competitive")
         
         self.register_message_handler("analyze_inventory", self._handle_analyze_inventory)

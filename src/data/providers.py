@@ -17,9 +17,26 @@ class AlphaVantageProvider:
         logger.debug(f"AlphaVantageProvider initialized")
     
     def _fetch(self, symbol: str) -> Dict[str, Any]:
-        """Méthode interne pour récupérer les données."""
-        logger.info(f"Fetching data for {symbol} from AlphaVantage")
-        return {}
+        """Fetch real data from AlphaVantage API."""
+        if self.api_key == "demo":
+            return {}
+        
+        import requests
+        url = f"https://www.alphavantage.co/query"
+        params = {
+            "function": "TIME_SERIES_INTRADAY",
+            "symbol": symbol,
+            "interval": "5min",
+            "apikey": self.api_key
+        }
+        
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching from AlphaVantage: {e}")
+            return {}
     
     def get_time_series(self, symbol: str) -> Dict[str, Any]:
         """
@@ -47,9 +64,26 @@ class TwelveDataProvider:
         logger.debug(f"TwelveDataProvider initialized")
     
     def _fetch(self, symbol: str) -> Dict[str, Any]:
-        """Méthode interne pour récupérer les données."""
-        logger.info(f"Fetching data for {symbol} from TwelveData")
-        return {}
+        """Fetch real data from TwelveData API."""
+        if self.api_key == "demo":
+            return {}
+        
+        import requests
+        url = f"https://api.twelvedata.com/time_series"
+        params = {
+            "symbol": symbol,
+            "interval": "5min",
+            "apikey": self.api_key,
+            "outputsize": 100
+        }
+        
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching from TwelveData: {e}")
+            return {}
     
     def get_time_series(self, symbol: str) -> Dict[str, Any]:
         """
@@ -86,5 +120,16 @@ class CCXTProvider:
         Returns:
             Dictionnaire contenant les données
         """
-        logger.info(f"Fetching data for {symbol} from {self.exchange} via CCXT")
-        return {}
+        try:
+            from autobot.providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider(self.exchange)
+            ticker = provider.fetch_ticker(symbol)
+            return {
+                "last": ticker.get("last", 0.0),
+                "bid": ticker.get("bid", 0.0),
+                "ask": ticker.get("ask", 0.0),
+                "volume": ticker.get("baseVolume", 0.0)
+            }
+        except Exception as e:
+            logger.error(f"Error fetching from CCXT: {e}")
+            return {}
