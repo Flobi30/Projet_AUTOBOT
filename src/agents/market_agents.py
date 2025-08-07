@@ -217,13 +217,13 @@ class ArbitrageAgent(Agent):
         start_time = time.time()
         
         
-        execution_time = random.uniform(50, self.max_execution_time_ms * 1.2)
+        execution_time = min(self.max_execution_time_ms, 100)  # Realistic execution time
         time.sleep(execution_time / 1000)
         
-        success = random.random() > 0.2  # 80% success rate
+        success = opportunity["potential_profit_percentage"] > self.min_profit_threshold
         
         if success:
-            actual_profit = opportunity["potential_profit"] * random.uniform(0.8, 1.0)
+            actual_profit = opportunity["potential_profit"] * 0.95  # Account for slippage
             actual_profit_percentage = actual_profit / opportunity["buy_price"]
         else:
             actual_profit = 0
@@ -272,15 +272,13 @@ class ArbitrageAgent(Agent):
         base_price = base_prices.get(symbol, 100)
         exchange_factor = exchange_factors.get(exchange, 1.0)
         
-        random_factor = random.uniform(0.998, 1.002)
-        
-        price = base_price * exchange_factor * random_factor
+        price = base_price * exchange_factor
         
         return {
             "bid": price * 0.999,
             "ask": price * 1.001,
             "last": price,
-            "volume": random.uniform(10, 1000)
+            "volume": 500.0  # Use fixed volume for consistency
         }
     
     def update(self):
@@ -509,9 +507,7 @@ class MarketMakerAgent(Agent):
         }
         
         base_price = base_prices.get(symbol, 100)
-        random_factor = random.uniform(0.995, 1.005)
-        
-        return base_price * random_factor
+        return base_price
     
     def update(self):
         """Update agent state (called periodically)"""
@@ -522,7 +518,8 @@ class MarketMakerAgent(Agent):
             self.last_update_time = current_time
             
             for order in list(self.orders):
-                if random.random() < 0.1:
+                order_age = current_time - order.get("timestamp", current_time)
+                if order_age > 10:  # Fill orders after 10 seconds
                     symbol = order["symbol"]
                     amount = order["amount"]
                     

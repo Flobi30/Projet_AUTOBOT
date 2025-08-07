@@ -6,5 +6,7 @@ class RLModule:
     """
     @classmethod
     def train(cls, *args, **kwargs):
-        # Simulated training process; replace with actual implementation.
+        from .rl.meta_learning import create_meta_learner
+        meta_learner = create_meta_learner()
+        meta_learner.evolve_strategies()
         return "training_complete"

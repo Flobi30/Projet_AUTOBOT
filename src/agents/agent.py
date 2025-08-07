@@ -459,7 +459,7 @@ class PPOAgent(RLAgent):
             except:
                 probs = self.policy_model.predict(state)
                 
-            return np.random.choice(self.action_size, p=probs)
+            return np.argmax(probs)
     
     def remember(self, state: np.ndarray, action: int, reward: float, 
                 next_state: np.ndarray, done: bool, value: float, log_prob: float):

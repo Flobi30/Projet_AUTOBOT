@@ -58,9 +58,9 @@ class StressTest:
         end_time = time.time()
         elapsed = end_time - start_time
         
-        requests_per_second = random.uniform(100, 1000)
-        avg_response_time = random.uniform(10, 500)
-        error_rate = random.uniform(0, 5)
+        requests_per_second = self.concurrency / elapsed if elapsed > 0 else 0
+        avg_response_time = elapsed * 1000 / self.concurrency if self.concurrency > 0 else 0
+        error_rate = 0.0  # Real error tracking would be implemented here
         
         results = {
             "status": "success",

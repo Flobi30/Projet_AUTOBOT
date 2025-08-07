@@ -449,7 +449,7 @@ class MarketMakerAgent(Agent):
         ask_size = max(ask_size, 0.001)
         
         bid_order = {
-            "id": f"bid_{int(time.time())}_{random.randint(1000, 9999)}",
+            "id": f"bid_{int(time.time())}_{int(time.time() * 1000) % 10000}",
             "symbol": symbol,
             "exchange": exchange,
             "side": "buy",
@@ -460,7 +460,7 @@ class MarketMakerAgent(Agent):
         }
         
         ask_order = {
-            "id": f"ask_{int(time.time())}_{random.randint(1000, 9999)}",
+            "id": f"ask_{int(time.time())}_{int(time.time() * 1000) % 10000 + 5000}",
             "symbol": symbol,
             "exchange": exchange,
             "side": "sell",
@@ -1162,9 +1162,18 @@ class MeanReversionAgent(Agent):
             if z_score is not None:
                 reversion_factor = 1.0 - (z_score * 0.001)
         
-        random_factor = random.uniform(0.998, 1.002)
+        try:
+            from ..data.providers import get_market_data
+            market_data = get_market_data(symbol, exchange)
+            if market_data and 'volatility' in market_data:
+                volatility_factor = 1.0 + (market_data['volatility'] * 0.1)
+            else:
+                volatility_factor = 1.0
+        except Exception as e:
+            logger.error(f"Error getting market volatility: {e}")
+            volatility_factor = 1.0
         
-        return base_price * reversion_factor * random_factor
+        return base_price * reversion_factor * volatility_factor
     
     def update(self):
         """Update agent state (called periodically)"""
