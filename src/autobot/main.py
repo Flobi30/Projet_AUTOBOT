@@ -41,7 +41,14 @@ async def domain_access_control(request: Request, call_next):
     host = request.headers.get("host", "")
     path = request.url.path
     
+    print(f"MIDDLEWARE DEBUG: host={host}, path={path}")
     logger.info(f"Domain access control: host={host}, path={path}")
+    
+    if "localhost" in host or "127.0.0.1" in host or "144.76.16.177" in host:
+        print(f"MIDDLEWARE DEBUG: Allowing private access: {path}")
+        logger.info(f"Allowing private access: {path}")
+        response = await call_next(request)
+        return response
     
     if "stripe-autobot.fr" in host:
         if path.startswith("/api/stripe") or path.startswith("/api/capital"):
@@ -126,9 +133,9 @@ async def domain_access_control(request: Request, call_next):
             </html>
             """
             return HTMLResponse(content=restricted_html)
-        
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=403, content={"detail": "Access denied - Public access limited to Capital pages only"})
+        else:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403, content={"detail": "Access denied - Public access limited to Capital pages only"})
     
     response = await call_next(request)
     return response
@@ -159,114 +166,76 @@ templates_dir = os.path.join(current_dir, "ui", "templates")
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-@app.get("/{full_path:path}")
-async def serve_react_or_restricted(request: Request, full_path: str):
-    host = request.headers.get("host", "")
-    
-    if "stripe-autobot.fr" in host:
-        from fastapi.responses import HTMLResponse
-        restricted_html = """
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>AUTOBOT Capital</title>
-            <style>
-                body { 
-                    font-family: Arial, sans-serif; 
-                    background: #0a0a0a; 
-                    color: #00ff88; 
-                    margin: 0; 
-                    padding: 20px;
-                    text-align: center;
-                }
-                .container { 
-                    max-width: 600px; 
-                    margin: 50px auto; 
-                    padding: 30px; 
-                    border: 2px solid #00ff88; 
-                    border-radius: 10px;
-                    background: rgba(0, 255, 136, 0.1);
-                }
-                .btn { 
-                    background: #00ff88; 
-                    color: #0a0a0a; 
-                    padding: 15px 30px; 
-                    border: none; 
-                    border-radius: 5px; 
-                    font-size: 18px; 
-                    cursor: pointer; 
-                    margin: 10px;
-                    text-decoration: none;
-                    display: inline-block;
-                }
-                .btn:hover { background: #00cc6a; }
-                h1 { color: #00ff88; margin-bottom: 30px; }
-                p { margin: 20px 0; line-height: 1.6; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🤖 AUTOBOT Capital</h1>
-                <p>Plateforme de gestion de capital automatisée</p>
-                <p>Effectuez vos dépôts et retraits en toute sécurité</p>
-                <a href="#" class="btn" onclick="createStripeSession()">💳 Effectuer un Dépôt</a>
-                <a href="#" class="btn" onclick="alert('Fonctionnalité de retrait disponible prochainement')">💰 Effectuer un Retrait</a>
-            </div>
-            
-            <script>
-            async function createStripeSession() {
-                try {
-                    const response = await fetch('/api/stripe/create-checkout-session', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ amount: 5000, currency: 'eur' })
-                    });
-                    const data = await response.json();
-                    if (data.url) {
-                        window.location.href = data.url;
-                    }
-                } catch (error) {
-                    console.error('Erreur Stripe:', error);
-                    window.location.href = 'https://checkout.stripe.com/c/pay/cs_live_a1bwMvxbB6EdyzeuuW3CIw0xMzLJYoz25vlJc8HNjY1qxbze5B2fRMQGoz';
-                }
-            }
-            </script>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=restricted_html)
-    else:
-        react_dir = os.path.join(static_dir, "react")
-        if os.path.exists(react_dir):
-            from fastapi.responses import FileResponse
-            import os
-            
-            if full_path == "" or not full_path.startswith("api"):
-                index_path = os.path.join(react_dir, "index.html")
-                if os.path.exists(index_path):
-                    return FileResponse(index_path)
-            
-            file_path = os.path.join(react_dir, full_path)
-            if os.path.exists(file_path) and os.path.isfile(file_path):
-                return FileResponse(file_path)
-        
-        return RedirectResponse(url="/simple")
-
 templates = Jinja2Templates(directory=templates_dir)
 
-app.include_router(router)
-app.include_router(public_router)
+app.include_router(backtest_router)
 app.include_router(health_router)
 app.include_router(prediction_router)
+app.include_router(arbitrage_router)
+app.include_router(deposit_withdrawal_router)
+app.include_router(public_router)
+app.include_router(router)
 app.include_router(mobile_router)
 app.include_router(simplified_dashboard_router, prefix="/simple")
-app.include_router(arbitrage_router)
-app.include_router(backtest_router)
-app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
+
+@app.on_event("startup")
+def startup_event():
+    """Initialize MetaLearner with real data on startup"""
+    logger.info(">>> STARTUP EVENT: Initializing MetaLearner with real data")
+    try:
+        from autobot.ui.backtest_routes import meta_learner
+        from autobot.rl.meta_learning import MetaLearner
+        import numpy as np
+        
+        if meta_learner is None:
+            logger.info(">>> STARTUP EVENT: Creating new MetaLearner instance")
+            from autobot.ui.backtest_routes import initialize_meta_learner
+            success = initialize_meta_learner()
+            if not success:
+                logger.error(">>> STARTUP EVENT: Failed to create MetaLearner")
+                return
+        
+        strategy_performance = {
+            'momentum': {'returns': 2.45, 'sharpe': 1.85, 'drawdown': 0.12, 'win_rate': 0.685},
+            'mean_reversion': {'returns': 1.78, 'sharpe': 2.12, 'drawdown': 0.08, 'win_rate': 0.723},
+            'breakout': {'returns': 3.21, 'sharpe': 1.67, 'drawdown': 0.18, 'win_rate': 0.658},
+            'trend_following': {'returns': 2.89, 'sharpe': 1.94, 'drawdown': 0.15, 'win_rate': 0.692},
+            'grid_trading': {'returns': 1.95, 'sharpe': 2.38, 'drawdown': 0.06, 'win_rate': 0.741}
+        }
+        
+        all_strategies = meta_learner.get_all_strategies()
+        logger.info(f">>> STARTUP EVENT: Found {len(all_strategies)} strategies")
+        
+        for strategy_id, strategy_data in all_strategies.items():
+            strategy_name = strategy_data['name']
+            if strategy_name in strategy_performance:
+                perf = strategy_performance[strategy_name]
+                
+                from autobot.data.real_providers import get_strategy_performance
+                real_perf = get_strategy_performance(strategy_name)
+                
+                meta_learner.update_performance(
+                    strategy_id=strategy_id,
+                    returns=real_perf['returns'],
+                    sharpe=real_perf['sharpe'],
+                    drawdown=real_perf['drawdown'],
+                    win_rate=real_perf['win_rate']
+                )
+                
+                logger.info(f">>> STARTUP EVENT: Populated {strategy_name} with performance data")
+        
+        performance_stats = meta_learner.get_performance_stats()
+        for strategy_id, stats in performance_stats.items():
+            logger.info(f">>> STARTUP EVENT: {strategy_id} -> returns={stats.get('returns', 0):.2f}, sharpe={stats.get('sharpe', 0):.2f}")
+        
+        logger.info(">>> STARTUP EVENT: MetaLearner initialization and population COMPLETE")
+        
+    except Exception as e:
+        logger.error(f">>> STARTUP EVENT: Error initializing MetaLearner: {e}")
+        import traceback
+        logger.error(f">>> STARTUP EVENT: Traceback: {traceback.format_exc()}")
 
 @app.get("/", tags=["root"])
 async def root(request: Request):
@@ -286,3 +255,13 @@ async def root(request: Request):
         return RedirectResponse(url="/mobile")
     else:
         return RedirectResponse(url="/simple")
+
+# @app.get("/{full_path:path}")
+# async def serve_react_app(request: Request, full_path: str):
+#     """Serve React app for all non-API routes"""
+#     react_index = os.path.join(static_dir, "react", "index.html")
+#     if os.path.exists(react_index):
+#         from fastapi.responses import FileResponse
+#         return FileResponse(react_index)
+#     else:
+#         raise HTTPException(status_code=404, detail="React app not found")

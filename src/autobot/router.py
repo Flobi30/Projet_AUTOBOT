@@ -11,7 +11,6 @@ from autobot.providers.ccxt_provider import fetch_ticker as get_ccxt_provider
 from autobot.providers.coingecko import get_intraday as get_coingecko
 from autobot.providers.fred import get_time_series as get_fred
 from autobot.providers.newsapi import get_time_series as get_newsapi
-from autobot.providers.shopify import get_orders as get_shopify_orders
 from autobot.providers.twelvedata import get_intraday as get_twelvedata
 
 router = APIRouter()
@@ -24,9 +23,7 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-from autobot.providers.shopify import get_shopify
-@router.get('/provider/shopify/{param}')
-def prov_shopify(param: str): return get_shopify(param)
+# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)
@@ -154,9 +151,7 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-from autobot.providers.shopify import get_shopify
-@router.get('/provider/shopify/{param}')
-def prov_shopify(param: str): return get_shopify(param)
+# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)
@@ -284,9 +279,7 @@ def prov_ccxt_provider(param: str): return get_ccxt_provider(param)
 from autobot.providers.newsapi import get_newsapi
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): return get_newsapi(param)
-from autobot.providers.shopify import get_shopify
-@router.get('/provider/shopify/{param}')
-def prov_shopify(param: str): return get_shopify(param)
+# Shopify provider removed - no longer supported
 from autobot.providers.fred import get_fred
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): return get_fred(param)
