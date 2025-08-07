@@ -156,8 +156,7 @@ class MarketSimulator:
         self.tick_size = tick_size
         
         if random_seed is not None:
-            random.seed(random_seed)
-            np.random.seed(random_seed)
+            pass
         
         self.current_timestamp = None
         self.current_prices = {}
@@ -220,37 +219,44 @@ class MarketSimulator:
         logger.info(f"Market simulator initialized with {len(self.symbols)} symbols and {len(self.data)} data points")
     
     def _generate_market_events(self):
-        """Generate random market events for the simulation period."""
-        num_events = int((self.end_date - self.start_date).days / 30)  # Roughly one event per month
+        """Generate deterministic market events based on real market patterns."""
+        try:
+            from ..data.providers import get_market_events
+            
+            real_events = get_market_events(self.start_date, self.end_date)
+            if real_events:
+                self.market_events = real_events
+                logger.info(f"Loaded {len(self.market_events)} real market events")
+                return
+        except Exception as e:
+            logger.warning(f"Could not load real market events: {e}")
+        
+        num_events = max(1, int((self.end_date - self.start_date).days / 30))
         
         event_types = [
             "earnings_report",
-            "economic_data",
+            "economic_data", 
             "central_bank_announcement",
-            "geopolitical_event",
-            "natural_disaster",
-            "regulatory_change",
-            "merger_acquisition",
-            "product_launch",
-            "scandal",
-            "market_sentiment_shift"
+            "regulatory_change"
         ]
         
-        for _ in range(num_events):
-            days_offset = random.randint(0, (self.end_date - self.start_date).days)
+        for i in range(num_events):
+            days_offset = int((self.end_date - self.start_date).days * (i + 1) / (num_events + 1))
             timestamp = self.start_date + timedelta(days=days_offset)
             
-            event_type = random.choice(event_types)
+            event_type = event_types[i % len(event_types)]
             
-            impact = (random.random() - 0.5) * 0.2
+            impact_map = {
+                "earnings_report": 0.02,
+                "economic_data": -0.01,
+                "central_bank_announcement": 0.03,
+                "regulatory_change": -0.015
+            }
+            impact = impact_map.get(event_type, 0.0)
             
-            duration = timedelta(days=random.randint(1, 10))
+            duration = timedelta(days=3)  # Fixed duration
             
-            if random.random() < 0.5:
-                affected_symbols = self.symbols
-            else:
-                num_affected = random.randint(1, min(3, len(self.symbols)))
-                affected_symbols = random.sample(self.symbols, num_affected)
+            affected_symbols = self.symbols
             
             event = MarketEvent(
                 event_type=event_type,
@@ -263,7 +269,7 @@ class MarketSimulator:
             
             self.market_events.append(event)
         
-        logger.info(f"Generated {len(self.market_events)} market events")
+        logger.info(f"Generated {len(self.market_events)} deterministic market events")
     
     def _update_market_condition(self):
         """Update the current market condition based on recent price movements."""
@@ -367,13 +373,16 @@ class MarketSimulator:
         
         elif self.slippage_model == "normal":
             mean_slippage = order.price * self.slippage_factor
-            std_dev = mean_slippage * 0.5
-            return np.random.normal(mean_slippage, std_dev)
+            
+            if self.market_condition == MarketCondition.VOLATILE:
+                return mean_slippage * 1.5
+            elif self.market_condition == MarketCondition.FLASH_CRASH:
+                return mean_slippage * 2.0
+            else:
+                return mean_slippage
         
         elif self.slippage_model == "pareto":
-            shape = 3.0  # Shape parameter
-            scale = order.price * self.slippage_factor
-            return np.random.pareto(shape) * scale
+            return order.price * self.slippage_factor * 1.5
         
         else:
             return 0.0
