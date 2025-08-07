@@ -61,69 +61,6 @@ def get_impact_color(value: float) -> str:
     else:
         return "#d50000"  # Red
 
-@router.get("/", response_class=HTMLResponse)
-async def simplified_dashboard(request: Request, user: User = Depends(get_current_user)):
-    """Render the simplified dashboard."""
-    mode_manager = get_mode_manager()
-    system_status = mode_manager.get_system_status()
-    
-    withdrawal_analyzer = get_withdrawal_analyzer()
-    recommendations = withdrawal_analyzer.get_withdrawal_recommendations()
-    
-    api_keys = {
-        "binance": {
-            "connected": False,
-            "api_key": "",
-            "api_secret": ""
-        },
-        "coinbase": {
-            "connected": False,
-            "api_key": "",
-            "api_secret": ""
-        },
-        "kraken": {
-            "connected": False,
-            "api_key": "",
-            "api_secret": ""
-        }
-    }
-    
-    
-    system_metrics = withdrawal_analyzer.get_system_metrics()
-    
-    return templates.TemplateResponse(
-        "simplified_dashboard.html",
-        {
-            "request": request,
-            "user": user,
-            "balance": system_metrics["total_balance"],
-            "active_instances": system_metrics["active_instances"],
-            "new_instances": system_metrics["new_instance_count"],
-            "balance_per_instance": system_metrics["balance_per_instance"],
-            "daily_profit": system_metrics["profit_per_day"],
-            "monthly_profit": system_metrics["profit_per_day"] * 30,
-            "profit_trend": "Increasing",  # TODO: Calculate actual trend
-            "optimal_withdrawal": recommendations["optimal_amount"],
-            "withdrawal_impact": None,  # Will be populated via API call
-            "current_mode": system_status["component_modes"]["trading"],
-            "auto_switching": system_status["auto_switching_enabled"],
-            "always_ghost": system_status["always_ghost"],
-            "market_condition": system_status["market_condition"],
-            "security_threat": system_status["security_threat"],
-            "system_performance": system_status["system_performance"],
-            "binance_connected": api_keys["binance"]["connected"],
-            "binance_api_key": api_keys["binance"]["api_key"],
-            "binance_api_secret": api_keys["binance"]["api_secret"],
-            "coinbase_connected": api_keys["coinbase"]["connected"],
-            "coinbase_api_key": api_keys["coinbase"]["api_key"],
-            "coinbase_api_secret": api_keys["coinbase"]["api_secret"],
-            "kraken_connected": api_keys["kraken"]["connected"],
-            "kraken_api_key": api_keys["kraken"]["api_key"],
-            "kraken_api_secret": api_keys["kraken"]["api_secret"],
-            "get_impact_color": get_impact_color,
-            "notification": None  # Will be populated when needed
-        }
-    )
 
 @router.post("/api/deposit")
 async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):

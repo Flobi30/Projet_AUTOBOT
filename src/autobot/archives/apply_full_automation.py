@@ -81,7 +81,7 @@ import random
 class DeFiYieldModule:
     def __init__(self, capital: float): self.capital=capital
     def run(self):
-        rate=0.015*(1+random.uniform(-0.1,0.1))
+        rate=0.015  # Fixed rate instead of random variation
         profit=self.capital*rate
         return {"module":"defi_yield","start":self.capital,"final":self.capital+profit,"profit":profit,"rate":rate,"timestamp":datetime.utcnow().isoformat()}''',
         'covered_call_module.py': '''"""
@@ -93,7 +93,7 @@ import random
 class CoveredCallModule:
     def __init__(self, capital: float): self.capital=capital
     def run(self):
-        rate=0.0075*(1+random.uniform(-0.15,0.15))
+        rate=0.0075  # Fixed rate instead of random variation
         profit=self.capital*rate
         return {"module":"covered_call","start":self.capital,"final":self.capital+profit,"profit":profit,"rate":rate,"timestamp":datetime.utcnow().isoformat()}'''
     }

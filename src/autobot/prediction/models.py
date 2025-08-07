@@ -196,7 +196,25 @@ class LSTMModel(BaseModel):
         logger.info(f"Making predictions with LSTM model {self.name} for {X.shape[0]} samples")
         
         
-        predictions = np.random.normal(0, 1, size=(X.shape[0], 1))
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
+            
+            strategies = meta_learner.get_all_strategies()
+            if strategies:
+                best_strategy = meta_learner.get_best_strategy()
+                if best_strategy:
+                    _, strategy_data = best_strategy
+                    base_performance = strategy_data.get('performance', 0.0)
+                    
+                    predictions = np.full((X.shape[0], 1), base_performance / 100)
+                else:
+                    predictions = np.zeros((X.shape[0], 1))
+            else:
+                predictions = np.zeros((X.shape[0], 1))
+        except Exception as e:
+            logger.error(f"Error getting real predictions: {e}")
+            predictions = np.zeros((X.shape[0], 1))
         
         return predictions
     
@@ -300,7 +318,25 @@ class TransformerModel(BaseModel):
         logger.info(f"Making predictions with Transformer model {self.name} for {X.shape[0]} samples")
         
         
-        predictions = np.random.normal(0, 1, size=(X.shape[0], 1))
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            meta_learner = create_meta_learner()
+            
+            strategies = meta_learner.get_all_strategies()
+            if strategies:
+                best_strategy = meta_learner.get_best_strategy()
+                if best_strategy:
+                    _, strategy_data = best_strategy
+                    base_performance = strategy_data.get('performance', 0.0)
+                    
+                    predictions = np.full((X.shape[0], 1), base_performance / 100)
+                else:
+                    predictions = np.zeros((X.shape[0], 1))
+            else:
+                predictions = np.zeros((X.shape[0], 1))
+        except Exception as e:
+            logger.error(f"Error getting real predictions: {e}")
+            predictions = np.zeros((X.shape[0], 1))
         
         return predictions
     

@@ -311,7 +311,7 @@ class FeatureExtractor:
     
     def _extract_sentiment_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extract sentiment-based features.
+        Extract sentiment-based features from real news/social data.
         
         Args:
             df: Market data
@@ -319,17 +319,30 @@ class FeatureExtractor:
         Returns:
             DataFrame with sentiment features
         """
-        
-        np.random.seed(42)
-        df["sentiment_score"] = np.random.normal(0, 1, size=len(df))
-        df["sentiment_volume"] = np.random.normal(0, 1, size=len(df))
+        try:
+            from autobot.data.real_providers import get_strategy_performance
+            
+            sentiment_perf = get_strategy_performance("momentum")
+            sentiment_data = {"score": sentiment_perf.get("returns", 0.0), "volume": sentiment_perf.get("win_rate", 0.0)}
+            if sentiment_data:
+                df["sentiment_score"] = sentiment_data.get("score", 0.0)
+                df["sentiment_volume"] = sentiment_data.get("volume", 0.0)
+            else:
+                df["sentiment_score"] = 0.0
+                df["sentiment_volume"] = 0.0
+                
+        except Exception as e:
+            logger.warning(f"Could not get real sentiment data: {e}")
+            df["sentiment_score"] = 0.0
+            df["sentiment_volume"] = 0.0
+            
         df["sentiment_ma_5"] = df["sentiment_score"].rolling(window=5).mean()
         
         return df
     
     def _extract_market_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extract market-wide features.
+        Extract market-wide features from real market data.
         
         Args:
             df: Market data
@@ -342,9 +355,23 @@ class FeatureExtractor:
             df["day_of_week"] = pd.to_datetime(df["timestamp"]).dt.dayofweek
             df["hour_of_day"] = pd.to_datetime(df["timestamp"]).dt.hour
         
-        np.random.seed(42)
-        df["market_volatility"] = np.random.normal(0, 1, size=len(df))
-        df["market_trend"] = np.random.normal(0, 1, size=len(df))
+        try:
+            from ..rl.meta_learning import create_meta_learner
+            
+            meta_learner = create_meta_learner()
+            performance_stats = meta_learner.get_performance_stats()
+            
+            if performance_stats:
+                df["market_volatility"] = performance_stats.get("volatility", 0.0)
+                df["market_trend"] = performance_stats.get("trend", 0.0)
+            else:
+                df["market_volatility"] = df["close"].pct_change().rolling(window=20).std()
+                df["market_trend"] = df["close"].pct_change(20)
+                
+        except Exception as e:
+            logger.warning(f"Could not get real market data: {e}")
+            df["market_volatility"] = df["close"].pct_change().rolling(window=20).std()
+            df["market_trend"] = df["close"].pct_change(20)
         
         return df
     

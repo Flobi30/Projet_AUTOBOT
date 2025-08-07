@@ -66,7 +66,7 @@ async def get_arbitrage_data(current_user: User = Depends(get_current_user)):
     }
 
 @router.get("/api/backtest/current", response_class=JSONResponse)
-async def get_backtest_current(current_user: User = Depends(get_current_user)):
+async def get_backtest_current():
     """
     Get current backtest data for React component using real MetaLearner data.
     """

@@ -77,38 +77,6 @@ exchanges = [
     {"id": "huobi", "name": "Huobi"}
 ]
 
-@router.get("/arbitrage", response_class=HTMLResponse)
-async def arbitrage_page(request: Request, user: User = Depends(get_current_user)):
-    """Render the arbitrage page."""
-    profit_24h = sum(execution.profit for execution in recent_executions if execution.timestamp > time.time() - 86400)
-    
-    success_count = sum(1 for execution in recent_executions if execution.status == "completed")
-    total_count = len(recent_executions) or 1  # Avoid division by zero
-    success_rate = (success_count / total_count) * 100
-    
-    execution_times = [execution.timestamp for execution in recent_executions if execution.status == "completed"]
-    avg_execution_ms = sum(execution_times) / len(execution_times) if execution_times else 0
-    
-    return templates.TemplateResponse(
-        "arbitrage.html",
-        {
-            "request": request,
-            "user": user,
-            "opportunities_count": len(opportunities),
-            "profit_24h": profit_24h,
-            "avg_execution_ms": avg_execution_ms,
-            "success_rate": success_rate,
-            "settings": arbitrage_settings,
-            "exchanges": exchanges,
-            "opportunities": opportunities,
-            "recent_executions": recent_executions,
-            "chart_labels": chart_data["labels"],
-            "chart_data": {
-                "profit": chart_data["profit"],
-                "opportunities": chart_data["opportunities"]
-            }
-        }
-    )
 
 @router.post("/api/arbitrage/settings")
 async def update_arbitrage_settings(settings: ArbitrageSettings, user: User = Depends(get_current_user)):
@@ -198,7 +166,7 @@ async def scan_arbitrage_opportunities(user: User = Depends(get_current_user)):
     
     try:
         from ..agents.market_agents import MarketAgent
-        from ..data.providers import get_market_data
+        from autobot.data.real_providers import get_market_data
         
         symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "DOT/USD"]
         

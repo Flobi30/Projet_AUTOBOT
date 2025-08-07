@@ -21,7 +21,7 @@ const Backtest: React.FC = () => {
   useEffect(() => {
     const fetchBacktestData = async () => {
       try {
-        const response = await axios.get('/api/backtest/current')
+        const response = await axios.get('/api/backtest/live-data')
         setBacktestData(response.data)
       } catch (error) {
         console.error('Error fetching backtest data:', error)
