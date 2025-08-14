@@ -108,8 +108,6 @@ class RLAgent(Agent):
         def send_progress_updates():
             try:
                 for i in range(1, episodes + 1):
-                    time.sleep(0.1)  # Faster simulation for testing
-                    
                     try:
                         from ...rl.meta_learning import create_meta_learner
                         meta_learner = create_meta_learner()

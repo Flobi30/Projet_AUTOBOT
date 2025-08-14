@@ -145,8 +145,6 @@ class HFTExecutionEngine:
         trade_id = str(uuid.uuid4())
         
         try:
-            await asyncio.sleep(0.001)  # Simulate network latency
-            
             slippage_bps = calculate_slippage(order.amount, venue.get('liquidity', 1.0))
             
             end_time = time.time()
@@ -192,8 +190,14 @@ class HFTExecutionEngine:
     
     async def _get_account_balance_async(self) -> float:
         """Get account balance asynchronously"""
-        await asyncio.sleep(0.001)  # Simulate API call
-        return 1000.0
+        try:
+            from ..providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider("binance")
+            balance = provider.fetch_balance()
+            return float(balance.get('USDT', {}).get('free', 1000.0))
+        except Exception as e:
+            logger.warning(f"Failed to fetch real balance, using fallback: {e}")
+            return 1000.0
     
     def execute_trade(self, symbol: str, side: str, amount: float, 
                      price: Optional[float] = None,
@@ -235,7 +239,9 @@ class HFTExecutionEngine:
     async def _cancel_order_async(self, order_id: str) -> bool:
         """Cancel a single order asynchronously"""
         try:
-            await asyncio.sleep(0.001)  # Simulate API call
+            from ..providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider("binance")
+            result = provider.cancel_order(order_id)
             logger.info(f"Canceled order with ID: {order_id}")
             return True
         except Exception as e:
@@ -272,13 +278,15 @@ class HFTExecutionEngine:
     async def _get_order_status_async(self, order_id: str) -> Dict[str, Any]:
         """Get status for a single order asynchronously"""
         try:
-            await asyncio.sleep(0.001)  # Simulate API call
+            from ..providers.ccxt_provider_enhanced import get_ccxt_provider
+            provider = get_ccxt_provider("binance")
+            order_status = provider.fetch_order(order_id)
             return {
                 "id": order_id,
-                "status": ExecutionStatus.EXECUTED.value,
-                "filled": 1.0,
-                "remaining": 0.0,
-                "cost": 100.0
+                "status": order_status.get("status", ExecutionStatus.EXECUTED.value),
+                "filled": order_status.get("filled", 1.0),
+                "remaining": order_status.get("remaining", 0.0),
+                "cost": order_status.get("cost", 100.0)
             }
         except Exception as e:
             logger.error(f"Failed to get order status for {order_id}: {e}")

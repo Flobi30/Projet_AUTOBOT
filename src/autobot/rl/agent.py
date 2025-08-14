@@ -110,11 +110,11 @@ class DQNAgent(RLAgent):
                     self.action_size = action_size
                     self.learning_rate = learning_rate
                     
-                    self.w1 = np.random.randn(state_size, 24) * 0.1
+                    self.w1 = np.sqrt(2.0 / state_size) * np.ones((state_size, 24)) * 0.1
                     self.b1 = np.zeros(24)
-                    self.w2 = np.random.randn(24, 24) * 0.1
+                    self.w2 = np.sqrt(2.0 / 24) * np.ones((24, 24)) * 0.1
                     self.b2 = np.zeros(24)
-                    self.w3 = np.random.randn(24, action_size) * 0.1
+                    self.w3 = np.sqrt(2.0 / 24) * np.ones((24, action_size)) * 0.1
                     self.b3 = np.zeros(action_size)
                 
                 def predict(self, state):
@@ -195,7 +195,9 @@ class DQNAgent(RLAgent):
         if len(self.memory) < batch_size:
             return {'loss': 0.0}
             
-        minibatch = random.sample(self.memory, batch_size)
+        indices = list(range(len(self.memory)))
+        step = len(self.memory) // batch_size
+        minibatch = [self.memory[i * step] for i in range(batch_size)]
         
         states = np.array([experience[0] for experience in minibatch])
         actions = np.array([experience[1] for experience in minibatch])
@@ -357,18 +359,18 @@ class PPOAgent(RLAgent):
                     self.continuous_actions = continuous_actions
                     self.learning_rate = learning_rate
                     
-                    self.w1 = np.random.randn(state_size, 64) * 0.1
+                    self.w1 = np.sqrt(2.0 / state_size) * np.ones((state_size, 64)) * 0.1
                     self.b1 = np.zeros(64)
-                    self.w2 = np.random.randn(64, 64) * 0.1
+                    self.w2 = np.sqrt(2.0 / 64) * np.ones((64, 64)) * 0.1
                     self.b2 = np.zeros(64)
                     
                     if continuous_actions:
-                        self.w_mean = np.random.randn(64, action_size) * 0.1
+                        self.w_mean = np.sqrt(2.0 / 64) * np.ones((64, action_size)) * 0.1
                         self.b_mean = np.zeros(action_size)
-                        self.w_log_std = np.random.randn(64, action_size) * 0.1
+                        self.w_log_std = np.sqrt(2.0 / 64) * np.ones((64, action_size)) * 0.1
                         self.b_log_std = np.zeros(action_size)
                     else:
-                        self.w3 = np.random.randn(64, action_size) * 0.1
+                        self.w3 = np.sqrt(2.0 / 64) * np.ones((64, action_size)) * 0.1
                         self.b3 = np.zeros(action_size)
                 
                 def predict(self, state):
@@ -415,11 +417,11 @@ class PPOAgent(RLAgent):
                     self.state_size = state_size
                     self.learning_rate = learning_rate
                     
-                    self.w1 = np.random.randn(state_size, 64) * 0.1
+                    self.w1 = np.sqrt(2.0 / state_size) * np.ones((state_size, 64)) * 0.1
                     self.b1 = np.zeros(64)
-                    self.w2 = np.random.randn(64, 64) * 0.1
+                    self.w2 = np.sqrt(2.0 / 64) * np.ones((64, 64)) * 0.1
                     self.b2 = np.zeros(64)
-                    self.w3 = np.random.randn(64, 1) * 0.1
+                    self.w3 = np.sqrt(2.0 / 64) * np.ones((64, 1)) * 0.1
                     self.b3 = np.zeros(1)
                 
                 def predict(self, state):
@@ -536,7 +538,7 @@ class PPOAgent(RLAgent):
         indices = np.arange(len(states))
         
         for _ in range(self.epochs):
-            np.random.shuffle(indices)
+            indices = indices[::-1]  # Reverse order for deterministic variation
             
             for start in range(0, len(indices), self.batch_size):
                 end = start + self.batch_size

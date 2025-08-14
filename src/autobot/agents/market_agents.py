@@ -1164,7 +1164,7 @@ class MeanReversionAgent(Agent):
         
         try:
             from autobot.data.real_providers import get_market_data
-            market_data = get_market_data(symbol, exchange)
+            market_data = get_market_data(symbol, "binance")
             if market_data and 'volatility' in market_data:
                 volatility_factor = 1.0 + (market_data['volatility'] * 0.1)
             else:

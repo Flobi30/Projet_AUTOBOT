@@ -415,8 +415,6 @@ class CrossChainArbitrage:
                 "timestamp": datetime.now().timestamp()
             })
             
-            time.sleep(2)  # Simulate API call
-            
             buy_amount = position_size / opportunity["source_price"]
             
             if opportunity["source_chain"] != opportunity["target_chain"]:
@@ -432,8 +430,6 @@ class CrossChainArbitrage:
                     opportunity["target_chain"] in self.bridge_times[opportunity["source_chain"]]):
                     bridge_time = self.bridge_times[opportunity["source_chain"]][opportunity["target_chain"]]["seconds"]
                 
-                time.sleep(min(bridge_time, 5))  # Simulate bridge (max 5 seconds for simulation)
-                
                 bridge_fee = opportunity["estimated_fees"].get("bridge", 0.3) / 100
                 buy_amount = buy_amount * (1 - bridge_fee)
             
@@ -443,8 +439,6 @@ class CrossChainArbitrage:
                 "price": opportunity["target_price"],
                 "timestamp": datetime.now().timestamp()
             })
-            
-            time.sleep(2)  # Simulate API call
             
             target_trading_fee = opportunity["estimated_fees"].get("target_trading", 0.1) / 100
             sell_amount = buy_amount * opportunity["target_price"] * (1 - target_trading_fee)
