@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: autobot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  autobot:
+    build: .
+    container_name: autobot
+    ports:
+      - "80:8000"
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - DATABASE_URL=sqlite:///data/autobot.db
+      - JWT_SECRET=${JWT_SECRET:-default_secret_change_in_production}
+      - ENABLE_DOCS=false
+      - REDIS_URL=redis://redis:6379
+    healthcheck:
+      test: ["CMD", "python", "/tmp/health_check.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - redis
+
+  autobot-worker:
+    build: .
+    container_name: autobot-worker
+    restart: unless-stopped
+    command: python -m src.autobot.worker
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - DATABASE_URL=sqlite:///data/autobot.db
+      - JWT_SECRET=${JWT_SECRET:-default_secret_change_in_production}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - autobot
+      - redis
+
+  autobot-scheduler:
+    build: .
+    container_name: autobot-scheduler
+    restart: unless-stopped
+    command: python -m src.autobot.scheduler
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - DATABASE_URL=sqlite:///data/autobot.db
+      - JWT_SECRET=${JWT_SECRET:-default_secret_change_in_production}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - autobot
+      - redis
+
+  data-feed:
+    build: .
+    container_name: autobot-data-feed
+    restart: unless-stopped
+    command: python -m src.autobot.services.data_feed.main
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - REDIS_URL=redis://redis:6379
+      - DATA_FEED_SYMBOLS=BTC/USDT,ETH/USDT,BNB/USDT
+      - TICK_HISTORY_SIZE=1000
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+      - KRAKEN_API_KEY=${KRAKEN_API_KEY:-}
+      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET:-}
+      - COINBASE_API_KEY=${COINBASE_API_KEY:-}
+      - COINBASE_API_SECRET=${COINBASE_API_SECRET:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - redis
+    ports:
+      - "8001:8001"
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    driver: bridge
