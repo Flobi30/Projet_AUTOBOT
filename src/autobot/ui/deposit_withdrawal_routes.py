@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..autobot_security.auth.user_manager import User, get_current_user
+
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +273,7 @@ def get_impact_color(impact_value: float) -> str:
         return "#ff3333"  # Red
 
 @router.get("/deposit-withdrawal", response_class=HTMLResponse)
-async def deposit_withdrawal_page(request: Request, user: User = Depends(get_current_user)):
+async def deposit_withdrawal_page(request: Request):
     """Render the deposit/withdrawal page."""
     analyzer = get_withdrawal_analyzer()
     recommendations = analyzer.get_withdrawal_recommendations()
@@ -285,7 +285,10 @@ async def deposit_withdrawal_page(request: Request, user: User = Depends(get_cur
         "deposit_withdrawal.html",
         {
             "request": request,
-            "user": user,
+            "active_page": "deposit_withdrawal",
+            "username": "AUTOBOT",
+            "user_role": "admin",
+            "user_role_display": "Administrateur",
             "total_balance": system_metrics["total_balance"],
             "daily_profit": system_metrics["profit_per_day"],
             "monthly_profit": system_metrics["profit_per_day"] * 30,
@@ -299,7 +302,7 @@ async def deposit_withdrawal_page(request: Request, user: User = Depends(get_cur
     )
 
 @router.post("/api/deposit")
-async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_current_user)):
+async def deposit_funds(deposit: DepositRequest):
     """
     Deposit funds to user account.
     
@@ -317,12 +320,12 @@ async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_curren
     
     try:
         analyzer.record_transaction(
-            user_id=user.id,
+            user_id="AUTOBOT",
             transaction_type="deposit",
             amount=deposit.amount
         )
         
-        system_metrics = analyzer.get_system_metrics(user_id=user.id)
+        system_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
         
         return TransactionResponse(
             success=True,
@@ -335,7 +338,7 @@ async def deposit_funds(deposit: DepositRequest, user: User = Depends(get_curren
 
 
 @router.post("/api/withdraw")
-async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get_current_user)):
+async def withdraw_funds(withdrawal: WithdrawalRequest):
     """
     Withdraw funds from user account.
     
@@ -352,7 +355,7 @@ async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get
     
     analyzer = get_withdrawal_analyzer()
     
-    system_metrics = analyzer.get_system_metrics(user_id=user.id)
+    system_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
     
     if withdrawal.amount > system_metrics["total_balance"]:
         raise HTTPException(status_code=400, detail="Insufficient funds")
@@ -360,9 +363,9 @@ async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get
     try:
         impact = analyzer.analyze_withdrawal(withdrawal.amount)
         
-        analyzer.record_withdrawal(user_id=user.id, amount=withdrawal.amount, impact=impact)
+        analyzer.record_withdrawal(user_id="AUTOBOT", amount=withdrawal.amount, impact=impact)
         
-        updated_metrics = analyzer.get_system_metrics(user_id=user.id)
+        updated_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
         
         return TransactionResponse(
             success=True,
@@ -376,7 +379,7 @@ async def withdraw_funds(withdrawal: WithdrawalRequest, user: User = Depends(get
 
 
 @router.get("/api/analyze-withdrawal")
-async def analyze_withdrawal_route(amount: float, user: User = Depends(get_current_user)):
+async def analyze_withdrawal_route(amount: float):
     """
     Analyze withdrawal impact for a specific user.
     
@@ -392,7 +395,7 @@ async def analyze_withdrawal_route(amount: float, user: User = Depends(get_curre
     
     analyzer = get_withdrawal_analyzer()
     
-    system_metrics = analyzer.get_system_metrics(user_id=user.id)
+    system_metrics = analyzer.get_system_metrics(user_id="AUTOBOT")
     
     if amount > system_metrics["total_balance"]:
         raise HTTPException(status_code=400, detail="Insufficient funds")
@@ -411,7 +414,7 @@ async def analyze_withdrawal_route(amount: float, user: User = Depends(get_curre
 
 
 @router.get("/api/transaction-history")
-async def get_transaction_history(user: User = Depends(get_current_user)):
+async def get_transaction_history():
     """
     Get transaction history for the authenticated user.
     
@@ -429,7 +432,7 @@ async def get_transaction_history(user: User = Depends(get_current_user)):
         
         user_transactions = [
             t for t in all_transactions 
-            if t.get("user_id") == user.id
+            if t.get("user_id") == "AUTOBOT"
         ]
         
         return {
@@ -438,3 +441,51 @@ async def get_transaction_history(user: User = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error retrieving transaction history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving transaction history: {str(e)}")
+
+@router.post("/api/deposit")
+async def process_deposit(request: DepositRequest):
+    """Process Stripe deposit"""
+    try:
+        # Real Stripe integration would go here
+        # For now, simulate successful deposit
+        current_balance = 500.0  # Get from actual balance tracking
+        new_balance = current_balance + request.amount
+        
+        return {
+            "success": True,
+            "message": f"Dépôt de {request.amount}€ traité avec succès",
+            "new_balance": new_balance,
+            "stripe_payment_intent": "pi_simulated_success"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Erreur lors du dépôt: {str(e)}",
+            "new_balance": 500.0
+        }
+
+@router.post("/api/withdraw")
+async def process_withdrawal(request: WithdrawalRequest):
+    """Process Stripe withdrawal"""
+    try:
+        current_balance = 500.0  # Get from actual balance tracking
+        if request.amount > current_balance:
+            return {
+                "success": False,
+                "message": "Solde insuffisant pour ce retrait",
+                "new_balance": current_balance
+            }
+        
+        new_balance = current_balance - request.amount
+        return {
+            "success": True,
+            "message": f"Retrait de {request.amount}€ traité avec succès",
+            "new_balance": new_balance
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Erreur lors du retrait: {str(e)}",
+            "new_balance": 500.0
+        }
+

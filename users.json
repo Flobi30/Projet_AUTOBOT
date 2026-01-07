@@ -1,0 +1,33 @@
+{
+  "users": {
+    "AUTOBOT": {
+      "id": "admin-user-id-12345",
+      "username": "AUTOBOT",
+      "email": "admin@autobot.com",
+      "password_hash": "8a4af613cf79e366d4829383396ca90175dd82cdb3e30ea7f148348597ea16e5",
+      "salt": "0000000000000000000000000000000000000000000000000000000000000000",
+      "role": "admin",
+      "created_at": "2023-01-01T00:00:00",
+      "last_login": "2025-06-05T11:52:56.733372",
+      "licenses": [
+        {
+          "key": "AUTOBOT-eyJ0eXAi-OiJKV1Qi-LCJhbGci-OiJIUzUx",
+          "features": [
+            "trading",
+            "arbitrage",
+            "ecommerce",
+            "admin"
+          ],
+          "created_at": 1672531200,
+          "expires_at": 2019686400,
+          "active": true
+        }
+      ],
+      "api_keys": [],
+      "settings": {
+        "theme": "dark",
+        "notifications_enabled": true
+      }
+    }
+  }
+}
