@@ -1,5 +1,0 @@
-src/autobot/└── utils.py
-src/autobot/├── __init__.py
-src/autobot/│   └── products.py
-src/autobot/│   ├── shopify_client.py
-src/autobot/│   ├── __init__.py
