@@ -10,13 +10,6 @@ AUTOBOT est un framework complet pour le trading automatisé, l'apprentissage pa
 
 Le projet est structuré en plusieurs modules principaux :
 
-### 1. SuperAGI - Orchestrateur Principal
-
-- **AutobotMaster** : Agent orchestrateur principal qui pilote tous les composants
-- **Interface conversationnelle** : Contrôle de tous les modules via langage naturel
-- **Intégration API** : Mapping des endpoints FastAPI vers des outils SuperAGI
-- **Workflows automatisés** : Exécution de séquences d'actions complexes
-
 ### 2. Module de Trading
 
 - **Fournisseur CCXT amélioré** : Intégration complète avec les échanges de cryptomonnaies
@@ -42,27 +35,18 @@ Le projet est structuré en plusieurs modules principaux :
 - **Communication inter-agents** : Système de messagerie pour la collaboration
 - **Allocation des ressources** : Distribution intelligente des tâches
 
-### 5. Module E-commerce
-
-- **Gestion d'inventaire** : Suivi des produits invendus
-- **Tarification compétitive** : Algorithmes pour optimiser les prix
-- **Traitement des commandes** : Système complet de gestion des commandes
-
 ### 6. Interface Utilisateur
 
 - **Dashboard responsive** : Interface moderne avec thème sombre et éléments vert néon
 - **Visualisations de données** : Graphiques et tableaux pour le suivi des performances
 - **Gestion des stratégies et modèles** : Interface pour créer et surveiller les stratégies
 
-## Installation
 
 ### Prérequis
 
 - Python 3.10+
 - Docker (optionnel)
-- Clé API SuperAGI (pour l'orchestration avancée)
 
-### Installation Automatisée
 
 #### Sous Linux
 
