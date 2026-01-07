@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from autobot.schemas import BacktestRequest, BacktestResult, APIKeysRequest, APIKeysResponse
-from autobot.ecommerce.kpis import get_kpis
 from autobot.guardian import get_logs, get_metrics
 from autobot.backtest_engine import run_backtest
 from autobot.rl.train import start_training
@@ -11,7 +10,6 @@ from autobot.providers.ccxt_provider import fetch_ticker as get_ccxt_provider
 from autobot.providers.coingecko import get_intraday as get_coingecko
 from autobot.providers.fred import get_time_series as get_fred
 from autobot.providers.newsapi import get_time_series as get_newsapi
-from autobot.providers.shopify import get_orders as get_shopify_orders, get_shopify
 from autobot.providers.twelvedata import get_intraday as get_twelvedata
 
 from autobot.plugins.vairo import get_data as get_vairo
@@ -58,10 +56,6 @@ def prov_ccxt_provider(param: str):
 @router.get('/provider/newsapi/{param}')
 def prov_newsapi(param: str): 
     return get_newsapi(param)
-
-@router.get('/provider/shopify/{param}')
-def prov_shopify(param: str): 
-    return get_shopify(param)
 
 @router.get('/provider/fred/{param}')
 def prov_fred(param: str): 
@@ -227,7 +221,7 @@ def train():
 
 @router.get('/metrics')
 def metrics():
-    return get_kpis()
+    return get_metrics()
 
 @router.get('/logs')
 def logs():
@@ -248,20 +242,6 @@ def trade(symbol: str, side: str, amount: float):
         return {"trade_id": trade_id, "status": "executed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.get('/ecommerce/unsold')
-def get_unsold_items():
-    """
-    Get a list of unsold items for recycling.
-    """
-    return {"unsold_items": []}
-
-@router.post('/ecommerce/order')
-def place_order(item_id: str, quantity: int):
-    """
-    Place an order for unsold items at competitive prices.
-    """
-    return {"order_id": "123", "status": "placed"}
 
 @router.post('/setup', response_model=APIKeysResponse)
 def setup_api_keys(request: APIKeysRequest):
