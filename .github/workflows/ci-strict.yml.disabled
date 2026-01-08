@@ -1,0 +1,347 @@
+# =============================================================================
+# CI STRICT - Production-Ready Strict Checks
+# =============================================================================
+# 
+# STATUS: DISABLED (rename to ci-strict.yml to activate)
+# 
+# Purpose: Strict CI pipeline for production deployments
+# Use when: Capital is at risk, deploying to production
+# 
+# This workflow BLOCKS merges if any check fails.
+# Enable only when ready for production-grade quality gates.
+#
+# To activate:
+#   1. Rename this file from ci-strict.yml.disabled to ci-strict.yml
+#   2. Configure required secrets (see below)
+#   3. Set up branch protection rules in GitHub
+#
+# Required secrets:
+#   - DOCKER_USERNAME (optional, for Docker builds)
+#   - DOCKER_PASSWORD (optional, for Docker builds)
+#
+# =============================================================================
+
+name: CI STRICT - Production Quality Gates
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+# Strict concurrency - only one run at a time
+concurrency:
+  group: ci-strict-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel in-progress runs
+
+jobs:
+  # ==========================================================================
+  # Stage 1: Code Quality (BLOCKING)
+  # ==========================================================================
+  
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install quality tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff flake8 mypy black isort bandit safety
+
+      - name: Check code formatting (Black)
+        run: |
+          echo "Checking code formatting..."
+          black --check --diff src/ || {
+            echo "ERROR: Code is not formatted. Run 'black src/' to fix."
+            exit 1
+          }
+
+      - name: Check import sorting (isort)
+        run: |
+          echo "Checking import sorting..."
+          isort --check-only --diff src/ || {
+            echo "ERROR: Imports not sorted. Run 'isort src/' to fix."
+            exit 1
+          }
+
+      - name: Lint with Ruff (strict)
+        run: |
+          echo "Running strict linting..."
+          ruff check src/ --select=E,F,W,C,B --ignore=E501
+
+      - name: Lint with Flake8 (strict)
+        run: |
+          echo "Running Flake8 strict checks..."
+          flake8 src/ --count --max-complexity=10 --max-line-length=120 --statistics
+
+      - name: Type checking with mypy
+        run: |
+          echo "Running type checks..."
+          mypy src/ --ignore-missing-imports --no-error-summary || {
+            echo "WARNING: Type errors found. Review and fix."
+            # Don't fail on type errors for now, but log them
+          }
+
+  # ==========================================================================
+  # Stage 2: Security Checks (BLOCKING)
+  # ==========================================================================
+  
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      - name: Security scan with Bandit
+        run: |
+          echo "Running security scan..."
+          bandit -r src/ -ll -ii --exclude tests || {
+            echo "ERROR: Security issues found. Review and fix before merging."
+            exit 1
+          }
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          echo "Checking for vulnerable dependencies..."
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+            safety check --full-report || {
+              echo "WARNING: Vulnerable dependencies found. Review and update."
+              # Don't fail, but warn
+            }
+          fi
+
+  # ==========================================================================
+  # Stage 3: Full Test Suite (BLOCKING)
+  # ==========================================================================
+  
+  test-full:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt || true
+          pip install pytest pytest-asyncio pytest-cov pytest-timeout
+
+      - name: Run full test suite with coverage
+        run: |
+          echo "Running full test suite..."
+          pytest tests/ \
+            --cov=src/autobot \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=50 \
+            --timeout=120 \
+            -v || {
+              echo "ERROR: Tests failed. Fix all tests before merging."
+              exit 1
+            }
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ==========================================================================
+  # Stage 4: Trading Module Validation (BLOCKING)
+  # ==========================================================================
+  
+  trading-validation:
+    name: Trading Module Validation
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi pydantic numpy pandas || true
+
+      - name: Validate Risk Manager
+        run: |
+          echo "Validating Risk Manager module..."
+          cd src
+          python -c "
+          from autobot.risk import AdvancedRiskManager, RiskLimits
+          
+          # Test initialization
+          rm = AdvancedRiskManager(initial_capital=10000.0)
+          assert rm.state.current_capital == 10000.0
+          
+          # Test trade validation
+          valid, reason, details = rm.validate_trade(
+              symbol='BTC/USD',
+              side='buy',
+              size=0.1,
+              entry_price=50000.0,
+              leverage=1.0,
+          )
+          print(f'Trade validation: {valid}, {reason}')
+          
+          # Test position sizing
+          size = rm.calculate_safe_position_size(
+              entry_price=50000.0,
+              stop_loss=49000.0,
+          )
+          assert size > 0
+          print(f'Safe position size: {size}')
+          
+          print('Risk Manager validation: PASSED')
+          "
+
+      - name: Validate Meta-Learner
+        run: |
+          echo "Validating Meta-Learner module..."
+          cd src
+          python -c "
+          from autobot.risk import MetaLearner, RiskProfile
+          
+          # Test initialization
+          ml = MetaLearner(risk_profile=RiskProfile.MODERATE)
+          
+          # Test strategy registration
+          strategy = ml.register_strategy(
+              strategy_id='test_strategy',
+              strategy_name='Test Strategy',
+              strategy_type='trend',
+          )
+          assert strategy.strategy_id == 'test_strategy'
+          
+          # Test trade recording
+          ml.record_trade('test_strategy', pnl=100.0)
+          assert ml.strategies['test_strategy'].total_trades == 1
+          
+          print('Meta-Learner validation: PASSED')
+          "
+
+      - name: Validate Auto-Healing
+        run: |
+          echo "Validating Auto-Healing module..."
+          cd src
+          python -c "
+          from autobot.risk import AutoHealingSystem, ComponentStatus
+          
+          # Test initialization
+          ahs = AutoHealingSystem(enable_auto_recovery=False)
+          
+          # Test component registration
+          component = ahs.register_component(
+              component_id='test_component',
+              component_name='Test Component',
+              component_type='service',
+          )
+          assert component.component_id == 'test_component'
+          
+          # Test health status
+          status = ahs.get_system_health()
+          assert 'overall_status' in status
+          
+          print('Auto-Healing validation: PASSED')
+          "
+
+  # ==========================================================================
+  # Stage 5: Build Validation (BLOCKING)
+  # ==========================================================================
+  
+  build:
+    name: Build Validation
+    runs-on: ubuntu-latest
+    needs: [test-full, trading-validation, security]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate package structure
+        run: |
+          echo "Validating package structure..."
+          # Check required directories exist
+          test -d src/autobot || { echo "ERROR: src/autobot not found"; exit 1; }
+          test -d src/autobot/risk || { echo "ERROR: risk module not found"; exit 1; }
+          test -d src/autobot/monitoring || { echo "ERROR: monitoring module not found"; exit 1; }
+          test -d src/autobot/backtest || { echo "ERROR: backtest module not found"; exit 1; }
+          echo "Package structure: VALID"
+
+      - name: Build Docker image (dry-run)
+        run: |
+          echo "Validating Docker build..."
+          if [ -f Dockerfile ]; then
+            docker build --no-cache -t autobot:ci-test . || {
+              echo "ERROR: Docker build failed"
+              exit 1
+            }
+            echo "Docker build: PASSED"
+          else
+            echo "No Dockerfile found, skipping Docker build"
+          fi
+
+  # ==========================================================================
+  # Final Gate (BLOCKING)
+  # ==========================================================================
+  
+  production-gate:
+    name: Production Gate
+    runs-on: ubuntu-latest
+    needs: [code-quality, security, test-full, trading-validation, build]
+    steps:
+      - name: Production Gate Check
+        run: |
+          echo "=========================================="
+          echo "CI STRICT - Production Gate"
+          echo "=========================================="
+          echo ""
+          echo "All quality gates passed!"
+          echo ""
+          echo "Checks completed:"
+          echo "- Code Quality: PASSED"
+          echo "- Security: PASSED"
+          echo "- Full Tests: PASSED"
+          echo "- Trading Validation: PASSED"
+          echo "- Build: PASSED"
+          echo ""
+          echo "This PR is ready for production merge."
+          echo "=========================================="

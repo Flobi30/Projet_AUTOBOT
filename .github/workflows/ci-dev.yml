@@ -1,0 +1,187 @@
+name: CI DEV - Non-blocking Development Checks
+
+# CI DEV: Lightweight, non-blocking checks for development
+# Purpose: Quick feedback without blocking PRs
+# Runs on: All pushes and PRs to master
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+# Allow concurrent runs - don't block development
+concurrency:
+  group: ci-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Quick syntax and import check
+  syntax-check:
+    name: Python Syntax Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Python syntax
+        run: |
+          echo "Checking Python syntax..."
+          find src -name "*.py" -exec python -m py_compile {} \; 2>&1 || true
+          echo "Syntax check completed"
+
+  # Quick linting (non-blocking)
+  lint:
+    name: Quick Lint (Non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking - won't fail the PR
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff flake8
+
+      - name: Run Ruff (fast linter)
+        run: |
+          echo "Running Ruff linter..."
+          ruff check src/ --ignore E501,F401,F841 --exit-zero || true
+          echo "Ruff check completed"
+
+      - name: Run Flake8 (basic checks only)
+        run: |
+          echo "Running Flake8..."
+          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+          echo "Flake8 check completed"
+
+  # Lightweight unit tests
+  test-light:
+    name: Lightweight Tests
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          # Install only core dependencies, skip optional heavy packages
+          pip install fastapi pydantic uvicorn pytest pytest-asyncio || true
+
+      - name: Run quick tests
+        run: |
+          echo "Running lightweight tests..."
+          # Run only fast unit tests, skip integration tests
+          if [ -d "tests" ]; then
+            pytest tests/ -v --ignore=tests/integration --ignore=tests/e2e -x --timeout=30 2>&1 || true
+          else
+            echo "No tests directory found, skipping tests"
+          fi
+          echo "Tests completed"
+
+  # Import validation for trading modules
+  import-check:
+    name: Module Import Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi pydantic || true
+
+      - name: Check critical module imports
+        run: |
+          echo "Checking critical module imports..."
+          cd src
+          
+          # Check risk module
+          python -c "
+          try:
+              from autobot.risk import AdvancedRiskManager, MetaLearner, AutoHealingSystem
+              print('Risk module: OK')
+          except Exception as e:
+              print(f'Risk module: WARNING - {e}')
+          " || true
+          
+          # Check monitoring module
+          python -c "
+          try:
+              from autobot.monitoring import MetricsManager, LoggingManager
+              print('Monitoring module: OK')
+          except Exception as e:
+              print(f'Monitoring module: WARNING - {e}')
+          " || true
+          
+          # Check backtest module
+          python -c "
+          try:
+              from autobot.backtest.engines import SimpleEngine
+              print('Backtest module: OK')
+          except Exception as e:
+              print(f'Backtest module: WARNING - {e}')
+          " || true
+          
+          # Check macro module
+          python -c "
+          try:
+              from autobot.macro import MacroIndicatorFetcher, RegimeDetector
+              print('Macro module: OK')
+          except Exception as e:
+              print(f'Macro module: WARNING - {e}')
+          " || true
+          
+          echo "Import check completed"
+
+  # Summary job (always succeeds to not block PRs)
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [syntax-check, lint, test-light, import-check]
+    if: always()  # Run even if other jobs fail
+    steps:
+      - name: CI Summary
+        run: |
+          echo "=========================================="
+          echo "CI DEV Summary"
+          echo "=========================================="
+          echo "This is a non-blocking CI pipeline."
+          echo "Check individual job results for details."
+          echo ""
+          echo "Jobs completed:"
+          echo "- Syntax Check: ${{ needs.syntax-check.result }}"
+          echo "- Lint: ${{ needs.lint.result }}"
+          echo "- Tests: ${{ needs.test-light.result }}"
+          echo "- Import Check: ${{ needs.import-check.result }}"
+          echo ""
+          echo "Note: All jobs are non-blocking (continue-on-error: true)"
+          echo "PRs can be merged even if checks show warnings."
+          echo "=========================================="
