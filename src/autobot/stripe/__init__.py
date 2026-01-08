@@ -25,6 +25,7 @@ from autobot.stripe.reconciliation import (
     ReconciliationStatus,
     StripeReconciler,
 )
+from autobot.stripe.routes import router as stripe_router
 
 __all__ = [
     "LedgerEntry",
@@ -37,4 +38,5 @@ __all__ = [
     "ReconciliationReport",
     "ReconciliationStatus",
     "StripeReconciler",
+    "stripe_router",
 ]
