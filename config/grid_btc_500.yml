@@ -1,0 +1,95 @@
+# Grid Trading Configuration - BTC/USDT Instance
+# Capital: 500€ | 15 Levels | +/-7% Range
+# Target: 0.8% profit per level, +15% monthly
+
+grid:
+  # Trading pair configuration
+  symbol: "BTC/USDT"
+  exchange: "binance"
+  market_type: "spot"  # spot only, no futures
+  
+  # Capital allocation
+  total_capital: 500.0  # EUR
+  capital_currency: "EUR"
+  
+  # Grid structure
+  num_levels: 15
+  range_percent: 14.0  # +/-7% = 14% total range
+  profit_per_level: 0.8  # Target profit per completed trade cycle
+  
+  # Order settings
+  order_type: "limit"
+  time_in_force: "GTC"  # Good Till Canceled
+  min_order_size: 0.0001  # BTC minimum on Binance
+
+# Risk management settings
+risk:
+  # Global stop loss
+  global_stop_percent: 20.0  # -20% of capital triggers full close
+  global_stop_amount: 100.0  # 500 * 0.20 = 100€
+  
+  # Daily limits
+  daily_loss_limit: 50.0  # EUR - stops trading for the day
+  daily_profit_target: 25.0  # EUR - optional notification
+  
+  # Drawdown limits
+  max_drawdown_percent: 25.0
+  
+  # Exposure limits
+  max_exposure_percent: 100.0  # Maximum position value as % of capital
+  max_single_order_percent: 20.0  # Maximum single order as % of capital
+  
+  # Warning thresholds
+  warning_threshold_percent: 50.0  # Alert at 50% of limits
+
+# Rebalancing settings
+rebalance:
+  enabled: true
+  threshold_percent: 1.0  # Extra buffer before triggering rebalance
+  close_positions_on_rebalance: false  # Keep positions during rebalance
+  min_interval_seconds: 300  # Minimum 5 minutes between rebalances
+
+# Trading fees (Binance Spot)
+fees:
+  maker_fee_percent: 0.1
+  taker_fee_percent: 0.1
+  use_bnb_discount: false  # Set to true if using BNB for fees
+
+# Paper trading settings
+paper_trading:
+  enabled: true  # Start in paper trading mode
+  initial_balance: 500.0
+  
+# API configuration (use environment variables for secrets)
+api:
+  use_testnet: true  # Use Binance testnet for paper trading
+  rate_limit_per_second: 10
+  timeout_seconds: 30
+  max_retries: 3
+
+# Monitoring and logging
+monitoring:
+  log_level: "INFO"
+  log_trades: true
+  log_orders: true
+  websocket_enabled: true
+  price_update_interval_ms: 1000  # 1 second price updates
+  
+# Performance targets
+targets:
+  monthly_return_percent: 15.0
+  daily_return_percent: 0.5  # ~15% / 30 days
+  max_trades_per_day: 100
+  target_latency_ms: 200
+
+# Instance metadata
+metadata:
+  instance_id: "grid_btc_500_v1"
+  version: "1.0.0"
+  created_at: "2024-01-01T00:00:00Z"
+  description: "BTC/USDT Grid Trading - 500€ Capital - 15 Levels"
+  tags:
+    - "btc"
+    - "grid"
+    - "spot"
+    - "binance"

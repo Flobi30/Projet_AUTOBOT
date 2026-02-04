@@ -1,0 +1,94 @@
+# Grid Trading Configuration Template
+# Use this template to create new grid trading instances
+# Copy and modify for different trading pairs (ETH, Forex, etc.)
+
+grid:
+  # Trading pair configuration
+  symbol: "${SYMBOL}"  # e.g., "ETH/USDT", "EUR/USD"
+  exchange: "${EXCHANGE}"  # e.g., "binance", "kraken", "forex_broker"
+  market_type: "spot"  # spot only for crypto, adjust for forex
+  
+  # Capital allocation
+  total_capital: ${CAPITAL}  # Amount in quote currency
+  capital_currency: "${CURRENCY}"  # EUR, USD, etc.
+  
+  # Grid structure
+  num_levels: ${NUM_LEVELS}  # Recommended: 10-20 levels
+  range_percent: ${RANGE_PERCENT}  # Total range (e.g., 14.0 for +/-7%)
+  profit_per_level: ${PROFIT_PER_LEVEL}  # Target profit per cycle (e.g., 0.8)
+  
+  # Order settings
+  order_type: "limit"
+  time_in_force: "GTC"
+  min_order_size: ${MIN_ORDER_SIZE}  # Exchange minimum
+
+# Risk management settings
+risk:
+  global_stop_percent: 20.0
+  daily_loss_limit: ${DAILY_LOSS_LIMIT}
+  max_drawdown_percent: 25.0
+  max_exposure_percent: 100.0
+  warning_threshold_percent: 50.0
+
+# Rebalancing settings
+rebalance:
+  enabled: true
+  threshold_percent: 1.0
+  close_positions_on_rebalance: false
+  min_interval_seconds: 300
+
+# Trading fees
+fees:
+  maker_fee_percent: ${MAKER_FEE}
+  taker_fee_percent: ${TAKER_FEE}
+
+# Paper trading
+paper_trading:
+  enabled: true
+  initial_balance: ${CAPITAL}
+
+# API configuration
+api:
+  use_testnet: true
+  rate_limit_per_second: 10
+  timeout_seconds: 30
+
+# Monitoring
+monitoring:
+  log_level: "INFO"
+  websocket_enabled: true
+  price_update_interval_ms: 1000
+
+# Performance targets
+targets:
+  monthly_return_percent: 15.0
+  target_latency_ms: 200
+
+# Instance metadata
+metadata:
+  instance_id: "${INSTANCE_ID}"
+  version: "1.0.0"
+  description: "${DESCRIPTION}"
+  tags: []
+
+# =============================================================================
+# EXAMPLE CONFIGURATIONS
+# =============================================================================
+#
+# ETH/USDT Grid (500€):
+#   symbol: "ETH/USDT"
+#   total_capital: 500.0
+#   num_levels: 15
+#   range_percent: 14.0
+#   min_order_size: 0.001
+#
+# EUR/USD Forex Grid (1000€):
+#   symbol: "EUR/USD"
+#   exchange: "forex_broker"
+#   total_capital: 1000.0
+#   num_levels: 20
+#   range_percent: 4.0  # Forex has tighter ranges
+#   profit_per_level: 0.3
+#   min_order_size: 1000  # Mini lot
+#
+# =============================================================================
