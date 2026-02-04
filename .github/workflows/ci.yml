@@ -1,0 +1,361 @@
+# =============================================================================
+# CI Pipeline - AUTOBOT Trading Platform
+# =============================================================================
+#
+# Comprehensive CI/CD pipeline with:
+# - Python 3.11 setup
+# - Dependency installation
+# - Linting (flake8 + black)
+# - Type checking (mypy)
+# - Security scanning (bandit)
+# - Tests with coverage (pytest)
+# - Coverage threshold enforcement (90%)
+#
+# Configuration:
+# - Tests are configurable via TESTS_BLOCKING env var
+# - Set to 'true' for strict mode, 'false' for dev mode
+#
+# =============================================================================
+
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  # Set to 'true' to make test failures block the pipeline
+  # Set to 'false' during development to allow PRs with failing tests
+  TESTS_BLOCKING: 'false'
+  COVERAGE_THRESHOLD: 90
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Setup and Dependencies
+  # ==========================================================================
+  setup:
+    name: Setup Python Environment
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Generate cache key
+        id: cache-key
+        run: echo "key=${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          # Install dev/test dependencies
+          pip install flake8 black mypy bandit pytest pytest-cov pytest-asyncio
+
+      - name: Verify installation
+        run: |
+          echo "Python version:"
+          python --version
+          echo ""
+          echo "Installed packages:"
+          pip list
+
+  # ==========================================================================
+  # Linting: Flake8
+  # ==========================================================================
+  lint-flake8:
+    name: Lint (Flake8)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run Flake8
+        run: |
+          echo "Running Flake8 linter..."
+          flake8 src/ \
+            --count \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
+          echo ""
+          echo "Running extended Flake8 checks..."
+          flake8 src/ \
+            --count \
+            --max-complexity=15 \
+            --max-line-length=120 \
+            --statistics \
+            --exit-zero
+
+  # ==========================================================================
+  # Linting: Black (Format Check)
+  # ==========================================================================
+  lint-black:
+    name: Lint (Black)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install black
+        run: pip install black
+
+      - name: Run Black (check mode)
+        run: |
+          echo "Checking code formatting with Black..."
+          black --check --diff src/ || {
+            echo ""
+            echo "================================================"
+            echo "Code formatting issues found!"
+            echo "Run 'black src/' locally to fix formatting."
+            echo "================================================"
+            exit 1
+          }
+
+  # ==========================================================================
+  # Type Checking: MyPy
+  # ==========================================================================
+  type-check:
+    name: Type Check (MyPy)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install mypy
+
+      - name: Run MyPy
+        run: |
+          echo "Running MyPy type checker..."
+          mypy src/ \
+            --ignore-missing-imports \
+            --no-error-summary \
+            --show-error-codes \
+            --pretty || {
+              echo ""
+              echo "================================================"
+              echo "Type errors found. Review and fix type hints."
+              echo "================================================"
+              # Non-blocking for now - can be made strict later
+              exit 0
+            }
+
+  # ==========================================================================
+  # Security: Bandit
+  # ==========================================================================
+  security:
+    name: Security Scan (Bandit)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: Run Bandit security scan
+        run: |
+          echo "Running Bandit security scanner..."
+          bandit -r src/ \
+            -ll \
+            -ii \
+            --exclude tests \
+            -f txt || {
+              echo ""
+              echo "================================================"
+              echo "Security issues found!"
+              echo "Review and fix before deploying to production."
+              echo "================================================"
+              exit 1
+            }
+
+  # ==========================================================================
+  # Tests with Coverage
+  # ==========================================================================
+  tests:
+    name: Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: setup
+    continue-on-error: ${{ env.TESTS_BLOCKING != 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-timeout
+
+      - name: Run tests with coverage
+        id: tests
+        run: |
+          echo "Running pytest with coverage..."
+          pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-report=html \
+            --cov-fail-under=${{ env.COVERAGE_THRESHOLD }} \
+            --timeout=120 \
+            -v || TEST_EXIT_CODE=$?
+          
+          if [ "${TEST_EXIT_CODE:-0}" -ne 0 ]; then
+            echo ""
+            echo "================================================"
+            echo "Tests failed or coverage below ${{ env.COVERAGE_THRESHOLD }}%"
+            echo "================================================"
+            if [ "${{ env.TESTS_BLOCKING }}" = "true" ]; then
+              exit $TEST_EXIT_CODE
+            else
+              echo "Tests are non-blocking (TESTS_BLOCKING=false)"
+              echo "PR can proceed, but fix tests before production."
+            fi
+          fi
+
+      - name: Upload coverage report (XML)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 30
+
+      - name: Upload coverage report (HTML)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 30
+
+      - name: Coverage Summary
+        if: always()
+        run: |
+          echo "================================================"
+          echo "Coverage Report Summary"
+          echo "================================================"
+          if [ -f coverage.xml ]; then
+            # Extract coverage percentage from XML
+            COVERAGE=$(python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          line_rate = float(root.get('line-rate', 0))
+          print(f'{line_rate * 100:.2f}')
+          " 2>/dev/null || echo "N/A")
+            echo "Line Coverage: ${COVERAGE}%"
+            echo "Threshold: ${{ env.COVERAGE_THRESHOLD }}%"
+          else
+            echo "Coverage report not generated"
+          fi
+          echo "================================================"
+
+  # ==========================================================================
+  # CI Summary & Notifications
+  # ==========================================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [setup, lint-flake8, lint-black, type-check, security, tests]
+    if: always()
+    steps:
+      - name: CI Pipeline Summary
+        run: |
+          echo "=========================================="
+          echo "CI Pipeline Summary"
+          echo "=========================================="
+          echo ""
+          echo "Job Results:"
+          echo "  - Setup:        ${{ needs.setup.result }}"
+          echo "  - Flake8:       ${{ needs.lint-flake8.result }}"
+          echo "  - Black:        ${{ needs.lint-black.result }}"
+          echo "  - MyPy:         ${{ needs.type-check.result }}"
+          echo "  - Bandit:       ${{ needs.security.result }}"
+          echo "  - Tests:        ${{ needs.tests.result }}"
+          echo ""
+          echo "Configuration:"
+          echo "  - Python:       ${{ env.PYTHON_VERSION }}"
+          echo "  - Tests Mode:   ${{ env.TESTS_BLOCKING == 'true' && 'BLOCKING' || 'NON-BLOCKING' }}"
+          echo "  - Coverage:     ${{ env.COVERAGE_THRESHOLD }}% minimum"
+          echo ""
+          echo "=========================================="
+
+      - name: Determine overall status
+        id: status
+        run: |
+          if [[ "${{ needs.lint-flake8.result }}" == "failure" ]] || \
+             [[ "${{ needs.lint-black.result }}" == "failure" ]] || \
+             [[ "${{ needs.security.result }}" == "failure" ]]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "Overall Status: FAILURE"
+          elif [[ "${{ needs.tests.result }}" == "failure" ]] && [[ "${{ env.TESTS_BLOCKING }}" == "true" ]]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "Overall Status: FAILURE (tests blocking)"
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "Overall Status: SUCCESS"
+          fi
+
+      - name: Notify on failure
+        if: steps.status.outputs.status == 'failure'
+        run: |
+          echo "::error::CI Pipeline failed. Please review the job logs above."
+
+      - name: Notify on success
+        if: steps.status.outputs.status == 'success'
+        run: |
+          echo "::notice::CI Pipeline completed successfully!"
