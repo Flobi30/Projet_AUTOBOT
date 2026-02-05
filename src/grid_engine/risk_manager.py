@@ -576,6 +576,15 @@ class GridRiskManager:
         logger.info("Daily trading limit manually reset")
         return True
     
+    def record_pnl(self, pnl: float) -> None:
+        """
+        Record a P&L value and check risk limits.
+        
+        Args:
+            pnl: Profit/loss value to record
+        """
+        self.check_risk()
+    
     def validate_order(
         self,
         quantity: float,

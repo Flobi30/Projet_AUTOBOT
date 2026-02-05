@@ -19,6 +19,7 @@ from .position_tracker import PositionTracker, GridPosition, TradeRecord
 from .rebalance import GridRebalancer, RebalanceAction
 from .risk_manager import GridRiskManager, RiskStatus, RiskAlert
 from .binance_connector import BinanceConnector, BinanceConfig
+from .paper_trading_logger import PaperTradingLogger, DailyMetrics, CumulativeMetrics
 from .api import router as grid_router
 
 __all__ = [
@@ -43,6 +44,10 @@ __all__ = [
     # Binance Connector
     "BinanceConnector",
     "BinanceConfig",
+    # Paper Trading Logger
+    "PaperTradingLogger",
+    "DailyMetrics",
+    "CumulativeMetrics",
     # API Router
     "grid_router",
 ]
