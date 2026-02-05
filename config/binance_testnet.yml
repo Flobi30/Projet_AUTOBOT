@@ -1,6 +1,6 @@
 # Binance Testnet Configuration for Paper Trading
-# Phase 3: Validation strategie Grid sans risque avant capital reel
-# Capital fictif: 500EUR | Duree: 7 jours minimum
+# Phase 4: Lancement papier trading - Validation finale avant capital reel
+# Capital fictif: 500 USDT | Duree: 7 jours minimum
 
 # Binance Testnet API Configuration
 # Documentation: https://testnet.binance.vision/
@@ -105,7 +105,7 @@ targets:
 # Session Configuration
 session:
   # Paper trading session
-  session_id: "papier_trading_phase3"
+  session_id: "papier_trading_phase4"
   start_date: "2026-02-05"
   duration_days: 7
   
@@ -154,14 +154,14 @@ validation:
 
 # Instance Metadata
 metadata:
-  instance_id: "papier_trading_binance_testnet_v1"
+  instance_id: "papier_trading_binance_testnet_phase4"
   version: "1.0.0"
   created_at: "2026-02-05T00:00:00Z"
-  description: "Phase 3 - Paper Trading Binance Testnet - 500EUR fictif - 7 jours"
+  description: "Phase 4 - Paper Trading Binance Testnet - 500 USDT fictif - 7 jours"
   tags:
     - "papier_trading"
     - "testnet"
-    - "phase3"
+    - "phase4"
     - "validation"
     - "btc"
     - "grid"
