@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-from get_price import get_price
+from get_price import get_current_price, KrakenPriceError
 
 
 @dataclass
@@ -158,9 +158,10 @@ def main() -> None:
           f" {config.symbol} sur Kraken...")
 
     try:
-        current_price = get_price(config.symbol)
+        price_data = get_current_price(pair=config.kraken_symbol)
+        current_price = price_data["price"]
         print(f"[PRICE] {config.symbol}: {current_price:.2f} EUR\n")
-    except RuntimeError as e:
+    except KrakenPriceError as e:
         print(f"[ERROR] {e}")
         sys.exit(1)
 
