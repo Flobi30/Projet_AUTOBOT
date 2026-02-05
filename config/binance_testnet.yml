@@ -1,0 +1,167 @@
+# Binance Testnet Configuration for Paper Trading
+# Phase 3: Validation strategie Grid sans risque avant capital reel
+# Capital fictif: 500EUR | Duree: 7 jours minimum
+
+# Binance Testnet API Configuration
+# Documentation: https://testnet.binance.vision/
+binance:
+  # Testnet endpoints
+  api_url: "https://testnet.binance.vision"
+  ws_url: "wss://testnet.binance.vision/ws"
+  
+  # API credentials (set via environment variables)
+  # BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET
+  use_testnet: true
+  
+  # Rate limiting
+  rate_limit_per_second: 10
+  recv_window: 5000
+  timeout_seconds: 30
+  max_retries: 3
+
+# Paper Trading Configuration
+paper_trading:
+  enabled: true
+  mode: "simulation"  # simulation | testnet_api
+  
+  # Capital fictif
+  initial_capital: 500.0
+  capital_currency: "EUR"
+  
+  # Conversion EUR -> USDT (approximatif)
+  eur_usdt_rate: 1.08
+  initial_usdt_balance: 540.0  # 500 EUR * 1.08
+  
+  # Balances initiales simulees
+  initial_balances:
+    USDT: 540.0
+    BTC: 0.0
+    ETH: 0.0
+
+# Grid Trading Parameters (inherited from grid_btc_500.yml)
+grid:
+  symbol: "BTC/USDT"
+  exchange: "binance"
+  market_type: "spot"
+  
+  # Capital allocation
+  total_capital: 500.0
+  capital_currency: "EUR"
+  
+  # Grid structure
+  num_levels: 15
+  range_percent: 14.0  # +/-7% = 14% total range
+  profit_per_level: 0.8
+  
+  # Order settings
+  order_type: "limit"
+  time_in_force: "GTC"
+  min_order_size: 0.0001
+
+# Risk Management
+risk:
+  global_stop_percent: 20.0
+  global_stop_amount: 100.0  # 500 * 0.20 = 100 EUR
+  daily_loss_limit: 50.0
+  daily_profit_target: 25.0
+  max_drawdown_percent: 25.0
+  max_exposure_percent: 100.0
+  warning_threshold_percent: 50.0
+
+# Monitoring Configuration
+monitoring:
+  # Logging
+  log_level: "INFO"
+  log_trades: true
+  log_orders: true
+  log_price_updates: false  # Too verbose
+  
+  # Log files
+  log_directory: "logs"
+  daily_log_format: "papier_trading_{date}.json"
+  
+  # Metrics collection
+  metrics_interval_seconds: 60
+  
+  # WebSocket
+  websocket_enabled: true
+  price_update_interval_ms: 1000
+  
+  # Alerting thresholds
+  alert_on_loss_percent: 10.0
+  alert_on_drawdown_percent: 15.0
+
+# Performance Targets
+targets:
+  # Weekly targets (7 days)
+  weekly_return_percent: 3.5  # ~0.5% per day
+  max_trades_per_day: 100
+  min_win_rate_percent: 55.0
+  
+  # Latency
+  target_latency_ms: 200
+  max_latency_ms: 1000
+
+# Session Configuration
+session:
+  # Paper trading session
+  session_id: "papier_trading_phase3"
+  start_date: "2026-02-05"
+  duration_days: 7
+  
+  # Auto-restart on failure
+  auto_restart: true
+  max_restart_attempts: 3
+  restart_delay_seconds: 60
+
+# Metrics to Track
+metrics:
+  # Daily metrics
+  daily:
+    - trades_count
+    - win_count
+    - loss_count
+    - win_rate
+    - total_pnl
+    - max_drawdown
+    - avg_trade_duration
+    - best_trade
+    - worst_trade
+  
+  # Cumulative metrics
+  cumulative:
+    - total_trades
+    - total_pnl
+    - total_fees
+    - roi_percent
+    - sharpe_ratio
+    - max_drawdown
+    - recovery_factor
+
+# Validation Criteria (for GO/NO-GO decision)
+validation:
+  # Minimum requirements for real trading approval
+  min_trades: 50
+  min_win_rate: 50.0
+  max_drawdown: 20.0
+  min_profit_factor: 1.2
+  min_sharpe_ratio: 0.5
+  
+  # Stability requirements
+  max_consecutive_losses: 10
+  min_uptime_percent: 95.0
+  max_error_rate_percent: 5.0
+
+# Instance Metadata
+metadata:
+  instance_id: "papier_trading_binance_testnet_v1"
+  version: "1.0.0"
+  created_at: "2026-02-05T00:00:00Z"
+  description: "Phase 3 - Paper Trading Binance Testnet - 500EUR fictif - 7 jours"
+  tags:
+    - "papier_trading"
+    - "testnet"
+    - "phase3"
+    - "validation"
+    - "btc"
+    - "grid"
