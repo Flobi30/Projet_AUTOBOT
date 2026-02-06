@@ -20,7 +20,6 @@ from grid_calculator import GridConfig, calculate_grid_levels, display_grid  # n
 from order_manager import (  # noqa: E402
     create_kraken_client,
     place_buy_order,
-    check_eur_balance,
 )
 from position_manager import monitor_and_manage, build_grid  # noqa: E402
 from persistence import load_state, save_state  # noqa: E402
@@ -51,10 +50,12 @@ class GridTradingBot:
             num_levels=GRID_LEVELS,
             range_percent=GRID_RANGE,
         )
-        state = load_state()
-        if "initialized" not in state:
-            state["initialized"] = False
-        self.state = state
+        raw = load_state()
+        self.state = {
+            "orders": raw.get("orders", []),
+            "positions": raw.get("positions", []),
+            "initialized": raw.get("metrics", {}).get("initialized", False),
+        }
         self.error_handler = get_error_handler()
 
     def _save_state(self):
