@@ -162,7 +162,8 @@ def main() -> None:
         current_price = price_data["price"]
         print(f"[PRICE] {config.symbol}: {current_price:.2f} EUR\n")
     except KrakenPriceError as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] Impossible de récupérer le prix depuis Kraken: {e}")
+        print("[ERROR] Vérifiez que le fichier get_price.py existe dans le dossier scripts/ et que la connexion à l'API Kraken fonctionne.")
         sys.exit(1)
 
     levels = calculate_grid_levels(current_price, config)
