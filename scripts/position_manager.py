@@ -37,11 +37,9 @@ except ImportError:
     sys.exit(1)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GRID_ENGINE_DIR = os.path.join(SCRIPT_DIR, '..', 'src', 'grid_engine')
-sys.path.insert(0, GRID_ENGINE_DIR)
 sys.path.insert(0, SCRIPT_DIR)
 
-from grid_calculator import GridCalculator, GridConfig, GridLevel, GridSide  # noqa: E402
+from grid_calculator import GridConfig, GridLevel, calculate_grid_levels  # noqa: E402
 from order_manager import (  # noqa: E402
     create_kraken_client,
     get_btc_eur_price,
@@ -131,14 +129,11 @@ def build_grid(center_price: float) -> List[GridLevel]:
     """
     config = GridConfig(
         symbol=KRAKEN_PAIR_CCXT,
-        total_capital=GRID_TOTAL_CAPITAL,
+        capital_total=GRID_TOTAL_CAPITAL,
         num_levels=GRID_NUM_LEVELS,
         range_percent=GRID_RANGE_PERCENT,
-        min_order_size=KRAKEN_MIN_ORDER_BTC,
-        fee_percent=KRAKEN_FEE_PERCENT,
     )
-    calculator = GridCalculator(config)
-    levels = calculator.calculate_grid(center_price)
+    levels = calculate_grid_levels(center_price, config)
     return levels
 
 
@@ -169,10 +164,10 @@ def get_sell_level_for_buy(buy_level_id: int, levels: List[GridLevel]) -> Option
 
     sell_level = levels[sell_level_id]
 
-    if sell_level.side != GridSide.SELL:
+    if sell_level.level_type != "SELL":
         logger.warning(
             f"Level {sell_level_id} n'est pas un SELL level "
-            f"(type: {sell_level.side.value})"
+            f"(type: {sell_level.level_type})"
         )
         return None
 
@@ -410,7 +405,7 @@ def handle_fill_and_sell(
     expected_profit_pct = ((sell_price - buy_price) / buy_price) * 100
 
     logger.info(
-        f"[SELL TARGET] Level {sell_level.level_id} | "
+        f"[SELL TARGET] Level {sell_level.level} | "
         f"Prix vente: {sell_price:.1f} EUR | "
         f"Profit attendu: {expected_profit_eur:.2f} EUR ({expected_profit_pct:.2f}%)"
     )
@@ -420,7 +415,7 @@ def handle_fill_and_sell(
             exchange=exchange,
             price=sell_price,
             volume_btc=volume_btc,
-            level_id=sell_level.level_id,
+            level_id=sell_level.level,
         )
     except ccxt.InsufficientFunds as e:
         logger.error(f"[ERROR] Fonds BTC insuffisants pour vente: {e}")
@@ -448,7 +443,7 @@ def handle_fill_and_sell(
 
     logger.info(
         f"[CYCLE OK] Position {position.position_id} | "
-        f"BUY L{buy_level_id} @ {buy_price:.2f} -> SELL L{sell_level.level_id} @ {sell_price:.1f} | "
+        f"BUY L{buy_level_id} @ {buy_price:.2f} -> SELL L{sell_level.level} @ {sell_price:.1f} | "
         f"Profit cible: {expected_profit_eur:.2f} EUR ({expected_profit_pct:.2f}%)"
     )
 
@@ -568,14 +563,14 @@ def display_grid_mapping(levels: List[GridLevel]) -> None:
     print("=" * 70)
 
     for level in levels:
-        if level.side == GridSide.BUY:
-            sell_level = get_sell_level_for_buy(level.level_id, levels)
+        if level.level_type == "BUY":
+            sell_level = get_sell_level_for_buy(level.level, levels)
             if sell_level:
                 spread = sell_level.price - level.price
                 spread_pct = (spread / level.price) * 100
                 print(
-                    f"  Level {level.level_id:2d} (BUY) @ {level.price:.2f} EUR "
-                    f"-> Level {sell_level.level_id:2d} (SELL) @ {sell_level.price:.2f} EUR "
+                    f"  Level {level.level:2d} (BUY) @ {level.price:.2f} EUR "
+                    f"-> Level {sell_level.level:2d} (SELL) @ {sell_level.price:.2f} EUR "
                     f"| Spread: {spread:.2f} EUR ({spread_pct:.2f}%)"
                 )
 
@@ -603,8 +598,8 @@ def main():
     print("\n[3/5] Calcul grid complet (15 niveaux)...")
     levels = build_grid(current_price)
 
-    buy_levels = [lv for lv in levels if lv.side == GridSide.BUY]
-    sell_levels = [lv for lv in levels if lv.side == GridSide.SELL]
+    buy_levels = [lv for lv in levels if lv.level_type == "BUY"]
+    sell_levels = [lv for lv in levels if lv.level_type == "SELL"]
     print(f"  Niveaux BUY: {len(buy_levels)} (Levels 0-6)")
     print(f"  Niveaux SELL: {len(sell_levels)} (Levels 8-14)")
     print(f"  Range: {levels[0].price:.2f} - {levels[-1].price:.2f} EUR")
@@ -628,10 +623,10 @@ def main():
                     closest_level = level
 
             if closest_level is not None:
-                buy_open_orders[order["id"]] = closest_level.level_id
+                buy_open_orders[order["id"]] = closest_level.level
                 print(
                     f"  -> Ordre {order['id']} | BUY @ {order['price']:.2f} EUR "
-                    f"| Level {closest_level.level_id}"
+                    f"| Level {closest_level.level}"
                 )
 
     if not buy_open_orders:
@@ -660,13 +655,13 @@ def main():
                             closest_level = level
 
                     if closest_level is not None:
-                        sell_level = get_sell_level_for_buy(closest_level.level_id, levels)
+                        sell_level = get_sell_level_for_buy(closest_level.level, levels)
                         if sell_level:
                             sell_price = calculate_sell_price(order_price, sell_level)
                             profit = (sell_price - order_price) * order_amount
                             profit_pct = ((sell_price - order_price) / order_price) * 100
                             print(
-                                f"    -> SELL cible: Level {sell_level.level_id} "
+                                f"    -> SELL cible: Level {sell_level.level} "
                                 f"@ {sell_price:.1f} EUR"
                             )
                             print(

@@ -34,11 +34,7 @@ except ImportError:
     print("[ERROR] ccxt non installé. Exécutez: pip install ccxt")
     sys.exit(1)
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GRID_ENGINE_DIR = os.path.join(SCRIPT_DIR, '..', 'src', 'grid_engine')
-sys.path.insert(0, GRID_ENGINE_DIR)
-
-from grid_calculator import GridCalculator, GridConfig, GridLevel  # noqa: E402
+from grid_calculator import GridConfig, GridLevel, calculate_grid_levels  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -159,14 +155,11 @@ def calculate_grid_level_0(center_price: float) -> GridLevel:
     """
     config = GridConfig(
         symbol=KRAKEN_PAIR_CCXT,
-        total_capital=GRID_TOTAL_CAPITAL,
+        capital_total=GRID_TOTAL_CAPITAL,
         num_levels=GRID_NUM_LEVELS,
         range_percent=GRID_RANGE_PERCENT,
-        min_order_size=KRAKEN_MIN_ORDER_BTC,
-        fee_percent=KRAKEN_FEE_PERCENT,
     )
-    calculator = GridCalculator(config)
-    levels = calculator.calculate_grid(center_price)
+    levels = calculate_grid_levels(center_price, config)
     return levels[0]
 
 
@@ -374,11 +367,11 @@ def main():
     print("\n[3/6] Calcul Grid Level 0...")
     level_0 = calculate_grid_level_0(current_price)
     print(f"  Level 0 prix: {level_0.price:.2f} EUR")
-    print(f"  Volume: {level_0.quantity:.8f} BTC")
-    print(f"  Capital alloué: {level_0.allocated_capital:.2f} EUR")
-    print(f"  Side: {level_0.side.value}")
+    print(f"  Volume: {level_0.btc_quantity:.8f} BTC")
+    print(f"  Capital alloué: {level_0.capital_allocated:.2f} EUR")
+    print(f"  Side: {level_0.level_type}")
 
-    volume_eur = level_0.quantity * level_0.price
+    volume_eur = level_0.btc_quantity * level_0.price
     print(f"  Valeur ordre: ~{volume_eur:.2f} EUR")
 
     print("\n[4/6] Vérification fonds EUR...")
@@ -397,8 +390,8 @@ def main():
         order = place_buy_order(
             exchange=exchange,
             price=level_0.price,
-            volume_btc=level_0.quantity,
-            level_id=level_0.level_id,
+            volume_btc=level_0.btc_quantity,
+            level_id=level_0.level,
         )
     except ccxt.InsufficientFunds as e:
         print(f"[ERROR] Fonds insuffisants: {e}")
