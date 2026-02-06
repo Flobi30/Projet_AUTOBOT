@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-from get_price import get_current_price, KrakenPriceError
+try:
+    from get_price import get_current_price, KrakenPriceError
+except ImportError:
+    get_current_price = None
+    KrakenPriceError = Exception
 
 
 @dataclass
@@ -153,6 +157,11 @@ def display_grid(
 def main() -> None:
     """Point d'entrée principal: récupère le prix et calcule la grille."""
     config = GridConfig()
+
+    if get_current_price is None:
+        print("[ERROR] get_price module non disponible")
+        print("Exécutez: pip install requests")
+        sys.exit(1)
 
     print(f"[{datetime.now().isoformat()}] Récupération prix"
           f" {config.symbol} sur Kraken...")

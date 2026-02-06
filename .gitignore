@@ -107,3 +107,6 @@ venv.bak/
 # Project specific
 config/api_keys.json
 results/
+
+# Bot state file
+bot_state.json
