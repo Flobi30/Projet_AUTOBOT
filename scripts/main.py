@@ -7,9 +7,7 @@ Orchestrateur principal qui enchaine tous les modules.
 import os
 import sys
 import time
-import json
 import logging
-from datetime import datetime
 from typing import List, Dict, Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +15,6 @@ sys.path.insert(0, SCRIPT_DIR)
 SRC_DIR = os.path.join(SCRIPT_DIR, "..", "src")
 sys.path.insert(0, SRC_DIR)
 
-from kraken_connect import main as kraken_connect_test  # noqa: E402
 from get_price import get_current_price  # noqa: E402
 from grid_calculator import GridConfig, calculate_grid_levels, display_grid  # noqa: E402
 from order_manager import (  # noqa: E402
@@ -26,8 +23,8 @@ from order_manager import (  # noqa: E402
     check_eur_balance,
 )
 from position_manager import monitor_and_manage, build_grid  # noqa: E402
-from persistence import save_state, load_state  # noqa: E402
-from autobot.error_handler import ErrorHandler, get_error_handler  # noqa: E402
+from persistence import load_state, save_state  # noqa: E402
+from autobot.error_handler import get_error_handler  # noqa: E402
 
 GRID_CAPITAL = 500.0
 GRID_LEVELS = 15
@@ -54,20 +51,19 @@ class GridTradingBot:
             num_levels=GRID_LEVELS,
             range_percent=GRID_RANGE,
         )
-        self.state = self._load_state()
+        state = load_state()
+        if "initialized" not in state:
+            state["initialized"] = False
+        self.state = state
         self.error_handler = get_error_handler()
 
-    def _load_state(self) -> Dict:
-        """Charge l'etat depuis le fichier JSON."""
-        if os.path.exists(STATE_FILE):
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        return {"orders": [], "positions": [], "initialized": False}
-
     def _save_state(self):
-        """Sauvegarde l'etat dans le fichier JSON."""
-        with open(STATE_FILE, "w") as f:
-            json.dump(self.state, f, indent=2)
+        """Sauvegarde l'etat via le module persistence."""
+        save_state(
+            orders=self.state.get("orders", []),
+            positions=self.state.get("positions", []),
+            metrics={"initialized": self.state.get("initialized", False)},
+        )
 
     def connect(self):
         """Connexion a Kraken."""
