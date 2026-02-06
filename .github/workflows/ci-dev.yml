@@ -131,7 +131,7 @@ jobs:
             -v --tb=short --noconftest \
             --cov=grid_engine \
             --cov-report=term-missing \
-            --cov-fail-under=85 \
+            --cov-fail-under=90 \
             --timeout=60 2>&1 || true
           echo "Grid trading tests completed"
 

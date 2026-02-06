@@ -2360,3 +2360,902 @@ class TestGridEngineAPIState:
         state._websocket_clients.append(mock_ws)
         await state.broadcast_update("test", {"data": 1})
         assert mock_ws not in state._websocket_clients
+
+
+# ---------------------------------------------------------------------------
+# 16. API Endpoints Functional Tests (FastAPI TestClient)
+# ---------------------------------------------------------------------------
+
+class TestGridAPIEndpoints:
+    """Test all REST API endpoints with FastAPI TestClient."""
+
+    @pytest.fixture(autouse=True)
+    def setup_app(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from grid_engine.api import router, GridEngineState
+
+        GridEngineState._instance = None
+        app = FastAPI()
+        app.include_router(router)
+        self.client = TestClient(app)
+        self.state = GridEngineState.get_instance()
+        yield
+        GridEngineState._instance = None
+
+    def _initialize_engine(self):
+        self.state.initialize(
+            symbol="BTC/USDT",
+            total_capital=500.0,
+            center_price=50000.0,
+            num_levels=15,
+        )
+
+    def test_health_check(self):
+        resp = self.client.get("/api/grid/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
+        assert data["initialized"] is False
+        assert data["running"] is False
+        assert "timestamp" in data
+
+    def test_health_check_after_init(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/health")
+        assert resp.status_code == 200
+        assert resp.json()["initialized"] is True
+
+    def test_initialize_grid_endpoint(self):
+        resp = self.client.post("/api/grid/initialize", json={
+            "symbol": "BTC/USDT",
+            "total_capital": 500.0,
+            "center_price": 50000.0,
+            "num_levels": 15,
+            "range_percent": 14.0,
+            "profit_per_level": 0.8,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["symbol"] == "BTC/USDT"
+        assert data["total_levels"] == 15
+        assert data["total_capital"] == 500.0
+        assert data["is_active"] is False
+        assert data["center_price"] == 50000.0
+
+    def test_initialize_grid_error(self):
+        resp = self.client.post("/api/grid/initialize", json={
+            "symbol": "BTC/USDT",
+            "total_capital": -1,
+            "center_price": 50000.0,
+        })
+        assert resp.status_code == 422
+
+    def test_start_grid_not_initialized(self):
+        resp = self.client.post("/api/grid/start")
+        assert resp.status_code == 400
+        assert "not initialized" in resp.json()["detail"]
+
+    def test_start_grid_trading_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.post("/api/grid/start")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "started"
+        assert data["orders_placed"] >= 1
+        assert self.state.is_running is True
+
+    def test_start_grid_already_running(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.post("/api/grid/start")
+        assert resp.status_code == 400
+        assert "already running" in resp.json()["detail"]
+
+    def test_stop_grid_not_running(self):
+        resp = self.client.post("/api/grid/stop")
+        assert resp.status_code == 400
+        assert "not running" in resp.json()["detail"]
+
+    def test_stop_grid_trading_endpoint(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.post("/api/grid/stop")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "stopped"
+        assert self.state.is_running is False
+
+    def test_get_status_not_initialized(self):
+        resp = self.client.get("/api/grid/status")
+        assert resp.status_code == 400
+
+    def test_get_status_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "grid" in data
+        assert "orders" in data
+        assert "positions" in data
+        assert "risk" in data
+        assert "is_running" in data
+
+    def test_get_levels_not_initialized(self):
+        resp = self.client.get("/api/grid/levels")
+        assert resp.status_code == 400
+
+    def test_get_levels_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/levels")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 15
+        assert data["buy_levels"] == 7
+        assert data["sell_levels"] == 7
+        assert len(data["levels"]) == 15
+
+    def test_get_orders_not_initialized(self):
+        resp = self.client.get("/api/grid/orders")
+        assert resp.status_code == 400
+
+    def test_get_orders_endpoint(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.get("/api/grid/orders")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "orders" in data
+        assert "total" in data
+        assert data["total"] >= 1
+
+    def test_get_orders_active_only(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.get("/api/grid/orders?active_only=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] >= 1
+
+    def test_get_positions_not_initialized(self):
+        resp = self.client.get("/api/grid/positions")
+        assert resp.status_code == 400
+
+    def test_get_positions_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/positions")
+        assert resp.status_code == 200
+
+    def test_get_metrics_not_initialized(self):
+        resp = self.client.get("/api/grid/metrics")
+        assert resp.status_code == 400
+
+    def test_get_metrics_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/metrics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_trades" in data
+        assert "initial_capital" in data
+
+    def test_get_risk_not_initialized(self):
+        resp = self.client.get("/api/grid/risk")
+        assert resp.status_code == 400
+
+    def test_get_risk_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/risk")
+        assert resp.status_code == 200
+
+    def test_rebalance_not_initialized(self):
+        resp = self.client.post("/api/grid/rebalance", json={
+            "new_center_price": 55000.0,
+        })
+        assert resp.status_code == 400
+
+    def test_rebalance_endpoint(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.post("/api/grid/rebalance", json={
+            "new_center_price": 55000.0,
+            "reason": "price_drift",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "new_center_price" in data
+
+    def test_rebalance_recommendation_not_initialized(self):
+        resp = self.client.get("/api/grid/rebalance/recommendation?current_price=55000")
+        assert resp.status_code == 400
+
+    def test_rebalance_recommendation_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/rebalance/recommendation?current_price=55000")
+        assert resp.status_code == 200
+
+    def test_emergency_stop_not_initialized(self):
+        resp = self.client.post("/api/grid/emergency-stop", json={
+            "reason": "test stop",
+        })
+        assert resp.status_code == 400
+
+    def test_emergency_stop_endpoint(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.post("/api/grid/emergency-stop", json={
+            "reason": "test emergency",
+        })
+        assert resp.status_code == 200
+        assert self.state.is_running is False
+
+    def test_reset_emergency_stop_not_initialized(self):
+        resp = self.client.post("/api/grid/emergency-stop/reset")
+        assert resp.status_code == 400
+
+    def test_reset_emergency_stop_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.post("/api/grid/emergency-stop/reset")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "success" in data
+
+    def test_price_update_not_initialized(self):
+        resp = self.client.post("/api/grid/price-update?current_price=51000")
+        assert resp.status_code == 400
+
+    def test_price_update_endpoint(self):
+        self._initialize_engine()
+        self.client.post("/api/grid/start")
+        resp = self.client.post("/api/grid/price-update?current_price=51000")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_price"] == 51000.0
+        assert "filled_orders" in data
+        assert "risk_status" in data
+
+    def test_price_update_not_running(self):
+        self._initialize_engine()
+        resp = self.client.post("/api/grid/price-update?current_price=51000")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filled_orders"] == []
+
+    def test_get_config_not_initialized(self):
+        resp = self.client.get("/api/grid/config")
+        assert resp.status_code == 400
+
+    def test_get_config_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["symbol"] == "BTC/USDT"
+        assert data["total_capital"] == 500.0
+
+    def test_get_alerts_not_initialized(self):
+        resp = self.client.get("/api/grid/alerts")
+        assert resp.status_code == 400
+
+    def test_get_alerts_endpoint(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/alerts")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "alerts" in data
+        assert "total" in data
+
+    def test_get_alerts_all(self):
+        self._initialize_engine()
+        resp = self.client.get("/api/grid/alerts?active_only=false")
+        assert resp.status_code == 200
+
+    def test_acknowledge_alert_not_initialized(self):
+        resp = self.client.post("/api/grid/alerts/test-id/acknowledge")
+        assert resp.status_code == 400
+
+    def test_acknowledge_alert_not_found(self):
+        self._initialize_engine()
+        resp = self.client.post("/api/grid/alerts/nonexistent/acknowledge")
+        assert resp.status_code == 404
+
+    def test_websocket_connect_and_ping(self):
+        self._initialize_engine()
+        with self.client.websocket_connect("/api/grid/ws") as ws:
+            msg = ws.receive_json()
+            assert msg["type"] == "connected"
+            ws.send_json({"type": "ping"})
+            pong = ws.receive_json()
+            assert pong["type"] == "pong"
+
+    def test_websocket_subscribe(self):
+        self._initialize_engine()
+        with self.client.websocket_connect("/api/grid/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "subscribe", "channels": ["orders", "risk"]})
+            sub = ws.receive_json()
+            assert sub["type"] == "subscribed"
+            assert sub["channels"] == ["orders", "risk"]
+
+    def test_websocket_get_status(self):
+        self._initialize_engine()
+        with self.client.websocket_connect("/api/grid/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "get_status"})
+            status = ws.receive_json()
+            assert status["type"] == "status"
+            assert "data" in status
+            assert "grid" in status["data"]
+            assert "orders" in status["data"]
+
+    def test_websocket_get_status_not_initialized(self):
+        from grid_engine.api import GridEngineState
+        GridEngineState._instance = None
+        self.state = GridEngineState.get_instance()
+        with self.client.websocket_connect("/api/grid/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "get_status"})
+            err = ws.receive_json()
+            assert err["type"] == "error"
+
+    def test_full_api_workflow(self):
+        resp = self.client.post("/api/grid/initialize", json={
+            "symbol": "BTC/USDT",
+            "total_capital": 500.0,
+            "center_price": 50000.0,
+        })
+        assert resp.status_code == 200
+
+        resp = self.client.post("/api/grid/start")
+        assert resp.status_code == 200
+        assert resp.json()["orders_placed"] >= 1
+
+        resp = self.client.get("/api/grid/status")
+        assert resp.status_code == 200
+        assert resp.json()["is_running"] is True
+
+        resp = self.client.post("/api/grid/price-update?current_price=48000")
+        assert resp.status_code == 200
+
+        resp = self.client.get("/api/grid/metrics")
+        assert resp.status_code == 200
+
+        resp = self.client.get("/api/grid/risk")
+        assert resp.status_code == 200
+
+        resp = self.client.post("/api/grid/stop")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stopped"
+
+
+# ---------------------------------------------------------------------------
+# 17. Binance Connector Exchange Path Tests (mocked ccxt)
+# ---------------------------------------------------------------------------
+
+class TestBinanceConnectorExchangePaths:
+    """Test binance_connector.py with mocked ccxt exchange for real code paths."""
+
+    @pytest.fixture
+    def mock_exchange(self):
+        exchange = AsyncMock()
+        exchange.load_markets = AsyncMock(return_value={})
+        exchange.close = AsyncMock()
+        exchange.fetch_ticker = AsyncMock(return_value={
+            "symbol": "BTC/USDT",
+            "bid": 49999.0,
+            "ask": 50001.0,
+            "last": 50000.0,
+            "baseVolume": 1234.5,
+            "timestamp": 1700000000000,
+        })
+        exchange.fetch_balance = AsyncMock(return_value={
+            "total": {
+                "USDT": {"free": 500.0},
+                "BTC": {"free": 0.01},
+            }
+        })
+        exchange.create_order = AsyncMock(return_value={
+            "id": "EX-ORD-001",
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "type": "limit",
+            "amount": 0.001,
+            "price": 50000.0,
+            "status": "open",
+            "timestamp": 1700000000000,
+        })
+        exchange.cancel_order = AsyncMock(return_value={
+            "id": "EX-ORD-001",
+            "status": "canceled",
+        })
+        exchange.fetch_order = AsyncMock(return_value={
+            "id": "EX-ORD-001",
+            "symbol": "BTC/USDT",
+            "status": "open",
+            "filled": 0.0,
+            "remaining": 0.001,
+            "price": 50000.0,
+        })
+        exchange.fetch_open_orders = AsyncMock(return_value=[
+            {
+                "id": "EX-ORD-001",
+                "symbol": "BTC/USDT",
+                "side": "buy",
+                "type": "limit",
+                "amount": 0.001,
+                "price": 50000.0,
+                "status": "open",
+                "filled": 0.0,
+            }
+        ])
+        return exchange
+
+    @pytest.fixture
+    def connector_with_exchange(self, mock_exchange):
+        config = BinanceConfig(api_key="test", api_secret="secret", testnet=True)
+        conn = BinanceConnector(config=config, paper_trading=False)
+        conn._exchange = mock_exchange
+        conn._is_connected = True
+        return conn
+
+    @pytest.mark.asyncio
+    async def test_connect_with_ccxt_mock(self):
+        config = BinanceConfig(api_key="k", api_secret="s", testnet=True)
+        conn = BinanceConnector(config=config, paper_trading=False)
+
+        mock_exchange_instance = AsyncMock()
+        mock_exchange_instance.load_markets = AsyncMock(return_value={})
+
+        with patch("grid_engine.binance_connector.ccxt", create=True) as mock_ccxt:
+            mock_ccxt_async = MagicMock()
+            mock_ccxt_async.binance = MagicMock(return_value=mock_exchange_instance)
+            with patch.dict("sys.modules", {"ccxt.async_support": mock_ccxt_async}):
+                import importlib
+                import grid_engine.binance_connector as bc_mod
+                conn._exchange = mock_exchange_instance
+                conn._is_connected = True
+
+        assert conn._is_connected is True
+
+    @pytest.mark.asyncio
+    async def test_connect_no_ccxt_fallback(self):
+        config = BinanceConfig(api_key="k", api_secret="s", testnet=True)
+        conn = BinanceConnector(config=config, paper_trading=True)
+
+        with patch.dict("sys.modules", {"ccxt.async_support": None, "ccxt": None}):
+            import importlib
+            with patch("builtins.__import__", side_effect=ImportError("no ccxt")):
+                result = await conn.connect()
+
+        assert result is True
+        assert conn._is_connected is True
+
+    @pytest.mark.asyncio
+    async def test_connect_exchange_error(self):
+        mock_ccxt_mod = MagicMock()
+        mock_exchange_instance = AsyncMock()
+        mock_exchange_instance.load_markets = AsyncMock(side_effect=Exception("network error"))
+        mock_ccxt_mod.binance = MagicMock(return_value=mock_exchange_instance)
+
+        config = BinanceConfig(api_key="k", api_secret="s", testnet=True)
+        conn = BinanceConnector(config=config, paper_trading=False)
+
+        with patch.dict("sys.modules", {"ccxt.async_support": mock_ccxt_mod, "ccxt": MagicMock()}):
+            result = await conn.connect()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_disconnect_with_exchange(self, connector_with_exchange, mock_exchange):
+        mock_ws = AsyncMock()
+        connector_with_exchange._ws_connection = mock_ws
+        await connector_with_exchange.disconnect()
+        assert connector_with_exchange._is_connected is False
+        mock_exchange.close.assert_awaited_once()
+        mock_ws.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_no_exchange(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        conn._is_connected = True
+        await conn.disconnect()
+        assert conn._is_connected is False
+
+    @pytest.mark.asyncio
+    async def test_get_ticker_via_exchange(self, connector_with_exchange, mock_exchange):
+        ticker = await connector_with_exchange.get_ticker("BTC/USDT")
+        assert ticker["last"] == 50000.0
+        assert ticker["bid"] == 49999.0
+        assert ticker["ask"] == 50001.0
+        assert ticker["volume"] == 1234.5
+        mock_exchange.fetch_ticker.assert_awaited_once_with("BTC/USDT")
+
+    @pytest.mark.asyncio
+    async def test_get_ticker_exchange_error_fallback(self, connector_with_exchange, mock_exchange):
+        mock_exchange.fetch_ticker.side_effect = Exception("API error")
+        ticker = await connector_with_exchange.get_ticker("BTC/USDT")
+        assert "last" in ticker
+        assert "bid" in ticker
+
+    @pytest.mark.asyncio
+    async def test_get_balance_via_exchange(self, connector_with_exchange, mock_exchange):
+        connector_with_exchange.paper_trading = False
+        balance = await connector_with_exchange.get_balance()
+        assert balance["USDT"] == 500.0
+        assert balance["BTC"] == 0.01
+        mock_exchange.fetch_balance.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_get_balance_exchange_error_fallback(self, connector_with_exchange, mock_exchange):
+        connector_with_exchange.paper_trading = False
+        mock_exchange.fetch_balance.side_effect = Exception("balance error")
+        balance = await connector_with_exchange.get_balance()
+        assert isinstance(balance, dict)
+
+    @pytest.mark.asyncio
+    async def test_create_order_via_exchange(self, connector_with_exchange, mock_exchange):
+        order = await connector_with_exchange.create_order(
+            symbol="BTCUSDT", side="BUY", type="LIMIT",
+            quantity=0.001, price=50000.0
+        )
+        assert order["orderId"] == "EX-ORD-001"
+        assert order["status"] == "open"
+        mock_exchange.create_order.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_order_exchange_error_raises(self, connector_with_exchange, mock_exchange):
+        mock_exchange.create_order.side_effect = Exception("order failed")
+        with pytest.raises(Exception, match="order failed"):
+            await connector_with_exchange.create_order(
+                symbol="BTCUSDT", side="BUY", type="LIMIT",
+                quantity=0.001, price=50000.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_order_no_exchange_falls_to_paper(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=False)
+        order = await conn.create_order(
+            symbol="BTCUSDT", side="BUY", type="LIMIT",
+            quantity=0.001, price=50000.0
+        )
+        assert order["status"] == "NEW"
+        assert "orderId" in order
+
+    @pytest.mark.asyncio
+    async def test_create_market_order_via_exchange(self, connector_with_exchange, mock_exchange):
+        order = await connector_with_exchange.create_order(
+            symbol="BTCUSDT", side="BUY", type="MARKET",
+            quantity=0.001
+        )
+        assert order["orderId"] == "EX-ORD-001"
+        call_args = mock_exchange.create_order.call_args
+        assert call_args.kwargs.get("price") is None or call_args[1].get("price") is None
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_via_exchange(self, connector_with_exchange, mock_exchange):
+        result = await connector_with_exchange.cancel_order("BTCUSDT", "EX-ORD-001")
+        assert result["status"] == "CANCELED"
+        mock_exchange.cancel_order.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_exchange_error_raises(self, connector_with_exchange, mock_exchange):
+        mock_exchange.cancel_order.side_effect = Exception("cancel failed")
+        with pytest.raises(Exception, match="cancel failed"):
+            await connector_with_exchange.cancel_order("BTCUSDT", "EX-ORD-001")
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_no_exchange(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=False)
+        result = await conn.cancel_order("BTCUSDT", "some-id")
+        assert result["status"] == "CANCELED"
+
+    @pytest.mark.asyncio
+    async def test_get_order_via_exchange(self, connector_with_exchange, mock_exchange):
+        order = await connector_with_exchange.get_order("BTCUSDT", "EX-ORD-001")
+        assert order["orderId"] == "EX-ORD-001"
+        assert order["status"] == "open"
+        mock_exchange.fetch_order.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_get_order_exchange_error_fallback(self, connector_with_exchange, mock_exchange):
+        mock_exchange.fetch_order.side_effect = Exception("fetch error")
+        order = await connector_with_exchange.get_order("BTCUSDT", "EX-ORD-001")
+        assert order["status"] == "UNKNOWN"
+
+    @pytest.mark.asyncio
+    async def test_get_open_orders_via_exchange(self, connector_with_exchange, mock_exchange):
+        orders = await connector_with_exchange.get_open_orders("BTCUSDT")
+        assert len(orders) == 1
+        assert orders[0]["orderId"] == "EX-ORD-001"
+        mock_exchange.fetch_open_orders.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_get_open_orders_no_symbol(self, connector_with_exchange, mock_exchange):
+        orders = await connector_with_exchange.get_open_orders()
+        assert len(orders) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_open_orders_exchange_error(self, connector_with_exchange, mock_exchange):
+        mock_exchange.fetch_open_orders.side_effect = Exception("fetch error")
+        orders = await connector_with_exchange.get_open_orders("BTCUSDT")
+        assert orders == []
+
+    @pytest.mark.asyncio
+    async def test_get_open_orders_no_exchange(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=False)
+        orders = await conn.get_open_orders()
+        assert orders == []
+
+    @pytest.mark.asyncio
+    async def test_simulate_price_callback_error(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+
+        async def bad_callback(symbol, price, data):
+            raise ValueError("callback boom")
+
+        conn.on_price_update(bad_callback)
+        await conn.simulate_price_update("BTC/USDT", 51000.0)
+        assert conn._last_price["BTC/USDT"] == 51000.0
+
+    @pytest.mark.asyncio
+    async def test_paper_order_fill_buy_updates_balance(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        conn._paper_balance = {"USDT": 1000.0, "BTC": 0.0}
+
+        await conn.create_order("BTCUSDT", "BUY", "LIMIT", 0.01, 50000.0)
+        await conn.simulate_price_update("BTCUSDT", 49000.0)
+
+        assert conn._paper_balance["BTC"] > 0
+        assert conn._paper_balance["USDT"] < 1000.0
+
+    @pytest.mark.asyncio
+    async def test_paper_order_fill_sell_updates_balance(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        conn._paper_balance = {"USDT": 0.0, "BTC": 0.01}
+
+        await conn.create_order("BTCUSDT", "SELL", "LIMIT", 0.005, 49000.0)
+        await conn.simulate_price_update("BTCUSDT", 50000.0)
+
+        assert conn._paper_balance["USDT"] > 0
+        assert conn._paper_balance["BTC"] < 0.01
+
+    @pytest.mark.asyncio
+    async def test_paper_fill_triggers_order_callback(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        filled_orders = []
+
+        async def on_order(order):
+            filled_orders.append(order)
+
+        conn.on_order_update(on_order)
+        await conn.create_order("BTCUSDT", "BUY", "LIMIT", 0.001, 50000.0)
+        await conn.simulate_price_update("BTCUSDT", 49500.0)
+        assert len(filled_orders) == 1
+        assert filled_orders[0]["status"] == "FILLED"
+
+    @pytest.mark.asyncio
+    async def test_paper_fill_order_callback_error(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+
+        async def bad_order_cb(order):
+            raise RuntimeError("order callback error")
+
+        conn.on_order_update(bad_order_cb)
+        await conn.create_order("BTCUSDT", "BUY", "LIMIT", 0.001, 50000.0)
+        await conn.simulate_price_update("BTCUSDT", 49500.0)
+
+    @pytest.mark.asyncio
+    async def test_paper_order_symbol_mismatch_no_fill(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        await conn.create_order("ETHUSDT", "BUY", "LIMIT", 0.1, 3000.0)
+        await conn.simulate_price_update("BTCUSDT", 2000.0)
+        orders = await conn.get_open_orders("ETHUSDT")
+        assert len(orders) == 1
+        assert orders[0]["status"] == "NEW"
+
+    @pytest.mark.asyncio
+    async def test_start_price_stream_no_websockets(self):
+        config = BinanceConfig()
+        conn = BinanceConnector(config=config, paper_trading=True)
+        with patch("builtins.__import__", side_effect=ImportError("no websockets")):
+            await conn.start_price_stream(["BTC/USDT"])
+
+    def test_config_from_env(self):
+        with patch.dict(os.environ, {
+            "BINANCE_API_KEY": "env_key",
+            "BINANCE_API_SECRET": "env_secret",
+            "BINANCE_TESTNET": "false",
+        }):
+            config = BinanceConfig.from_env()
+            assert config.api_key == "env_key"
+            assert config.api_secret == "env_secret"
+            assert config.testnet is False
+
+    def test_config_from_env_defaults(self):
+        with patch.dict(os.environ, {}, clear=True):
+            config = BinanceConfig.from_env()
+            assert config.api_key == ""
+            assert config.testnet is True
+
+    def test_base_url_testnet(self):
+        conn = BinanceConnector(BinanceConfig(testnet=True), paper_trading=True)
+        assert "testnet" in conn.base_url
+
+    def test_base_url_production(self):
+        conn = BinanceConnector(BinanceConfig(testnet=False), paper_trading=True)
+        assert conn.base_url == "https://api.binance.com"
+
+    def test_ws_url_testnet(self):
+        conn = BinanceConnector(BinanceConfig(testnet=True), paper_trading=True)
+        assert "testnet" in conn.ws_url
+
+    def test_ws_url_production(self):
+        conn = BinanceConnector(BinanceConfig(testnet=False), paper_trading=True)
+        assert conn.ws_url == "wss://stream.binance.com:9443/ws"
+
+    def test_get_status_connected(self):
+        conn = BinanceConnector(BinanceConfig(), paper_trading=True)
+        conn._is_connected = True
+        conn._last_price = {"BTC/USDT": 50000.0}
+        status = conn.get_status()
+        assert status["connected"] is True
+        assert status["paper_trading"] is True
+        assert status["last_prices"]["BTC/USDT"] == 50000.0
+
+    @pytest.mark.asyncio
+    async def test_create_paper_order_no_price(self):
+        conn = BinanceConnector(BinanceConfig(), paper_trading=True)
+        order = await conn.create_order("BTCUSDT", "BUY", "MARKET", 0.001)
+        assert order["price"] == 50000.0
+        assert order["status"] == "NEW"
+
+
+# ---------------------------------------------------------------------------
+# 18. Position Manager Extended Coverage
+# ---------------------------------------------------------------------------
+
+class TestPositionManagerExtended:
+    """Additional tests for position_manager.py low-coverage paths."""
+
+    @pytest.fixture
+    def setup_manager(self):
+        config = GridConfig(
+            symbol="BTC/USDT", total_capital=500.0,
+            num_levels=15, range_percent=14.0,
+            profit_per_level=0.8, min_order_size=0.0001, fee_percent=0.1,
+        )
+        calc = GridCalculator(config)
+        calc.calculate_grid(50000.0)
+        om = GridOrderManager(grid_calculator=calc, paper_trading=True)
+        pm = GridPositionManager(grid_calculator=calc, order_manager=om)
+        return pm, om, calc
+
+    @pytest.mark.asyncio
+    async def test_check_and_process_fills_with_filled_order(self, setup_manager):
+        pm, om, calc = setup_manager
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        processed = await pm.check_and_process_fills()
+        assert len(processed) == 1
+        assert processed[0].status == PositionStatus.SELL_PLACED
+
+    @pytest.mark.asyncio
+    async def test_check_and_process_fills_skip_already_managed(self, setup_manager):
+        pm, om, calc = setup_manager
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        await pm.check_and_process_fills()
+        second = await pm.check_and_process_fills()
+        assert len(second) == 0
+
+    @pytest.mark.asyncio
+    async def test_check_sell_fills(self, setup_manager):
+        pm, om, calc = setup_manager
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        positions = await pm.check_and_process_fills()
+        pos = positions[0]
+        sell_order = om.orders.get(pos.sell_order_id)
+        await om.simulate_fill(sell_order.order_id)
+        completed = await pm.check_sell_fills()
+        assert len(completed) == 1
+        assert completed[0].status == PositionStatus.CLOSED
+        assert pm.total_cycles == 1
+        assert pm.total_realized_profit != 0
+
+    @pytest.mark.asyncio
+    async def test_run_cycle(self, setup_manager):
+        pm, om, calc = setup_manager
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        result = await pm.run_cycle()
+        assert result["new_sell_orders"] == 1
+        assert result["active_positions"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_buy_filled_callback(self, setup_manager):
+        pm, om, calc = setup_manager
+        events = []
+
+        async def on_buy(pos):
+            events.append(("buy", pos.position_id))
+
+        pm.on_buy_filled(on_buy)
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        await pm.check_and_process_fills()
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_sell_placed_callback(self, setup_manager):
+        pm, om, calc = setup_manager
+        events = []
+
+        async def on_sell(pos):
+            events.append(("sell_placed", pos.position_id))
+
+        pm.on_sell_placed(on_sell)
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        await pm.check_and_process_fills()
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_cycle_complete_callback(self, setup_manager):
+        pm, om, calc = setup_manager
+        events = []
+
+        async def on_complete(pos):
+            events.append(pos.profit_amount)
+
+        pm.on_cycle_complete(on_complete)
+        orders = await om.initialize_grid_orders()
+        await om.simulate_fill(orders[0].order_id)
+        positions = await pm.check_and_process_fills()
+        sell_order = om.orders.get(positions[0].sell_order_id)
+        await om.simulate_fill(sell_order.order_id)
+        await pm.check_sell_fills()
+        assert len(events) == 1
+
+    def test_get_sell_level_for_buy_out_of_bounds(self, setup_manager):
+        pm, om, calc = setup_manager
+        result = pm.get_sell_level_for_buy(100)
+        assert result is None
+
+    def test_calculate_sell_price_uses_min_profit(self, setup_manager):
+        pm, om, calc = setup_manager
+        sell_level = calc.levels[-1]
+        price = pm.calculate_sell_price(sell_level.price - 1, sell_level)
+        assert price >= (sell_level.price - 1) * (1 + 0.8 / 100)
+
+    def test_get_grid_mapping(self, setup_manager):
+        pm, om, calc = setup_manager
+        mapping = pm.get_grid_mapping()
+        assert len(mapping) == 7
+        for m in mapping:
+            assert "buy_level_id" in m
+            assert "sell_level_id" in m
+            assert "spread_pct" in m
+
+    def test_get_status(self, setup_manager):
+        pm, om, calc = setup_manager
+        status = pm.get_status()
+        assert "active_positions" in status
+        assert "completed_cycles" in status
+        assert "total_realized_profit" in status
+
+    def test_to_dict(self, setup_manager):
+        pm, om, calc = setup_manager
+        data = pm.to_dict()
+        assert "status" in data
+        assert "grid_mapping" in data
+        assert "active_positions" in data
