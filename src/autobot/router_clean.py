@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from autobot.schemas import BacktestRequest, BacktestResult, APIKeysRequest, APIKeysResponse
+from autobot.autobot_security.auth.jwt_handler import get_current_user
 from autobot.guardian import get_logs, get_metrics
 from autobot.backtest_engine import run_backtest
 from autobot.rl.train import start_training
@@ -184,7 +185,7 @@ def plug_qwen_chat():
 
 
 @router.post('/backtest/run')
-def run_backtest_strategy(request: BacktestRequest):
+def run_backtest_strategy(request: BacktestRequest, user: dict = Depends(get_current_user)):
     """
     Run a backtest with the specified strategy and parameters.
     """
@@ -198,7 +199,7 @@ def run_backtest_strategy(request: BacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
         
 @router.post('/backtest')
-def backtest_post(request: BacktestRequest):
+def backtest_post(request: BacktestRequest, user: dict = Depends(get_current_user)):
     """
     Run a backtest with the specified strategy and parameters.
     """
@@ -233,7 +234,7 @@ def monitoring():
     return get_health()
 
 @router.post('/trade')
-def trade(symbol: str, side: str, amount: float):
+def trade(symbol: str, side: str, amount: float, user: dict = Depends(get_current_user)):
     """
     Execute a trade with the specified parameters.
     """
@@ -244,7 +245,7 @@ def trade(symbol: str, side: str, amount: float):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/setup', response_model=APIKeysResponse)
-def setup_api_keys(request: APIKeysRequest):
+def setup_api_keys(request: APIKeysRequest, user: dict = Depends(get_current_user)):
     """
     Configure et stocke les clés API pour les échanges.
     
@@ -295,7 +296,7 @@ class GhostingRequest(BaseModel):
     strategies: Optional[List[str]] = None
 
 @router.post('/ghosting/start')
-def start_ghosting(request: GhostingRequest):
+def start_ghosting(request: GhostingRequest, user: dict = Depends(get_current_user)):
     """
     Start ghosting instances with the specified parameters.
     """

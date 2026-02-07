@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 import os
 import logging
 from autobot.router_clean import router
@@ -19,8 +19,13 @@ from autobot.routers.capital import router as capital_router
 from autobot.config import load_api_keys
 from autobot.ui.routes import router as ui_router
 load_api_keys()
-from .api.ghosting_routes import router as ghosting_router
+try:
+    from .api.ghosting_routes import router as ghosting_router
+except ImportError:
+    ghosting_router = None
 from .autobot_security.auth.user_manager import UserManager
+from .autobot_security.auth.jwt_handler import create_access_token
+from .autobot_security.rate_limiter import login_limiter
 from autobot.performance_optimizer import PerformanceOptimizer
 from autobot.trading.hft_optimized_enhanced import HFTOptimizedEngine
 
@@ -34,6 +39,19 @@ app = FastAPI(
 )
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["stripe-autobot.fr", "144.76.16.177", "localhost"])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://144.76.16.177",
+        "https://stripe-autobot.fr",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Performance optimizations activated for 10% daily return target
 performance_optimizer = PerformanceOptimizer(
     memory_threshold=0.80,
@@ -59,7 +77,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 static_dir = os.path.join(current_dir, "ui", "static")
 templates_dir = os.path.join(current_dir, "ui", "templates")
 
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+if os.path.isdir(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(router)
 app.include_router(health_router)
@@ -69,51 +88,55 @@ app.include_router(backtest_router)
 app.include_router(deposit_withdrawal_router)
 app.include_router(chat_router)
 app.include_router(ui_router)
-app.include_router(ghosting_router)
+if ghosting_router is not None:
+    app.include_router(ghosting_router)
 app.include_router(setup_router)
 app.include_router(capital_router)
 app.include_router(funds_router)
 
 user_manager = UserManager()
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    return RedirectResponse(url="/")
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    templates = Jinja2Templates(directory=templates_dir)
-    return templates.TemplateResponse("login.html", {"request": request})
-
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    from autobot.autobot_security.auth.jwt_handler import create_access_token
+async def login(request: Request):
     from datetime import timedelta
-    
-    user = user_manager.authenticate_user(username, password)
-    if user:
-        access_token_expires = timedelta(hours=24)
-        access_token = create_access_token(
-            data={"sub": user["username"], "user_id": user["id"]},
-            expires_delta=access_token_expires
-        )
-        
-        _env = os.getenv('ENV', 'production').lower()
-        _cookie_secure = _env not in ('dev', 'development', 'test', 'testing', 'ci')
 
-        response = RedirectResponse(url="/dashboard", status_code=302)
-        response.set_cookie(
-            key="access_token",
-            value=f"Bearer {access_token}",
-            httponly=True,
-            max_age=86400,
-            secure=_cookie_secure,
-            samesite="lax"
-        )
-        return response
+    await login_limiter.check(request)
+
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        data = await request.json()
+        username = data.get("username", "")
+        password = data.get("password", "")
     else:
-        templates = Jinja2Templates(directory=templates_dir)
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Invalid username or password"
-        })
+        form = await request.form()
+        username = form.get("username", "")
+        password = form.get("password", "")
+
+    user = user_manager.authenticate_user(username, password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    access_token_expires = timedelta(hours=24)
+    access_token = create_access_token(
+        data={"sub": user["username"], "user_id": user["id"]},
+        expires_delta=access_token_expires
+    )
+
+    _env = os.getenv('ENV', 'production').lower()
+    _cookie_secure = _env not in ('dev', 'development', 'test', 'testing', 'ci')
+
+    response = JSONResponse(content={
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": user["username"],
+        "role": user.get("role", "user"),
+    })
+    response.set_cookie(
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        max_age=86400,
+        secure=_cookie_secure,
+        samesite="lax"
+    )
+    return response

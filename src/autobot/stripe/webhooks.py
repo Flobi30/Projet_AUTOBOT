@@ -200,7 +200,7 @@ class WebhookHandler:
             
             # Compute expected signature
             signed_payload = f"{timestamp}.{payload.decode('utf-8')}"
-            expected_sig = hmac.new(
+            expected_sig = hmac.HMAC(
                 self.webhook_secret.encode('utf-8'),
                 signed_payload.encode('utf-8'),
                 hashlib.sha256
