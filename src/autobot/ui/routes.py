@@ -91,14 +91,15 @@ async def dashboard(request: Request, user: User = Depends(get_current_user)):
     })
 
 @router.get("/trading", response_class=HTMLResponse)
-async def get_trading(request: Request):
+async def get_trading(request: Request, user: dict = Depends(get_current_user)):
     """
     Page de trading.
     """
     return templates.TemplateResponse("trading.html", {
         "request": request,
         "active_page": "trading",
-        "username": "AUTOBOT",
+        "user": user,
+        "username": user.get("sub", "AUTOBOT"),
         "user_role": "admin",
         "user_role_display": "Administrateur"
     })
@@ -107,20 +108,21 @@ async def get_trading(request: Request):
 
 
 @router.get("/backtest", response_class=HTMLResponse)
-async def get_backtest(request: Request):
+async def get_backtest(request: Request, user: dict = Depends(get_current_user)):
     """
     Page de backtest.
     """
     return templates.TemplateResponse("backtest.html", {
         "request": request,
         "active_page": "backtest",
-        "username": "AUTOBOT",
+        "user": user,
+        "username": user.get("sub", "AUTOBOT"),
         "user_role": "admin",
         "user_role_display": "Administrateur"
     })
 
 @router.get("/capital", response_class=HTMLResponse)
-async def get_capital(request: Request):
+async def get_capital(request: Request, user: dict = Depends(get_current_user)):
     """
     Page de gestion du capital.
     """
@@ -143,7 +145,8 @@ async def get_capital(request: Request):
         return templates.TemplateResponse("capital.html", {
             "request": request,
             "active_page": "capital",
-            "username": "AUTOBOT",
+            "user": user,
+            "username": user.get("sub", "AUTOBOT"),
             "user_role": "admin",
             "user_role_display": "Administrateur",
             "initial_capital": initial_capital,
@@ -160,7 +163,8 @@ async def get_capital(request: Request):
         return templates.TemplateResponse("capital.html", {
             "request": request,
             "active_page": "capital",
-            "username": "AUTOBOT",
+            "user": user,
+            "username": user.get("sub", "AUTOBOT"),
             "user_role": "admin",
             "user_role_display": "Administrateur",
             "initial_capital": 500,
@@ -186,14 +190,15 @@ async def get_duplication(request: Request):
     })
 
 @router.get("/retrait-depot", response_class=HTMLResponse)
-async def get_retrait_depot(request: Request):
+async def get_retrait_depot(request: Request, user: dict = Depends(get_current_user)):
     """
     Page de retrait et dépôt.
     """
     return templates.TemplateResponse("retrait_depot.html", {
         "request": request,
         "active_page": "retrait-depot",
-        "username": "AUTOBOT",
+        "user": user,
+        "username": user.get("sub", "AUTOBOT"),
         "user_role": "admin",
         "user_role_display": "Administrateur"
     })
