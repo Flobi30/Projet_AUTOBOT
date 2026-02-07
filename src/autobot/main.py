@@ -98,13 +98,16 @@ async def login(request: Request, username: str = Form(...), password: str = For
             expires_delta=access_token_expires
         )
         
+        _env = os.getenv('ENV', 'production').lower()
+        _cookie_secure = _env not in ('dev', 'development', 'test', 'testing', 'ci')
+
         response = RedirectResponse(url="/dashboard", status_code=302)
         response.set_cookie(
             key="access_token",
             value=f"Bearer {access_token}",
             httponly=True,
             max_age=86400,
-            secure=False,
+            secure=_cookie_secure,
             samesite="lax"
         )
         return response
