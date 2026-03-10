@@ -23,6 +23,15 @@ class CircuitBreakerOpenError(Exception):
     pass
 
 
+# Exceptions réseau/transitoires par défaut
+DEFAULT_RETRY_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    RuntimeError,  # Pour les erreurs API Kraken
+)
+
+
 class ErrorHandler:
     """
     Gestionnaire d'erreurs avec retry et circuit breaker.
@@ -31,6 +40,7 @@ class ErrorHandler:
     - Retry automatique avec backoff exponentiel
     - Circuit breaker pour éviter les cascades d'erreurs
     - Logging détaillé des erreurs
+    - Vérification circuit à chaque tentative (correction bug)
     """
     
     def __init__(
@@ -112,11 +122,14 @@ class ErrorHandler:
         self,
         func: Callable,
         *args,
-        expected_exceptions: Tuple[Type[Exception], ...] = (Exception,),
+        expected_exceptions: Tuple[Type[Exception], ...] = DEFAULT_RETRY_EXCEPTIONS,
         **kwargs
     ) -> Any:
         """
         Exécute une fonction avec retry et circuit breaker.
+        
+        CORRECTION: Vérifie le circuit breaker à CHAQUE tentative,
+        pas seulement au début. Arrête immédiatement si le circuit s'ouvre.
         
         Args:
             func: Fonction à exécuter
@@ -131,14 +144,16 @@ class ErrorHandler:
             CircuitBreakerOpenError: Si le circuit est ouvert
             Exception: La dernière exception après épuisement des retries
         """
-        # Vérifie le circuit breaker
-        if not self._check_circuit():
-            raise CircuitBreakerOpenError("Circuit breaker est ouvert - trop d'erreurs récentes")
-        
         last_exception = None
         delay = self.retry_delay
         
         for attempt in range(1, self.max_retries + 1):
+            # Vérifie le circuit breaker à CHAQUE tentative
+            if not self._check_circuit():
+                raise CircuitBreakerOpenError(
+                    f"Circuit breaker ouvert après tentative {attempt-1}"
+                )
+            
             try:
                 result = func(*args, **kwargs)
                 self._record_success()
@@ -148,7 +163,18 @@ class ErrorHandler:
                 last_exception = e
                 self._record_failure()
                 
+                # Vérifie si on doit retry
                 if attempt < self.max_retries:
+                    # Si le circuit vient de s'ouvrir, arrête immédiatement
+                    if self._circuit_state == CircuitState.OPEN:
+                        logger.error(
+                            f"❌ Circuit ouvert après tentative {attempt}, "
+                            f"arrêt des retries"
+                        )
+                        raise CircuitBreakerOpenError(
+                            f"Circuit ouvert après {attempt} échecs"
+                        ) from e
+                    
                     logger.warning(
                         f"⚠️ Tentative {attempt}/{self.max_retries} échouée: {e}. "
                         f"Retry dans {delay:.1f}s..."
@@ -162,7 +188,7 @@ class ErrorHandler:
     
     def retry_decorator(
         self,
-        expected_exceptions: Tuple[Type[Exception], ...] = (Exception,)
+        expected_exceptions: Tuple[Type[Exception], ...] = DEFAULT_RETRY_EXCEPTIONS
     ):
         """
         Décorateur pour ajouter le retry à une fonction.

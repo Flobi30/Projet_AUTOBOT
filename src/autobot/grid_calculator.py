@@ -44,13 +44,17 @@ class GridCalculator:
             center_price: Prix central actuel du marché
             
         Returns:
-            Liste des 15 niveaux de prix
+            Liste des niveaux de prix
             
         Raises:
-            ValueError: Si le prix central est invalide
+            ValueError: Si le prix central est invalide ou si num_levels < 2
         """
         if center_price <= 0:
             raise ValueError(f"Prix central invalide: {center_price}")
+        
+        # CORRECTION: Protection contre division par zéro
+        if self.config.num_levels < 2:
+            raise ValueError(f"num_levels doit être >= 2, a {self.config.num_levels}")
         
         self.center_price = center_price
         
@@ -74,24 +78,32 @@ class GridCalculator:
     
     def get_buy_levels(self) -> List[float]:
         """
-        Retourne les niveaux d'achat (inférieurs au prix central).
+        Retourne les niveaux d'achat (inférieurs ou égaux au prix central).
+        
+        CORRECTION: Inclut le niveau central s'il existe exactement,
+        pour éviter qu'un niveau ne soit ignoré.
         
         Returns:
             Liste des niveaux d'achat
         """
         if not self.levels:
             raise ValueError("Grid non calculé. Appelez calculate_grid() d'abord.")
-        return [level for level in self.levels if level < self.center_price]
+        # Inclut les niveaux <= center_price (achat)
+        return [level for level in self.levels if level <= self.center_price]
     
     def get_sell_levels(self) -> List[float]:
         """
         Retourne les niveaux de vente (supérieurs au prix central).
+        
+        CORRECTION: Exclut strictement le niveau central pour éviter
+        le chevauchement avec get_buy_levels.
         
         Returns:
             Liste des niveaux de vente
         """
         if not self.levels:
             raise ValueError("Grid non calculé. Appelez calculate_grid() d'abord.")
+        # Exclut strictement le center_price (déjà dans buy)
         return [level for level in self.levels if level > self.center_price]
     
     def get_nearest_level(self, price: float) -> float:
