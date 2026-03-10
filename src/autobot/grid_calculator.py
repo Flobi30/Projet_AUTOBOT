@@ -23,6 +23,9 @@ class GridCalculator:
     Calcule les niveaux de grille pour le trading grid.
     
     Par défaut: 15 niveaux sur une range de +/- 7% autour du prix central.
+    
+    CORRECTION: La grille est maintenant équilibrée avec un nombre pair de niveaux
+    pour éviter le niveau central ambigu.
     """
     
     def __init__(self, config: GridConfig = None):
@@ -33,6 +36,15 @@ class GridCalculator:
             config: Configuration de la grille (utilise défaut si None)
         """
         self.config = config or GridConfig()
+        
+        # CORRECTION: Force un nombre pair de niveaux pour équilibre parfait
+        if self.config.num_levels % 2 != 0:
+            self.config.num_levels += 1
+            logger.warning(
+                f"⚠️ Nombre de niveaux ajusté à {self.config.num_levels} "
+                f"(pair requis pour équilibre BUY/SELL)"
+            )
+        
         self.levels: List[float] = []
         self.center_price: float = 0.0
         
@@ -69,42 +81,59 @@ class GridCalculator:
         # Génération des niveaux
         self.levels = [lower + i * step for i in range(self.config.num_levels)]
         
+        # CORRECTION: Calcul du volume par niveau dynamique
+        capital_per_level = self.config.capital / self.config.num_levels
+        volume_per_level = capital_per_level / center_price
+        
         logger.info(f"📊 Grid calculé ({self.config.num_levels} niveaux):")
         logger.info(f"   Prix centre: €{center_price:,.2f}")
         logger.info(f"   Range: €{lower:,.2f} - €{upper:,.2f}")
-        logger.info(f"   Capital/niveau: €{self.config.capital / self.config.num_levels:.2f}")
+        logger.info(f"   Capital/niveau: €{capital_per_level:.2f}")
+        logger.info(f"   Volume/niveau: {volume_per_level:.6f} BTC")
         
         return self.levels
     
     def get_buy_levels(self) -> List[float]:
         """
-        Retourne les niveaux d'achat (inférieurs ou égaux au prix central).
+        Retourne les niveaux d'achat (strictement inférieurs au prix central).
         
-        CORRECTION: Inclut le niveau central s'il existe exactement,
-        pour éviter qu'un niveau ne soit ignoré.
+        CORRECTION: Utilise < au lieu de <= pour équilibre parfait.
+        Avec un nombre pair de niveaux, le centre tombe entre deux niveaux.
         
         Returns:
             Liste des niveaux d'achat
         """
         if not self.levels:
             raise ValueError("Grid non calculé. Appelez calculate_grid() d'abord.")
-        # Inclut les niveaux <= center_price (achat)
-        return [level for level in self.levels if level <= self.center_price]
+        # Strictement inférieur au centre pour équilibre parfait
+        return [level for level in self.levels if level < self.center_price]
     
     def get_sell_levels(self) -> List[float]:
         """
-        Retourne les niveaux de vente (supérieurs au prix central).
-        
-        CORRECTION: Exclut strictement le niveau central pour éviter
-        le chevauchement avec get_buy_levels.
+        Retourne les niveaux de vente (strictement supérieurs au prix central).
         
         Returns:
             Liste des niveaux de vente
         """
         if not self.levels:
             raise ValueError("Grid non calculé. Appelez calculate_grid() d'abord.")
-        # Exclut strictement le center_price (déjà dans buy)
+        # Strictement supérieur au centre
         return [level for level in self.levels if level > self.center_price]
+    
+    def get_volume_per_level(self, center_price: float) -> float:
+        """
+        Calcule le volume à trader par niveau en fonction du capital.
+        
+        CORRECTION: Volume dynamique calculé pour respecter le budget total.
+        
+        Args:
+            center_price: Prix actuel du marché
+            
+        Returns:
+            Volume en BTC par niveau
+        """
+        capital_per_level = self.config.capital / self.config.num_levels
+        return capital_per_level / center_price
     
     def get_nearest_level(self, price: float) -> float:
         """
