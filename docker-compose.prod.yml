@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  autobot:
+    build: .
+    container_name: autobot-trading
+    restart: unless-stopped
+    
+    environment:
+      # MODE (sandbox par défaut)
+      - AUTOBOT_SANDBOX=${AUTOBOT_SANDBOX:-true}
+      # Décommenter pour production: AUTOBOT_PRODUCTION_CONFIRMED=YES_I_KNOW_WHAT_IM_DOING
+      
+      # API Kraken (depuis .env)
+      - KRAKEN_API_KEY=${KRAKEN_API_KEY}
+      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
+      
+      # Trading settings
+      - AUTOBOT_SYMBOL=${AUTOBOT_SYMBOL:-XXBTZEUR}
+      - AUTOBOT_CAPITAL=${AUTOBOT_CAPITAL:-500.0}
+      - AUTOBOT_NUM_LEVELS=${AUTOBOT_NUM_LEVELS:-14}
+      - AUTOBOT_RANGE_PERCENT=${AUTOBOT_RANGE_PERCENT:-14.0}
+      
+      # Sécurité
+      - AUTOBOT_MAX_ORDER_VALUE=${AUTOBOT_MAX_ORDER_VALUE:-100.0}
+      - AUTOBOT_MAX_VOLUME=${AUTOBOT_MAX_VOLUME:-0.01}
+      - AUTOBOT_MAX_POSITIONS=${AUTOBOT_MAX_POSITIONS:-10}
+      - AUTOBOT_MAX_DRAWDOWN=${AUTOBOT_MAX_DRAWDOWN:-20.0}
+      
+      # Performance
+      - AUTOBOT_POLL_INTERVAL=${AUTOBOT_POLL_INTERVAL:-30}
+    
+    volumes:
+      # Persistence des données (state, logs)
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Santé du container
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

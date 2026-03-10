@@ -1,0 +1,11 @@
+# AUTOBOT Grid Trading - Dépendances
+
+# API Kraken
+krakenex>=2.1.0
+
+# Tests
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Utilitaires
+python-dotenv>=1.0.0
