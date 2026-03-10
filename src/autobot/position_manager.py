@@ -361,8 +361,8 @@ class PositionManager:
                 f"(limite: -{self.max_drawdown_percent}%)"
             )
             
-            # Ferme toutes les positions (avec liquidation au marché)
-            self.close_all_positions(current_price)
+            # Ferme toutes les positions
+            self.close_all_positions()
             
             # Callback
             if self._on_stop_loss_triggered:
@@ -499,66 +499,31 @@ class PositionManager:
         self._on_profit_realized = on_profit_realized
         self._on_stop_loss_triggered = on_stop_loss_triggered
     
-    def close_all_positions(self, current_price: float = None) -> int:
+    def close_all_positions(self) -> int:
         """
-        Ferme toutes les positions en urgence (stop-loss).
+        Ferme toutes les positions (annule les ordres).
         
-        CORRECTION: Pour les positions FILLED (BUY rempli), vend au marché
-        au lieu d'annuler simplement l'ordre SELL. C'est essentiel pour
-        protéger le capital en cas de crash.
-        
-        Args:
-            current_price: Prix actuel (pour logging)
-            
         Returns:
             Nombre de positions fermées
         """
         count = 0
-        symbol = "XXBTZEUR"  # Default, should be configurable
         
-        # 1. Ferme les positions ouvertes (ordres BUY en attente)
         for position in self.get_open_positions():
             try:
                 self.order_manager.cancel_order(position.buy_order_id)
                 position.status = PositionStatus.CLOSED
                 count += 1
-                logger.info(f"🚫 Ordre BUY annulé: {position.buy_order_id}")
             except Exception as e:
-                logger.error(f"❌ Erreur annulation BUY {position.buy_order_id}: {e}")
+                logger.error(f"❌ Erreur fermeture position {position.buy_order_id}: {e}")
         
-        # 2. Ferme les positions remplies (BUY exécuté) - VENTE AU MARCHÉ
         for position in self.get_filled_positions():
-            try:
-                # CORRECTION: Vente au marché pour liquider immédiatement
-                logger.warning(
-                    f"🚨 Liquidation position: {position.volume} BTC "
-                    f"acheté @ €{position.buy_price:,.2f}"
-                )
-                
-                # Annule d'abord l'ordre SELL limit en attente
-                if position.sell_order_id:
-                    try:
-                        self.order_manager.cancel_order(position.sell_order_id)
-                        logger.info(f"🚫 Ancien ordre SELL annulé: {position.sell_order_id}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Impossible d'annuler SELL {position.sell_order_id}: {e}")
-                
-                # Place un ordre MARKET SELL pour liquider immédiatement
-                sell_order = self.order_manager.place_market_sell_order(
-                    symbol=symbol,
-                    volume=position.volume
-                )
-                
-                position.sell_order_id = sell_order.id
-                position.sell_price = current_price or position.buy_price  # Estimation
-                position.status = PositionStatus.CLOSED
-                position.profit = position.calculate_profit()
-                
-                count += 1
-                logger.info(f"💰 Position liquidée au marché: {position.volume} BTC")
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur liquidation position {position.buy_order_id}: {e}")
+            if position.sell_order_id:
+                try:
+                    self.order_manager.cancel_order(position.sell_order_id)
+                    position.status = PositionStatus.CLOSED
+                    count += 1
+                except Exception as e:
+                    logger.error(f"❌ Erreur fermeture SELL {position.sell_order_id}: {e}")
         
-        logger.warning(f"🚨 STOP-LOSS: {count} positions fermées/liquidées")
+        logger.info(f"🗑️ {count} positions fermées")
         return count
