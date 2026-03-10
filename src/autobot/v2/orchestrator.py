@@ -1,0 +1,395 @@
+"""
+Orchestrator - Gestionnaire central des instances de trading
+"""
+
+import asyncio
+import logging
+import uuid
+from typing import Dict, List, Optional, Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from threading import Lock, Thread
+import time
+
+from .websocket_client import KrakenWebSocket, TickerData
+from .validator import ValidatorEngine, ValidationResult, ValidationStatus
+from .instance import TradingInstance
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class InstanceConfig:
+    """Configuration d'une instance"""
+    name: str
+    symbol: str
+    strategy: str  # 'grid', 'trend', 'breakout'
+    initial_capital: float
+    leverage: int = 1  # 1, 2, 3...
+    tp_sl_config: Dict = field(default_factory=dict)
+    grid_config: Optional[Dict] = None
+    
+
+class Orchestrator:
+    """
+    Orchestrateur principal AUTOBOT V2.
+    
+    Gère:
+    - Multi-instances dynamiques
+    - Distribution des données WebSocket
+    - Validation des actions
+    - Spin-off automatique
+    - Monitoring global
+    """
+    
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        
+        # WebSocket Kraken
+        self.ws_client = KrakenWebSocket(api_key, api_secret)
+        
+        # Validator Engine
+        self.validator = ValidatorEngine()
+        
+        # Instances
+        self._instances: Dict[str, TradingInstance] = {}
+        self._instance_lock = Lock()
+        
+        # Configuration globale
+        self.config = {
+            'max_instances': 5,  # Hard limit sécurité
+            'spin_off_threshold': 2000.0,
+            'leverage_threshold': 1000.0,
+            'check_interval': 30,  # minutes
+            'max_drawdown_global': 0.30  # 30%
+        }
+        
+        # État
+        self.running = False
+        self._main_thread: Optional[Thread] = None
+        self._start_time: Optional[datetime] = None
+        
+        # Callbacks
+        self._on_instance_created: Optional[Callable] = None
+        self._on_instance_spinoff: Optional[Callable] = None
+        self._on_alert: Optional[Callable] = None
+        
+        logger.info("🎛️ Orchestrator initialisé")
+    
+    def create_instance(self, config: InstanceConfig) -> Optional[TradingInstance]:
+        """
+        Crée une nouvelle instance de trading.
+        
+        Args:
+            config: Configuration de l'instance
+            
+        Returns:
+            Instance créée ou None si échec
+        """
+        with self._instance_lock:
+            # Check limite globale
+            if len(self._instances) >= self.config['max_instances']:
+                logger.warning(f"⚠️ Limite instances atteinte: {self.config['max_instances']}")
+                return None
+            
+            # Crée l'instance
+            instance_id = str(uuid.uuid4())[:8]
+            instance = TradingInstance(
+                instance_id=instance_id,
+                config=config,
+                orchestrator=self
+            )
+            
+            self._instances[instance_id] = instance
+            
+            # Subscribe aux données de marché
+            self.ws_client.add_ticker_listener(
+                config.symbol,
+                lambda data, inst=instance: inst.on_price_update(data)
+            )
+            
+            logger.info(f"✅ Instance créée: {instance_id} ({config.name}) - Capital: {config.initial_capital:.2f}€")
+            
+            if self._on_instance_created:
+                self._on_instance_created(instance)
+            
+            return instance
+    
+    def remove_instance(self, instance_id: str) -> bool:
+        """Supprime une instance"""
+        with self._instance_lock:
+            if instance_id not in self._instances:
+                return False
+            
+            instance = self._instances[instance_id]
+            
+            # Unsubscribe des données
+            self.ws_client.remove_ticker_listener(
+                instance.config.symbol,
+                instance.on_price_update
+            )
+            
+            # Arrête l'instance
+            instance.stop()
+            
+            del self._instances[instance_id]
+            logger.info(f"🗑️ Instance supprimée: {instance_id}")
+            return True
+    
+    def check_spin_off(self, parent_instance: TradingInstance) -> Optional[TradingInstance]:
+        """
+        Vérifie si spin-off possible et l'exécute si OK.
+        
+        Args:
+            parent_instance: Instance mère potentielle
+            
+        Returns:
+            Nouvelle instance créée ou None
+        """
+        capital = parent_instance.get_current_capital()
+        
+        context = {
+            'capital': capital,
+            'threshold': self.config['spin_off_threshold'],
+            'available_capital': self._get_available_capital(),
+            'min_capital': 500.0,
+            'instance_count': len(self._instances),
+            'max_instances': self.config['max_instances'],
+            'volatility': parent_instance.get_volatility(),
+            'max_volatility': 0.10
+        }
+        
+        result = self.validator.validate('spin_off', context)
+        
+        if result.status == ValidationStatus.GREEN:
+            # Crée nouvelle instance avec stratégie par défaut
+            new_config = InstanceConfig(
+                name=f"{parent_instance.config.name}_spinoff",
+                symbol=parent_instance.config.symbol,
+                strategy='grid',  # Par défaut Grid
+                initial_capital=500.0
+            )
+            
+            new_instance = self.create_instance(new_config)
+            
+            if new_instance:
+                parent_instance.record_spin_off(500.0)
+                logger.info(f"🔄 Spin-off réussi: {parent_instance.id} → {new_instance.id}")
+                
+                if self._on_instance_spinoff:
+                    self._on_instance_spinoff(parent_instance, new_instance)
+                
+                return new_instance
+        else:
+            logger.debug(f"⏳ Spin-off bloqué pour {parent_instance.id}: {result.message}")
+        
+        return None
+    
+    def check_leverage_activation(self, instance: TradingInstance) -> bool:
+        """Vérifie si levier peut être activé"""
+        capital = instance.get_current_capital()
+        
+        if capital < self.config['leverage_threshold']:
+            return False
+        
+        context = {
+            'capital': capital,
+            'threshold': self.config['leverage_threshold'],
+            'win_streak': instance.get_win_streak(),
+            'min_win_streak': 5,
+            'drawdown': instance.get_drawdown(),
+            'max_drawdown': 0.10,
+            'trend': instance.detect_trend()
+        }
+        
+        result = self.validator.validate('leverage', context)
+        
+        if result.status in (ValidationStatus.GREEN, ValidationStatus.YELLOW):
+            if instance.activate_leverage(2):  # x2
+                logger.info(f"⚡ Levier x2 activé sur {instance.id}")
+                return True
+        
+        return False
+    
+    def _get_available_capital(self) -> float:
+        """Calcule capital disponible pour nouvelle instance"""
+        # TODO: Connecter à API Kraken pour solde réel
+        return 10000.0  # Placeholder
+    
+    def _main_loop(self):
+        """Boucle principale de l'orchestrateur"""
+        logger.info("🚀 Orchestrator main loop démarré")
+        
+        while self.running:
+            try:
+                loop_start = time.time()
+                
+                with self._instance_lock:
+                    instances = list(self._instances.values())
+                
+                for instance in instances:
+                    if not instance.is_running():
+                        continue
+                    
+                    # Check spin-off
+                    self.check_spin_off(instance)
+                    
+                    # Check levier
+                    if instance.config.leverage == 1:
+                        self.check_leverage_activation(instance)
+                    
+                    # Check santé instance
+                    if instance.get_drawdown() > self.config['max_drawdown_global']:
+                        logger.error(f"🚨 Drawdown critique sur {instance.id}: {instance.get_drawdown():.2%}")
+                        instance.emergency_stop()
+                        
+                        if self._on_alert:
+                            self._on_alert('CRITICAL_DRAWDOWN', instance)
+                
+                # Check global
+                self._check_global_health()
+                
+                # Attente avant prochain check
+                elapsed = time.time() - loop_start
+                sleep_time = max(0, self.config['check_interval'] * 60 - elapsed)
+                
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                    
+            except Exception as e:
+                logger.error(f"❌ Erreur main loop: {e}")
+                time.sleep(60)  # Attente 1 min avant retry
+    
+    def _check_global_health(self):
+        """Vérifie santé globale du système"""
+        # Check connexion WebSocket
+        if not self.ws_client.is_connected():
+            logger.warning("🔌 WebSocket déconnecté, tentative reconnexion...")
+            try:
+                self.ws_client.connect()
+            except Exception as e:
+                logger.error(f"❌ Échec reconnexion WebSocket: {e}")
+    
+    def start(self):
+        """Démarre l'orchestrateur"""
+        if self.running:
+            logger.warning("⚠️ Orchestrator déjà démarré")
+            return
+        
+        self.running = True
+        self._start_time = datetime.now()
+        
+        # Connexion WebSocket
+        self.ws_client.connect()
+        
+        # Démarrage instances
+        with self._instance_lock:
+            for instance in self._instances.values():
+                instance.start()
+        
+        # Boucle principale
+        self._main_thread = Thread(target=self._main_loop, daemon=True)
+        self._main_thread.start()
+        
+        logger.info("✅ Orchestrator démarré")
+    
+    def stop(self):
+        """Arrête l'orchestrateur"""
+        logger.info("🛑 Arrêt Orchestrator...")
+        self.running = False
+        
+        # Arrêt instances
+        with self._instance_lock:
+            for instance in self._instances.values():
+                instance.stop()
+        
+        # Arrêt WebSocket
+        self.ws_client.disconnect()
+        
+        # Attente thread
+        if self._main_thread:
+            self._main_thread.join(timeout=10)
+        
+        logger.info("✅ Orchestrator arrêté")
+    
+    def get_status(self) -> Dict:
+        """Retourne statut global"""
+        return {
+            'running': self.running,
+            'start_time': self._start_time,
+            'uptime': datetime.now() - self._start_time if self._start_time else None,
+            'instance_count': len(self._instances),
+            'max_instances': self.config['max_instances'],
+            'websocket_connected': self.ws_client.is_connected(),
+            'instances': [
+                {
+                    'id': inst.id,
+                    'name': inst.config.name,
+                    'capital': inst.get_current_capital(),
+                    'running': inst.is_running()
+                }
+                for inst in self._instances.values()
+            ]
+        }
+    
+    def set_callbacks(self, 
+                      on_instance_created: Optional[Callable] = None,
+                      on_instance_spinoff: Optional[Callable] = None,
+                      on_alert: Optional[Callable] = None):
+        """Définit les callbacks"""
+        self._on_instance_created = on_instance_created
+        self._on_instance_spinoff = on_instance_spinoff
+        self._on_alert = on_alert
+
+
+# Placeholder pour TradingInstance (à compléter)
+class TradingInstance:
+    """Instance de trading (sera complétée dans instance.py)"""
+    
+    def __init__(self, instance_id: str, config: InstanceConfig, orchestrator: Orchestrator):
+        self.id = instance_id
+        self.config = config
+        self.orchestrator = orchestrator
+        self._running = False
+        self._capital = config.initial_capital
+        
+    def start(self):
+        self._running = True
+        
+    def stop(self):
+        self._running = False
+        
+    def is_running(self) -> bool:
+        return self._running
+    
+    def get_current_capital(self) -> float:
+        return self._capital
+    
+    def get_volatility(self) -> float:
+        return 0.05  # Placeholder
+    
+    def get_win_streak(self) -> int:
+        return 0  # Placeholder
+    
+    def get_drawdown(self) -> float:
+        return 0.0  # Placeholder
+    
+    def detect_trend(self) -> str:
+        return 'unknown'  # Placeholder
+    
+    def activate_leverage(self, leverage: int) -> bool:
+        if self._capital >= 1000:
+            self.config.leverage = leverage
+            return True
+        return False
+    
+    def record_spin_off(self, amount: float):
+        self._capital -= amount
+    
+    def emergency_stop(self):
+        self.stop()
+        logger.warning(f"🚨 Arrêt d'urgence instance {self.id}")
+    
+    def on_price_update(self, data: TickerData):
+        pass  # Sera implémenté
