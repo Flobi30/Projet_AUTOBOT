@@ -119,6 +119,79 @@ class OrderManager:
             raise RuntimeError("Client Kraken non initialisé - vérifiez les clés API")
         return self._client
     
+    def _check_balance(self, side: OrderSide, price: float, volume: float, symbol: str) -> bool:
+        """
+        Vérifie que le solde est suffisant pour l'ordre.
+        
+        Args:
+            side: BUY ou SELL
+            price: Prix de l'ordre
+            volume: Volume
+            symbol: Paire de trading
+            
+        Returns:
+            True si solde suffisant
+            
+        Raises:
+            RuntimeError: Si solde insuffisant
+        """
+        if self.sandbox:
+            return True  # Pas de vérification en sandbox
+        
+        def _query_balance():
+            client = self._get_client()
+            result = client.query_private('Balance')
+            
+            if result.get('error'):
+                raise RuntimeError(f"Erreur Kraken Balance: {result['error']}")
+            
+            return result.get('result', {})
+        
+        try:
+            balances = self.error_handler.execute_with_retry(_query_balance)
+            
+            if side == OrderSide.BUY:
+                # Pour un BUY, vérifie le solde en EUR (ou devise de quote)
+                # XXBTZEUR -> EUR, XXBTZUSD -> USD
+                quote_currency = "ZEUR"  # Par défaut EUR
+                if "USD" in symbol:
+                    quote_currency = "ZUSD"
+                
+                required = price * volume
+                available = float(balances.get(quote_currency, 0))
+                
+                if available < required:
+                    raise RuntimeError(
+                        f"Solde insuffisant pour BUY: {available:.2f} < {required:.2f} {quote_currency}"
+                    )
+                
+                logger.debug(f"✅ Solde OK: {available:.2f} {quote_currency} >= {required:.2f}")
+                
+            else:  # SELL
+                # Pour un SELL, vérifie le solde en crypto (base currency)
+                # XXBTZEUR -> XXBT (BTC)
+                base_currency = symbol[:4] if len(symbol) >= 4 else symbol
+                if base_currency not in balances and "XXBT" in symbol:
+                    base_currency = "XXBT"
+                elif base_currency not in balances and "XETH" in symbol:
+                    base_currency = "XETH"
+                
+                required = volume
+                available = float(balances.get(base_currency, 0))
+                
+                if available < required:
+                    raise RuntimeError(
+                        f"Solde insuffisant pour SELL: {available:.6f} < {required:.6f} {base_currency}"
+                    )
+                
+                logger.debug(f"✅ Solde OK: {available:.6f} {base_currency} >= {required:.6f}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur vérification solde: {e}")
+            raise
+    
     def _validate_order(self, symbol: str, price: float, volume: float) -> None:
         """
         Valide les paramètres d'un ordre avant placement.
@@ -215,6 +288,9 @@ class OrderManager:
         """
         # Validation complète avant placement
         self._validate_order(symbol, price, volume)
+        
+        # Vérification du solde (nouveau)
+        self._check_balance(side, price, volume, symbol)
         
         order = Order(
             symbol=symbol,
