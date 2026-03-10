@@ -31,6 +31,12 @@ from autobot.market_data import MarketData
 from autobot.state_manager import StateManager
 from autobot.error_handler import ErrorHandler
 
+# Import krakenex pour créer un client public
+try:
+    import krakenex
+except ImportError:
+    krakenex = None
+
 # Configuration logging
 logging.basicConfig(
     level=logging.INFO,
@@ -73,8 +79,13 @@ class TradingBot:
             max_volume=config.max_volume
         )
         
-        # Market data
-        self.market_data = MarketData(self.order_manager._get_client())
+        # Market data - CORRECTION: client public pour sandbox
+        # Kraken permet les appels publics sans authentification
+        if krakenex:
+            public_client = krakenex.API()  # Sans clés = client public
+        else:
+            public_client = None
+        self.market_data = MarketData(public_client)
         
         # Grid calculator
         grid_config = GridConfig(

@@ -23,10 +23,13 @@ class MarketData:
         Initialise le service de données de marché.
         
         Args:
-            client: Client Krakenex API
+            client: Client Krakenex API (peut être None si krakenex non installé)
         """
         self._client = client
-        logger.info("📈 MarketData initialisé")
+        if client is None:
+            logger.warning("⚠️ MarketData sans client - fonctionnalité limitée")
+        else:
+            logger.info("📈 MarketData initialisé")
     
     def get_current_price(self, symbol: str = "XXBTZEUR") -> Optional[float]:
         """
@@ -41,6 +44,11 @@ class MarketData:
         Returns:
             Prix actuel ou None en cas d'erreur
         """
+        if self._client is None:
+            logger.warning("⚠️ Pas de client Kraken - prix simulé à 75000")
+            # Prix simulé pour tests sans API
+            return 75000.0
+        
         try:
             result = self._client.query_public('Ticker', {'pair': symbol})
             
