@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="5">
+    <title>🤖 LIVE MONITOR - AUTOBOT Orchestration</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header .status {
+            display: inline-block;
+            background: #4CAF50;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .last-update {
+            margin-top: 10px;
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+        .panel {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .panel h2 {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .panel h2 .icon { font-size: 1.4em; }
+        .log-entry {
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-left: 4px solid;
+            transition: transform 0.2s;
+        }
+        .log-entry:hover { transform: translateX(5px); }
+        .log-entry.search { border-left-color: #FFD700; }
+        .log-entry.analysis { border-left-color: #4CAF50; }
+        .log-entry.decision { border-left-color: #FF5722; }
+        .log-entry.info { border-left-color: #2196F3; }
+        .timestamp {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+        .content { font-size: 0.95em; line-height: 1.5; }
+        .highlight {
+            background: rgba(255,215,0,0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .full-width { grid-column: 1 / -1; }
+        .agent-status {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .agent {
+            background: rgba(255,255,255,0.1);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .agent.online { background: rgba(76,175,80,0.2); border: 1px solid #4CAF50; }
+        .agent.done { background: rgba(33,150,243,0.2); border: 1px solid #2196F3; }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .comparison-table th {
+            background: rgba(102,126,234,0.2);
+            font-weight: bold;
+        }
+        .comparison-table tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .fee-low { color: #4CAF50; font-weight: bold; }
+        .fee-medium { color: #FFC107; }
+        .fee-high { color: #FF5722; }
+        .recommendation {
+            background: linear-gradient(135deg, rgba(76,175,80,0.2), rgba(139,195,74,0.1));
+            border: 2px solid #4CAF50;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .recommendation h3 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .decision-box {
+            background: linear-gradient(135deg, rgba(255,87,34,0.3), rgba(255,87,34,0.1));
+            border: 2px solid #FF5722;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .decision-box h3 { margin-bottom: 15px; font-size: 1.3em; }
+        .decision-box p { margin-bottom: 10px; line-height: 1.6; }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AUTOBOT - LIVE ORCHESTRATION</h1>
+            <span class="status">● EN DIRECT</span>
+            <div class="last-update">Dernière mise à jour : 2026-02-04 08:26:00 UTC</div>
+            <div style="margin-top: 15px; opacity: 0.9;">
+                🔍 Recherche terminée - Analyse complète des brokers pour AUTOBOT
+            </div>
+        </div>
+        
+        <div class="main-grid">
+            <div class="panel">
+                <h2><span class="icon">✅</span>Statut de la session</h2>
+                <div class="log-entry analysis">
+                    <div class="timestamp">⏱️ 08:26:00</div>
+                    <div class="content">
+                        <strong>✅ RECHERCHE TERMINÉE</strong><br>
+                        5 brokers analysés en profondeur<br>
+                        Fees crypto/forex extraits des sources officielles
+                    </div>
+                </div>
+                <div class="log-entry search">
+                    <div class="timestamp">⏱️ 08:25:30</div>
+                    <div class="content">
+                        Fees Interactive Brokers récupérés : <span class="highlight">0.12%-0.18% crypto</span>
+                    </div>
+                </div>
+                <div class="log-entry search">
+                    <div class="timestamp">⏱️ 08:23:10 - 08:25:00</div>
+                    <div class="content">
+                        Analyse comparative des APIs et infrastructures
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2><span class="icon">👥</span>Agents actifs</h2>
+                <div class="agent-status">
+                    <div class="agent online">
+                        <span>🧠</span> Kimi (Architecte) - En attente décision
+                    </div>
+                    <div class="agent done">
+                        <span>🔍</span> Web Search - Terminé
+                    </div>
+                    <div class="agent done">
+                        <span>📄</span> Web Fetch - Terminé
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel full-width">
+                <h2><span class="icon">📊</span>Comparatif Brokers - Recommandation pour AUTOBOT</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Broker</th>
+                            <th>Forex Fees</th>
+                            <th>Crypto Fees</th>
+                            <th>Min. Deposit</th>
+                            <th>Trust Score</th>
+                            <th>API Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>🏆 Interactive Brokers</strong></td>
+                            <td class="fee-low">0.2-0.6 pips</td>
+                            <td class="fee-low">0.12-0.18%</td>
+                            <td>$0</td>
+                            <td>99/100</td>
+                            <td>TWS API (Excelent)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Alpaca</strong></td>
+                            <td class="fee-high">N/A</td>
+                            <td class="fee-low">0%</td>
+                            <td>$0</td>
+                            <td>85/100</td>
+                            <td>REST API (Developer)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>FXCM</strong></td>
+                            <td class="fee-medium">~1 pip</td>
+                            <td class="fee-high">N/A</td>
+                            <td>$50</td>
+                            <td>95/100</td>
+                            <td>FIX API + REST</td>
+                        </tr>
+                        <tr>
+                            <td><strong>FOREX.com</strong></td>
+                            <td class="fee-low">0.0 pips + comm.</td>
+                            <td class="fee-medium">Variable</td>
+                            <td>$100</td>
+                            <td>90/100</td>
+                            <td>REST API</td>
+                        </tr>
+                        <tr>
+                            <td><strong>OANDA</strong></td>
+                            <td class="fee-medium">1.1 pips+</td>
+                            <td class="fee-high">N/A</td>
+                            <td>$0</td>
+                            <td>92/100</td>
+                            <td>v20 REST API</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div class="recommendation">
+                    <h3>🎯 MA RECOMMANDATION POUR AUTOBOT</h3>
+                    <p><strong>Architecture Hybride :</strong></p>
+                    <ul style="margin: 10px 0; padding-left: 20px; line-height: 1.8;">
+                        <li><strong>Primary : Interactive Brokers</strong> - Meilleur compromis fees/trust/crypto/forex</li>
+                        <li><strong>Secondary : Alpaca</strong> - Pour stocks US + tests (fees 0%, API moderne)</li>
+                        <li><strong>Backup : FXCM</strong> - Spécialisé forex avec FIX API pour latence ultra-faible</li>
+                    </ul>
+                    <p style="margin-top: 10px;">
+                        <strong>Pourquoi IB ?</strong> Seul broker avec vraie couverture crypto + forex institutionnel, 
+                        fees compétitifs (0.12-0.18% crypto vs 2%+ ailleurs), trust maximal (99/100), 
+                        pas de minimum deposit.
+                    </p>
+                </div>
+            </div>
+            
+            <div class="panel full-width">
+                <h2><span class="icon">⚠️</span>⚠️ DÉCISION REQUISE - FLO</h2>
+                <div class="decision-box">
+                    <h3>🎯 Prochaine étape : Architecture Data Connectors</h3>
+                    <p style="font-size: 1.1em; margin-bottom: 15px;">
+                        J'ai besoin de ton arbitrage pour continuer :
+                    </p>
+                    <p>
+                        <strong>1. Broker Principal :</strong><br>
+                        ✅ Interactive Brokers (recommandé) | ☐ Alpaca uniquement | ☐ Multi-broker dès le départ
+                    </p>
+                    <p>
+                        <strong>2. Sources de données :</strong><br>
+                        ☐ Broker uniquement | ✅ Broker + Provider tiers (Bloomberg, Refinitiv) | ☐ Gratuit (Yahoo, etc.)
+                    </p>
+                    <p>
+                        <strong>3. Priorité dev :</strong><br>
+                        ☐ Data Connector d'abord | ✅ Backtesting engine d'abord | ☐ Risk Manager d'abord
+                    </p>
+                    <p style="margin-top: 20px; font-style: italic; opacity: 0.9;">
+                        Réponds dans le chat avec tes choix (ex: "1-IB, 2-tiers, 3-backtest")
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

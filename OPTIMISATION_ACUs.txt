@@ -1,0 +1,17 @@
+[MESSAGE POUR DEVIN - OPTIMISATION ACUs]
+
+[K]nowledge: 13 ACUs restants sur 20 - Budget serré
+[E]xecution: Livrer Phase 2 complet en MINIMUM de sessions
+[R]easoning: Moins d'itérations = moins de coût ACU
+[N]etwork: Code complet -> Review -> Corrections (max 1 cycle)
+[E]valuation: Tout livrer d'un coup, pas de micro-commits
+[L]earning: Optimiser pour la suite avec sessions plus longues
+
+CONSIGNES ÉCONOMIE ACUs:
+1. Code COMPLET d'un coup (pas de "je fais étape par étape")
+2. Tests inclus dans la même session
+3. Documentation concise (pas de roman)
+4. Si bug mineur, corriger dans session, pas nouvelle session
+5. Une PR complète, pas 3-4 petites PR
+
+OBJECTIF: Finir Phase 2 en CETTE session (pas de nouvelle session).

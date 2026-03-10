@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copie du code
 COPY src/ ./src/
 
-# Création du répertoire de données
-RUN mkdir -p data
+# Création du répertoire de données et logs
+RUN mkdir -p data logs
 
 # Variables d'environnement par défaut
 ENV PYTHONPATH=/app/src

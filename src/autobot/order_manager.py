@@ -159,47 +159,48 @@ class OrderManager:
             
             return result.get('result', {})
         
-        with self.rate_limiter:
-            balances = self.error_handler.execute_with_retry(_query_balance)
-            
-            if side == OrderSide.BUY:
-                # Pour un BUY, vérifie le solde en EUR (ou devise de quote)
-                # XXBTZEUR -> EUR, XXBTZUSD -> USD
-                quote_currency = "ZEUR"  # Par défaut EUR
-                if "USD" in symbol:
-                    quote_currency = "ZUSD"
+        try:
+            with self.rate_limiter:
+                balances = self.error_handler.execute_with_retry(_query_balance)
                 
-                required = price * volume
-                available = float(balances.get(quote_currency, 0))
+                if side == OrderSide.BUY:
+                    # Pour un BUY, vérifie le solde en EUR (ou devise de quote)
+                    # XXBTZEUR -> EUR, XXBTZUSD -> USD
+                    quote_currency = "ZEUR"  # Par défaut EUR
+                    if "USD" in symbol:
+                        quote_currency = "ZUSD"
+                    
+                    required = price * volume
+                    available = float(balances.get(quote_currency, 0))
+                    
+                    if available < required:
+                        raise RuntimeError(
+                            f"Solde insuffisant pour BUY: {available:.2f} < {required:.2f} {quote_currency}"
+                        )
+                    
+                    logger.debug(f"✅ Solde OK: {available:.2f} {quote_currency} >= {required:.2f}")
+                    
+                else:  # SELL
+                    # Pour un SELL, vérifie le solde en crypto (base currency)
+                    # XXBTZEUR -> XXBT (BTC)
+                    base_currency = symbol[:4] if len(symbol) >= 4 else symbol
+                    if base_currency not in balances and "XXBT" in symbol:
+                        base_currency = "XXBT"
+                    elif base_currency not in balances and "XETH" in symbol:
+                        base_currency = "XETH"
+                    
+                    required = volume
+                    available = float(balances.get(base_currency, 0))
+                    
+                    if available < required:
+                        raise RuntimeError(
+                            f"Solde insuffisant pour SELL: {available:.6f} < {required:.6f} {base_currency}"
+                        )
+                    
+                    logger.debug(f"✅ Solde OK: {available:.6f} {base_currency} >= {required:.6f}")
                 
-                if available < required:
-                    raise RuntimeError(
-                        f"Solde insuffisant pour BUY: {available:.2f} < {required:.2f} {quote_currency}"
-                    )
+                return True
                 
-                logger.debug(f"✅ Solde OK: {available:.2f} {quote_currency} >= {required:.2f}")
-                
-            else:  # SELL
-                # Pour un SELL, vérifie le solde en crypto (base currency)
-                # XXBTZEUR -> XXBT (BTC)
-                base_currency = symbol[:4] if len(symbol) >= 4 else symbol
-                if base_currency not in balances and "XXBT" in symbol:
-                    base_currency = "XXBT"
-                elif base_currency not in balances and "XETH" in symbol:
-                    base_currency = "XETH"
-                
-                required = volume
-                available = float(balances.get(base_currency, 0))
-                
-                if available < required:
-                    raise RuntimeError(
-                        f"Solde insuffisant pour SELL: {available:.6f} < {required:.6f} {base_currency}"
-                    )
-                
-                logger.debug(f"✅ Solde OK: {available:.6f} {base_currency} >= {required:.6f}")
-            
-            return True
-            
         except Exception as e:
             logger.error(f"❌ Erreur vérification solde: {e}")
             raise
@@ -291,7 +292,7 @@ class OrderManager:
         volume: float
     ) -> Order:
         """
-        Place un ordre de vente au MARCHÉ ( Market Order).
+        Place un ordre de vente au MARCHÉ (Market Order).
         
         CORRECTION: Essentiel pour le stop-loss - vend immédiatement
         au meilleur prix disponible.
@@ -330,35 +331,35 @@ class OrderManager:
             logger.info(f"🧪 [SANDBOX] Ordre MARKET SELL créé: {volume} BTC")
         else:
             # Mode production - appel API avec rate limiting
-            with self.rate_limiter:
-                def _create_market_order():
-                    client = self._get_client()
-                    result = client.query_private(
-                        'AddOrder',
-                        {
-                            'pair': symbol,
-                            'type': 'sell',
-                            'ordertype': 'market',
-                            'volume': str(volume)
-                        }
-                    )
+            try:
+                with self.rate_limiter:
+                    def _create_market_order():
+                        client = self._get_client()
+                        result = client.query_private(
+                            'AddOrder',
+                            {
+                                'pair': symbol,
+                                'type': 'sell',
+                                'ordertype': 'market',
+                                'volume': str(volume)
+                            }
+                        )
+                        
+                        if result.get('error'):
+                            raise RuntimeError(f"Erreur Kraken: {result['error']}")
+                        
+                        txid = result['result']['txid'][0]
+                        return txid
                     
-                    if result.get('error'):
-                        raise RuntimeError(f"Erreur Kraken: {result['error']}")
-                    
-                    txid = result['result']['txid'][0]
-                    return txid
-                
-                try:
                     txid = self.error_handler.execute_with_retry(_create_market_order)
                     order.id = txid
                     order.status = "closed"  # Market order exécuté immédiatement
                     order.filled_volume = volume
                     logger.info(f"✅ Ordre MARKET SELL placé: {volume} BTC (ID: {txid})")
-                except Exception as e:
-                    logger.error(f"❌ Échec placement ordre MARKET SELL: {e}")
-                    order.status = "error"
-                    raise
+            except Exception as e:
+                logger.error(f"❌ Échec placement ordre MARKET SELL: {e}")
+                order.status = "error"
+                raise
         
         self._active_orders[order.id] = order
         return order
@@ -405,35 +406,35 @@ class OrderManager:
             logger.info(f"🧪 [SANDBOX] Ordre {side.value} créé: {volume} @ €{price:,.2f}")
         else:
             # Mode production - appel API Kraken avec rate limiting
-            with self.rate_limiter:
-                def _create_order():
-                    client = self._get_client()
-                    result = client.query_private(
-                        'AddOrder',
-                        {
-                            'pair': symbol,
-                            'type': side.value,
-                            'ordertype': 'limit',
-                            'price': str(price),
-                            'volume': str(volume)
-                        }
-                    )
+            try:
+                with self.rate_limiter:
+                    def _create_order():
+                        client = self._get_client()
+                        result = client.query_private(
+                            'AddOrder',
+                            {
+                                'pair': symbol,
+                                'type': side.value,
+                                'ordertype': 'limit',
+                                'price': str(price),
+                                'volume': str(volume)
+                            }
+                        )
+                        
+                        if result.get('error'):
+                            raise RuntimeError(f"Erreur Kraken: {result['error']}")
+                        
+                        txid = result['result']['txid'][0]
+                        return txid
                     
-                    if result.get('error'):
-                        raise RuntimeError(f"Erreur Kraken: {result['error']}")
-                    
-                    txid = result['result']['txid'][0]
-                    return txid
-                
-                try:
                     txid = self.error_handler.execute_with_retry(_create_order)
                     order.id = txid
                     order.status = "open"
                     logger.info(f"✅ Ordre {side.value} placé: {volume} @ €{price:,.2f} (ID: {txid})")
-                except Exception as e:
-                    logger.error(f"❌ Échec placement ordre: {e}")
-                    order.status = "error"
-                    raise
+            except Exception as e:
+                logger.error(f"❌ Échec placement ordre: {e}")
+                order.status = "error"
+                raise
         
         self._active_orders[order.id] = order
         return order
@@ -457,22 +458,22 @@ class OrderManager:
             self._active_orders[order_id].status = "canceled"
             return True
         
-        with self.rate_limiter:
-            def _do_cancel():
-                client = self._get_client()
-                result = client.query_private('CancelOrder', {'txid': order_id})
+        try:
+            with self.rate_limiter:
+                def _do_cancel():
+                    client = self._get_client()
+                    result = client.query_private('CancelOrder', {'txid': order_id})
+                    
+                    if result.get('error'):
+                        raise RuntimeError(f"Erreur Kraken: {result['error']}")
+                    
+                    return result.get('result', {}).get('count', 0) > 0
                 
-                if result.get('error'):
-                    raise RuntimeError(f"Erreur Kraken: {result['error']}")
-                
-                return result.get('result', {}).get('count', 0) > 0
-            
-            try:
                 success = self.error_handler.execute_with_retry(_do_cancel)
-            if success:
-                self._active_orders[order_id].status = "canceled"
-                logger.info(f"✅ Ordre {order_id} annulé")
-            return success
+                if success:
+                    self._active_orders[order_id].status = "canceled"
+                    logger.info(f"✅ Ordre {order_id} annulé")
+                return success
         except Exception as e:
             logger.error(f"❌ Échec annulation ordre {order_id}: {e}")
             return False
@@ -508,36 +509,36 @@ class OrderManager:
                 return self._active_orders[order_id]
             return None
         
-        with self.rate_limiter:
-            def _query_order():
-                client = self._get_client()
-                result = client.query_private('QueryOrders', {'txid': order_id})
+        try:
+            with self.rate_limiter:
+                def _query_order():
+                    client = self._get_client()
+                    result = client.query_private('QueryOrders', {'txid': order_id})
+                    
+                    if result.get('error'):
+                        raise RuntimeError(f"Erreur Kraken: {result['error']}")
+                    
+                    order_info = result.get('result', {}).get(order_id)
+                    if not order_info:
+                        return None
+                    
+                    return order_info
                 
-                if result.get('error'):
-                    raise RuntimeError(f"Erreur Kraken: {result['error']}")
-                
-                order_info = result.get('result', {}).get(order_id)
-                if not order_info:
-                    return None
-                
-                return order_info
-            
-            try:
                 info = self.error_handler.execute_with_retry(_query_order)
-            if info:
-                # Met à jour l'ordre existant ou crée un nouveau
-                if order_id in self._active_orders:
-                    order = self._active_orders[order_id]
-                    order.status = info.get('status', order.status)
-                    order.filled_volume = float(info.get('vol_exec', order.filled_volume))
-                else:
-                    order = Order(
-                        id=order_id,
-                        status=info.get('status', 'unknown'),
-                        filled_volume=float(info.get('vol_exec', 0))
-                    )
-                    self._active_orders[order_id] = order
-                return order
+                if info:
+                    # Met à jour l'ordre existant ou crée un nouveau
+                    if order_id in self._active_orders:
+                        order = self._active_orders[order_id]
+                        order.status = info.get('status', order.status)
+                        order.filled_volume = float(info.get('vol_exec', order.filled_volume))
+                    else:
+                        order = Order(
+                            id=order_id,
+                            status=info.get('status', 'unknown'),
+                            filled_volume=float(info.get('vol_exec', 0))
+                        )
+                        self._active_orders[order_id] = order
+                    return order
         except Exception as e:
             logger.error(f"❌ Erreur récupération statut ordre {order_id}: {e}")
             # En cas d'erreur, retourne le cache si disponible

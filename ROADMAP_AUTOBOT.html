@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗺️ ROADMAP AUTOBOT - Architecture Complète</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 30px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            font-size: 2.2em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            opacity: 0.8;
+            margin-bottom: 40px;
+        }
+        .architecture {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 40px;
+        }
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .module {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 12px;
+            border-left: 4px solid;
+        }
+        .module.wallet { border-left-color: #9C27B0; }
+        .module.data { border-left-color: #2196F3; }
+        .module.broker { border-left-color: #4CAF50; }
+        .module.strategy { border-left-color: #FF9800; }
+        .module.security { border-left-color: #f44336; }
+        .module.ai { border-left-color: #00BCD4; }
+        .module h3 { font-size: 1em; margin-bottom: 8px; }
+        .module p { font-size: 0.85em; opacity: 0.8; }
+        .status {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.7em;
+            margin-top: 8px;
+        }
+        .status.done { background: #4CAF50; }
+        .status.progress { background: #FF9800; }
+        .status.todo { background: #f44336; }
+        .roadmap {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .phase {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(255,255,255,0.1);
+        }
+        .phase h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+        .phase-number {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .tasks {
+            list-style: none;
+        }
+        .tasks li {
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .tasks li::before {
+            content: "☐";
+            font-size: 1.2em;
+            opacity: 0.5;
+        }
+        .tasks li.done::before { content: "✅"; opacity: 1; }
+        .tasks li.progress::before { content: "🔄"; opacity: 1; }
+        .priority-high { border-left: 3px solid #f44336; padding-left: 12px; }
+        .priority-medium { border-left: 3px solid #FF9800; padding-left: 12px; }
+        .agent-tag {
+            font-size: 0.75em;
+            padding: 3px 8px;
+            border-radius: 10px;
+            margin-left: auto;
+        }
+        .agent-tag.devin { background: rgba(76,175,80,0.3); }
+        .agent-tag.claude { background: rgba(33,150,243,0.3); }
+        .agent-tag.kimi { background: rgba(156,39,176,0.3); }
+        .note {
+            background: rgba(255,193,7,0.1);
+            border: 1px solid rgba(255,193,7,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        .decisions {
+            background: rgba(244,67,54,0.1);
+            border: 2px solid rgba(244,67,54,0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        .decisions h2 { color: #f44336; margin-bottom: 15px; }
+        .decision-item {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ ROADMAP AUTOBOT</h1>
+        <p class="subtitle">Architecture complète - Multi-agents coordination</p>
+
+        <div class="architecture">
+            <h2>🏗️ Architecture Globale</h2>
+            <div class="arch-grid">
+                <div class="module wallet">
+                    <h3>💳 Wallet Stripe</h3>
+                    <p>Dépôts/retraits utilisateurs</p>
+                    <span class="status progress">Scaffold existant</span>
+                </div>
+                <div class="module data">
+                    <h3>📊 Data Connectors</h3>
+                    <p>AlphaVantage, TwelveData, CCXT</p>
+                    <span class="status progress">En cours (Devin)</span>
+                </div>
+                <div class="module broker">
+                    <h3>🏦 Broker Connectors</h3>
+                    <p>Interactive Brokers (TWS API)</p>
+                    <span class="status todo">À intégrer</span>
+                </div>
+                <div class="module strategy">
+                    <h3>🧠 Strategies Engine</h3>
+                    <p>Backtesting + Live trading</p>
+                    <span class="status todo">À développer</span>
+                </div>
+                <div class="module security">
+                    <h3>🛡️ Risk Manager</h3>
+                    <p>Kelly, VaR, Circuit breakers</p>
+                    <span class="status todo">Prioritaire</span>
+                </div>
+                <div class="module ai">
+                    <h3>🤖 Agents IA</h3>
+                    <p>Orhestration multi-agents</p>
+                    <span class="status done">Opérationnel</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="roadmap">
+            <!-- PHASE 1 -->
+            <div class="phase">
+                <h2><span class="phase-number">1</span> Fondations (Semaines 1-2)</h2>
+                <ul class="tasks">
+                    <li class="done">Configuration infrastructure Docker ✅</li>
+                    <li class="progress priority-high">Data Connector architecture <span class="agent-tag devin">Devin</span></li>
+                    <li class="progress priority-high">Connecteur Interactive Brokers <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo priority-high">Intégration Stripe Wallet (ecommerce) <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Validation architecture par Claude <span class="agent-tag claude">Claude</span></li>
+                </ul>
+                <div class="note">
+                    <strong>Note :</strong> Devin a déjà analysé le repo. Il a identifié AlphaVantage, TwelveData, CCXT mais il manque IB.
+                </div>
+            </div>
+
+            <!-- PHASE 2 -->
+            <div class="phase">
+                <h2><span class="phase-number">2</span> Trading Core (Semaines 3-4)</h2>
+                <ul class="tasks">
+                    <li class="todo priority-high">Risk Manager (Kelly, VaR, drawdown) <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo priority-high">Order Management System <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Position Sizing Engine <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Circuit breakers & Kill switches <span class="agent-tag claude">Claude</span></li>
+                </ul>
+            </div>
+
+            <!-- PHASE 3 -->
+            <div class="phase">
+                <h2><span class="phase-number">3</span> Strategies & Backtest (Semaines 5-6)</h2>
+                <ul class="tasks">
+                    <li class="todo">Backtesting Engine (VectorBT ou Backtrader) <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Strategy Templates (mean-reversion, momentum) <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Optimization Engine <span class="agent-tag claude">Claude</span></li>
+                    <li class="todo">Paper Trading Mode <span class="agent-tag devin">Devin</span></li>
+                </ul>
+            </div>
+
+            <!-- PHASE 4 -->
+            <div class="phase">
+                <h2><span class="phase-number">4</span> Production & Monitoring (Semaines 7-8)</h2>
+                <ul class="tasks">
+                    <li class="todo">Live Trading Engine <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Real-time Monitoring Dashboard <span class="agent-tag devin">Devin</span></li>
+                    <li class="todo">Alertes & Notifications <span class="agent-tag claude">Claude</span></li>
+                    <li class="todo">Audit & Logs conformité <span class="agent-tag kim">Kimi</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="decisions">
+            <h2>⚠️ Décisions Requises - Flo</h2>
+            <div class="decision-item">
+                <strong>1. Stripe Wallet :</strong> Valider l'intégration des dépôts/retraits maintenant ou après le trading ?
+            </div>
+            <div class="decision-item">
+                <strong>2. Framework Backtest :</strong> VectorBT (rapide) ou Backtrader (simple) ?
+            </div>
+            <div class="decision-item">
+                <strong>3. Data tiers :</strong> Bloomberg maintenant ou IB seul pour MVP ?
+            </div>
+            <div class="decision-item">
+                <strong>4. Devin a des ACUs limités :</strong> Prioriser quelle phase ?
+            </div>
+        </div>
+    </div>
+</body>
+</html>
