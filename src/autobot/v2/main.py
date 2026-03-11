@@ -9,6 +9,7 @@ import sys
 import signal
 import time
 from pathlib import Path
+from typing import Optional
 
 # Ajoute src au path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -34,12 +35,15 @@ class AutoBotV2:
     Gère le cycle de vie complet du bot
     """
     
-    def __init__(self, dashboard_host: str = "127.0.0.1", dashboard_port: int = 8080):
+    def __init__(self, dashboard_host: str = "127.0.0.1", dashboard_port: int = 8080,
+                 api_key: Optional[str] = None, api_secret: Optional[str] = None):
         self.orchestrator = None
         self.dashboard = None
         self.running = False
         self.dashboard_host = dashboard_host
         self.dashboard_port = dashboard_port
+        self.api_key = api_key or os.getenv('KRAKEN_API_KEY')
+        self.api_secret = api_secret or os.getenv('KRAKEN_API_SECRET')
         
     def setup_signal_handlers(self):
         """Configure les handlers pour arrêt propre"""
@@ -76,7 +80,7 @@ class AutoBotV2:
         try:
             # 1. Crée et démarre l'orchestrateur
             logger.info("🎛️ Initialisation Orchestrateur...")
-            self.orchestrator = Orchestrator()
+            self.orchestrator = Orchestrator(api_key=self.api_key, api_secret=self.api_secret)
             
             # Crée l'instance par défaut
             default_config = self.create_default_instance()

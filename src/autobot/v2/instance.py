@@ -71,11 +71,12 @@ class TradingInstance:
     - Sa gestion des risques
     """
     
-    def __init__(self, instance_id: str, config: Any, orchestrator: Any):
+    def __init__(self, instance_id: str, config: Any, orchestrator: Any, order_executor: Optional[Any] = None):
         self.id = instance_id
         self.config = config
         self.orchestrator = orchestrator
-        
+        self._order_executor = order_executor  # CORRECTION CRITIQUE: OrderExecutor pour exécution réelle
+
         # État
         self.status = InstanceStatus.INITIALIZING
         self._lock = threading.Lock()
@@ -224,10 +225,15 @@ class TradingInstance:
             self._strategy = GridStrategy(self)
         
         # CORRECTION: Crée le SignalHandler pour connecter signaux aux exécutions
+        # CORRECTION CRITIQUE: Passe l'OrderExecutor pour exécution réelle sur Kraken
         from .signal_handler import SignalHandler
-        self._signal_handler = SignalHandler(self)
-        
+        self._signal_handler = SignalHandler(self, order_executor=self._order_executor)
+
         logger.info(f"🎯 Stratégie {strategy_name} chargée pour {self.id}")
+        if self._order_executor:
+            logger.info(f"   ✅ Exécution réelle Kraken activée")
+        else:
+            logger.warning(f"   ⚠️ Mode simulation (pas d'OrderExecutor)")
     
     def on_price_update(self, data: TickerData):
         """Appelé quand nouveau prix reçu via WebSocket"""

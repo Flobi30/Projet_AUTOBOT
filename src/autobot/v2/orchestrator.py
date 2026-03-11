@@ -14,6 +14,9 @@ import time
 from .websocket_client import KrakenWebSocket, TickerData
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .instance import TradingInstance
+from .order_executor import OrderExecutor, get_order_executor
+from .stop_loss_manager import StopLossManager, get_stop_loss_manager
+from .reconciliation import ReconciliationManager
 
 logger = logging.getLogger(__name__)
 
@@ -103,17 +106,27 @@ class Orchestrator:
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
         self.api_key = api_key
         self.api_secret = api_secret
-        
+
+        # CORRECTION CRITIQUE: Initialise les composants d'exécution réelle
+        # OrderExecutor pour passer les ordres sur Kraken
+        self.order_executor = get_order_executor(api_key, api_secret)
+
+        # CORRECTION CRITIQUE: StopLossManager pour surveiller les SL sur Kraken
+        self.stop_loss_manager = get_stop_loss_manager(self.order_executor)
+
         # WebSocket Kraken
         self.ws_client = KrakenWebSocket(api_key, api_secret)
-        
+
         # Validator Engine
         self.validator = ValidatorEngine()
-        
+
         # Instances
         self._instances: Dict[str, TradingInstance] = {}
         self._instance_lock = Lock()
-        
+
+        # CORRECTION CRITIQUE: ReconciliationManager (sera initialisé quand instances créées)
+        self.reconciliation_manager: Optional[ReconciliationManager] = None
+
         # Configuration globale
         self.config = {
             'max_instances': 5,  # Hard limit sécurité
@@ -122,19 +135,30 @@ class Orchestrator:
             'check_interval': 30,  # minutes
             'max_drawdown_global': 0.30  # 30%
         }
-        
+
         # État
         self.running = False
         self._stop_event = Event()  # CORRECTION: Event pour arrêt propre
         self._main_thread: Optional[Thread] = None
         self._start_time: Optional[datetime] = None
-        
+
         # Callbacks
         self._on_instance_created: Optional[Callable] = None
         self._on_instance_spinoff: Optional[Callable] = None
         self._on_alert: Optional[Callable] = None
-        
+
+        # CORRECTION E6: Circuit breaker callback
+        self._setup_circuit_breaker()
+
         logger.info("🎛️ Orchestrator initialisé")
+
+    def _setup_circuit_breaker(self):
+        """Configure le circuit breaker sur OrderExecutor"""
+        def on_circuit_breaker():
+            logger.error("🚨 CIRCUIT BREAKER: Arrêt d'urgence de toutes les instances!")
+            self.emergency_stop_all()
+
+        self.order_executor.set_circuit_breaker_callback(on_circuit_breaker)
     
     def create_instance(self, config: InstanceConfig) -> Optional[TradingInstance]:
         """
@@ -157,7 +181,8 @@ class Orchestrator:
             instance = TradingInstance(
                 instance_id=instance_id,
                 config=config,
-                orchestrator=self
+                orchestrator=self,
+                order_executor=self.order_executor  # CORRECTION CRITIQUE: Passe l'OrderExecutor
             )
             
             self._instances[instance_id] = instance
@@ -334,25 +359,60 @@ class Orchestrator:
         if self.running:
             logger.warning("⚠️ Orchestrator déjà démarré")
             return
-        
+
         self.running = True
         self._start_time = datetime.now()
-        
+
         # Connexion WebSocket
         self.ws_client.connect()
-        
+
+        # CORRECTION CRITIQUE: Démarre StopLossManager avec callback pour notifier instances
+        self.stop_loss_manager.start(
+            on_stop_loss_triggered=self._on_stop_loss_triggered
+        )
+        logger.info("🛡️ StopLossManager démarré")
+
+        # CORRECTION CRITIQUE: Initialise et démarre ReconciliationManager
+        with self._instance_lock:
+            instances_dict = dict(self._instances)
+        self.reconciliation_manager = ReconciliationManager(
+            order_executor=self.order_executor,
+            instances=instances_dict
+        )
+        self.reconciliation_manager.start()
+        logger.info("🔄 ReconciliationManager démarré")
+
         # CORRECTION: Copier instances sous lock, démarrer hors lock
         with self._instance_lock:
             instances_to_start = list(self._instances.values())
-        
+
         for instance in instances_to_start:
             instance.start()
-        
+
         # Boucle principale
         self._main_thread = Thread(target=self._main_loop, daemon=True)
         self._main_thread.start()
-        
+
         logger.info("✅ Orchestrator démarré")
+
+    def _on_stop_loss_triggered(self, position_id: str, order_status: Any):
+        """
+        CORRECTION CRITIQUE: Callback quand un stop-loss se déclenche sur Kraken.
+        Notifie l'instance concernée pour fermer la position localement.
+        """
+        # Trouve l'instance qui a cette position
+        with self._instance_lock:
+            for instance in self._instances.values():
+                # Vérifie si l'instance a cette position
+                positions = instance.get_positions_snapshot()
+                for pos in positions:
+                    if pos.get('id') == position_id:
+                        # Calcule le prix de vente réel
+                        sell_price = order_status.avg_price if order_status.avg_price else order_status.price
+                        if sell_price:
+                            # Notifie l'instance
+                            instance.on_stop_loss_triggered(position_id, sell_price)
+                        return
     
     def stop(self):
         """Arrête l'orchestrateur"""
@@ -370,11 +430,19 @@ class Orchestrator:
         
         # Arrêt WebSocket
         self.ws_client.disconnect()
-        
+
+        # CORRECTION CRITIQUE: Arrêt StopLossManager
+        if self.stop_loss_manager:
+            self.stop_loss_manager.stop()
+
+        # CORRECTION CRITIQUE: Arrêt ReconciliationManager
+        if self.reconciliation_manager:
+            self.reconciliation_manager.stop()
+
         # Attente thread principal
         if self._main_thread:
             self._main_thread.join(timeout=10)
-        
+
         logger.info("✅ Orchestrator arrêté")
     
     def get_status(self) -> Dict:
