@@ -229,9 +229,22 @@ class TradingInstance:
         from .signal_handler import SignalHandler
         self._signal_handler = SignalHandler(self, order_executor=self._order_executor)
 
+        # CORRECTION CRITIQUE: Configure callback pour notifier stratégie quand position fermée
+        # Important pour GridStrategy qui doit libérer le niveau de la grille
+        self._on_position_close = self._notify_strategy_position_closed
+
         logger.info(f"🎯 Stratégie {strategy_name} chargée pour {self.id}")
         if self._order_executor:
             logger.info(f"   ✅ Exécution réelle Kraken activée")
+
+    def _notify_strategy_position_closed(self, instance, position):
+        """Callback quand une position est fermée - notifie la stratégie"""
+        if self._strategy and hasattr(self._strategy, 'on_position_closed'):
+            try:
+                profit = position.profit if position.profit is not None else 0.0
+                self._strategy.on_position_closed(position, profit)
+            except Exception as e:
+                logger.exception(f"❌ Erreur notification stratégie fermeture: {e}")
         else:
             logger.warning(f"   ⚠️ Mode simulation (pas d'OrderExecutor)")
     
