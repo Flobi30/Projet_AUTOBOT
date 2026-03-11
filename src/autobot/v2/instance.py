@@ -248,7 +248,8 @@ class TradingInstance:
             
             position = self._positions[position_id]
             
-            if position.status != "open":
+            # CORRECTION: Accepte 'open' OU 'closing' (pour emergency stop)
+            if position.status not in ("open", "closing"):
                 return None
             
             # Calcule profit
