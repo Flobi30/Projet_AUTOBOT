@@ -13,6 +13,7 @@ from .strategies import TradingSignal, SignalType
 from .instance import TradingInstance
 from .order_executor import OrderExecutor, OrderSide
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus, create_default_validator_engine
+from .stop_loss_manager import get_stop_loss_manager
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,7 @@ class SignalHandler:
         else:
             logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
             # Continue quand même - la position sera sans protection
-        
+
         # CORRECTION: Créer position avec prix d'exécution réel ET txids
         position = self.instance.open_position(
             price=executed_price,
@@ -172,7 +173,13 @@ class SignalHandler:
             stop_loss_txid=stop_loss_txid,
             buy_txid=result.txid  # CORRECTION Phase 3: TXID de l'achat
         )
-        
+
+        # CORRECTION CRITIQUE: Enregistre le stop-loss dans StopLossManager pour surveillance
+        if position and stop_loss_txid:
+            sl_manager = get_stop_loss_manager()
+            sl_manager.register_stop_loss(stop_loss_txid, position.id)
+            logger.info(f"🛡️ Stop-loss enregistré pour surveillance: {position.id}")
+
         if position:
             logger.info(f"✅ Position créée: {position.id}")
         else:
@@ -233,6 +240,9 @@ class SignalHandler:
             stop_loss_txid = pos_info.get('stop_loss_txid')
             if stop_loss_txid:
                 self.order_executor.cancel_order(stop_loss_txid)
+                # CORRECTION: Retire aussi du StopLossManager
+                sl_manager = get_stop_loss_manager()
+                sl_manager.unregister_stop_loss(stop_loss_txid)
             
             # CORRECTION: Exécution RÉELLE sur Kraken
             logger.info(f"   Envoi ordre MARKET SELL {volume:.6f} {symbol}...")
