@@ -7,6 +7,7 @@ from typing import Dict, List, Callable, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,9 @@ class ValidatorEngine:
             'open_position': [],
             'close_position': []
         }
-        self._history: List[ValidationResult] = []
+        # CORRECTION: Utiliser deque pour performance O(1) et thread safety
         self._max_history = 1000
+        self._history: deque = deque(maxlen=self._max_history)
         
         # Seuils par défaut
         self.thresholds = {
@@ -138,10 +140,7 @@ class ValidatorEngine:
         logger.info(f"{emoji} Validation {result.action}: {result.message}")
         
         self._history.append(result)
-        
-        # Limite historique
-        if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+        # CORRECTION: deque gère auto la taille max, plus besoin de slicing
     
     def get_history(self, action: Optional[str] = None, 
                     since: Optional[datetime] = None) -> List[ValidationResult]:

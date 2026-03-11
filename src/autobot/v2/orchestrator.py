@@ -17,6 +17,11 @@ from .instance import TradingInstance
 
 logger = logging.getLogger(__name__)
 
+# TODO: Implémenter récupération capital réel depuis API Kraken
+def _get_available_capital_real() -> float:
+    """Récupère capital disponible depuis API Kraken"""
+    raise NotImplementedError("Récupération capital Kraken non implémentée")
+
 
 @dataclass
 class InstanceConfig:
@@ -104,10 +109,9 @@ class Orchestrator:
             self._instances[instance_id] = instance
             
             # Subscribe aux données de marché
-            self.ws_client.add_ticker_listener(
-                config.symbol,
-                lambda data, inst=instance: inst.on_price_update(data)
-            )
+            # CORRECTION: Stocker callback pour pouvoir le retirer plus tard
+            instance._ws_callback = lambda data, inst=instance: inst.on_price_update(data)
+            self.ws_client.add_ticker_listener(config.symbol, instance._ws_callback)
             
             logger.info(f"✅ Instance créée: {instance_id} ({config.name}) - Capital: {config.initial_capital:.2f}€")
             
@@ -122,20 +126,16 @@ class Orchestrator:
             if instance_id not in self._instances:
                 return False
             
-            instance = self._instances[instance_id]
+            # Retire l'instance du dictionnaire
+            instance = self._instances.pop(instance_id)
             
-            # Unsubscribe des données
-            self.ws_client.remove_ticker_listener(
-                instance.config.symbol,
-                instance.on_price_update
-            )
-            
-            # Arrête l'instance
-            instance.stop()
-            
-            del self._instances[instance_id]
-            logger.info(f"🗑️ Instance supprimée: {instance_id}")
-            return True
+        # CORRECTION: Unsubscribe et stop EN DEHORS du lock pour éviter deadlock
+        if hasattr(instance, '_ws_callback'):
+            self.ws_client.remove_ticker_listener(instance.config.symbol, instance._ws_callback)
+        
+        instance.stop()  # Peut bloquer jusqu'à 60s
+        logger.info(f"🗑️ Instance supprimée: {instance_id}")
+        return True
     
     def check_spin_off(self, parent_instance: TradingInstance) -> Optional[TradingInstance]:
         """
@@ -214,8 +214,12 @@ class Orchestrator:
     
     def _get_available_capital(self) -> float:
         """Calcule capital disponible pour nouvelle instance"""
-        # TODO: Connecter à API Kraken pour solde réel
-        return 10000.0  # Placeholder
+        # CORRECTION: Utiliser la fonction réelle ou lever exception
+        try:
+            return _get_available_capital_real()
+        except NotImplementedError:
+            logger.error("❌ _get_available_capital_real() non implémentée - Impossible de vérifier le capital disponible")
+            return 0.0
     
     def _main_loop(self):
         """Boucle principale de l'orchestrateur"""
@@ -341,55 +345,3 @@ class Orchestrator:
         self._on_instance_created = on_instance_created
         self._on_instance_spinoff = on_instance_spinoff
         self._on_alert = on_alert
-
-
-# Placeholder pour TradingInstance (à compléter)
-class TradingInstance:
-    """Instance de trading (sera complétée dans instance.py)"""
-    
-    def __init__(self, instance_id: str, config: InstanceConfig, orchestrator: Orchestrator):
-        self.id = instance_id
-        self.config = config
-        self.orchestrator = orchestrator
-        self._running = False
-        self._capital = config.initial_capital
-        
-    def start(self):
-        self._running = True
-        
-    def stop(self):
-        self._running = False
-        
-    def is_running(self) -> bool:
-        return self._running
-    
-    def get_current_capital(self) -> float:
-        return self._capital
-    
-    def get_volatility(self) -> float:
-        return 0.05  # Placeholder
-    
-    def get_win_streak(self) -> int:
-        return 0  # Placeholder
-    
-    def get_drawdown(self) -> float:
-        return 0.0  # Placeholder
-    
-    def detect_trend(self) -> str:
-        return 'unknown'  # Placeholder
-    
-    def activate_leverage(self, leverage: int) -> bool:
-        if self._capital >= 1000:
-            self.config.leverage = leverage
-            return True
-        return False
-    
-    def record_spin_off(self, amount: float):
-        self._capital -= amount
-    
-    def emergency_stop(self):
-        self.stop()
-        logger.warning(f"🚨 Arrêt d'urgence instance {self.id}")
-    
-    def on_price_update(self, data: TickerData):
-        pass  # Sera implémenté

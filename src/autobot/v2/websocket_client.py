@@ -46,6 +46,9 @@ class KrakenWebSocket:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         
+        # CORRECTION: Lock pour thread safety
+        self._lock = threading.Lock()
+        
         # Callbacks
         self._tickers: Dict[str, List[Callable]] = {}
         self._trades: Dict[str, List[Callable]] = {}
@@ -113,15 +116,17 @@ class KrakenWebSocket:
                 timestamp=datetime.now()
             )
             
-            self._last_prices[pair] = ticker
+            with self._lock:
+                self._last_prices[pair] = ticker
+                # CORRECTION: Copier la liste pour éviter race condition
+                callbacks = list(self._tickers.get(pair, []))
             
-            # Notifie les listeners
-            if pair in self._tickers:
-                for callback in self._tickers[pair]:
-                    try:
-                        callback(ticker)
-                    except Exception as e:
-                        logger.error(f"❌ Erreur callback ticker: {e}")
+            # Notifie les listeners hors lock
+            for callback in callbacks:
+                try:
+                    callback(ticker)
+                except Exception as e:
+                    logger.error(f"❌ Erreur callback ticker: {e}")
                         
         except Exception as e:
             logger.error(f"❌ Erreur parsing ticker: {e}")
@@ -223,20 +228,27 @@ class KrakenWebSocket:
     
     def add_ticker_listener(self, pair: str, callback: Callable):
         """Ajoute un listener pour les tickers"""
-        if pair not in self._tickers:
-            self._tickers[pair] = []
-            self.subscribe_ticker(pair)
+        with self._lock:
+            if pair not in self._tickers:
+                self._tickers[pair] = []
+            self._tickers[pair].append(callback)
         
-        self._tickers[pair].append(callback)
+        self.subscribe_ticker(pair)
         logger.debug(f"👂 Listener ajouté pour {pair}")
     
     def remove_ticker_listener(self, pair: str, callback: Callable):
         """Retire un listener"""
-        if pair in self._tickers and callback in self._tickers[pair]:
-            self._tickers[pair].remove(callback)
-            if not self._tickers[pair]:
-                del self._tickers[pair]
-                self.unsubscribe_ticker(pair)
+        with self._lock:
+            if pair in self._tickers and callback in self._tickers[pair]:
+                self._tickers[pair].remove(callback)
+                should_unsubscribe = not self._tickers[pair]
+                if should_unsubscribe:
+                    del self._tickers[pair]
+            else:
+                should_unsubscribe = False
+        
+        if should_unsubscribe:
+            self.unsubscribe_ticker(pair)
     
     def get_last_price(self, pair: str) -> Optional[TickerData]:
         """Retourne dernier prix connu"""

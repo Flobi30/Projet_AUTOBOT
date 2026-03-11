@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 import threading
 import time
+from collections import deque
 
 from .websocket_client import TickerData
 
@@ -89,8 +90,9 @@ class TradingInstance:
         
         # Prix
         self._last_price: Optional[float] = None
-        self._price_history: List[tuple] = []  # [(timestamp, price), ...]
+        # CORRECTION: Utiliser deque pour performance O(1)
         self._max_history_size = 1000
+        self._price_history: deque = deque(maxlen=self._max_history_size)
         
         # Stratégie
         self._strategy = None  # Sera initialisé selon config.strategy
@@ -176,38 +178,30 @@ class TradingInstance:
         with self._lock:
             self._last_price = data.price
             self._price_history.append((datetime.now(), data.price))
-            
-            # Limite historique
-            if len(self._price_history) > self._max_history_size:
-                self._price_history = self._price_history[-self._max_history_size:]
+            # CORRECTION: deque gère auto la taille max
         
         # Notifie stratégie
         if self._strategy and self.status == InstanceStatus.RUNNING:
             self._strategy.on_price(data.price)
     
-    def can_open_position(self, order_value: float) -> bool:
-        """Vérifie si peut ouvrir position"""
+    def open_position(self, price: float, volume: float) -> Optional[Position]:
+        """Ouvre une position (vérification et exécution atomiques)"""
+        order_value = price * volume
+        
+        # CORRECTION: Tout dans un seul lock pour éviter TOCTOU
         with self._lock:
-            # Capital disponible
+            # Vérifications
             available = self._current_capital - self._allocated_capital
-            
-            # Limites
             max_positions = 10
             
-            return (
+            if not (
                 self.status == InstanceStatus.RUNNING and
                 available >= order_value and
                 len(self._positions) < max_positions
-            )
-    
-    def open_position(self, price: float, volume: float) -> Optional[Position]:
-        """Ouvre une position"""
-        order_value = price * volume
-        
-        if not self.can_open_position(order_value):
-            return None
-        
-        with self._lock:
+            ):
+                return None
+            
+            # Crée la position
             position_id = str(uuid.uuid4())[:8]
             
             position = Position(
@@ -240,8 +234,10 @@ class TradingInstance:
             # Calcule profit
             gross_profit = (sell_price - position.buy_price) * position.volume
             
-            # Frais (0.42% total - maker + taker)
-            fees = (position.buy_price + sell_price) * position.volume * 0.0042
+            # CORRECTION: Frais calculés séparément (maker 0.16%, taker 0.26%)
+            buy_fee = position.buy_price * position.volume * 0.0016   # Maker
+            sell_fee = sell_price * position.volume * 0.0026         # Taker
+            fees = buy_fee + sell_fee
             
             net_profit = gross_profit - fees
             
@@ -324,47 +320,47 @@ class TradingInstance:
     
     def get_volatility(self) -> float:
         """Calcule volatilité sur dernières 24h"""
+        cutoff = datetime.now() - timedelta(hours=24)
+        
+        # CORRECTION: Copier données sous lock, calculer hors lock
         with self._lock:
             if len(self._price_history) < 2:
                 return 0.0
-            
-            # Prend dernières 24h
-            cutoff = datetime.now() - timedelta(hours=24)
             recent_prices = [p for t, p in self._price_history if t > cutoff]
-            
-            if len(recent_prices) < 2:
-                return 0.0
-            
-            # Calcule std dev
-            mean = sum(recent_prices) / len(recent_prices)
-            variance = sum((p - mean) ** 2 for p in recent_prices) / len(recent_prices)
-            std_dev = variance ** 0.5
-            
-            return std_dev / mean if mean > 0 else 0.0
+        
+        if len(recent_prices) < 2:
+            return 0.0
+        
+        # Calcule std dev
+        mean = sum(recent_prices) / len(recent_prices)
+        variance = sum((p - mean) ** 2 for p in recent_prices) / len(recent_prices)
+        std_dev = variance ** 0.5
+        
+        return std_dev / mean if mean > 0 else 0.0
     
     def detect_trend(self) -> str:
         """Détecte tendance actuelle"""
+        # CORRECTION: Copier données sous lock, calculer hors lock
         with self._lock:
             if len(self._price_history) < 20:
                 return "unknown"
-            
-            # Moyennes mobiles simples
-            prices = [p for t, p in self._price_history[-50:]]
-            
-            if len(prices) < 20:
-                return "unknown"
-            
-            ma_short = sum(prices[-10:]) / 10
-            ma_long = sum(prices[-30:]) / 30
-            
-            threshold = 0.005  # 0.5%
-            
-            if ma_short > ma_long * (1 + threshold):
-                return "up"
-            elif ma_short < ma_long * (1 - threshold):
-                return "down"
-            else:
-                return "range"
+            prices = [p for t, p in self._price_history]
+        
+        if len(prices) < 20:
+            return "unknown"
+        
+        # CORRECTION: Diviser par le nombre réel d'éléments, pas 30
+        ma_short = sum(prices[-10:]) / min(10, len(prices[-10:]))
+        ma_long = sum(prices[-30:]) / min(30, len(prices[-30:]))
+        
+        threshold = 0.005  # 0.5%
+        
+        if ma_short > ma_long * (1 + threshold):
+            return "up"
+        elif ma_short < ma_long * (1 - threshold):
+            return "down"
+        else:
+            return "range"
     
     def is_running(self) -> bool:
         """Vérifie si instance active"""
