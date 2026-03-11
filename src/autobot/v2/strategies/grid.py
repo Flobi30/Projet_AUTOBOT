@@ -52,11 +52,17 @@ class GridStrategy(Strategy):
         grid_step = self.range_percent / (self.num_levels - 1) if self.num_levels > 1 else 0.5
         self._sell_threshold_pct = max(0.5, grid_step * 0.8)  # 80% du step, min 0.5%
         
+        # CORRECTION: Protection drawdown / stop-loss
+        self._max_drawdown_pct = self.config.get('max_drawdown_pct', 10.0)  # Stop si -10%
+        self._grid_invalidation_factor = self.config.get('grid_invalidation_factor', 2.0)  # 2× range
+        self._emergency_close_price = self.center_price * (1 - self.range_percent * self._grid_invalidation_factor / 100)
+        
         # Historique des prix
         self._price_history: deque = deque(maxlen=100)
         
         # État
         self._initialized = True
+        self._emergency_mode = False  # Mode urgence activé si crash
         
         logger.info(f"📊 Grid Strategy: {self.num_levels} niveaux, "
                    f"±{self.range_percent}% sur {self.center_price:.0f}€")
@@ -146,6 +152,29 @@ class GridStrategy(Strategy):
         
         return True
     
+    def _check_drawdown(self, current_price: float) -> Optional[int]:
+        """
+        Vérifie si le drawdown max est atteint sur une position.
+        Retourne le level_idx à vendre en urgence, ou None.
+        """
+        with self._lock:
+            open_levels_copy = dict(self.open_levels)
+        
+        for level_idx, position in open_levels_copy.items():
+            entry_price = position['entry_price']
+            current_drawdown = (entry_price - current_price) / entry_price * 100
+            
+            if current_drawdown >= self._max_drawdown_pct:
+                return level_idx
+        
+        return None
+    
+    def _is_grid_invalidated(self, current_price: float) -> bool:
+        """
+        Vérifie si le prix est sorti de la grille (crash sous les niveaux).
+        """
+        return current_price < self._emergency_close_price
+    
     def on_price(self, price: float):
         """
         Analyse le prix et émet des signaux si nécessaire.
@@ -155,10 +184,65 @@ class GridStrategy(Strategy):
         
         with self._lock:
             self._price_history.append(price)
-            
             symbol = self.instance.config.symbol
             
-            # 1. Check ventes (positions à fermer en profit)
+            # CORRECTION: 0. Check drawdown et grid invalidation (protection urgence)
+            if not self._emergency_mode:
+                # Check si prix sous le niveau d'invalidation
+                if self._is_grid_invalidated(price):
+                    self._emergency_mode = True
+                    logger.error(f"🚨 GRID INVALIDATED: prix {price:.0f} < {self._emergency_close_price:.0f}. "
+                                f"Mode urgence activé - fermeture toutes positions!")
+            
+            # Si mode urgence, vendre TOUTES les positions
+            if self._emergency_mode:
+                with self._lock:
+                    all_levels = list(self.open_levels.keys())
+                
+                for i, level_idx in enumerate(all_levels):
+                    position = self.open_levels[level_idx]
+                    signal = TradingSignal(
+                        type=SignalType.SELL,
+                        symbol=symbol,
+                        price=price,
+                        volume=position['volume'],
+                        reason=f"EMERGENCY: Grid invalidated - level {level_idx}",
+                        timestamp=datetime.now(),
+                        metadata={
+                            'level_index': level_idx,
+                            'emergency': True,
+                            'grid_low': self.grid_levels[0],
+                            'current_price': price,
+                            'strategy': 'grid'
+                        }
+                    )
+                    self.emit_signal(signal, bypass_cooldown=(i > 0))
+                return  # Sortir, pas d'achat en mode urgence
+            
+            # Check drawdown individuel sur chaque position
+            emergency_level = self._check_drawdown(price)
+            if emergency_level is not None:
+                position = self.open_levels[emergency_level]
+                logger.warning(f"🛑 STOP-LOSS: Level {emergency_level} atteint drawdown max "
+                              f"({self._max_drawdown_pct}%). Vente forcée.")
+                
+                signal = TradingSignal(
+                    type=SignalType.SELL,
+                    symbol=symbol,
+                    price=price,
+                    volume=position['volume'],
+                    reason=f"STOP-LOSS: Drawdown {self._max_drawdown_pct}% atteint",
+                    timestamp=datetime.now(),
+                    metadata={
+                        'level_index': emergency_level,
+                        'stop_loss': True,
+                        'drawdown_pct': self._max_drawdown_pct,
+                        'strategy': 'grid'
+                    }
+                )
+                self.emit_signal(signal)
+            
+            # 1. Check ventes normales (positions à fermer en profit)
             sell_levels = self._get_sell_levels(price)
             # CORRECTION: Batch sells - bypass cooldown pour tous sauf le premier
             for i, level_idx in enumerate(sell_levels):
@@ -185,35 +269,35 @@ class GridStrategy(Strategy):
                 
                 # CORRECTION: Bypass cooldown pour batch sells (tous sauf premier)
                 self.emit_signal(signal, bypass_cooldown=(i > 0))
-        
-        # 2. Check achats (nouveaux niveaux)
-        if self._can_open_position():
-            buy_levels = self._get_buy_levels(price)
             
-            # On prend le niveau le plus proche (meilleur prix)
-            if buy_levels:
-                best_level = max(buy_levels)  # Plus proche du prix actuel
-                level_price = self.grid_levels[best_level]
+            # CORRECTION: 2. Check achats (nouveaux niveaux) - DANS le lock
+            if self._can_open_position():
+                buy_levels = self._get_buy_levels(price)
                 
-                # Calcul volume
-                volume = self.capital_per_level / price
-                
-                signal = TradingSignal(
-                    type=SignalType.BUY,
-                    symbol=symbol,
-                    price=price,
-                    volume=volume,
-                    reason=f"Grid buy level {best_level} @ {level_price:.0f}",
-                    timestamp=datetime.now(),
-                    metadata={
-                        'level_index': best_level,
-                        'level_price': level_price,
-                        'grid_center': self.center_price,
-                        'strategy': 'grid'
-                    }
-                )
-                
-                self.emit_signal(signal)
+                # On prend le niveau le plus proche (meilleur prix)
+                if buy_levels:
+                    best_level = max(buy_levels)  # Plus proche du prix actuel
+                    level_price = self.grid_levels[best_level]
+                    
+                    # Calcul volume
+                    volume = self.capital_per_level / price
+                    
+                    signal = TradingSignal(
+                        type=SignalType.BUY,
+                        symbol=symbol,
+                        price=price,
+                        volume=volume,
+                        reason=f"Grid buy level {best_level} @ {level_price:.0f}",
+                        timestamp=datetime.now(),
+                        metadata={
+                            'level_index': best_level,
+                            'level_price': level_price,
+                            'grid_center': self.center_price,
+                            'strategy': 'grid'
+                        }
+                    )
+                    
+                    self.emit_signal(signal)
     
     def on_position_opened(self, position: Any):
         """Appelé quand une position est ouverte"""
@@ -281,13 +365,21 @@ class GridStrategy(Strategy):
                 'levels': self.grid_levels,
                 'open_positions': open_count,
                 'max_positions': self.max_positions,
-                'open_levels': open_levels_keys
+                'open_levels': open_levels_keys,
+                'protection': {
+                    'max_drawdown_pct': self._max_drawdown_pct,
+                    'emergency_price': self._emergency_close_price,
+                    'emergency_mode': self._emergency_mode,
+                    'sell_threshold_pct': self._sell_threshold_pct
+                }
             }
         }
     
     def reset(self):
         """Réinitialise la grille"""
-        self.open_levels.clear()
-        self._price_history.clear()
+        with self._lock:
+            self.open_levels.clear()
+            self._price_history.clear()
+            self._emergency_mode = False
         super().reset()
         logger.info("📊 Grid Strategy réinitialisée")
