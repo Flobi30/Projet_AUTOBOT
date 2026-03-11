@@ -261,12 +261,20 @@ class GridStrategy(Strategy):
         """
         if not self._initialized:
             return
-        
+
         # CORRECTION P0: Guard contre prix invalide (division par zéro)
         if price <= 0:
             logger.error(f"❌ Prix invalide: {price}. Ignoré.")
             return
-        
+
+        # CORRECTION: Vérifie que les données WebSocket sont fraîches
+        # Évite de trader sur des prix obsolètes si déconnexion/reconnexion
+        if hasattr(self.instance, 'orchestrator') and self.instance.orchestrator:
+            ws_client = self.instance.orchestrator.ws_client
+            if hasattr(ws_client, 'is_data_fresh') and not ws_client.is_data_fresh():
+                logger.warning(f"⏸️ {self.instance.id}: Données WebSocket stale, signal ignoré")
+                return
+
         # CORRECTION P1: Snapshot unique du capital pour tout le cycle
         # Évite les appels API redondants et les incohérences
         # CORRECTION F4: Utiliser get_available_capital() (capital libre) pas get_current_capital() (total)

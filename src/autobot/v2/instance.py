@@ -821,7 +821,8 @@ class TradingInstance:
                             logger.info(f"   📤 Ordre MARKET SELL: {position.volume} {self.config.symbol}")
                         
                         # CORRECTION: Timeout passé directement à query_private
-                        response = k.query_private('AddOrder', order_params, timeout=15)
+                        # AUGMENTÉ à 30s pour éviter timeouts sur Kraken en charge
+                        response = k.query_private('AddOrder', order_params, timeout=30)
                         
                         if 'result' in response:
                             # Ordre accepté par Kraken
