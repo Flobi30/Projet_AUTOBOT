@@ -45,7 +45,7 @@ class Position:
     buy_price: float
     volume: float
     sell_price: Optional[float] = None
-    status: str = "open"  # open, closed
+    status: str = "open"  # open, closing, closed
     open_time: datetime = field(default_factory=datetime.now)
     close_time: Optional[datetime] = None
     profit: Optional[float] = None
@@ -443,10 +443,75 @@ class TradingInstance:
     
     # Méthodes privées
     
-    def _cancel_all_orders(self):
-        """Annule tous les ordres ouverts"""
+    def _cancel_all_orders(self) -> bool:
+        """
+        Annule tous les ordres ouverts via API Kraken.
+        Point #3: Implémentation réelle de l'annulation d'ordres.
+        
+        Returns:
+            True si succès, False sinon
+        """
         logger.info(f"🚫 Annulation ordres {self.id}")
-        # TODO: Implémenter via API Kraken
+        
+        # Récupère clés API depuis l'orchestrateur
+        api_key = getattr(self.orchestrator, 'api_key', None)
+        api_secret = getattr(self.orchestrator, 'api_secret', None)
+        
+        if not api_key or not api_secret:
+            logger.error(f"❌ {self.id}: Clés API non configurées - impossible d'annuler les ordres")
+            return False
+        
+        try:
+            import krakenex
+            
+            # CORRECTION: Retry logic (3 tentatives)
+            for attempt in range(3):
+                try:
+                    # Crée client API
+                    k = krakenex.API(key=api_key, secret=api_secret)
+                    
+                    # CORRECTION: Timeout passé directement à query_private (pas session.timeout)
+                    # Appelle CancelAll
+                    response = k.query_private('CancelAll', timeout=10)
+                    
+                    if 'result' in response:
+                        count = response['result'].get('count', 0)
+                        logger.info(f"✅ {self.id}: {count} ordre(s) annulé(s)")
+                        
+                        # CORRECTION: Vider le dict local des ordres ouverts
+                        with self._lock:
+                            self._open_orders.clear()
+                        
+                        return True
+                    else:
+                        error = response.get('error', ['Unknown'])[0]
+                        # CORRECTION: Détection rate limit
+                        if 'Rate limit' in str(error):
+                            wait_time = min(2 ** attempt, 10)  # Exponential backoff max 10s
+                            logger.warning(f"   Rate limit, attente {wait_time}s...")
+                            time.sleep(wait_time)
+                            continue
+                        
+                        logger.error(f"❌ {self.id}: Erreur annulation ordres")
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(f"Détail: {error}")
+                        return False
+                        
+                except Exception as e:
+                    if attempt < 2:  # Retry sauf dernière tentative
+                        logger.warning(f"   Tentative {attempt+1} échouée, retry...")
+                        time.sleep(1)
+                        continue
+                    raise
+                    
+            return False
+                
+        except ImportError:
+            logger.error(f"❌ {self.id}: Module 'krakenex' non installé")
+            return False
+        except Exception as e:
+            logger.exception(f"❌ {self.id}: Exception annulation ordres: {e}")
+            return False
     
     def _wait_positions_closed(self):
         """Attend fermeture positions"""
@@ -462,10 +527,183 @@ class TradingInstance:
             
             time.sleep(1)
     
-    def _close_all_positions_market(self):
-        """Ferme toutes positions au marché (urgence)"""
+    def _close_all_positions_market(self) -> Dict[str, Any]:
+        """
+        Ferme toutes positions au marché (ordre MARKET) - URGENCE.
+        Point #3: Implémentation réelle de fermeture d'urgence.
+        
+        CORRECTIONS Opus/Gemini:
+        - Retry logic avec backoff exponentiel
+        - État "closing" transitionnel
+        - Vérification exécution via QueryOrders
+        - Prix réel récupéré depuis l'échange
+        - Rate limit handling
+        
+        Returns:
+            Dict avec 'success': bool, 'closed': int, 'errors': List[str]
+        """
         logger.warning(f"🚨 Fermeture marché toutes positions {self.id}")
-        # TODO: Implémenter ordres MARKET
+        
+        result = {'success': False, 'closed': 0, 'errors': []}
+        
+        # Récupère clés API depuis l'orchestrateur
+        api_key = getattr(self.orchestrator, 'api_key', None)
+        api_secret = getattr(self.orchestrator, 'api_secret', None)
+        
+        if not api_key or not api_secret:
+            logger.error(f"❌ {self.id}: Clés API non configurées")
+            result['errors'].append("Clés API non configurées")
+            return result
+        
+        # CORRECTION: Récupère positions ouvertes + prix sous lock
+        open_positions = []
+        last_price = None
+        with self._lock:
+            open_positions = [
+                (pos_id, pos) for pos_id, pos in self._positions.items() 
+                if pos.status == "open"
+            ]
+            last_price = self._last_price  # CORRECTION: Lecture sous lock
+        
+        if not open_positions:
+            logger.info(f"ℹ️ {self.id}: Aucune position ouverte à fermer")
+            result['success'] = True
+            return result
+        
+        logger.warning(f"   {len(open_positions)} position(s) à fermer au marché")
+        
+        try:
+            import krakenex
+            
+            # Crée client API
+            k = krakenex.API(key=api_key, secret=api_secret)
+            
+            closed_count = 0
+            
+            for pos_id, position in open_positions:
+                txid = None
+                actual_sell_price = None
+                
+                # CORRECTION: Marque position comme "closing" avant envoi ordre
+                with self._lock:
+                    if pos_id in self._positions:
+                        self._positions[pos_id].status = "closing"
+                
+                # CORRECTION: Retry logic (3 tentatives max)
+                for attempt in range(3):
+                    try:
+                        # Prépare l'ordre MARKET SELL
+                        order_params = {
+                            'pair': self.config.symbol,  # ex: XXBTZEUR
+                            'type': 'sell',
+                            'ordertype': 'market',
+                            'volume': str(position.volume),
+                        }
+                        
+                        if attempt == 0:
+                            logger.info(f"   📤 Ordre MARKET SELL: {position.volume} {self.config.symbol}")
+                        
+                        # CORRECTION: Timeout passé directement à query_private
+                        response = k.query_private('AddOrder', order_params, timeout=15)
+                        
+                        if 'result' in response:
+                            # Ordre accepté par Kraken
+                            txid = response['result'].get('txid', ['unknown'])[0]
+                            logger.info(f"   ✅ Ordre accepté: {txid}")
+                            break  # Sort du retry loop
+                        else:
+                            error = response.get('error', ['Unknown'])[0]
+                            
+                            # CORRECTION: Détection rate limit
+                            if 'Rate limit' in str(error):
+                                wait_time = min(2 ** attempt, 10)
+                                logger.warning(f"   Rate limit, attente {wait_time}s...")
+                                time.sleep(wait_time)
+                                continue
+                            
+                            # Autre erreur - retry
+                            if attempt < 2:
+                                logger.warning(f"   Erreur API, retry ({attempt+1}/3)...")
+                                time.sleep(1)
+                                continue
+                            
+                            raise Exception(f"API Error: {error}")
+                            
+                    except Exception as e:
+                        if attempt < 2:
+                            logger.warning(f"   Exception, retry ({attempt+1}/3): {e}")
+                            time.sleep(1)
+                            continue
+                        raise
+                
+                if not txid:
+                    result['errors'].append(f"Position {pos_id}: Échec placement ordre")
+                    # Restore status to open
+                    with self._lock:
+                        if pos_id in self._positions:
+                            self._positions[pos_id].status = "open"
+                    continue
+                
+                # CORRECTION: Vérification exécution via QueryOrders
+                try:
+                    time.sleep(0.5)  # Petit délai pour que l'ordre soit traité
+                    query_response = k.query_private('QueryOrders', {'txid': txid}, timeout=10)
+                    
+                    if 'result' in query_response and txid in query_response['result']:
+                        order_info = query_response['result'][txid]
+                        order_status = order_info.get('status', 'unknown')
+                        
+                        if order_status == 'closed':
+                            # Ordre exécuté - récupère prix réel
+                            actual_sell_price = float(order_info.get('price', 0))
+                            if actual_sell_price == 0:
+                                # Fallback: use avg_price if available
+                                actual_sell_price = float(order_info.get('avg_price', last_price or position.buy_price))
+                            
+                            logger.info(f"   📊 Exécution confirmée @ {actual_sell_price:.2f}€")
+                        else:
+                            logger.warning(f"   ⚠️ Statut ordre: {order_status}")
+                            # Continue anyway, we'll use last_price as fallback
+                    else:
+                        logger.warning(f"   ⚠️ Impossible de vérifier exécution, utilisation prix estimé")
+                        
+                except Exception as e:
+                    logger.warning(f"   ⚠️ Erreur vérification exécution: {e}")
+                
+                # Détermine prix final
+                sell_price = actual_sell_price or last_price or position.buy_price
+                
+                # CORRECTION: Ferme position localement avec prix réel
+                profit = self.close_position(pos_id, sell_price)
+                if profit is not None:
+                    logger.info(f"   💰 Position {pos_id} fermée, P&L: {profit:.2f}€")
+                    closed_count += 1
+                else:
+                    # Position déjà fermée par autre thread - OK
+                    logger.info(f"   ℹ️ Position {pos_id} déjà fermée")
+                    closed_count += 1
+                    
+            result['success'] = closed_count > 0
+            result['closed'] = closed_count
+            
+            logger.warning(f"🚨 Résultat fermeture: {closed_count}/{len(open_positions)} positions fermées")
+            if result['errors']:
+                logger.warning(f"   Erreurs: {len(result['errors'])}")
+            
+            # CORRECTION: Si des erreurs mais pas tout fermé, log warning important
+            if closed_count < len(open_positions):
+                logger.error(f"🚨🚨🚨 ALERTE: {len(open_positions) - closed_count} position(s) NON FERMÉE(S) !")
+            
+            return result
+            
+        except ImportError:
+            logger.error(f"❌ {self.id}: Module 'krakenex' non installé")
+            result['errors'].append("Module krakenex non installé")
+            return result
+        except Exception as e:
+            logger.exception(f"❌ {self.id}: Exception fermeture positions: {e}")
+            result['errors'].append(str(e))
+            return result
 
     # =========================================================================
     # CORRECTION: Méthodes thread-safe pour l'API Dashboard
