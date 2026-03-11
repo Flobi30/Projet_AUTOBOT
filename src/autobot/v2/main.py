@@ -34,10 +34,12 @@ class AutoBotV2:
     Gère le cycle de vie complet du bot
     """
     
-    def __init__(self):
+    def __init__(self, dashboard_host: str = "127.0.0.1", dashboard_port: int = 8080):
         self.orchestrator = None
         self.dashboard = None
         self.running = False
+        self.dashboard_host = dashboard_host
+        self.dashboard_port = dashboard_port
         
     def setup_signal_handlers(self):
         """Configure les handlers pour arrêt propre"""
@@ -87,16 +89,20 @@ class AutoBotV2:
             
             # 2. Démarre le dashboard
             logger.info("🌐 Démarrage Dashboard...")
-            self.dashboard = DashboardServer(host="0.0.0.0", port=8080)
+            self.dashboard = DashboardServer(host=self.dashboard_host, port=self.dashboard_port)
             self.dashboard.start(self.orchestrator)
-            
+
             logger.info("")
             logger.info("="*60)
             logger.info("✅ AUTOBOT V2 DÉMARRÉ AVEC SUCCÈS!")
             logger.info("="*60)
             logger.info("")
-            logger.info("📊 Dashboard: http://localhost:8080")
-            logger.info("📈 API: http://localhost:8080/api/status")
+            logger.info(f"📊 Dashboard: http://{self.dashboard_host}:{self.dashboard_port}")
+            logger.info(f"📈 API: http://{self.dashboard_host}:{self.dashboard_port}/api/status")
+            if os.getenv('DASHBOARD_API_TOKEN'):
+                logger.info("🔒 Auth: Token configuré (sécurisé)")
+            else:
+                logger.info("⚠️  Auth: Mode développement (pas de token)")
             logger.info("🛑 Arrêt: Ctrl+C")
             logger.info("")
             

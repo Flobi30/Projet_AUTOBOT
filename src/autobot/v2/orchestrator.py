@@ -353,7 +353,7 @@ class Orchestrator:
             ]
         }
     
-    def set_callbacks(self, 
+    def set_callbacks(self,
                       on_instance_created: Optional[Callable] = None,
                       on_instance_spinoff: Optional[Callable] = None,
                       on_alert: Optional[Callable] = None):
@@ -361,3 +361,74 @@ class Orchestrator:
         self._on_instance_created = on_instance_created
         self._on_instance_spinoff = on_instance_spinoff
         self._on_alert = on_alert
+
+    # =========================================================================
+    # CORRECTION: Méthodes thread-safe pour l'API Dashboard
+    # =========================================================================
+
+    def get_status_safe(self) -> Dict:
+        """
+        CORRECTION: Version thread-safe de get_status pour l'API.
+        Retourne une copie snapshot de l'état.
+        """
+        with self._instance_lock:
+            instances_copy = list(self._instances.values())
+            instance_count = len(self._instances)
+
+        return {
+            'running': self.running,
+            'start_time': self._start_time,
+            'instance_count': instance_count,
+            'max_instances': self.config['max_instances'],
+            'websocket_connected': self.ws_client.is_connected(),
+            'instances': [
+                {
+                    'id': inst.id,
+                    'name': inst.config.name,
+                    'capital': inst.get_current_capital(),
+                    'profit': inst.get_profit(),
+                    'running': inst.is_running()
+                }
+                for inst in instances_copy
+            ]
+        }
+
+    def get_instances_snapshot(self) -> List[Dict]:
+        """
+        CORRECTION: Version thread-safe pour l'API.
+        Retourne une snapshot des instances (pas d'accès direct à _instances).
+        """
+        with self._instance_lock:
+            instances_copy = list(self._instances.items())
+
+        snapshot = []
+        for inst_id, instance in instances_copy:
+            try:
+                inst_status = instance.get_status()
+                snapshot.append({
+                    'id': inst_id,
+                    'name': instance.config.name,
+                    'capital': inst_status['current_capital'],
+                    'profit': inst_status['total_profit'],
+                    'status': inst_status['status'],
+                    'strategy': instance.config.strategy,
+                    'open_positions': len(inst_status['positions'])
+                })
+            except Exception as e:
+                logger.error(f"❌ Erreur snapshot instance {inst_id}: {e}")
+
+        return snapshot
+
+    def get_instance_positions_snapshot(self, instance_id: str) -> Optional[List[Dict]]:
+        """
+        CORRECTION: Version thread-safe pour l'API.
+        Retourne une snapshot des positions d'une instance.
+        """
+        with self._instance_lock:
+            instance = self._instances.get(instance_id)
+            if not instance:
+                return None
+            # Copie les données sous lock
+            positions_snapshot = instance.get_positions_snapshot()
+
+        return positions_snapshot

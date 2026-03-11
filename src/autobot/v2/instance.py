@@ -417,3 +417,35 @@ class TradingInstance:
         """Ferme toutes positions au marché (urgence)"""
         logger.warning(f"🚨 Fermeture marché toutes positions {self.id}")
         # TODO: Implémenter ordres MARKET
+
+    # =========================================================================
+    # CORRECTION: Méthodes thread-safe pour l'API Dashboard
+    # =========================================================================
+
+    def get_positions_snapshot(self) -> List[Dict]:
+        """
+        CORRECTION: Version thread-safe pour l'API.
+        Retourne une copie des positions (pas d'accès direct à _positions).
+        """
+        with self._lock:
+            positions_copy = list(self._positions.items())
+            last_price = self._last_price
+
+        snapshot = []
+        for pos_id, pos in positions_copy:
+            current_price = last_price or pos.buy_price
+            pnl = (current_price - pos.buy_price) * pos.volume
+            pnl_pct = (current_price - pos.buy_price) / pos.buy_price * 100 if pos.buy_price > 0 else 0
+
+            snapshot.append({
+                'id': pos_id,
+                'pair': self.config.symbol,
+                'side': 'LONG',
+                'size': f"{pos.volume:.6f}",
+                'entry_price': pos.buy_price,
+                'current_price': current_price,
+                'pnl': pnl,
+                'pnl_percent': pnl_pct
+            })
+
+        return snapshot
