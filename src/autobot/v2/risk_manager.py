@@ -3,6 +3,7 @@ Risk Manager - Gestion dynamique des risques (SL/TP, levier, exposition)
 """
 
 import logging
+import threading
 from typing import Dict, Optional, Callable
 from dataclasses import dataclass
 
@@ -213,12 +214,21 @@ class RiskManager:
         }
 
 
-# Singleton pour usage global
+# Singleton pour usage global - CORRECTION Phase 4: Thread-safe
 _risk_manager_instance = None
+_risk_manager_lock = threading.Lock()
+
 
 def get_risk_manager() -> RiskManager:
-    """Retourne instance globale RiskManager"""
+    """
+    Retourne instance globale RiskManager (thread-safe).
+
+    CORRECTION Phase 4: Utilise un lock pour éviter race condition
+    si deux threads appellent get_risk_manager() simultanément.
+    """
     global _risk_manager_instance
-    if _risk_manager_instance is None:
-        _risk_manager_instance = RiskManager()
-    return _risk_manager_instance
+
+    with _risk_manager_lock:
+        if _risk_manager_instance is None:
+            _risk_manager_instance = RiskManager()
+        return _risk_manager_instance

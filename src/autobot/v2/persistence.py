@@ -309,16 +309,24 @@ class StatePersistence:
             return 0
 
 
-# Singleton global
+# Singleton global - CORRECTION Phase 4: Thread-safe
 _persistence_instance: Optional[StatePersistence] = None
+_persistence_lock = threading.Lock()
 
 
 def get_persistence(db_path: str = "data/autobot_state.db") -> StatePersistence:
-    """Retourne l'instance singleton de persistance"""
+    """
+    Retourne l'instance singleton de persistance (thread-safe).
+
+    CORRECTION Phase 4: Utilise un lock pour éviter race condition
+    si deux threads appellent get_persistence() simultanément.
+    """
     global _persistence_instance
-    if _persistence_instance is None:
-        _persistence_instance = StatePersistence(db_path)
-    return _persistence_instance
+
+    with _persistence_lock:
+        if _persistence_instance is None:
+            _persistence_instance = StatePersistence(db_path)
+        return _persistence_instance
 
 
 def reset_persistence():

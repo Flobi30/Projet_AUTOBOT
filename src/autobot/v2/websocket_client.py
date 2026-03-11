@@ -6,6 +6,7 @@ OPTIMISATION: orjson pour parsing JSON 3-10× plus rapide
 import asyncio
 import orjson  # CORRECTION: orjson 3-10× plus rapide que json
 import logging
+import time  # CORRECTION Phase 4: Pour heartbeat monitoring
 import websocket
 import threading
 from typing import Dict, Callable, Optional, List
@@ -60,7 +61,15 @@ class KrakenWebSocket:
         # Cache données
         self._last_prices: Dict[str, TickerData] = {}
         self._subscribed_pairs: set = set()
-        
+
+        # CORRECTION Phase 4: Heartbeat et monitoring
+        self._last_message_time: Optional[datetime] = None
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_interval = 10  # seconds
+        self._stale_threshold = 30  # seconds - prix considéré stalé après
+        self._reconnect_backoff = 1  # seconds - backoff exponentiel
+        self._max_reconnect_backoff = 60  # seconds
+
         logger.info("📡 KrakenWebSocket initialisé")
     
     @property
@@ -79,17 +88,20 @@ class KrakenWebSocket:
     def on_message(self, ws, message):
         """Gestion messages reçus"""
         try:
+            # CORRECTION Phase 4: Met à jour timestamp dernier message
+            self._last_message_time = datetime.now()
+
             data = orjson.loads(message)
-            
-            # Heartbeat
+
+            # Heartbeat Kraken (different de notre heartbeat monitoring)
             if data.get('event') == 'heartbeat':
                 return
-            
+
             # System status
             if data.get('event') == 'systemStatus':
                 logger.info(f"💚 Kraken WS Status: {data.get('status')}")
                 return
-            
+
             # Subscription confirmation
             if data.get('event') == 'subscriptionStatus':
                 pair = data.get('pair')
@@ -99,14 +111,14 @@ class KrakenWebSocket:
                     with self._lock:
                         self._subscribed_pairs.add(pair)
                 return
-            
+
             # Channel data (ticker, trade, etc.)
             if isinstance(data, list) and len(data) >= 4:
                 channel_id = data[0]
                 channel_data = data[1]
                 channel_name = data[2]
                 pair = data[3]
-                
+
                 if 'ticker' in channel_name:
                     self._process_ticker(pair, channel_data)
                 elif 'trade' in channel_name:
@@ -198,11 +210,92 @@ class KrakenWebSocket:
         
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
+
+        # CORRECTION Phase 4: Démarre heartbeat monitoring
+        self._start_heartbeat_monitoring()
+
         logger.info("🚀 WebSocket démarré")
-    
+
+    def _start_heartbeat_monitoring(self):
+        """
+        CORRECTION Phase 4: Démarre le monitoring heartbeat.
+        Détecte connexion silencieuse et gère reconnexion automatique.
+        """
+        self._last_message_time = datetime.now()
+        self._reconnect_backoff = 1
+
+        def heartbeat_loop():
+            logger.info("💓 Heartbeat monitoring démarré")
+
+            while self.running:
+                try:
+                    time.sleep(self._heartbeat_interval)
+
+                    if not self.running:
+                        break
+
+                    # Vérifie si prix stalé
+                    if self._last_message_time:
+                        elapsed = (datetime.now() - self._last_message_time).total_seconds()
+
+                        if elapsed > self._stale_threshold:
+                            logger.warning(f"🚨 Prix stalé depuis {elapsed:.0f}s - Reconnexion nécessaire")
+                            self._reconnect()
+                            continue
+
+                    # Vérifie si toujours connecté
+                    if not self.is_connected():
+                        logger.warning("🔌 WebSocket déconnecté - Tentative reconnexion...")
+                        self._reconnect()
+
+                except Exception as e:
+                    logger.exception(f"❌ Erreur heartbeat monitoring: {e}")
+                    time.sleep(5)
+
+            logger.info("💓 Heartbeat monitoring arrêté")
+
+        self._heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
+
+    def _reconnect(self):
+        """
+        CORRECTION Phase 4: Reconnexion automatique avec backoff exponentiel.
+        """
+        logger.info(f"🔄 Reconnexion WebSocket (backoff: {self._reconnect_backoff}s)...")
+
+        # Ferme connexion existante
+        try:
+            if self.ws:
+                self.ws.close()
+        except:
+            pass
+
+        # Attente backoff
+        time.sleep(self._reconnect_backoff)
+
+        # Augmente backoff pour prochaine tentative
+        self._reconnect_backoff = min(
+            self._reconnect_backoff * 2,
+            self._max_reconnect_backoff
+        )
+
+        # Redémarre
+        try:
+            self.running = False
+            self.connect()
+            logger.info("✅ Reconnexion réussie")
+            self._reconnect_backoff = 1  # Reset backoff
+        except Exception as e:
+            logger.error(f"❌ Échec reconnexion: {e}")
+
     def disconnect(self):
         """Ferme connexion"""
         self.running = False
+
+        # CORRECTION Phase 4: Arrête heartbeat monitoring
+        if self._heartbeat_thread:
+            self._heartbeat_thread.join(timeout=2)
+
         if self.ws:
             self.ws.close()
         if self.thread:
@@ -273,7 +366,23 @@ class KrakenWebSocket:
     def get_last_price(self, pair: str) -> Optional[TickerData]:
         """Retourne dernier prix connu"""
         return self._last_prices.get(pair)
-    
+
+    def is_data_fresh(self, max_age_seconds: int = 30) -> bool:
+        """
+        CORRECTION Phase 4: Vérifie si les données sont récentes.
+
+        Args:
+            max_age_seconds: Âge maximum acceptable en secondes
+
+        Returns:
+            True si données fraîches, False si stalées
+        """
+        if not self._last_message_time:
+            return False
+
+        elapsed = (datetime.now() - self._last_message_time).total_seconds()
+        return elapsed < max_age_seconds
+
     def is_connected(self) -> bool:
         """Vérifie si connecté"""
         return self.running and self.ws and self.ws.sock and self.ws.sock.connected
