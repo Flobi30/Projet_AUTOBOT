@@ -1,0 +1,6 @@
+# AUTOBOT V2 - Tests
+# Dépendances pour les tests API Kraken
+
+krakenex>=1.0.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
