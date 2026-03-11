@@ -97,23 +97,37 @@ offset = -half_range + (i * step)
 
 ---
 
-## PHASE 3 : STOP-LOSS SUR EXCHANGE (P0 - Protection)
+## PHASE 2 : STOP-LOSS SUR EXCHANGE (P0 - Protection) ✅ COMPLÉTÉ
 
-### 3.1 Ordres stop-loss natifs Kraken
-**Fichier :** `src/autobot/v2/order_executor.py` (ajout)
+### 2.1 Ordres stop-loss natifs Kraken
+**Fichier :** `src/autobot/v2/order_executor.py` ✅
 
 **Implémentation :**
-- Lors de `open_position()`, poser un ordre stop-loss conditionnel sur Kraken
-- Stocker le txid du stop-loss
-- Si stop-loss déclenché côté Kraken, synchroniser état local
+- ✅ `execute_stop_loss_order()` - Pose ordre stop-loss sur Kraken
+- ✅ Retry logic avec backoff
+- ✅ Récupération txid
 
-### 3.2 Synchronisation stop-loss
-**Fichier :** `src/autobot/v2/instance.py`
+### 2.2 StopLossManager - Surveillance et synchronisation
+**Fichier :** `src/autobot/v2/stop_loss_manager.py` ✅ NOUVEAU
+
+**Implémentation :**
+- ✅ Surveillance continue des stop-loss (thread dédié)
+- ✅ Réconciliation au démarrage (positions fermées pendant offline)
+- ✅ Annulation automatique lors de fermeture manuelle
+- ✅ Callback quand stop-loss déclenché
+
+### 2.3 Intégration Position et Instance
+**Fichiers :** `src/autobot/v2/instance.py`, `signal_handler.py` ✅
 
 **Modifications :**
-- `open_position()` : Retourne aussi le txid du stop-loss posé
-- `on_position_closed()` : Gérer fermeture par stop-loss externe
-- `check_stop_loss_status()` : Vérifier si stop-loss déclenché sur Kraken
+- ✅ Position dataclass avec `stop_loss_txid` et `stop_loss_triggered`
+- ✅ `open_position()` accepte et stocke `stop_loss_txid`
+- ✅ Persistence du txid dans SQLite
+- ✅ SignalHandler pose stop-loss AVANT création position locale
+
+---
+
+## PHASE 3 : SÉCURITÉ & ROBUSTESSE (P1)
 
 ---
 
