@@ -57,9 +57,11 @@ class AutoBotV2:
             symbol="XXBTZEUR",  # BTC/EUR sur Kraken
             initial_capital=500.0,
             strategy="grid",
-            grid_range_percent=7.0,
-            grid_levels=15,
-            leverage=1
+            leverage=1,
+            grid_config={
+                'range_percent': 7.0,
+                'num_levels': 15
+            }
         )
     
     def start(self):

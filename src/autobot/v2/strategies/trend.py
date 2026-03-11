@@ -95,7 +95,7 @@ class TrendStrategy(Strategy):
             'rsi': rsi,
             'trend': trend,
             'diff_pct': diff_pct,
-            'prices_count': len(prices)
+            'prices_count': len(self._price_history)
         }
     
     def _should_buy(self, indicators: Dict) -> bool:
@@ -138,13 +138,14 @@ class TrendStrategy(Strategy):
         return False
     
     def _has_open_position(self) -> bool:
-        """CORRECTION: Vérifie si une position est réellement ouverte sur l'instance"""
+        """CORRECTION: Vérifie si une position est réellement ouverte sur l'instance (thread-safe)"""
         try:
-            # Vérifier l'état réel de l'instance, pas un booléen local
-            return len(self.instance._positions) > 0
+            # CORRECTION: Utilise méthode thread-safe au lieu d'accès direct
+            positions = self.instance.get_positions_snapshot()
+            return len(positions) > 0
         except Exception as e:
             # CORRECTION: Log warning au lieu de fail silencieux
-            logger.warning(f"⚠️ Erreur accès _positions: {e}. Assume pas de position.")
+            logger.warning(f"⚠️ Erreur accès positions: {e}. Assume pas de position.")
             return False
     
     def on_price(self, price: float):
