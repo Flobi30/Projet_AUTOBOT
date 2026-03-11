@@ -9,7 +9,7 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class RiskConfig:
     """Configuration des risques selon capital"""
     capital_min: float

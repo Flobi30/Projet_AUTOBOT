@@ -27,7 +27,7 @@ class InstanceStatus(Enum):
     ERROR = "error"
 
 
-@dataclass
+@dataclass(slots=True)
 class Trade:
     """Trade exécuté"""
     id: str
@@ -38,7 +38,7 @@ class Trade:
     profit: Optional[float] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class Position:
     """Position ouverte"""
     id: str

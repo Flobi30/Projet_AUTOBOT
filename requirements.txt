@@ -1,0 +1,26 @@
+# AUTOBOT V2 - Requirements principaux
+
+# API Kraken
+krakenex>=1.0.0
+
+# WebSocket
+websocket-client>=1.6.0
+
+# Optimisation JSON (3-10× plus rapide)
+orjson>=3.9.0
+
+# Data structures
+collections-extended>=2.0.0
+
+# Async (pour futures optimisations)
+# aiohttp>=3.9.0
+
+# Dashboard API
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# Utilitaires
+python-dateutil>=2.8.0
+pytz>=2023.3

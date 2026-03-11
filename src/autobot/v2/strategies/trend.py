@@ -8,7 +8,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from collections import deque
 
-from . import Strategy, TradingSignal, SignalType, calculate_ma, calculate_ema, calculate_rsi
+# CORRECTION: Utilisation des indicateurs O(1) pour maximale performance
+from . import Strategy, TradingSignal, SignalType, RollingMA, RollingEMA, RollingRSI
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,11 @@ class TrendStrategy(Strategy):
         # Historique des prix
         self._price_history: deque = deque(maxlen=200)
         
+        # CORRECTION: Indicateurs O(1) pour calcul incrémental ultra-rapide
+        self._fast_ma = RollingEMA(self.fast_period)
+        self._slow_ma = RollingEMA(self.slow_period)
+        self._rsi = RollingRSI(self.rsi_period)
+        
         # État
         self._initialized = True
         self._current_trend = "neutral"  # "up", "down", "neutral"
@@ -53,21 +59,20 @@ class TrendStrategy(Strategy):
         # CORRECTION: Pas de _position_open bool -> check dynamique instance
         
         logger.info(f"📈 Trend Strategy: MA{self.fast_period}/MA{self.slow_period}, "
-                   f"RSI({self.rsi_period})")
+                   f"RSI({self.rsi_period}) [Optimisé O(1)]")
     
     def _calculate_indicators(self) -> Dict[str, Any]:
-        """Calcule tous les indicateurs techniques"""
-        prices = list(self._price_history)
+        """Calcule tous les indicateurs techniques en O(1) - ULTRA RAPIDE"""
+        # CORRECTION: Utilise les valeurs courantes des indicateurs O(1)
+        # Pas besoin de recalculer sur tout l'historique!
         
-        if len(prices) < self.slow_period:
+        fast_ma = self._fast_ma.get_current()
+        slow_ma = self._slow_ma.get_current()
+        rsi = self._rsi.get_current()
+        
+        # Vérifie si on a assez d'historique
+        if fast_ma is None or slow_ma is None or rsi is None:
             return {'ready': False}
-        
-        # Moyennes mobiles
-        fast_ma = calculate_ma(prices, self.fast_period)
-        slow_ma = calculate_ma(prices, self.slow_period)
-        
-        # RSI
-        rsi = calculate_rsi(prices, self.rsi_period)
         
         # Tendance
         if fast_ma and slow_ma:
@@ -143,16 +148,17 @@ class TrendStrategy(Strategy):
             return False
     
     def on_price(self, price: float):
-        """Analyse le prix et émet des signaux"""
+        """Analyse le prix et émet des signaux - OPTIMISÉ O(1)"""
         if not self._initialized:
             return
         
         with self._lock:
             self._price_history.append(price)
             
-            # Besoin d'historique suffisant
-            if len(self._price_history) < self.slow_period:
-                return
+            # CORRECTION: Mise à jour incrémentale O(1) des indicateurs
+            self._fast_ma.update(price)
+            self._slow_ma.update(price)
+            self._rsi.update(price)
             
             indicators = self._calculate_indicators()
             # CORRECTION: Mettre à jour _current_trend

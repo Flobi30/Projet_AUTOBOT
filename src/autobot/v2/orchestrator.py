@@ -23,7 +23,7 @@ def _get_available_capital_real() -> float:
     raise NotImplementedError("Récupération capital Kraken non implémentée")
 
 
-@dataclass
+@dataclass(slots=True)
 class InstanceConfig:
     """Configuration d'une instance"""
     name: str

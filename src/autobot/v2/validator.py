@@ -20,7 +20,7 @@ class ValidationStatus(Enum):
     RED = "red"          # ❌ Bloquant
 
 
-@dataclass
+@dataclass(slots=True)
 class ValidationResult:
     """Résultat d'une validation"""
     status: ValidationStatus
