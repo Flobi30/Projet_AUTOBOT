@@ -13,6 +13,7 @@ import time
 from collections import deque
 
 from .websocket_client import TickerData
+from .persistence import get_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ class Position:
     open_time: datetime = field(default_factory=datetime.now)
     close_time: Optional[datetime] = None
     profit: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
 
 
 class TradingInstance:
@@ -108,6 +111,11 @@ class TradingInstance:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         
+        # Point #4: Persistance SQLite - Recovery au démarrage
+        self._persistence = get_persistence()
+        self._recover_state()
+        self.save_state()
+        
         logger.info(f"📊 Instance {self.id} initialisée: {config.name}")
     
     def start(self):
@@ -117,6 +125,8 @@ class TradingInstance:
         
         self.status = InstanceStatus.RUNNING
         self._stop_event.clear()
+        
+        self.save_state()
         
         # Initialisation stratégie
         self._init_strategy()
@@ -136,16 +146,19 @@ class TradingInstance:
         self._wait_positions_closed()
         
         self.status = InstanceStatus.STOPPED
+        self.save_state()
         logger.info(f"✅ Instance {self.id} arrêtée")
     
     def pause(self):
         """Met en pause (pas de nouveaux trades)"""
         self.status = InstanceStatus.PAUSED
+        self.save_state()
         logger.info(f"⏸️ Instance {self.id} en pause")
     
     def resume(self):
         """Reprend après pause"""
         self.status = InstanceStatus.RUNNING
+        self.save_state()
         logger.info(f"▶️ Instance {self.id} reprise")
     
     def emergency_stop(self):
@@ -156,6 +169,7 @@ class TradingInstance:
         # CORRECTION: Modifier status sous lock
         with self._lock:
             self.status = InstanceStatus.STOPPED
+        self.save_state()
         
         # Ferme tout immédiatement (market orders)
         self._close_all_positions_market()
@@ -234,9 +248,22 @@ class TradingInstance:
             # CORRECTION: Appeler callback APRÈS avoir libéré le lock
             position_copy = position  # Garde une référence
         
+        # Point #4: Sauvegarde position dans SQLite
+        self._persistence.save_position(
+            position_id=position_id,
+            instance_id=self.id,
+            buy_price=price,
+            volume=volume,
+            status="open",
+            strategy=self.config.strategy,
+            metadata={'stop_loss': stop_loss, 'take_profit': take_profit}
+        )
+        
         # Callback hors lock pour éviter deadlock
         if self._on_position_open:
             self._on_position_open(self, position_copy)
+            
+        self.save_state()
         
         return position
     
@@ -293,9 +320,24 @@ class TradingInstance:
             position_copy = position
             profit_copy = net_profit
         
+        # Point #4: Ferme position ET enregistre trade de manière atomique
+        self._persistence.close_position_and_record_trade(
+            position_id=position_id,
+            trade_data={
+                'instance_id': self.id,
+                'side': 'sell',
+                'price': sell_price,
+                'volume': position_copy.volume,
+                'profit': profit_copy,
+                'timestamp': datetime.now().isoformat()
+            }
+        )
+        
         # Callback hors lock pour éviter deadlock
         if self._on_position_close:
             self._on_position_close(self, position_copy)
+            
+        self.save_state()
         
         return profit_copy
     
@@ -304,6 +346,7 @@ class TradingInstance:
         with self._lock:
             self._current_capital -= amount
             logger.info(f"🔄 Spin-off {self.id}: {amount:.2f}€ sortis, reste {self._current_capital:.2f}€")
+        self.save_state()
     
     def activate_leverage(self, leverage: int) -> bool:
         """Active levier sur instance"""
@@ -396,7 +439,81 @@ class TradingInstance:
             return "down"
         else:
             return "range"
-    
+
+    # =========================================================================
+    # Point #4: Persistance SQLite - Recovery et sauvegarde d'état
+    # =========================================================================
+
+    def _recover_state(self):
+        """
+        Récupère l'état sauvegardé après un crash.
+        Appelé automatiquement au démarrage de l'instance.
+        """
+        try:
+            # Récupère positions ouvertes
+            saved_positions = self._persistence.recover_positions(self.id)
+            if saved_positions:
+                logger.warning(f"🔄 Recovery {self.id}: {len(saved_positions)} position(s) à restaurer")
+                for pos_data in saved_positions:
+                    metadata = pos_data.get('metadata') or {}
+                    position = Position(
+                        id=pos_data['id'],
+                        buy_price=pos_data['buy_price'],
+                        volume=pos_data['volume'],
+                        status="open",
+                        open_time=datetime.fromisoformat(pos_data['open_time']),
+                        stop_loss=metadata.get('stop_loss'),
+                        take_profit=metadata.get('take_profit')
+                    )
+                    with self._lock:
+                        self._positions[position.id] = position
+                        self._allocated_capital += position.buy_price * position.volume
+                    logger.info(f"   📈 Position restaurée: {position.id}")
+
+            # Récupère état instance
+            saved_state = self._persistence.recover_instance_state(self.id)
+            if saved_state:
+                logger.warning(f"🔄 Recovery {self.id}: État précédent trouvé")
+                with self._lock:
+                    self._current_capital = saved_state['current_capital']
+                    # CORRECTION: Ne PAS écraser _allocated_capital (déjà calculé depuis positions)
+                    # self._allocated_capital = saved_state['allocated_capital']
+                    self._win_count = saved_state.get('win_count', 0)
+                    self._loss_count = saved_state.get('loss_count', 0)
+                    logger.info(f"   💰 Capital restauré: {self._current_capital:.2f}€ (allocated: {self._allocated_capital:.2f}€ depuis positions)")
+
+        except Exception as e:
+            logger.exception(f"❌ Erreur recovery état {self.id}: {e}")
+
+    def save_state(self) -> bool:
+        """
+        Sauvegarde l'état actuel de l'instance.
+        Appelé périodiquement et à l'arrêt.
+        """
+        try:
+            # CORRECTION: Copier données sous lock, persistence hors lock (évite deadlock)
+            with self._lock:
+                current_capital = self._current_capital
+                allocated_capital = self._allocated_capital
+                win_count = self._win_count
+                loss_count = self._loss_count
+                status = self.status.value
+            
+            # Persistence hors lock
+            self._persistence.save_instance_state(
+                instance_id=self.id,
+                status=status,
+                current_capital=current_capital,
+                allocated_capital=allocated_capital,
+                win_count=win_count,
+                loss_count=loss_count
+            )
+            logger.debug(f"💾 État sauvegardé: {self.id}")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur sauvegarde état {self.id}: {e}")
+            return False
+
     def is_running(self) -> bool:
         """Vérifie si instance active"""
         return self.status == InstanceStatus.RUNNING
