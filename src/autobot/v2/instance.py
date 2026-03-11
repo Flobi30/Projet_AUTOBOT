@@ -52,6 +52,9 @@ class Position:
     profit: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    # CORRECTION Phase 2: Tracking stop-loss Kraken
+    stop_loss_txid: Optional[str] = None  # TXID ordre stop-loss sur Kraken
+    stop_loss_triggered: bool = False  # True si déclenché par Kraken
 
 
 class TradingInstance:
@@ -208,8 +211,13 @@ class TradingInstance:
     
     def open_position(self, price: float, volume: float, 
                        stop_loss: Optional[float] = None,
-                       take_profit: Optional[float] = None) -> Optional[Position]:
-        """Ouvre une position (vérification et exécution atomiques) avec SL/TP optionnels"""
+                       take_profit: Optional[float] = None,
+                       stop_loss_txid: Optional[str] = None) -> Optional[Position]:
+        """
+        Ouvre une position (vérification et exécution atomiques) avec SL/TP optionnels.
+        
+        CORRECTION Phase 2: Accepte stop_loss_txid pour tracking stop-loss Kraken.
+        """
         order_value = price * volume
         
         # CORRECTION: Tout dans un seul lock pour éviter TOCTOU
@@ -233,7 +241,8 @@ class TradingInstance:
                 buy_price=price,
                 volume=volume,
                 stop_loss=stop_loss,
-                take_profit=take_profit
+                take_profit=take_profit,
+                stop_loss_txid=stop_loss_txid  # CORRECTION Phase 2
             )
             
             self._positions[position_id] = position
@@ -244,6 +253,8 @@ class TradingInstance:
                 logger.info(f"   SL: {stop_loss:.2f}€")
             if take_profit:
                 logger.info(f"   TP: {take_profit:.2f}€")
+            if stop_loss_txid:
+                logger.info(f"   SL Kraken: {stop_loss_txid[:8]}...")
             
             # CORRECTION: Appeler callback APRÈS avoir libéré le lock
             position_copy = position  # Garde une référence
@@ -256,7 +267,11 @@ class TradingInstance:
             volume=volume,
             status="open",
             strategy=self.config.strategy,
-            metadata={'stop_loss': stop_loss, 'take_profit': take_profit}
+            metadata={
+                'stop_loss': stop_loss, 
+                'take_profit': take_profit,
+                'stop_loss_txid': stop_loss_txid  # CORRECTION Phase 2
+            }
         )
         
         # Callback hors lock pour éviter deadlock

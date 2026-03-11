@@ -146,30 +146,33 @@ class SignalHandler:
         
         logger.info(f"✅ Ordre exécuté sur Kraken: {executed_volume:.6f} @ {executed_price:.2f}€ (frais: {fees:.4f}€)")
         
-        # CORRECTION: Créer position avec prix d'exécution réel
+        # CORRECTION: Poser stop-loss RÉEL sur Kraken AVANT création position
+        stop_price = executed_price * 0.95  # -5%
+        sl_result = self.order_executor.execute_stop_loss_order(
+            symbol=symbol,
+            side=OrderSide.SELL,
+            volume=executed_volume,
+            stop_price=stop_price
+        )
+        
+        stop_loss_txid = None
+        if sl_result.success:
+            stop_loss_txid = sl_result.txid
+            logger.info(f"🛡️ Stop-loss posé sur Kraken @ {stop_price:.2f}€ (txid: {stop_loss_txid[:8]}...)")
+        else:
+            logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
+            # Continue quand même - la position sera sans protection
+        
+        # CORRECTION: Créer position avec prix d'exécution réel ET stop-loss txid
         position = self.instance.open_position(
             price=executed_price,
-            volume=executed_volume
+            volume=executed_volume,
+            stop_loss=stop_price,
+            stop_loss_txid=stop_loss_txid
         )
         
         if position:
             logger.info(f"✅ Position créée: {position.id}")
-            
-            # CORRECTION CRITIQUE: Poser stop-loss RÉEL sur Kraken
-            stop_price = executed_price * 0.95  # -5%
-            sl_result = self.order_executor.execute_stop_loss_order(
-                symbol=symbol,
-                side=OrderSide.SELL,
-                volume=executed_volume,
-                stop_price=stop_price
-            )
-            
-            if sl_result.success:
-                logger.info(f"🛡️ Stop-loss posé sur Kraken @ {stop_price:.2f}€ (txid: {sl_result.txid[:8]}...)")
-                # Stocker txid du stop-loss dans la position
-                position.stop_loss_txid = sl_result.txid
-            else:
-                logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
         else:
             logger.error(f"❌ Échec création position locale")
     
