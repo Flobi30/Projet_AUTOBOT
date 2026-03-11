@@ -12,7 +12,7 @@ from datetime import datetime
 from .strategies import TradingSignal, SignalType
 from .instance import TradingInstance
 from .order_executor import OrderExecutor, OrderSide
-from .validator import ValidatorEngine, ValidationResult, ValidationStatus
+from .validator import ValidatorEngine, ValidationResult, ValidationStatus, create_default_validator_engine
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ class SignalHandler:
     def __init__(self, instance: TradingInstance, order_executor: Optional[OrderExecutor] = None):
         self.instance = instance
         self.order_executor = order_executor
-        self.validator = ValidatorEngine()
+        # CORRECTION E5: Utilise create_default_validator_engine() au lieu de ValidatorEngine() vide
+        self.validator = create_default_validator_engine()
         self._last_signal_time: Optional[datetime] = None
         self._cooldown_seconds = 5  # Minimum 5s entre ordres
         

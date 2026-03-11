@@ -125,18 +125,24 @@ class StopLossManager:
         logger.info(f"🔍 Réconciliation stop-loss: {len(positions)} position(s) à vérifier")
         
         for position in positions:
-            txid = getattr(position, 'stop_loss_txid', None)
-            if not txid:
+            if isinstance(position, dict):
+                txid = position.get('stop_loss_txid')
+                pos_id = position.get('id')
+            else:
+                txid = getattr(position, 'stop_loss_txid', None)
+                pos_id = getattr(position, 'id', None)
+                
+            if not txid or not pos_id:
                 continue
             
             was_triggered, status = self.check_stop_loss(txid)
             
             if was_triggered and status:
-                triggered.append((position.id, status))
-                logger.warning(f"🚨 Position {position.id} a été fermée par stop-loss sur Kraken")
+                triggered.append((pos_id, status))
+                logger.warning(f"🚨 Position {pos_id} a été fermée par stop-loss sur Kraken")
             else:
                 # Ré-enregistrer pour surveillance continue
-                self.register_stop_loss(txid, position.id)
+                self.register_stop_loss(txid, pos_id)
         
         if triggered:
             logger.warning(f"   {len(triggered)} position(s) fermée(s) pendant offline")
@@ -155,7 +161,13 @@ class StopLossManager:
         Returns:
             True si annulé ou inexistant
         """
-        txid = getattr(position, 'stop_loss_txid', None)
+        if isinstance(position, dict):
+            txid = position.get('stop_loss_txid')
+            pos_id = position.get('id')
+        else:
+            txid = getattr(position, 'stop_loss_txid', None)
+            pos_id = getattr(position, 'id', None)
+
         if not txid:
             return True
         
@@ -164,9 +176,9 @@ class StopLossManager:
         
         if success:
             self.unregister_stop_loss(txid)
-            logger.info(f"🚫 Stop-loss annulé pour position {position.id}")
+            logger.info(f"🚫 Stop-loss annulé pour position {pos_id}")
         else:
-            logger.error(f"❌ Échec annulation stop-loss pour position {position.id}")
+            logger.error(f"❌ Échec annulation stop-loss pour position {pos_id}")
         
         return success
     

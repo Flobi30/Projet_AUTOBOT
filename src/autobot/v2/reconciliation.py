@@ -108,9 +108,12 @@ class ReconciliationManager:
         """
         divergences = []
         instance_id = instance.id
-        
+
         logger.info(f"   Réconciliation instance {instance_id}...")
-        
+
+        # CORRECTION F3: Recalcule capital alloué pour corriger la dérive
+        instance.recalculate_allocated_capital()
+
         # 1. Récupère positions locales ouvertes
         local_positions = instance.get_positions_snapshot()
         local_open = [p for p in local_positions if p.get('status') == 'open']
@@ -188,64 +191,157 @@ class ReconciliationManager:
     
     def _get_kraken_orders(self, symbol: str) -> Dict[str, OrderStatus]:
         """
-        Récupère tous les ordres ouverts sur Kraken pour un symbole.
-        
+        CORRECTION C1: Implémente récupération des ordres sur Kraken.
+
         Returns:
             Dict {txid: OrderStatus}
         """
-        # TODO: Implémenter récupération via OpenOrders + ClosedOrders récents
-        # Pour l'instant, retourne dict vide (sera complété lors de l'intégration)
-        return {}
-    
+        orders = {}
+        try:
+            # Récupère ordres ouverts
+            open_orders = self.order_executor._safe_api_call('OpenOrders')
+            if open_orders[0] and 'result' in open_orders[1] and 'open' in open_orders[1]['result']:
+                for txid, info in open_orders[1]['result']['open'].items():
+                    orders[txid] = OrderStatus(
+                        txid=txid,
+                        status='open',
+                        volume=float(info.get('vol', 0)),
+                        volume_exec=float(info.get('vol_exec', 0)),
+                        price=float(info.get('price', 0)) if info.get('price') else None,
+                        avg_price=float(info.get('avg_price', 0)) if info.get('avg_price') else None,
+                        fee=float(info.get('fee', 0))
+                    )
+
+            # Récupère ordres fermés récents (dernières 24h)
+            closed_orders = self.order_executor.get_closed_orders(
+                start_time=int(time.time()) - 86400  # 24h en arrière
+            )
+            for txid, info in closed_orders.items():
+                orders[txid] = OrderStatus(
+                    txid=txid,
+                    status='closed',
+                    volume=float(info.get('vol', 0)),
+                    volume_exec=float(info.get('vol_exec', 0)),
+                    price=float(info.get('price', 0)) if info.get('price') else None,
+                    avg_price=float(info.get('avg_price', 0)) if info.get('avg_price') else None,
+                    fee=float(info.get('fee', 0))
+                )
+
+        except Exception as e:
+            logger.error(f"❌ Erreur récupération ordres Kraken: {e}")
+
+        return orders
+
     def _check_if_sold_on_kraken(self, buy_txid: str, symbol: str) -> bool:
         """
-        Vérifie si une position achetée a été vendue sur Kraken.
-        
-        Args:
-            buy_txid: TXID de l'ordre d'achat
-            symbol: Paire trading
-            
-        Returns:
-            True si vendue
+        CORRECTION C1: Vérifie si une position a été vendue sur Kraken.
         """
-        # Récupère ClosedOrders récents et cherche une vente correspondante
-        # Pour l'instant, retourne False (sera implémenté)
-        return False
-    
+        try:
+            # Récupère l'ordre d'achat
+            buy_status = self.order_executor.get_order_status(buy_txid)
+            if not buy_status or buy_status.status != 'closed':
+                return False  # Achat pas encore exécuté
+
+            # Récupère ClosedOrders récents pour trouver une vente correspondante
+            closed_orders = self.order_executor.get_closed_orders(
+                start_time=int(time.time()) - 86400
+            )
+
+            for txid, info in closed_orders.items():
+                # Vérifie si c'est un ordre de vente (type='sell')
+                descr = info.get('descr', {})
+                if descr.get('type') == 'sell' and descr.get('pair') == symbol:
+                    # Vérifie si le volume correspond approximativement
+                    vol = float(info.get('vol', 0))
+                    if abs(vol - buy_status.volume_exec) < 0.0001:  # Tolérance
+                        return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ Erreur vérification vente Kraken: {e}")
+            return False
+
     def _get_average_sell_price(self, buy_txid: str, symbol: str) -> float:
         """
-        Récupère le prix moyen de vente d'une position.
-        
-        Args:
-            buy_txid: TXID de l'achat
-            symbol: Paire trading
-            
-        Returns:
-            Prix de vente ou prix actuel si non trouvé
+        CORRECTION C1: Récupère le prix moyen de vente.
         """
-        # TODO: Implémenter via QueryTrades ou ClosedOrders
-        return 0.0
-    
+        try:
+            closed_orders = self.order_executor.get_closed_orders(
+                start_time=int(time.time()) - 86400
+            )
+
+            for txid, info in closed_orders.items():
+                descr = info.get('descr', {})
+                if descr.get('type') == 'sell' and descr.get('pair') == symbol:
+                    avg_price = float(info.get('avg_price', 0))
+                    if avg_price > 0:
+                        return avg_price
+
+            return 0.0
+
+        except Exception as e:
+            logger.error(f"❌ Erreur récupération prix vente: {e}")
+            return 0.0
+
     def _get_last_price(self, symbol: str) -> float:
-        """Récupère le dernier prix connu pour un symbole."""
-        # TODO: Récupérer depuis WebSocket ou API Ticker
-        return 0.0
-    
+        """
+        CORRECTION C1: Récupère le dernier prix via API Ticker.
+        """
+        try:
+            # Utilise l'API publique Ticker
+            response = self.order_executor._safe_api_call('Ticker', pair=symbol)
+            if response[0] and 'result' in response[1]:
+                pair_data = response[1]['result'].get(symbol, {})
+                last_price = pair_data.get('c', [0])[0]  # Prix du dernier trade
+                return float(last_price)
+            return 0.0
+        except Exception as e:
+            logger.error(f"❌ Erreur récupération prix: {e}")
+            return 0.0
+
     def _check_capital_divergence(self, instance: TradingInstance) -> Optional[Divergence]:
         """
-        Vérifie si le capital tracké diverge du capital réel sur Kraken.
-        
-        Returns:
-            Divergence si écart significatif (> 1%), None sinon
+        CORRECTION F3: Vérifie divergence capital tracké vs Kraken.
         """
-        # Récupère capital local
-        local_capital = instance.get_current_capital()
-        
-        # Récupère capital réel depuis Kraken
-        real_capital = self.order_executor._get_client().query_private('Balance')
-        
-        # Compare (à implémenter avec vraie logique)
-        return None
+        try:
+            # Capital local
+            local_capital = instance.get_current_capital()
+
+            # Capital réel sur Kraken
+            balances = self.order_executor.get_balance()
+            eur_balance = balances.get('ZEUR', 0.0)
+            btc_balance = balances.get('XXBT', 0.0)
+
+            # Récupère prix BTC pour estimer valeur
+            btc_price = self._get_last_price('XXBTZEUR')
+            btc_value_eur = btc_balance * btc_price if btc_price > 0 else 0
+
+            real_capital = eur_balance + btc_value_eur
+
+            # Compare
+            diff = abs(local_capital - real_capital)
+            diff_pct = (diff / local_capital * 100) if local_capital > 0 else 0
+
+            if diff_pct > 1.0:  # Seuil 1%
+                return Divergence(
+                    type='capital_mismatch',
+                    position_id=None,
+                    kraken_txid=None,
+                    details={
+                        'local_capital': local_capital,
+                        'real_capital': real_capital,
+                        'difference': diff,
+                        'difference_pct': diff_pct
+                    },
+                    severity='critical'
+                )
+
+            return None
+
+        except Exception as e:
+            logger.error(f"❌ Erreur vérification capital: {e}")
+            return None
     
     def _reconciliation_loop(self):
         """Boucle de réconciliation périodique."""

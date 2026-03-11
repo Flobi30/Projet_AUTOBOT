@@ -121,8 +121,36 @@ class TradingInstance:
         self._persistence = get_persistence()
         self._recover_state()
         self.save_state()
-        
+
+        # CORRECTION R1: StopLossManager callback
+        self._stop_loss_callback = None
+
         logger.info(f"📊 Instance {self.id} initialisée: {config.name}")
+
+    def on_stop_loss_triggered(self, position_id: str, sell_price: float):
+        """
+        CORRECTION R1: Appelé quand un stop-loss Kraken se déclenche.
+        Ferme la position localement et notifie la stratégie.
+        """
+        logger.warning(f"🛑 Stop-loss déclenché sur {self.id}/{position_id} @ {sell_price:.2f}€")
+
+        # Ferme la position localement
+        profit = self.close_position(position_id, sell_price)
+
+        if profit is not None:
+            logger.info(f"   Position fermée par SL, P&L: {profit:.2f}€")
+        else:
+            logger.warning(f"   Position {position_id} déjà fermée ou inexistante")
+
+        # Notifie la stratégie si elle existe
+        if self._strategy and hasattr(self._strategy, 'on_position_closed'):
+            # Cherche la position dans l'historique pour avoir les détails
+            position = self._positions.get(position_id)
+            if position:
+                try:
+                    self._strategy.on_position_closed(position, profit or 0.0)
+                except Exception as e:
+                    logger.exception(f"❌ Erreur notification stratégie: {e}")
     
     def start(self):
         """Démarre l'instance"""
@@ -400,7 +428,37 @@ class TradingInstance:
         """
         with self._lock:
             return self._current_capital - self._allocated_capital
-    
+
+    def recalculate_allocated_capital(self) -> float:
+        """
+        CORRECTION F3: Recalcule le capital alloué à partir des positions ouvertes.
+        À appeler périodiquement pour corriger la dérive de _allocated_capital.
+
+        Returns:
+            Nouveau capital alloué calculé
+        """
+        with self._lock:
+            # Calcule à partir des positions réelles
+            calculated = sum(
+                pos.buy_price * pos.volume
+                for pos in self._positions.values()
+                if pos.status == "open"
+            )
+
+            # Détecte dérive significative (> 1%)
+            drift = abs(self._allocated_capital - calculated)
+            drift_pct = (drift / self._allocated_capital * 100) if self._allocated_capital > 0 else 0
+
+            if drift > 0.01:  # Seuil de 1 centime
+                logger.warning(f"🔄 {self.id}: Correction drift capital alloué: "
+                              f"{self._allocated_capital:.2f}€ → {calculated:.2f}€ "
+                              f"(drift: {drift:.2f}€, {drift_pct:.2f}%)")
+                self._allocated_capital = calculated
+            else:
+                logger.debug(f"✅ {self.id}: Capital alloué cohérent ({calculated:.2f}€)")
+
+            return self._allocated_capital
+
     def get_initial_capital(self) -> float:
         """Capital initial"""
         return self._initial_capital
@@ -869,11 +927,16 @@ class TradingInstance:
                 'pair': self.config.symbol,
                 'side': 'LONG',
                 'size': f"{pos.volume:.6f}",
+                'volume': pos.volume,
                 'entry_price': pos.buy_price,
                 'current_price': current_price,
                 'pnl': pnl,
                 'pnl_percent': pnl_pct,
-                'status': pos.status  # CORRECTION: Ajout status pour SignalHandler
+                'status': pos.status,  # CORRECTION: Ajout status pour SignalHandler
+                'buy_txid': pos.buy_txid,
+                'txid': pos.buy_txid,  # Alias pour compatibilité
+                'stop_loss_txid': pos.stop_loss_txid,
+                'sell_txid': pos.sell_txid
             })
 
         return snapshot

@@ -269,7 +269,8 @@ class GridStrategy(Strategy):
         
         # CORRECTION P1: Snapshot unique du capital pour tout le cycle
         # Évite les appels API redondants et les incohérences
-        available_capital = self.instance.get_current_capital()
+        # CORRECTION F4: Utiliser get_available_capital() (capital libre) pas get_current_capital() (total)
+        available_capital = self.instance.get_available_capital()
         
         with self._lock:
             self._price_history.append(price)

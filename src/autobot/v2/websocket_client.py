@@ -94,16 +94,16 @@ class KrakenWebSocket:
             data = orjson.loads(message)
 
             # Heartbeat Kraken (different de notre heartbeat monitoring)
-            if data.get('event') == 'heartbeat':
+            if isinstance(data, dict) and data.get('event') == 'heartbeat':
                 return
 
             # System status
-            if data.get('event') == 'systemStatus':
+            if isinstance(data, dict) and data.get('event') == 'systemStatus':
                 logger.info(f"💚 Kraken WS Status: {data.get('status')}")
                 return
 
             # Subscription confirmation
-            if data.get('event') == 'subscriptionStatus':
+            if isinstance(data, dict) and data.get('event') == 'subscriptionStatus':
                 pair = data.get('pair')
                 status = data.get('status')
                 logger.info(f"📡 Subscription {pair}: {status}")

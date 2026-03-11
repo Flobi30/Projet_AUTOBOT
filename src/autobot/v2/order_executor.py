@@ -65,15 +65,57 @@ class OrderExecutor:
         self.api_key = api_key
         self.api_secret = api_secret
         self._lock = threading.RLock()
-        
+
         # Rate limiting
         self._last_call_time = 0
         self._min_interval = 1.0  # 1 seconde min entre appels
-        
+
         # Cache Kraken client
         self._client = None
-        
+
+        # CORRECTION E6: Circuit breaker pour erreurs API
+        self._consecutive_errors = 0
+        self._max_consecutive_errors = 10  # Seuil avant circuit breaker
+        self._circuit_breaker_callback: Optional[Callable] = None  # Callback à déclencher
+
         logger.info("📡 OrderExecutor initialisé")
+
+    def set_circuit_breaker_callback(self, callback: Callable):
+        """
+        Définit la callback à appeler si le circuit breaker se déclenche.
+        La callback devrait typiquement appeler emergency_stop().
+        """
+        self._circuit_breaker_callback = callback
+
+    def _reset_error_count(self):
+        """Reset le compteur d'erreurs (appelé après un succès)."""
+        with self._lock:
+            if self._consecutive_errors > 0:
+                logger.info(f"✅ Reset compteur erreurs (était à {self._consecutive_errors})")
+                self._consecutive_errors = 0
+
+    def _increment_error_count(self) -> bool:
+        """
+        Incrémente le compteur d'erreurs et vérifie si circuit breaker doit se déclencher.
+
+        Returns:
+            True si circuit breaker déclenché
+        """
+        with self._lock:
+            self._consecutive_errors += 1
+            current = self._consecutive_errors
+
+            if current >= self._max_consecutive_errors:
+                logger.error(f"🚨 CIRCUIT BREAKER DÉCLENCHÉ: {current} erreurs consécutives!")
+                if self._circuit_breaker_callback:
+                    try:
+                        self._circuit_breaker_callback()
+                    except Exception as e:
+                        logger.exception(f"❌ Erreur circuit breaker callback: {e}")
+                return True
+
+            logger.warning(f"⚠️ Erreur API consécutive #{current}/{self._max_consecutive_errors}")
+            return False
     
     def _get_client(self):
         """Retourne client Krakenex (lazy init)"""
@@ -96,7 +138,9 @@ class OrderExecutor:
     def _safe_api_call(self, method: str, max_retries: int = 3, **params) -> Tuple[bool, Dict]:
         """
         Appel API avec retry et backoff exponentiel.
-        
+
+        CORRECTION E2: Ajoute ClosedOrders, Balance, TradeBalance, Ticker à la whitelist.
+
         Returns:
             (success, response)
         """
@@ -104,7 +148,8 @@ class OrderExecutor:
             try:
                 self._rate_limit()
                 k = self._get_client()
-                
+
+                # CORRECTION E2: Whitelist complète des méthodes supportées
                 if method == 'AddOrder':
                     response = k.query_private('AddOrder', params)
                 elif method == 'CancelOrder':
@@ -113,6 +158,14 @@ class OrderExecutor:
                     response = k.query_private('QueryOrders', params)
                 elif method == 'OpenOrders':
                     response = k.query_private('OpenOrders', params)
+                elif method == 'ClosedOrders':
+                    response = k.query_private('ClosedOrders', params)
+                elif method == 'Balance':
+                    response = k.query_private('Balance', params)
+                elif method == 'TradeBalance':
+                    response = k.query_private('TradeBalance', params)
+                elif method == 'Ticker':
+                    response = k.query_public('Ticker', params)
                 else:
                     return False, {'error': f'Méthode inconnue: {method}'}
                 
@@ -132,17 +185,25 @@ class OrderExecutor:
                     if attempt < max_retries - 1:
                         time.sleep(2 ** attempt)
                         continue
+                    # CORRECTION E6: Circuit breaker - incrémente erreur après tous les retries échoués
+                    self._increment_error_count()
                     return False, response
-                
+
+                # CORRECTION E6: Succès - reset compteur erreurs
+                self._reset_error_count()
                 return True, response
-                
+
             except Exception as e:
                 logger.error(f"❌ Exception API Kraken: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
+                # CORRECTION E6: Circuit breaker - incrémente erreur après tous les retries échoués
+                self._increment_error_count()
                 return False, {'error': str(e)}
-        
+
+        # CORRECTION E6: Circuit breaker - incrémente erreur si on arrive ici (max retries exceeded)
+        self._increment_error_count()
         return False, {'error': 'Max retries exceeded'}
     
     def execute_market_order(
@@ -165,7 +226,14 @@ class OrderExecutor:
             OrderResult avec prix d'exécution réel
         """
         logger.info(f"📤 Ordre MARKET {side.value.upper()} {volume:.6f} {symbol}")
-        
+
+        # CORRECTION F6: Validation volume minimum Kraken
+        MIN_VOLUME_KRAKEN = 0.0001  # 0.0001 BTC minimum
+        if volume < MIN_VOLUME_KRAKEN:
+            error_msg = f"Volume {volume:.6f} inférieur au minimum Kraken ({MIN_VOLUME_KRAKEN})"
+            logger.error(f"❌ {error_msg}")
+            return OrderResult(success=False, error=error_msg)
+
         # Validation
         if volume <= 0:
             return OrderResult(success=False, error="Volume doit être > 0")
@@ -224,7 +292,14 @@ class OrderExecutor:
             OrderResult avec txid du stop-loss
         """
         logger.info(f"📤 Ordre STOP-LOSS {side.value.upper()} {volume:.6f} {symbol} @ {stop_price:.2f}")
-        
+
+        # CORRECTION F6: Validation volume minimum Kraken
+        MIN_VOLUME_KRAKEN = 0.0001
+        if volume < MIN_VOLUME_KRAKEN:
+            error_msg = f"Volume {volume:.6f} inférieur au minimum Kraken ({MIN_VOLUME_KRAKEN})"
+            logger.error(f"❌ {error_msg}")
+            return OrderResult(success=False, error=error_msg)
+
         if volume <= 0:
             return OrderResult(success=False, error="Volume doit être > 0")
         
