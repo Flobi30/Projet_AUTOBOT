@@ -27,8 +27,13 @@ class GridStrategy(Strategy):
     - center_price: Prix central de la grille
     - range_percent: Range total +/- (ex: 7 pour +/- 7%)
     - num_levels: Nombre de niveaux (défaut: 15)
-    - capital_per_level: Capital alloué par niveau en €
+    - max_capital_per_level: Capital MAXIMUM par niveau en € (dynamique selon capital)
     - max_positions: Nombre max de positions ouvertes
+    
+    CORRECTION Point #5: Le capital par niveau est calculé dynamiquement:
+    - Si capital faible: réduction automatique (min 5€/niveau)
+    - Si capital élevé: utilisation du max configuré
+    - Garantit qu'on ne dépasse jamais le budget total disponible
     """
     
     def __init__(self, instance: Any, config: Optional[Dict] = None):
@@ -38,7 +43,8 @@ class GridStrategy(Strategy):
         self.center_price = self.config.get('center_price', 50000.0)
         self.range_percent = self.config.get('range_percent', 7.0)
         self.num_levels = self.config.get('num_levels', 15)
-        self.capital_per_level = self.config.get('capital_per_level', 33.0)
+        # CORRECTION Point #5: capital_per_level devient un MAX, pas une valeur fixe
+        self.max_capital_per_level = self.config.get('max_capital_per_level', 50.0)
         self.max_positions = self.config.get('max_positions', 10)
         
         # Niveaux de la grille
@@ -74,6 +80,20 @@ class GridStrategy(Strategy):
             range_percent=self.range_percent,
             num_levels=self.num_levels
         )
+        
+        # CORRECTION Point #5: Validation capital minimum au démarrage
+        available = self.instance.get_current_capital()
+        min_required = self.num_levels * 5.0  # Minimum 5€ par niveau
+        
+        if available < min_required:
+            logger.error(f"❌ Capital insuffisant: {available:.2f}€ < {min_required:.2f}€ minimum "
+                        f"({self.num_levels} niveaux × 5€)")
+            raise ValueError(f"Capital insuffisant pour Grid Strategy: {available:.2f}€")
+        
+        # Log du capital dynamique calculé
+        dynamic = self._calculate_dynamic_capital_per_level()
+        logger.info(f"💰 Capital dynamique: {dynamic:.2f}€/niveau "
+                   f"(max: {self.max_capital_per_level}€, disponible: {available:.2f}€)")
         
         logger.debug(f"📊 Niveaux grille ({len(self.grid_levels)}): "
                     f"{self.grid_levels[0]:.0f} → {self.grid_levels[-1]:.0f}")
@@ -135,6 +155,43 @@ class GridStrategy(Strategy):
         
         return sell_levels
     
+    def _calculate_dynamic_capital_per_level(self) -> float:
+        """
+        CORRECTION Point #5: Calcul dynamique du capital par niveau selon capital disponible.
+        
+        Au lieu d'utiliser capital_per_level fixe (33€), on calcule dynamiquement:
+        - Capital disponible / nombre de niveaux × facteur d'utilisation
+        - Garantit qu'on ne dépasse jamais le budget total
+        
+        Returns:
+            Capital alloué par niveau en €
+        """
+        available = self.instance.get_current_capital()
+        
+        # Nombre de niveaux d'achat (moitié inférieure de la grille)
+        buy_levels_count = self.num_levels // 2
+        if buy_levels_count < 1:
+            buy_levels_count = 1
+        
+        # Utiliser max 90% du capital disponible (marge de sécurité 10%)
+        usable_capital = available * 0.90
+        
+        # Capital par niveau = capital utilisable / nombre de niveaux d'achat
+        dynamic_capital = usable_capital / buy_levels_count
+        
+        # Plafonner par max_capital_per_level pour ne pas sur-allouer
+        max_per_level = self.max_capital_per_level
+        
+        # Minimum de 5€ par niveau (sinon pas assez pour un ordre significatif)
+        min_per_level = 5.0
+        
+        result = max(min_per_level, min(dynamic_capital, max_per_level))
+        
+        logger.debug(f"💰 Capital dynamique: {result:.2f}€ (disponible: {available:.2f}€, "
+                    f"niveaux achat: {buy_levels_count})")
+        
+        return result
+    
     def _can_open_position(self) -> bool:
         """Vérifie si on peut ouvrir une nouvelle position"""
         # CORRECTION: Accès sous lock pour thread safety
@@ -145,9 +202,10 @@ class GridStrategy(Strategy):
         if open_count >= self.max_positions:
             return False
         
-        # CORRECTION: Utiliser get_current_capital() (existe) pas get_available_capital()
+        # CORRECTION Point #5: Utiliser capital par niveau calculé dynamiquement
+        capital_per_level = self._calculate_dynamic_capital_per_level()
         available = self.instance.get_current_capital()
-        if available < self.capital_per_level:
+        if available < capital_per_level:
             return False
         
         return True
@@ -279,8 +337,9 @@ class GridStrategy(Strategy):
                     best_level = max(buy_levels)  # Plus proche du prix actuel
                     level_price = self.grid_levels[best_level]
                     
-                    # Calcul volume
-                    volume = self.capital_per_level / price
+                    # CORRECTION Point #5: Calcul dynamique du capital puis du volume
+                    capital_per_level = self._calculate_dynamic_capital_per_level()
+                    volume = capital_per_level / price
                     
                     signal = TradingSignal(
                         type=SignalType.BUY,
@@ -356,6 +415,9 @@ class GridStrategy(Strategy):
             open_levels_keys = list(self.open_levels.keys())
             open_count = len(self.open_levels)
         
+        # CORRECTION Point #5: Inclure le capital dynamique dans le statut
+        dynamic_capital = self._calculate_dynamic_capital_per_level()
+        
         return {
             **base_status,
             'grid': {
@@ -366,6 +428,12 @@ class GridStrategy(Strategy):
                 'open_positions': open_count,
                 'max_positions': self.max_positions,
                 'open_levels': open_levels_keys,
+                # CORRECTION Point #5: Exposer le capital dynamique
+                'capital_per_level': {
+                    'dynamic': dynamic_capital,
+                    'max': self.max_capital_per_level,
+                    'available_capital': self.instance.get_current_capital()
+                },
                 'protection': {
                     'max_drawdown_pct': self._max_drawdown_pct,
                     'emergency_price': self._emergency_close_price,
