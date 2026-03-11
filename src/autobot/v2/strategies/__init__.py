@@ -7,7 +7,7 @@ import threading
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,8 @@ class Strategy(ABC):
         self._last_signal_times: Dict[str, datetime] = {}
         self._signal_cooldown_seconds = self.config.get('signal_cooldown', 30)
         
-        # CORRECTION: Lock pour thread safety
-        self._lock = threading.Lock()
+        # CORRECTION: RLock (réentrant) pour éviter deadlock
+        self._lock = threading.RLock()
         
         logger.info(f"🎯 Stratégie {self.name} initialisée")
     

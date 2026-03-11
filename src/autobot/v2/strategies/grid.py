@@ -97,10 +97,14 @@ class GridStrategy(Strategy):
         if nearest < 0:
             return []
         
+        # CORRECTION: Copier sous lock pour thread safety
+        with self._lock:
+            open_levels_copy = dict(self.open_levels)
+        
         # On achète aux niveaux inférieurs (0 à nearest-1)
         buy_levels = []
         for i in range(nearest):
-            if i not in self.open_levels:  # Pas déjà de position
+            if i not in open_levels_copy:  # Pas déjà de position
                 buy_levels.append(i)
         
         return buy_levels
@@ -263,6 +267,11 @@ class GridStrategy(Strategy):
         """Statut de la stratégie Grid"""
         base_status = super().get_status()
         
+        # CORRECTION: Copier sous lock pour thread safety
+        with self._lock:
+            open_levels_keys = list(self.open_levels.keys())
+            open_count = len(self.open_levels)
+        
         return {
             **base_status,
             'grid': {
@@ -270,9 +279,9 @@ class GridStrategy(Strategy):
                 'range_percent': self.range_percent,
                 'num_levels': self.num_levels,
                 'levels': self.grid_levels,
-                'open_positions': len(self.open_levels),
+                'open_positions': open_count,
                 'max_positions': self.max_positions,
-                'open_levels': list(self.open_levels.keys())
+                'open_levels': open_levels_keys
             }
         }
     

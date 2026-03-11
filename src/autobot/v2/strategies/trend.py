@@ -137,7 +137,9 @@ class TrendStrategy(Strategy):
         try:
             # Vérifier l'état réel de l'instance, pas un booléen local
             return len(self.instance._positions) > 0
-        except Exception:
+        except Exception as e:
+            # CORRECTION: Log warning au lieu de fail silencieux
+            logger.warning(f"⚠️ Erreur accès _positions: {e}. Assume pas de position.")
             return False
     
     def on_price(self, price: float):
