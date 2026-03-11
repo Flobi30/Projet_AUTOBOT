@@ -303,18 +303,18 @@ class Orchestrator:
         logger.info("🛑 Arrêt Orchestrator...")
         self.running = False
         
-        # CORRECTION: Copier instances hors lock, stop hors lock
+        # CORRECTION: Copier instances sous lock, stop hors lock
         with self._instance_lock:
             instances_to_stop = list(self._instances.values())
         
-        # Arrêt instances hors lock (peut bloquer 60s)
+        # Arrêt instances hors lock (peut bloquer 60s chacune)
         for instance in instances_to_stop:
             instance.stop()
         
         # Arrêt WebSocket
         self.ws_client.disconnect()
         
-        # Attente thread
+        # Attente thread principal
         if self._main_thread:
             self._main_thread.join(timeout=10)
         
