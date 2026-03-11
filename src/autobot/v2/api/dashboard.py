@@ -235,6 +235,54 @@ async def emergency_stop(
         logger.exception("Erreur arrêt d'urgence")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
+
+@app.get("/health", response_model=Dict[str, Any])
+async def health_check(request: Request):
+    """
+    Health check endpoint pour monitoring
+    Retourne le statut système complet
+    """
+    orchestrator = request.app.state.orchestrator
+    
+    if not orchestrator:
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "orchestrator": "not_initialized",
+            "websocket": "unknown"
+        }
+    
+    try:
+        status = orchestrator.get_status()
+        
+        # Determine health
+        is_healthy = (
+            status.get('running', False) and
+            status.get('websocket_connected', False)
+        )
+        
+        health_data = {
+            "status": "healthy" if is_healthy else "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0",
+            "components": {
+                "orchestrator": "running" if status.get('running') else "stopped",
+                "websocket": "connected" if status.get('websocket_connected') else "disconnected",
+                "instances": status.get('instance_count', 0),
+                "uptime_seconds": status.get('uptime_seconds')
+            }
+        }
+        
+        return health_data
+        
+    except Exception as e:
+        logger.exception("Erreur health check")
+        return {
+            "status": "error",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
+
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""
     

@@ -333,3 +333,125 @@ def reset_persistence():
     """Reset le singleton (pour tests)"""
     global _persistence_instance
     _persistence_instance = None
+
+
+# OPTIMISATION: Backup et maintenance automatique
+def backup_database(source: str = "data/autobot_state.db", 
+                    backup_dir: str = "data/backups") -> str:
+    """
+    Crée un backup de la base SQLite avec timestamp
+    
+    Returns:
+        Chemin du fichier backup créé
+    """
+    import shutil
+    from pathlib import Path
+    
+    Path(backup_dir).mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = Path(backup_dir) / f"autobot_state_{timestamp}.db"
+    
+    shutil.copy2(source, backup_path)
+    logger.info(f"💾 Backup créé: {backup_path}")
+    
+    return str(backup_path)
+
+
+def cleanup_old_backups(backup_dir: str = "data/backups", keep_days: int = 7) -> int:
+    """
+    Supprime les backups vieux de plus de N jours
+    
+    Returns:
+        Nombre de backups supprimés
+    """
+    from pathlib import Path
+    import shutil
+    
+    backup_path = Path(backup_dir)
+    if not backup_path.exists():
+        return 0
+    
+    cutoff = datetime.now().timestamp() - (keep_days * 24 * 3600)
+    deleted = 0
+    
+    for backup_file in backup_path.glob("autobot_state_*.db"):
+        if backup_file.stat().st_mtime < cutoff:
+            backup_file.unlink()
+            deleted += 1
+            
+    if deleted > 0:
+        logger.info(f"🧹 {deleted} vieux backups supprimés")
+    
+    return deleted
+
+
+class MaintenanceScheduler:
+    """
+    Planificateur de maintenance automatique
+    - Backup quotidien
+    - Nettoyage des vieilles données
+    """
+    
+    def __init__(self, persistence: StatePersistence, 
+                 backup_interval_hours: int = 24,
+                 cleanup_interval_hours: int = 24):
+        self.persistence = persistence
+        self.backup_interval = backup_interval_hours * 3600
+        self.cleanup_interval = cleanup_interval_hours * 3600
+        self._last_backup = 0
+        self._last_cleanup = 0
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        
+    def start(self):
+        """Démarre le planificateur"""
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        logger.info("🔄 Maintenance scheduler démarré")
+        
+    def stop(self):
+        """Arrête le planificateur"""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+            
+    def _loop(self):
+        """Boucle de maintenance"""
+        import time
+        
+        while self._running:
+            now = time.time()
+            
+            # Backup quotidien
+            if now - self._last_backup >= self.backup_interval:
+                try:
+                    backup_database()
+                    cleanup_old_backups()
+                    self._last_backup = now
+                except Exception as e:
+                    logger.exception(f"❌ Erreur backup: {e}")
+            
+            # Nettoyage quotidien
+            if now - self._last_cleanup >= self.cleanup_interval:
+                try:
+                    deleted = self.persistence.cleanup_old_data(days=30)
+                    logger.info(f"🧹 Maintenance: {deleted} vieux trades nettoyés")
+                    self._last_cleanup = now
+                except Exception as e:
+                    logger.exception(f"❌ Erreur nettoyage: {e}")
+            
+            time.sleep(60)  # Check toutes les minutes
+
+
+# Singleton pour la maintenance
+_maintenance_scheduler: Optional[MaintenanceScheduler] = None
+
+
+def start_maintenance(persistence: StatePersistence):
+    """Démarre le planificateur de maintenance global"""
+    global _maintenance_scheduler
+    if _maintenance_scheduler is None:
+        _maintenance_scheduler = MaintenanceScheduler(persistence)
+        _maintenance_scheduler.start()

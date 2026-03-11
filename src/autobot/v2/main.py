@@ -14,20 +14,22 @@ from typing import Optional
 # Ajoute src au path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# OPTIMISATION: Logging structuré avec rotation
+from autobot.v2.utils import setup_structured_logging
+
+# Setup logging avant tout import qui pourrait logger
+setup_structured_logging(
+    level=logging.INFO,
+    log_file="autobot.log",
+    max_bytes=10*1024*1024,  # 10MB
+    backup_count=5,
+    use_json=True
+)
+
 from autobot.v2.orchestrator import Orchestrator, InstanceConfig
 from autobot.v2.api.dashboard import DashboardServer
 
 logger = logging.getLogger(__name__)
-
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('autobot.log')
-    ]
-)
 
 class AutoBotV2:
     """
