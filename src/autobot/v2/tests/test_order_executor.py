@@ -18,6 +18,8 @@ class TestOrderExecutor(unittest.TestCase):
     
     def setUp(self):
         """Reset singleton avant chaque test"""
+        # Import ici pour éviter import circulaire
+        from autobot.v2.order_executor import reset_order_executor
         reset_order_executor()
         self.api_key = "test_key"
         self.api_secret = "test_secret"

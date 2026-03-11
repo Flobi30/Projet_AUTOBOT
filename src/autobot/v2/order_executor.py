@@ -61,7 +61,7 @@ class OrderExecutor:
     - Logging sécurisé (clés API masquées)
     """
     
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, use_queue: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self._lock = threading.RLock()
@@ -77,8 +77,16 @@ class OrderExecutor:
         self._consecutive_errors = 0
         self._max_consecutive_errors = 10  # Seuil avant circuit breaker
         self._circuit_breaker_callback: Optional[Callable] = None  # Callback à déclencher
-
-        logger.info("📡 OrderExecutor initialisé")
+        
+        # OPTIMISATION: File d'attente globale pour ordres
+        self._order_queue = None
+        if use_queue:
+            from .order_queue import get_order_queue
+            self._order_queue = get_order_queue(self, max_rate=1.0)
+            self._order_queue.start()
+            logger.info("📡 OrderExecutor initialisé (avec OrderQueue)")
+        else:
+            logger.info("📡 OrderExecutor initialisé (mode direct)")
 
     def set_circuit_breaker_callback(self, callback: Callable):
         """
@@ -574,11 +582,24 @@ _executor_instance: Optional[OrderExecutor] = None
 _executor_lock = threading.Lock()
 
 
-def get_order_executor(api_key: Optional[str] = None, api_secret: Optional[str] = None) -> OrderExecutor:
-    """Retourne l'exécuteur d'ordres (singleton)"""
+def get_order_executor(api_key: Optional[str] = None, api_secret: Optional[str] = None, use_queue: bool = False) -> OrderExecutor:
+    """
+    Retourne l'exécuteur d'ordres (singleton)
+    
+    Args:
+        api_key: Clé API Kraken
+        api_secret: Secret API Kraken  
+        use_queue: Si True, utilise OrderQueue pour sérialiser les ordres
+    """
     global _executor_instance
     
     with _executor_lock:
         if _executor_instance is None:
-            _executor_instance = OrderExecutor(api_key, api_secret)
+            _executor_instance = OrderExecutor(api_key, api_secret, use_queue=use_queue)
         return _executor_instance
+
+
+def reset_order_executor():
+    """Reset le singleton (pour tests)"""
+    global _executor_instance
+    _executor_instance = None

@@ -28,6 +28,7 @@ setup_structured_logging(
 
 from autobot.v2.orchestrator import Orchestrator, InstanceConfig
 from autobot.v2.api.dashboard import DashboardServer
+from autobot.v2.persistence import get_persistence, start_maintenance
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,11 @@ class AutoBotV2:
             
             # Démarre l'orchestrateur
             self.orchestrator.start()
+            
+            # OPTIMISATION: Démarre le maintenance scheduler (backup SQLite + cleanup)
+            logger.info("🔧 Démarrage Maintenance Scheduler...")
+            persistence = get_persistence()
+            start_maintenance(persistence)
             
             # 2. Démarre le dashboard
             logger.info("🌐 Démarrage Dashboard...")
