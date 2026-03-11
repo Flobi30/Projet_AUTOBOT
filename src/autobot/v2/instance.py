@@ -426,14 +426,6 @@ class TradingInstance:
             'last_price': self._last_price
         }
 
-    def get_available_capital(self) -> float:
-        """
-        CORRECTION: Capital réellement disponible pour nouveau trade.
-        = Capital courant - Capital déjà alloué dans des positions ouvertes
-        """
-        with self._lock:
-            return self._current_capital - self._allocated_capital
-
     def get_open_position_ids(self) -> List[str]:
         """
         CORRECTION: Retourne les IDs des positions ouvertes (thread-safe).
@@ -515,13 +507,14 @@ class TradingInstance:
             return False
     
     def _wait_positions_closed(self):
-        """Attend fermeture positions"""
+        """Attend fermeture positions (inclut 'closing')"""
         timeout = 60  # 1 minute max
         start = time.time()
         
         while time.time() - start < timeout:
             with self._lock:
-                open_count = len([p for p in self._positions.values() if p.status == "open"])
+                # CORRECTION: Attend aussi les positions en 'closing'
+                open_count = len([p for p in self._positions.values() if p.status in ("open", "closing")])
             
             if open_count == 0:
                 break
@@ -733,7 +726,8 @@ class TradingInstance:
                 'entry_price': pos.buy_price,
                 'current_price': current_price,
                 'pnl': pnl,
-                'pnl_percent': pnl_pct
+                'pnl_percent': pnl_pct,
+                'status': pos.status  # CORRECTION: Ajout status pour SignalHandler
             })
 
         return snapshot
