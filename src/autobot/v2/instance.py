@@ -78,7 +78,9 @@ class TradingInstance:
         
         # Positions et trades
         self._positions: Dict[str, Position] = {}
-        self._trades: List[Trade] = []
+        # CORRECTION: Utiliser deque pour éviter fuite mémoire
+        self._max_trades_history = 1000
+        self._trades: deque = deque(maxlen=self._max_trades_history)
         self._open_orders: Dict[str, Any] = {}
         
         # Performance
@@ -151,10 +153,12 @@ class TradingInstance:
         logger.warning(f"🚨 ARRÊT URGENCE instance {self.id}")
         self._stop_event.set()
         
+        # CORRECTION: Modifier status sous lock
+        with self._lock:
+            self.status = InstanceStatus.STOPPED
+        
         # Ferme tout immédiatement (market orders)
         self._close_all_positions_market()
-        
-        self.status = InstanceStatus.STOPPED
     
     def _init_strategy(self):
         """Initialise la stratégie selon configuration"""
@@ -301,7 +305,8 @@ class TradingInstance:
     
     def get_profit(self) -> float:
         """Profit total"""
-        return self._current_capital - self._initial_capital
+        # CORRECTION: Utiliser get_current_capital() pour cohérence (avec lock)
+        return self.get_current_capital() - self._initial_capital
     
     def get_win_streak(self) -> int:
         """Série de victoires"""

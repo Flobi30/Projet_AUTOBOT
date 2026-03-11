@@ -43,8 +43,10 @@ class KrakenWebSocket:
         self.api_key = api_key
         self.api_secret = api_secret
         self.ws: Optional[websocket.WebSocketApp] = None
-        self.running = False
         self.thread: Optional[threading.Thread] = None
+        
+        # CORRECTION: Event pour thread safety (remplace bool)
+        self._running_event = threading.Event()
         
         # CORRECTION: Lock pour thread safety
         self._lock = threading.Lock()
@@ -59,6 +61,19 @@ class KrakenWebSocket:
         self._subscribed_pairs: set = set()
         
         logger.info("📡 KrakenWebSocket initialisé")
+    
+    @property
+    def running(self) -> bool:
+        """Vérifie si le WebSocket tourne"""
+        return self._running_event.is_set()
+    
+    @running.setter
+    def running(self, value: bool):
+        """Définit l'état du WebSocket (thread-safe)"""
+        if value:
+            self._running_event.set()
+        else:
+            self._running_event.clear()
     
     def on_message(self, ws, message):
         """Gestion messages reçus"""
@@ -80,7 +95,8 @@ class KrakenWebSocket:
                 status = data.get('status')
                 logger.info(f"📡 Subscription {pair}: {status}")
                 if status == 'subscribed':
-                    self._subscribed_pairs.add(pair)
+                    with self._lock:
+                        self._subscribed_pairs.add(pair)
                 return
             
             # Channel data (ticker, trade, etc.)
@@ -156,7 +172,9 @@ class KrakenWebSocket:
         """Connexion ouverte"""
         logger.info("✅ WebSocket Kraken connecté")
         # Resubscribe aux paires précédentes
-        for pair in list(self._subscribed_pairs):
+        with self._lock:
+            pairs_to_resubscribe = list(self._subscribed_pairs)
+        for pair in pairs_to_resubscribe:
             self.subscribe_ticker(pair)
     
     def connect(self):
@@ -221,7 +239,8 @@ class KrakenWebSocket:
         
         try:
             self.ws.send(json.dumps(unsubscribe_msg))
-            self._subscribed_pairs.discard(pair)
+            with self._lock:
+                self._subscribed_pairs.discard(pair)
             logger.info(f"📡 Unsubscribed: {pair}")
         except Exception as e:
             logger.error(f"❌ Erreur unsubscribe: {e}")

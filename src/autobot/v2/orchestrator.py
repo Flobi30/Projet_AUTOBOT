@@ -8,7 +8,7 @@ import uuid
 from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from threading import Lock, Thread
+from threading import Lock, Thread, Event
 import time
 
 from .websocket_client import KrakenWebSocket, TickerData
@@ -72,6 +72,7 @@ class Orchestrator:
         
         # État
         self.running = False
+        self._stop_event = Event()  # CORRECTION: Event pour arrêt propre
         self._main_thread: Optional[Thread] = None
         self._start_time: Optional[datetime] = None
         
@@ -258,12 +259,16 @@ class Orchestrator:
                 elapsed = time.time() - loop_start
                 sleep_time = max(0, self.config['check_interval'] * 60 - elapsed)
                 
+                # CORRECTION: Utiliser Event.wait() pour arrêt propre
                 if sleep_time > 0:
-                    time.sleep(sleep_time)
+                    if self._stop_event.wait(timeout=sleep_time):
+                        break  # Arrêt demandé
                     
             except Exception as e:
                 logger.error(f"❌ Erreur main loop: {e}")
-                time.sleep(60)  # Attente 1 min avant retry
+                # CORRECTION: Utiliser Event.wait() au lieu de sleep fixe
+                if self._stop_event.wait(timeout=60):
+                    break  # Arrêt demandé
     
     def _check_global_health(self):
         """Vérifie santé globale du système"""
@@ -287,10 +292,12 @@ class Orchestrator:
         # Connexion WebSocket
         self.ws_client.connect()
         
-        # Démarrage instances
+        # CORRECTION: Copier instances sous lock, démarrer hors lock
         with self._instance_lock:
-            for instance in self._instances.values():
-                instance.start()
+            instances_to_start = list(self._instances.values())
+        
+        for instance in instances_to_start:
+            instance.start()
         
         # Boucle principale
         self._main_thread = Thread(target=self._main_loop, daemon=True)
@@ -302,6 +309,7 @@ class Orchestrator:
         """Arrête l'orchestrateur"""
         logger.info("🛑 Arrêt Orchestrator...")
         self.running = False
+        self._stop_event.set()  # CORRECTION: Signaler arrêt au thread
         
         # CORRECTION: Copier instances sous lock, stop hors lock
         with self._instance_lock:
@@ -322,11 +330,16 @@ class Orchestrator:
     
     def get_status(self) -> Dict:
         """Retourne statut global"""
+        # CORRECTION: Copier instances sous lock
+        with self._instance_lock:
+            instances_copy = list(self._instances.values())
+            instance_count = len(self._instances)
+        
         return {
             'running': self.running,
             'start_time': self._start_time,
             'uptime': datetime.now() - self._start_time if self._start_time else None,
-            'instance_count': len(self._instances),
+            'instance_count': instance_count,
             'max_instances': self.config['max_instances'],
             'websocket_connected': self.ws_client.is_connected(),
             'instances': [
@@ -336,7 +349,7 @@ class Orchestrator:
                     'capital': inst.get_current_capital(),
                     'running': inst.is_running()
                 }
-                for inst in self._instances.values()
+                for inst in instances_copy
             ]
         }
     

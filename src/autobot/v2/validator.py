@@ -3,6 +3,7 @@ Validator Engine - Vérification "voyants au vert" avant chaque action
 """
 
 import logging
+import threading
 from typing import Dict, List, Callable, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -48,6 +49,8 @@ class ValidatorEngine:
         # CORRECTION: Utiliser deque pour performance O(1) et thread safety
         self._max_history = 1000
         self._history: deque = deque(maxlen=self._max_history)
+        # CORRECTION: Lock pour thread safety
+        self._lock = threading.Lock()
         
         # Seuils par défaut
         self.thresholds = {
@@ -67,7 +70,8 @@ class ValidatorEngine:
         if action not in self._validators:
             raise ValueError(f"Action inconnue: {action}")
         
-        self._validators[action].append(validator)
+        with self._lock:
+            self._validators[action].append(validator)
         logger.debug(f"📝 Validateur ajouté pour {action}")
     
     def validate(self, action: str, context: Dict[str, Any]) -> ValidationResult:
@@ -92,11 +96,15 @@ class ValidatorEngine:
             self._log_result(result)
             return result
         
+        # CORRECTION: Copier validateurs sous lock, exécuter hors lock
+        with self._lock:
+            validators = list(self._validators[action])
+        
         # Exécute tous les validateurs
         all_checks = []
         messages = []
         
-        for validator in self._validators[action]:
+        for validator in validators:
             try:
                 check_result = validator(context)
                 all_checks.append(check_result)
@@ -145,7 +153,9 @@ class ValidatorEngine:
     def get_history(self, action: Optional[str] = None, 
                     since: Optional[datetime] = None) -> List[ValidationResult]:
         """Retourne l'historique des validations"""
-        results = self._history
+        # CORRECTION: Copier sous lock pour thread safety
+        with self._lock:
+            results = list(self._history)
         
         if action:
             results = [r for r in results if r.action == action]
@@ -153,8 +163,7 @@ class ValidatorEngine:
         if since:
             results = [r for r in results if r.timestamp >= since]
         
-        # CORRECTION: Retourner une liste (pas deque) pour compatibilité JSON
-        return list(results)
+        return results
     
     def can_execute(self, action: str, context: Dict[str, Any]) -> bool:
         """Vérifie si action peut être exécutée (statut GREEN ou YELLOW)"""
