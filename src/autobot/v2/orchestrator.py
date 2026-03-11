@@ -17,6 +17,7 @@ from .instance import TradingInstance
 from .order_executor import OrderExecutor, get_order_executor
 from .stop_loss_manager import StopLossManager, get_stop_loss_manager
 from .reconciliation import ReconciliationManager
+from .market_selector import MarketSelector, get_market_selector
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +150,54 @@ class Orchestrator:
 
         # CORRECTION E6: Circuit breaker callback
         self._setup_circuit_breaker()
+        
+        # FEATURE: Market selector pour auto-sélection
+        self.market_selector = get_market_selector(self)
 
         logger.info("🎛️ Orchestrator initialisé")
+
+    def create_instance_auto(self, parent_instance_id: Optional[str] = None) -> Optional[TradingInstance]:
+        """
+        FEATURE: Crée une instance sur le meilleur marché disponible.
+        Sélection automatique basée sur l'analyse des marchés.
+        
+        Args:
+            parent_instance_id: ID instance parente (pour spin-off) ou None
+            
+        Returns:
+            Instance créée ou None si pas de marché approprié
+        """
+        logger.info("🎯 Création instance avec auto-sélection du marché...")
+        
+        # Utilise le market selector pour choisir le meilleur marché
+        selection = self.market_selector.select_market_for_spinoff(parent_instance_id or "auto")
+        
+        if not selection:
+            logger.warning("⚠️ Aucun marché approprié trouvé")
+            return None
+        
+        # Crée la configuration adaptée
+        config = InstanceConfig(
+            name=f"Auto-{selection.symbol.replace('/', '-')} ({selection.strategy})",
+            symbol=selection.symbol,
+            strategy=selection.strategy,
+            initial_capital=0,  # Sera calculé par capital_allocation
+            leverage=1,
+            grid_config={
+                'range_percent': 7.0 if selection.market_type.value == 'crypto' else 1.0,
+                'num_levels': 15
+            }
+        )
+        
+        # Crée l'instance
+        instance = self.create_instance(config)
+        
+        if instance:
+            logger.info(f"✅ Instance auto-créée: {instance.id}")
+            logger.info(f"   Marché: {selection.symbol} ({selection.market_type.value})")
+            logger.info(f"   Raison: {selection.reason}")
+        
+        return instance
 
     def _setup_circuit_breaker(self):
         """Configure le circuit breaker sur OrderExecutor"""
@@ -220,6 +267,8 @@ class Orchestrator:
         """
         Vérifie si spin-off possible et l'exécute si OK.
         
+        FEATURE: Utilise l'auto-sélection du marché pour diversifier.
+        
         Args:
             parent_instance: Instance mère potentielle
             
@@ -242,15 +291,8 @@ class Orchestrator:
         result = self.validator.validate('spin_off', context)
         
         if result.status == ValidationStatus.GREEN:
-            # Crée nouvelle instance avec stratégie par défaut
-            new_config = InstanceConfig(
-                name=f"{parent_instance.config.name}_spinoff",
-                symbol=parent_instance.config.symbol,
-                strategy='grid',  # Par défaut Grid
-                initial_capital=500.0
-            )
-            
-            new_instance = self.create_instance(new_config)
+            # FEATURE: Auto-sélection du marché pour spin-off
+            new_instance = self.create_instance_auto(parent_instance.id)
             
             if new_instance:
                 parent_instance.record_spin_off(500.0)
