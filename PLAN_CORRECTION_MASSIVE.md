@@ -157,31 +157,29 @@ offset = -half_range + (i * step)
 
 ---
 
-## PHASE 4 : SÉCURITÉ & ROBUSTESSE RÉSIDUELLE (P2)
+## PHASE 4 : ROBUSTESSE RÉSIDUELLE (P2) ✅ COMPLÉTÉ
 
 ### 4.1 Singletons thread-safe
-**Fichiers :** `persistence.py`, `risk_manager.py`
+**Fichiers :** `persistence.py`, `risk_manager.py` ✅
 
-**Correction :**
-```python
-# Ajouter lock pour création singleton
-_singleton_lock = threading.Lock()
+**Corrections :**
+- ✅ `_persistence_lock` dans `persistence.py`
+- ✅ `_risk_manager_lock` dans `risk_manager.py`
+- ✅ Évite race condition si deux threads appellent get_*_manager() simultanément
 
-with _singleton_lock:
-    if _instance is None:
-        _instance = Class()
-```
+### 4.2 WebSocket heartbeat et reconnexion
+**Fichier :** `src/autobot/v2/websocket_client.py` ✅
 
-### 4.2 WebSocket heartbeat amélioré
-**Fichier :** `src/autobot/v2/websocket_client.py`
+**Corrections :**
+- ✅ `_last_message_time` : Timestamp dernier message
+- ✅ `_heartbeat_thread` : Surveillance toutes les 10s
+- ✅ `_stale_threshold` : 30s (données stalées après)
+- ✅ `_start_heartbeat_monitoring()` : Démarre surveillance
+- ✅ `_reconnect()` : Reconnexion automatique avec backoff exponentiel
+- ✅ `is_data_fresh()` : Vérifie si données récentes
 
-**Correction :**
-- Thread dédié pour heartbeat (toutes les 10s)
-- Détection prix stalé (> 30s sans update)
-- Reconnexion automatique avec backoff exponentiel
-
-### 4.3 Frais dynamiques Kraken
-- Récupérer frais réels via API (`TradeVolume`)
+### 4.3 Frais dynamiques Kraken (optionnel - P3)
+- Récupérer frais réels via API (`TradeVolume`) - peut être fait plus tard
 - Stocker dans config
 - Utiliser pour calcul P&L
 
