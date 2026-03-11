@@ -17,10 +17,63 @@ from .instance import TradingInstance
 
 logger = logging.getLogger(__name__)
 
-# TODO: Implémenter récupération capital réel depuis API Kraken
-def _get_available_capital_real() -> float:
-    """Récupère capital disponible depuis API Kraken"""
-    raise NotImplementedError("Récupération capital Kraken non implémentée")
+def _get_available_capital_real(api_key: Optional[str] = None, api_secret: Optional[str] = None) -> float:
+    """
+    Récupère capital disponible depuis API Kraken.
+    
+    Args:
+        api_key: Clé API Kraken (ou KRAKEN_API_KEY env var)
+        api_secret: Secret API Kraken (ou KRAKEN_API_SECRET env var)
+    
+    Returns:
+        Capital disponible en EUR (ZEUR), ou 0.0 en cas d'erreur ou clés non configurées.
+        NOTE: 0.0 peut signifier "vraiment zéro" OU "erreur API". C'est le pattern fail-safe.
+    """
+    import os
+    
+    # Récupère clés depuis arguments ou env vars
+    key = api_key or os.getenv('KRAKEN_API_KEY')
+    secret = api_secret or os.getenv('KRAKEN_API_SECRET')
+    
+    if not key or not secret:
+        logger.warning("⚠️ Clés API Kraken non configurées - retourne 0.0")
+        return 0.0
+    
+    try:
+        import krakenex
+        
+        # Crée client API avec timeout
+        k = krakenex.API(key=key, secret=secret)
+        k.session.timeout = 10  # CORRECTION: Timeout 10s pour éviter blocage
+        
+        # Appelle Balance
+        response = k.query_private('Balance')
+        
+        if 'result' in response:
+            balances = response['result']
+            
+            # Récupère EUR (ZEUR sur Kraken)
+            eur_balance = float(balances.get('ZEUR', 0))
+            
+            # Debug log uniquement (sécurité: pas de balance en INFO)
+            btc_balance = float(balances.get('XXBT', 0))
+            logger.debug(f"💰 Balance Kraken - EUR: {eur_balance:.2f}€, BTC: {btc_balance:.6f}")
+            
+            return eur_balance
+        else:
+            # CORRECTION: Masque détails erreur (sécurité), log debug séparé
+            logger.error("❌ Erreur API Kraken Balance")
+            if logger.isEnabledFor(logging.DEBUG):
+                error_detail = response.get('error', ['Unknown'])
+                logger.debug(f"Détail erreur Kraken: {error_detail}")
+            return 0.0
+            
+    except ImportError:
+        logger.error("❌ Module 'krakenex' non installé. Run: pip install krakenex")
+        return 0.0
+    except Exception as e:
+        logger.exception(f"❌ Exception récupération balance Kraken: {e}")
+        return 0.0
 
 
 @dataclass(slots=True)
@@ -214,13 +267,9 @@ class Orchestrator:
         return False
     
     def _get_available_capital(self) -> float:
-        """Calcule capital disponible pour nouvelle instance"""
-        # CORRECTION: Utiliser la fonction réelle ou lever exception
-        try:
-            return _get_available_capital_real()
-        except NotImplementedError:
-            logger.error("❌ _get_available_capital_real() non implémentée - Impossible de vérifier le capital disponible")
-            return 0.0
+        """Calcule capital disponible pour nouvelle instance via API Kraken"""
+        # CORRECTION: Passe les clés API à la fonction
+        return _get_available_capital_real(self.api_key, self.api_secret)
     
     def _main_loop(self):
         """Boucle principale de l'orchestrateur"""
