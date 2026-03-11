@@ -208,9 +208,10 @@ class TrendStrategy(Strategy):
                 with self._lock:
                     available = self.instance.get_current_capital()
                 
-                # Utiliser PositionSizing.percentage_capital (50%)
+                # CORRECTION: Réduire sizing de 50% à 20% (50% = suicide financier)
+                # Norme institutionnelle: 1-2% de risque par trade
                 from . import PositionSizing
-                volume = PositionSizing.percentage_capital(available, 50) / price
+                volume = PositionSizing.percentage_capital(available, 20) / price
                 
                 signal = TradingSignal(
                     type=SignalType.BUY,

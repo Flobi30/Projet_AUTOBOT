@@ -60,8 +60,10 @@ class GridStrategy(Strategy):
         self.open_levels: Dict[int, Dict] = {}  # level_index -> position_info
         
         # CORRECTION: Seuil de vente dynamique basé sur le step de la grille
+        # CRITIQUE: Doit couvrir les frais Kraken (~0.52% taker + 0.52% taker = ~1.04%)
+        # + marge minimum 0.5% → minimum 1.5% pour être rentable
         grid_step = self.range_percent / (self.num_levels - 1) if self.num_levels > 1 else 0.5
-        self._sell_threshold_pct = max(0.5, grid_step * 0.8)  # 80% du step, min 0.5%
+        self._sell_threshold_pct = max(1.5, grid_step * 0.8)  # CORRECTION: min 1.5% pas 0.5%
         
         # CORRECTION: Protection drawdown / stop-loss
         self._max_drawdown_pct = self.config.get('max_drawdown_pct', 10.0)  # Stop si -10%
@@ -87,7 +89,8 @@ class GridStrategy(Strategy):
         )
         
         # CORRECTION Point #5: Calculer le capital UNE SEULE FOIS à l'initialisation
-        available = self.instance.get_current_capital()
+        # CORRECTION: Utiliser get_available_capital() (non alloué) pas get_current_capital() (total)
+        available = self.instance.get_available_capital()
         
         # CORRECTION: Guard contre capital négatif ou nul
         if available <= 0:

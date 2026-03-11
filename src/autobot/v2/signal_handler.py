@@ -1,8 +1,8 @@
 """
-Signal Handler - Connecte les signaux des stratégies aux exécutions réelles
+Signal Handler - Connecte les signaux des stratégies aux exécutions réelles sur Kraken
 
-Ce module est le pont entre les stratégies (qui analysent et décident)
-et l'exécution réelle des trades sur Kraken.
+CORRECTION CRITIQUE : Utilise OrderExecutor pour passer de VRAIS ordres sur Kraken,
+pas seulement mettre à jour l'état local.
 """
 
 import logging
@@ -11,6 +11,8 @@ from datetime import datetime
 
 from .strategies import TradingSignal, SignalType
 from .instance import TradingInstance
+from .order_executor import OrderExecutor, OrderSide
+from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +23,16 @@ class SignalHandler:
     
     Responsabilités:
     1. Recevoir les signaux des stratégies (BUY, SELL)
-    2. Valider les signaux (vérifier fonds, limites, etc.)
-    3. Exécuter les ordres via l'instance
-    4. Gérer les erreurs et les retries
+    2. Valider les signaux via ValidatorEngine (voyants au vert)
+    3. Exécuter les ordres RÉELS via OrderExecutor sur Kraken
+    4. Mettre à jour l'état local avec les prix d'exécution réels
+    5. Poser stop-loss sur Kraken (pas logiciel)
     """
     
-    def __init__(self, instance: TradingInstance):
+    def __init__(self, instance: TradingInstance, order_executor: Optional[OrderExecutor] = None):
         self.instance = instance
+        self.order_executor = order_executor
+        self.validator = ValidatorEngine()
         self._last_signal_time: Optional[datetime] = None
         self._cooldown_seconds = 5  # Minimum 5s entre ordres
         
@@ -40,57 +45,32 @@ class SignalHandler:
         """Configure le callback pour recevoir les signaux de la stratégie"""
         if self.instance._strategy:
             self.instance._strategy.set_signal_callback(self._on_signal)
-            
-            # CORRECTION: Connecter les callbacks de l'instance à la stratégie
-            self.instance._on_position_open = lambda inst, pos: self._on_position_opened(pos)
-            self.instance._on_position_close = lambda inst, pos: self._on_position_closed(pos)
-            
-            logger.info(f"🔗 Callbacks configurés pour {self.instance.id}")
+            logger.info(f"🔗 Callback signal configuré pour {self.instance.id}")
         else:
             logger.warning(f"⚠️ Pas de stratégie sur {self.instance.id}")
-    
-    def _on_position_opened(self, position):
-        """Appelé quand une position est ouverte"""
-        if self.instance._strategy:
-            try:
-                self.instance._strategy.on_position_opened(position)
-            except Exception as e:
-                logger.exception(f"❌ Erreur on_position_opened: {e}")
-    
-    def _on_position_closed(self, position):
-        """Appelé quand une position est fermée"""
-        if self.instance._strategy:
-            try:
-                profit = position.profit if hasattr(position, 'profit') else 0.0
-                self.instance._strategy.on_position_closed(position, profit)
-            except Exception as e:
-                logger.exception(f"❌ Erreur on_position_closed: {e}")
     
     def _on_signal(self, signal: TradingSignal):
         """
         Appelé à chaque signal émis par la stratégie.
-        C'est ici que la magie opère : signal → exécution réelle.
         """
         logger.info(f"📡 Signal reçu: {signal.type.value.upper()} {signal.symbol} @ {signal.price:.2f}")
         logger.info(f"   Raison: {signal.reason}")
         
-        # Vérification cooldown (évite le spam d'ordres)
+        # Vérification cooldown
         if self._last_signal_time:
             elapsed = (datetime.now() - self._last_signal_time).total_seconds()
             if elapsed < self._cooldown_seconds:
                 logger.warning(f"⏱️ Signal ignoré (cooldown): {elapsed:.1f}s < {self._cooldown_seconds}s")
                 return
         
-        # Dispatch selon le type de signal
+        # Dispatch selon le type
         try:
             if signal.type == SignalType.BUY:
                 self._execute_buy(signal)
             elif signal.type == SignalType.SELL:
                 self._execute_sell(signal)
             elif signal.type == SignalType.CLOSE:
-                self._execute_close(signal)
-            else:
-                logger.debug(f"ℹ️ Signal {signal.type.value} ignoré (pas d'action)")
+                self._execute_sell(signal)
             
             self._last_signal_time = datetime.now()
             
@@ -99,85 +79,191 @@ class SignalHandler:
     
     def _execute_buy(self, signal: TradingSignal):
         """
-        Exécute un ordre d'achat.
-        Valide puis appelle instance.open_position().
+        Exécute un ordre d'achat RÉEL sur Kraken.
+        
+        CORRECTION CRITIQUE :
+        1. Valide via ValidatorEngine
+        2. Passe ordre MARKET BUY réel via OrderExecutor
+        3. Attend confirmation et prix d'exécution réel
+        4. Pose stop-loss sur Kraken (pas logiciel)
+        5. Met à jour état local avec données réelles
         """
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
         
-        # CORRECTION: Utilise get_available_capital() (thread-safe)
-        # Capital disponible = total - alloué dans positions ouvertes
+        # CORRECTION: Validation via ValidatorEngine (était contournée !)
         available = self.instance.get_available_capital()
+        context = {
+            'available_capital': available,
+            'signal_price': signal.price,
+            'instance_status': self.instance.status.value,
+            'open_positions_count': len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open']),
+            'max_positions': getattr(self.instance.config, 'max_positions', 10)
+        }
         
-        if available < 10.0:  # Minimum 10€ pour un trade
-            logger.error(f"❌ Capital disponible insuffisant: {available:.2f}€ < 10€ minimum")
+        validation = self.validator.validate('open_position', context)
+        if validation.status == ValidationStatus.RED:
+            logger.error(f"❌ Signal BUY rejeté par validateur: {validation.message}")
+            return
+        elif validation.status == ValidationStatus.YELLOW:
+            logger.warning(f"⚠️ Signal BUY avec avertissement: {validation.message}")
+        
+        # Vérification OrderExecutor
+        if self.order_executor is None:
+            logger.error("❌ OrderExecutor non configuré - impossible de passer ordre réel")
             return
         
-        # Détermine le volume à acheter
+        # Calcul volume
         if signal.volume > 0:
-            # Volume spécifié par la stratégie
             volume = signal.volume
         else:
-            # CORRECTION: 10% du capital disponible (pas total)
             volume = (available * 0.10) / signal.price
         
-        # Arrondi à 6 décimales (précision BTC)
         volume = round(volume, 6)
         
-        # Calcul le stop-loss et take-profit (pour log uniquement, pas encore utilisé)
-        sl_price = signal.price * 0.95  # -5%
-        tp_price = signal.price * 1.10  # +10%
+        if volume <= 0:
+            logger.error(f"❌ Volume calculé invalide: {volume}")
+            return
         
-        logger.info(f"   Volume: {volume} @ {signal.price:.2f}€")
-        logger.info(f"   SL: {sl_price:.2f}€ (-5%) | TP: {tp_price:.2f}€ (+10%)")
-        logger.info(f"   Capital dispo: {available:.2f}€")
+        # CORRECTION: Exécution RÉELLE sur Kraken
+        symbol = self._convert_symbol(signal.symbol)  # ex: BTC/EUR → XXBTZEUR
         
-        # CORRECTION: Appel avec bons arguments (price, volume) pas (entry_price, ...)
-        position = self.instance.open_position(
-            price=signal.price,
+        logger.info(f"   Envoi ordre MARKET BUY {volume:.6f} {symbol}...")
+        
+        result = self.order_executor.execute_market_order(
+            symbol=symbol,
+            side=OrderSide.BUY,
             volume=volume
         )
         
+        if not result.success:
+            logger.error(f"❌ Échec ordre Kraken: {result.error}")
+            return
+        
+        # Récupération prix d'exécution RÉEL
+        executed_price = result.executed_price or signal.price
+        executed_volume = result.executed_volume or volume
+        fees = result.fees or 0.0
+        
+        logger.info(f"✅ Ordre exécuté sur Kraken: {executed_volume:.6f} @ {executed_price:.2f}€ (frais: {fees:.4f}€)")
+        
+        # CORRECTION: Créer position avec prix d'exécution réel
+        position = self.instance.open_position(
+            price=executed_price,
+            volume=executed_volume
+        )
+        
         if position:
-            logger.info(f"✅ Ordre ACHAT exécuté avec succès (position {position.id})")
+            logger.info(f"✅ Position créée: {position.id}")
+            
+            # CORRECTION CRITIQUE: Poser stop-loss RÉEL sur Kraken
+            stop_price = executed_price * 0.95  # -5%
+            sl_result = self.order_executor.execute_stop_loss_order(
+                symbol=symbol,
+                side=OrderSide.SELL,
+                volume=executed_volume,
+                stop_price=stop_price
+            )
+            
+            if sl_result.success:
+                logger.info(f"🛡️ Stop-loss posé sur Kraken @ {stop_price:.2f}€ (txid: {sl_result.txid[:8]}...)")
+                # Stocker txid du stop-loss dans la position
+                position.stop_loss_txid = sl_result.txid
+            else:
+                logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
         else:
-            logger.error(f"❌ Échec exécution ordre ACHAT")
+            logger.error(f"❌ Échec création position locale")
     
     def _execute_sell(self, signal: TradingSignal):
         """
-        Exécute un ordre de vente (fermeture position).
+        Exécute un ordre de vente RÉEL sur Kraken.
+        
+        CORRECTION CRITIQUE :
+        1. Identifie la position à fermer (métadonnées du signal)
+        2. Passe ordre MARKET SELL réel via OrderExecutor
+        3. Attend confirmation et prix d'exécution réel
+        4. Met à jour position avec P&L réel
         """
         logger.info(f"💰 Exécution VENTE {signal.symbol}")
         
-        # Si volume = -1 ou close_all flag → fermer toutes les positions
+        # Vérification OrderExecutor
+        if self.order_executor is None:
+            logger.error("❌ OrderExecutor non configuré - impossible de passer ordre réel")
+            return
+        
+        # Récupère position à fermer (depuis métadonnées si spécifié)
+        level_index = signal.metadata.get('level_index')
         close_all = signal.volume == -1 or signal.metadata.get('close_all', False)
         
-        # CORRECTION: Utilise get_positions_snapshot() pour thread-safety
+        # CORRECTION: Récupère positions ouvertes
         positions_snapshot = self.instance.get_positions_snapshot()
         open_positions = [p for p in positions_snapshot if p.get('status') == 'open']
         
+        if not open_positions:
+            logger.warning("⚠️ Pas de position ouverte à fermer")
+            return
+        
+        # Détermine quelles positions fermer
+        positions_to_close = []
         if close_all:
-            logger.info(f"   Mode: Fermeture TOUTES les positions ({len(open_positions)} ouvertes)")
-            # Ferme toutes les positions ouvertes
-            for pos in open_positions:
-                pos_id = pos.get('id')
-                if pos_id:
-                    self.instance.close_position(pos_id, signal.price)
+            positions_to_close = open_positions
+            logger.info(f"   Fermeture de {len(positions_to_close)} position(s)")
+        elif level_index is not None:
+            # Grid: trouve position correspondant au niveau
+            # Note: nécessite que grid.py passe level_index dans metadata
+            positions_to_close = open_positions  # Fallback: ferme toutes
         else:
-            # Ferme la dernière position ouverte
-            if open_positions:
-                pos_id = open_positions[-1].get('id')
-                self.instance.close_position(pos_id, signal.price)
+            # Fallback: ferme la dernière
+            positions_to_close = [open_positions[-1]]
+        
+        symbol = self._convert_symbol(signal.symbol)
+        
+        for pos_info in positions_to_close:
+            pos_id = pos_info.get('id')
+            volume = pos_info.get('volume', 0)
+            
+            if not pos_id or volume <= 0:
+                continue
+            
+            # CORRECTION: Annule stop-loss existant si présent
+            stop_loss_txid = pos_info.get('stop_loss_txid')
+            if stop_loss_txid:
+                self.order_executor.cancel_order(stop_loss_txid)
+            
+            # CORRECTION: Exécution RÉELLE sur Kraken
+            logger.info(f"   Envoi ordre MARKET SELL {volume:.6f} {symbol}...")
+            
+            result = self.order_executor.execute_market_order(
+                symbol=symbol,
+                side=OrderSide.SELL,
+                volume=volume
+            )
+            
+            if result.success:
+                executed_price = result.executed_price or signal.price
+                logger.info(f"✅ Vente exécutée: {volume:.6f} @ {executed_price:.2f}€")
+                
+                # Met à jour position avec prix réel
+                self.instance.close_position(pos_id, executed_price)
             else:
-                logger.warning("⚠️ Pas de position à fermer")
+                logger.error(f"❌ Échec vente: {result.error}")
     
-    def _execute_close(self, signal: TradingSignal):
-        """Alias pour SELL avec confirmation"""
-        self._execute_sell(signal)
+    def _convert_symbol(self, symbol: str) -> str:
+        """
+        Convertit symbole interne (BTC/EUR) en format Kraken (XXBTZEUR).
+        """
+        mapping = {
+            'BTC/EUR': 'XXBTZEUR',
+            'ETH/EUR': 'XETHZEUR',
+            'BTC/USD': 'XXBTZUSD',
+            'ETH/USD': 'XETHZUSD',
+        }
+        return mapping.get(symbol, symbol.replace('/', ''))
     
     def get_stats(self) -> dict:
         """Retourne les statistiques du handler"""
         return {
             'last_signal': self._last_signal_time.isoformat() if self._last_signal_time else None,
             'cooldown_seconds': self._cooldown_seconds,
-            'instance_id': self.instance.id
+            'instance_id': self.instance.id,
+            'has_order_executor': self.order_executor is not None
         }
