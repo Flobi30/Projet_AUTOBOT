@@ -45,8 +45,12 @@ class GridStrategy(Strategy):
         self.grid_levels: List[float] = []
         self._init_grid()
         
-        # Suivi des positions ouvertes par niveau
+        # Suivi des positions ouvertes par niveau (protégé par self._lock)
         self.open_levels: Dict[int, Dict] = {}  # level_index -> position_info
+        
+        # CORRECTION: Seuil de vente dynamique basé sur le step de la grille
+        grid_step = self.range_percent / (self.num_levels - 1) if self.num_levels > 1 else 0.5
+        self._sell_threshold_pct = max(0.5, grid_step * 0.8)  # 80% du step, min 0.5%
         
         # Historique des prix
         self._price_history: deque = deque(maxlen=100)
@@ -108,23 +112,31 @@ class GridStrategy(Strategy):
         """
         sell_levels = []
         
-        for level_idx, position in self.open_levels.items():
+        # CORRECTION: Copier sous lock pour thread safety
+        with self._lock:
+            open_levels_copy = dict(self.open_levels)
+        
+        for level_idx, position in open_levels_copy.items():
             level_price = self.grid_levels[level_idx]
             
-            # On vend si le prix actuel est supérieur au niveau + marge
-            if current_price > level_price * 1.005:  # +0.5% de marge
+            # CORRECTION: Seuil de vente dynamique (pas hardcodé à 0.5%)
+            if current_price > level_price * (1 + self._sell_threshold_pct / 100):
                 sell_levels.append(level_idx)
         
         return sell_levels
     
     def _can_open_position(self) -> bool:
         """Vérifie si on peut ouvrir une nouvelle position"""
+        # CORRECTION: Accès sous lock pour thread safety
+        with self._lock:
+            open_count = len(self.open_levels)
+        
         # Limite de positions
-        if len(self.open_levels) >= self.max_positions:
+        if open_count >= self.max_positions:
             return False
         
-        # Capital disponible
-        available = self.instance.get_available_capital()
+        # CORRECTION: Utiliser get_current_capital() (existe) pas get_available_capital()
+        available = self.instance.get_current_capital()
         if available < self.capital_per_level:
             return False
         
@@ -137,35 +149,38 @@ class GridStrategy(Strategy):
         if not self._initialized:
             return
         
-        self._price_history.append(price)
-        
-        symbol = self.instance.config.symbol
-        
-        # 1. Check ventes (positions à fermer en profit)
-        sell_levels = self._get_sell_levels(price)
-        for level_idx in sell_levels:
-            position = self.open_levels[level_idx]
-            level_price = self.grid_levels[level_idx]
+        with self._lock:
+            self._price_history.append(price)
             
-            profit_pct = (price - level_price) / level_price * 100
+            symbol = self.instance.config.symbol
             
-            signal = TradingSignal(
-                type=SignalType.SELL,
-                symbol=symbol,
-                price=price,
-                volume=position['volume'],
-                reason=f"Grid level {level_idx} profit: +{profit_pct:.2f}%",
-                timestamp=datetime.now(),
-                metadata={
-                    'level_index': level_idx,
-                    'level_price': level_price,
-                    'entry_price': position['entry_price'],
-                    'profit_pct': profit_pct,
-                    'strategy': 'grid'
-                }
-            )
-            
-            self.emit_signal(signal)
+            # 1. Check ventes (positions à fermer en profit)
+            sell_levels = self._get_sell_levels(price)
+            # CORRECTION: Batch sells - bypass cooldown pour tous sauf le premier
+            for i, level_idx in enumerate(sell_levels):
+                position = self.open_levels[level_idx]
+                level_price = self.grid_levels[level_idx]
+                
+                profit_pct = (price - level_price) / level_price * 100
+                
+                signal = TradingSignal(
+                    type=SignalType.SELL,
+                    symbol=symbol,
+                    price=price,
+                    volume=position['volume'],
+                    reason=f"Grid level {level_idx} profit: +{profit_pct:.2f}%",
+                    timestamp=datetime.now(),
+                    metadata={
+                        'level_index': level_idx,
+                        'level_price': level_price,
+                        'entry_price': position['entry_price'],
+                        'profit_pct': profit_pct,
+                        'strategy': 'grid'
+                    }
+                )
+                
+                # CORRECTION: Bypass cooldown pour batch sells (tous sauf premier)
+                self.emit_signal(signal, bypass_cooldown=(i > 0))
         
         # 2. Check achats (nouveaux niveaux)
         if self._can_open_position():
@@ -198,31 +213,51 @@ class GridStrategy(Strategy):
     
     def on_position_opened(self, position: Any):
         """Appelé quand une position est ouverte"""
-        # Trouve quel niveau correspond à cette position
-        entry_price = position.buy_price
-        nearest_level = self._find_nearest_level(entry_price)
-        
-        if nearest_level >= 0:
-            self.open_levels[nearest_level] = {
-                'entry_price': entry_price,
-                'volume': position.volume,
-                'opened_at': datetime.now()
-            }
+        try:
+            # CORRECTION: Vérification hasattr pour robustesse
+            if not hasattr(position, 'buy_price') or not hasattr(position, 'volume'):
+                logger.error("❌ Position object manque buy_price ou volume")
+                return
             
-            logger.info(f"📊 Position ouverte niveau {nearest_level}: "
-                       f"{entry_price:.0f}€ x {position.volume:.6f}")
+            # Trouve quel niveau correspond à cette position
+            entry_price = position.buy_price
+            nearest_level = self._find_nearest_level(entry_price)
+            
+            if nearest_level >= 0:
+                # CORRECTION: Lock pour thread safety
+                with self._lock:
+                    self.open_levels[nearest_level] = {
+                        'entry_price': entry_price,
+                        'volume': position.volume,
+                        'opened_at': datetime.now()
+                    }
+                
+                logger.info(f"📊 Position ouverte niveau {nearest_level}: "
+                           f"{entry_price:.0f}€ x {position.volume:.6f}")
+        except Exception as e:
+            logger.exception(f"❌ Erreur on_position_opened: {e}")
     
     def on_position_closed(self, position: Any, profit: float):
         """Appelé quand une position est fermée"""
-        # Trouve et retire le niveau correspondant
-        entry_price = position.buy_price
-        nearest_level = self._find_nearest_level(entry_price)
-        
-        if nearest_level in self.open_levels:
-            del self.open_levels[nearest_level]
+        try:
+            # CORRECTION: Vérification hasattr pour robustesse
+            if not hasattr(position, 'buy_price'):
+                logger.error("❌ Position object manque buy_price")
+                return
+            
+            # Trouve et retire le niveau correspondant
+            entry_price = position.buy_price
+            nearest_level = self._find_nearest_level(entry_price)
+            
+            # CORRECTION: Lock pour thread safety
+            with self._lock:
+                if nearest_level in self.open_levels:
+                    del self.open_levels[nearest_level]
             
             logger.info(f"📊 Position fermée niveau {nearest_level}: "
                        f"P&L = {profit:+.2f}€")
+        except Exception as e:
+            logger.exception(f"❌ Erreur on_position_closed: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Statut de la stratégie Grid"""

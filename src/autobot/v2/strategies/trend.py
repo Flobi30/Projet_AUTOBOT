@@ -49,8 +49,8 @@ class TrendStrategy(Strategy):
         # État
         self._initialized = True
         self._current_trend = "neutral"  # "up", "down", "neutral"
-        self._position_open = False
         self._entry_price: Optional[float] = None
+        # CORRECTION: Pas de _position_open bool -> check dynamique instance
         
         logger.info(f"📈 Trend Strategy: MA{self.fast_period}/MA{self.slow_period}, "
                    f"RSI({self.rsi_period})")
@@ -132,18 +132,30 @@ class TrendStrategy(Strategy):
         
         return False
     
+    def _has_open_position(self) -> bool:
+        """CORRECTION: Vérifie si une position est réellement ouverte sur l'instance"""
+        try:
+            # Vérifier l'état réel de l'instance, pas un booléen local
+            return len(self.instance._positions) > 0
+        except Exception:
+            return False
+    
     def on_price(self, price: float):
         """Analyse le prix et émet des signaux"""
         if not self._initialized:
             return
         
-        self._price_history.append(price)
+        with self._lock:
+            self._price_history.append(price)
+            
+            # Besoin d'historique suffisant
+            if len(self._price_history) < self.slow_period:
+                return
+            
+            indicators = self._calculate_indicators()
+            # CORRECTION: Mettre à jour _current_trend
+            self._current_trend = indicators.get('trend', 'neutral')
         
-        # Besoin d'historique suffisant
-        if len(self._price_history) < self.slow_period:
-            return
-        
-        indicators = self._calculate_indicators()
         symbol = self.instance.config.symbol
         
         # Log périodique
@@ -153,14 +165,18 @@ class TrendStrategy(Strategy):
                         f"RSI={indicators.get('rsi', 0):.1f} "
                         f"Trend={indicators['trend']}")
         
+        # CORRECTION: Vérification dynamique position (pas booléen)
+        position_open = self._has_open_position()
+        
         # Vérification vente (si position ouverte)
-        if self._position_open:
+        if position_open:
             if self._should_sell(indicators, price):
+                # CORRECTION: Volume = -1 signifie "close all" (pas 0)
                 signal = TradingSignal(
                     type=SignalType.SELL,
                     symbol=symbol,
                     price=price,
-                    volume=0,  # Ferme toute la position
+                    volume=-1,  # CORRECTION: -1 = close all, pas 0
                     reason=f"Trend reversal: {indicators['trend']} "
                            f"(MA diff: {indicators['diff_pct']:.2f}%)",
                     timestamp=datetime.now(),
@@ -169,7 +185,8 @@ class TrendStrategy(Strategy):
                         'slow_ma': indicators['slow_ma'],
                         'rsi': indicators['rsi'],
                         'trend': indicators['trend'],
-                        'strategy': 'trend'
+                        'strategy': 'trend',
+                        'close_all': True  # Flag explicite
                     }
                 )
                 
@@ -178,10 +195,13 @@ class TrendStrategy(Strategy):
         # Vérification achat (si pas de position)
         else:
             if self._should_buy(indicators):
-                # Calcul du volume (50% du capital disponible)
-                available = self.instance.get_available_capital()
-                volume_pct = 0.5
-                volume = (available * volume_pct) / price
+                # CORRECTION: Utiliser get_current_capital() et PositionSizing
+                with self._lock:
+                    available = self.instance.get_current_capital()
+                
+                # Utiliser PositionSizing.percentage_capital (50%)
+                from . import PositionSizing
+                volume = PositionSizing.percentage_capital(available, 50) / price
                 
                 signal = TradingSignal(
                     type=SignalType.BUY,
@@ -204,31 +224,47 @@ class TrendStrategy(Strategy):
     
     def on_position_opened(self, position: Any):
         """Position ouverte"""
-        self._position_open = True
-        self._entry_price = position.buy_price
-        
-        logger.info(f"📈 Position trend ouverte @ {position.buy_price:.0f}€ "
-                   f"x {position.volume:.6f}")
+        try:
+            if not hasattr(position, 'buy_price') or not hasattr(position, 'volume'):
+                logger.error("❌ Position object manque buy_price ou volume")
+                return
+            
+            with self._lock:
+                self._entry_price = position.buy_price
+            
+            logger.info(f"📈 Position trend ouverte @ {position.buy_price:.0f}€ "
+                       f"x {position.volume:.6f}")
+        except Exception as e:
+            logger.exception(f"❌ Erreur on_position_opened: {e}")
     
     def on_position_closed(self, position: Any, profit: float):
         """Position fermée"""
-        self._position_open = False
-        self._entry_price = None
-        
-        logger.info(f"📈 Position trend fermée: P&L = {profit:+.2f}€")
+        try:
+            with self._lock:
+                self._entry_price = None
+            
+            logger.info(f"📈 Position trend fermée: P&L = {profit:+.2f}€")
+        except Exception as e:
+            logger.exception(f"❌ Erreur on_position_closed: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Statut de la stratégie Trend"""
         base_status = super().get_status()
         
-        indicators = self._calculate_indicators()
+        with self._lock:
+            indicators = self._calculate_indicators()
+            entry_price = self._entry_price
+            current_trend = self._current_trend
+        
+        # CORRECTION: Utiliser _has_open_position() pour cohérence
+        position_open = self._has_open_position()
         
         return {
             **base_status,
             'trend': {
-                'current': self._current_trend,
-                'position_open': self._position_open,
-                'entry_price': self._entry_price,
+                'current': current_trend,
+                'position_open': position_open,
+                'entry_price': entry_price,
                 'indicators': {
                     k: round(v, 2) if isinstance(v, float) else v
                     for k, v in indicators.items()
@@ -239,9 +275,9 @@ class TrendStrategy(Strategy):
     
     def reset(self):
         """Réinitialise"""
-        self._position_open = False
-        self._entry_price = None
-        self._current_trend = "neutral"
-        self._price_history.clear()
+        with self._lock:
+            self._entry_price = None
+            self._current_trend = "neutral"
+            self._price_history.clear()
         super().reset()
         logger.info("📈 Trend Strategy réinitialisée")

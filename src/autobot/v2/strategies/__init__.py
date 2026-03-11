@@ -3,6 +3,7 @@ Strategy Framework - Base pour toutes les stratégies de trading
 """
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
@@ -68,8 +69,12 @@ class Strategy(ABC):
         
         # État interne
         self._initialized = False
-        self._last_signal_time: Optional[datetime] = None
+        # CORRECTION: Cooldown par type de signal (pas global) pour permettre batch
+        self._last_signal_times: Dict[str, datetime] = {}
         self._signal_cooldown_seconds = self.config.get('signal_cooldown', 30)
+        
+        # CORRECTION: Lock pour thread safety
+        self._lock = threading.Lock()
         
         logger.info(f"🎯 Stratégie {self.name} initialisée")
     
@@ -95,38 +100,59 @@ class Strategy(ABC):
         """Appelé quand une position est fermée"""
         pass
     
-    def emit_signal(self, signal: TradingSignal):
-        """Émet un signal de trading"""
-        # Cooldown entre signaux
-        if self._last_signal_time:
-            elapsed = (datetime.now() - self._last_signal_time).total_seconds()
-            if elapsed < self._signal_cooldown_seconds:
-                logger.debug(f"⏱️ Signal ignoré (cooldown): {signal.type.value}")
-                return
+    def emit_signal(self, signal: TradingSignal, bypass_cooldown: bool = False):
+        """Émet un signal de trading
         
-        self._last_signal_time = datetime.now()
+        Args:
+            signal: Le signal à émettre
+            bypass_cooldown: Si True, ignore le cooldown (pour batch de signaux)
+        """
+        signal_key = signal.type.value
         
-        logger.info(f"📡 Signal {signal.type.value.upper()}: {signal.reason} @ {signal.price:.2f}")
+        # CORRECTION: Cooldown par type de signal (pas global)
+        if not bypass_cooldown:
+            last_time = self._last_signal_times.get(signal_key)
+            if last_time:
+                elapsed = (datetime.now() - last_time).total_seconds()
+                if elapsed < self._signal_cooldown_seconds:
+                    logger.debug(f"⏱️ Signal {signal_key} ignoré (cooldown): {signal.reason}")
+                    return
+        
+        self._last_signal_times[signal_key] = datetime.now()
+        
+        logger.info(f"📡 Signal {signal_key.upper()}: {signal.reason} @ {signal.price:.2f}")
         
         if self._on_signal:
             try:
                 self._on_signal(signal)
             except Exception as e:
-                logger.error(f"❌ Erreur callback signal: {e}")
+                logger.exception(f"❌ Erreur callback signal: {e}")
+    
+    def safe_on_price(self, price: float):
+        """
+        Wrapper thread-safe avec try/except pour on_price.
+        Appeler cette méthode depuis l'instance parente.
+        """
+        try:
+            with self._lock:
+                self.on_price(price)
+        except Exception as e:
+            logger.exception(f"❌ Erreur stratégie {self.name}.on_price: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Retourne le statut de la stratégie"""
         return {
             'name': self.name,
             'initialized': self._initialized,
-            'last_signal': self._last_signal_time.isoformat() if self._last_signal_time else None,
+            'last_signals': {k: v.isoformat() for k, v in self._last_signal_times.items()},
             'config': self.config
         }
     
     def reset(self):
         """Réinitialise l'état de la stratégie"""
-        self._initialized = False
-        self._last_signal_time = None
+        with self._lock:
+            self._initialized = False
+            self._last_signal_times.clear()
         logger.info(f"🔄 Stratégie {self.name} réinitialisée")
 
 
@@ -178,6 +204,10 @@ def calculate_grid_levels(
     Returns:
         Liste des prix des niveaux, triée du plus bas au plus haut
     """
+    # CORRECTION: Guard contre division par zéro
+    if num_levels < 2:
+        return [center_price]
+    
     half_range = range_percent / 2
     step = range_percent / (num_levels - 1)
     
