@@ -339,12 +339,12 @@ def reset_persistence():
 def backup_database(source: str = "data/autobot_state.db", 
                     backup_dir: str = "data/backups") -> str:
     """
-    Crée un backup de la base SQLite avec timestamp
+    CORRECTION: Crée un backup atomique de la base SQLite avec timestamp.
+    Utilise l'API SQLite backup pour garantir la cohérence même pendant les écritures.
     
     Returns:
         Chemin du fichier backup créé
     """
-    import shutil
     from pathlib import Path
     
     Path(backup_dir).mkdir(parents=True, exist_ok=True)
@@ -352,8 +352,18 @@ def backup_database(source: str = "data/autobot_state.db",
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = Path(backup_dir) / f"autobot_state_{timestamp}.db"
     
-    shutil.copy2(source, backup_path)
-    logger.info(f"💾 Backup créé: {backup_path}")
+    # CORRECTION: Backup atomique via API SQLite
+    # Évite la corruption si une écriture est en cours pendant le backup
+    try:
+        with sqlite3.connect(source) as source_conn:
+            with sqlite3.connect(str(backup_path)) as backup_conn:
+                source_conn.backup(backup_conn)
+        logger.info(f"💾 Backup atomique créé: {backup_path}")
+    except AttributeError:
+        # Fallback pour Python < 3.7 (backup() ajouté en 3.7)
+        import shutil
+        shutil.copy2(source, backup_path)
+        logger.info(f"💾 Backup créé (fallback copy): {backup_path}")
     
     return str(backup_path)
 

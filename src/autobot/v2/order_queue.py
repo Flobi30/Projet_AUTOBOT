@@ -73,6 +73,14 @@ class TokenBucket:
                 return 0.0
             needed = tokens - self.tokens
             return needed / self.tokens_per_second
+    
+    def get_tokens_snapshot(self) -> float:
+        """
+        CORRECTION: Retourne une snapshot thread-safe du nombre de tokens.
+        À utiliser pour les stats uniquement, pas pour la logique métier.
+        """
+        with self._lock:
+            return self.tokens
 
 
 class OrderQueue:
@@ -223,7 +231,7 @@ class OrderQueue:
                 'processed': self._stats['processed'],
                 'failed': self._stats['failed'],
                 'queued': self.queue.qsize() + self.emergency_queue.qsize(),
-                'tokens_available': self.token_bucket.tokens
+                'tokens_available': self.token_bucket.get_tokens_snapshot()  # CORRECTION: thread-safe
             }
 
 
