@@ -11,6 +11,7 @@ from .instance import TradingInstance, InstanceStatus
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus, DefaultValidators
 from .risk_manager import RiskManager, RiskConfig
 from .websocket_client import KrakenWebSocket, TickerData
+from .signal_handler import SignalHandler
 
 __all__ = [
     'Orchestrator',
@@ -24,5 +25,6 @@ __all__ = [
     'RiskManager',
     'RiskConfig',
     'KrakenWebSocket',
-    'TickerData'
+    'TickerData',
+    'SignalHandler'
 ]

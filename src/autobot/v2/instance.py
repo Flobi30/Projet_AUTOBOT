@@ -175,6 +175,10 @@ class TradingInstance:
             from .strategies import GridStrategy
             self._strategy = GridStrategy(self)
         
+        # CORRECTION: Crée le SignalHandler pour connecter signaux aux exécutions
+        from .signal_handler import SignalHandler
+        self._signal_handler = SignalHandler(self)
+        
         logger.info(f"🎯 Stratégie {strategy_name} chargée pour {self.id}")
     
     def on_price_update(self, data: TickerData):
@@ -188,8 +192,10 @@ class TradingInstance:
         if self._strategy and self.status == InstanceStatus.RUNNING:
             self._strategy.on_price(data.price)
     
-    def open_position(self, price: float, volume: float) -> Optional[Position]:
-        """Ouvre une position (vérification et exécution atomiques)"""
+    def open_position(self, price: float, volume: float, 
+                       stop_loss: Optional[float] = None,
+                       take_profit: Optional[float] = None) -> Optional[Position]:
+        """Ouvre une position (vérification et exécution atomiques) avec SL/TP optionnels"""
         order_value = price * volume
         
         # CORRECTION: Tout dans un seul lock pour éviter TOCTOU
@@ -211,18 +217,28 @@ class TradingInstance:
             position = Position(
                 id=position_id,
                 buy_price=price,
-                volume=volume
+                volume=volume,
+                stop_loss=stop_loss,
+                take_profit=take_profit
             )
             
             self._positions[position_id] = position
             self._allocated_capital += order_value
             
             logger.info(f"📈 Position ouverte {self.id}/{position_id}: {volume} @ {price:.2f}€")
+            if stop_loss:
+                logger.info(f"   SL: {stop_loss:.2f}€")
+            if take_profit:
+                logger.info(f"   TP: {take_profit:.2f}€")
             
-            if self._on_position_open:
-                self._on_position_open(self, position)
-            
-            return position
+            # CORRECTION: Appeler callback APRÈS avoir libéré le lock
+            position_copy = position  # Garde une référence
+        
+        # Callback hors lock pour éviter deadlock
+        if self._on_position_open:
+            self._on_position_open(self, position_copy)
+        
+        return position
     
     def close_position(self, position_id: str, sell_price: float) -> Optional[float]:
         """Ferme une position et calcule profit"""
@@ -272,10 +288,15 @@ class TradingInstance:
             
             logger.info(f"📉 Position fermée {self.id}/{position_id}: Profit {net_profit:.2f}€")
             
-            if self._on_position_close:
-                self._on_position_close(self, position)
-            
-            return net_profit
+            # CORRECTION: Garder référence pour callback hors lock
+            position_copy = position
+            profit_copy = net_profit
+        
+        # Callback hors lock pour éviter deadlock
+        if self._on_position_close:
+            self._on_position_close(self, position_copy)
+        
+        return profit_copy
     
     def record_spin_off(self, amount: float):
         """Enregistre un spin-off (capital sorti)"""
@@ -295,9 +316,17 @@ class TradingInstance:
     # Getters
     
     def get_current_capital(self) -> float:
-        """Capital courant"""
+        """Capital courant (total, incluant alloué dans positions)"""
         with self._lock:
             return self._current_capital
+    
+    def get_available_capital(self) -> float:
+        """
+        Capital disponible pour nouveaux trades.
+        = Capital total - Capital alloué dans positions ouvertes
+        """
+        with self._lock:
+            return self._current_capital - self._allocated_capital
     
     def get_initial_capital(self) -> float:
         """Capital initial"""
@@ -395,6 +424,22 @@ class TradingInstance:
             'trend': self.detect_trend(),
             'last_price': self._last_price
         }
+
+    def get_available_capital(self) -> float:
+        """
+        CORRECTION: Capital réellement disponible pour nouveau trade.
+        = Capital courant - Capital déjà alloué dans des positions ouvertes
+        """
+        with self._lock:
+            return self._current_capital - self._allocated_capital
+
+    def get_open_position_ids(self) -> List[str]:
+        """
+        CORRECTION: Retourne les IDs des positions ouvertes (thread-safe).
+        Utilisé par SignalHandler pour fermer des positions.
+        """
+        with self._lock:
+            return [pos_id for pos_id, pos in self._positions.items() if pos.status == "open"]
     
     # Méthodes privées
     
