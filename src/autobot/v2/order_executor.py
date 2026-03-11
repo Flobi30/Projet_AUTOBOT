@@ -402,6 +402,96 @@ class OrderExecutor:
         
         logger.info(f"✅ {cancelled} ordre(s) annulé(s)")
         return True
+    
+    # =========================================================================
+    # PHASE 3: Méthodes pour réconciliation
+    # =========================================================================
+    
+    def get_closed_orders(
+        self,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        symbol: Optional[str] = None
+    ) -> Dict[str, Dict]:
+        """
+        Récupère les ordres fermés sur Kraken.
+        
+        Args:
+            start_time: Timestamp Unix de début (optionnel)
+            end_time: Timestamp Unix de fin (optionnel)
+            symbol: Filtrer par paire (optionnel)
+            
+        Returns:
+            Dict {txid: order_info}
+        """
+        params = {}
+        if start_time:
+            params['start'] = start_time
+        if end_time:
+            params['end'] = end_time
+        
+        success, response = self._safe_api_call('ClosedOrders', **params)
+        
+        if not success or 'result' not in response or 'closed' not in response['result']:
+            return {}
+        
+        closed_orders = response['result']['closed']
+        
+        # Filtrer par symbole si spécifié
+        if symbol:
+            symbol_clean = symbol.replace('/', '')
+            closed_orders = {
+                txid: info for txid, info in closed_orders.items()
+                if info.get('descr', {}).get('pair', '').replace('/', '') == symbol_clean
+            }
+        
+        return closed_orders
+    
+    def get_balance(self) -> Dict[str, float]:
+        """
+        Récupère le solde complet du compte Kraken.
+        
+        Returns:
+            Dict {asset: balance}
+        """
+        success, response = self._safe_api_call('Balance')
+        
+        if not success or 'result' not in response:
+            return {}
+        
+        balances = {}
+        for asset, amount in response['result'].items():
+            try:
+                balances[asset] = float(amount)
+            except (ValueError, TypeError):
+                continue
+        
+        return balances
+    
+    def get_trade_balance(self, asset: str = 'EUR') -> Dict[str, float]:
+        """
+        Récupère les informations de balance de trading.
+        
+        Args:
+            asset: Devise de référence (EUR, USD, etc.)
+            
+        Returns:
+            Dict avec 'equivalent_balance', 'trade_balance', etc.
+        """
+        params = {'asset': asset}
+        success, response = self._safe_api_call('TradeBalance', **params)
+        
+        if not success or 'result' not in response:
+            return {}
+        
+        result = {}
+        for key, value in response['result'].items():
+            try:
+                result[key] = float(value)
+            except (ValueError, TypeError):
+                result[key] = value
+        
+        return result
 
 
 # Singleton

@@ -163,12 +163,13 @@ class SignalHandler:
             logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
             # Continue quand même - la position sera sans protection
         
-        # CORRECTION: Créer position avec prix d'exécution réel ET stop-loss txid
+        # CORRECTION: Créer position avec prix d'exécution réel ET txids
         position = self.instance.open_position(
             price=executed_price,
             volume=executed_volume,
             stop_loss=stop_price,
-            stop_loss_txid=stop_loss_txid
+            stop_loss_txid=stop_loss_txid,
+            buy_txid=result.txid  # CORRECTION Phase 3: TXID de l'achat
         )
         
         if position:
@@ -244,9 +245,9 @@ class SignalHandler:
             if result.success:
                 executed_price = result.executed_price or signal.price
                 logger.info(f"✅ Vente exécutée: {volume:.6f} @ {executed_price:.2f}€")
-                
-                # Met à jour position avec prix réel
-                self.instance.close_position(pos_id, executed_price)
+
+                # Met à jour position avec prix réel et txid
+                self.instance.close_position(pos_id, executed_price, sell_txid=result.txid)  # Phase 3
             else:
                 logger.error(f"❌ Échec vente: {result.error}")
     

@@ -55,6 +55,9 @@ class Position:
     # CORRECTION Phase 2: Tracking stop-loss Kraken
     stop_loss_txid: Optional[str] = None  # TXID ordre stop-loss sur Kraken
     stop_loss_triggered: bool = False  # True si déclenché par Kraken
+    # CORRECTION Phase 3: Tracking ordre d'achat Kraken
+    buy_txid: Optional[str] = None  # TXID ordre d'achat sur Kraken
+    sell_txid: Optional[str] = None  # TXID ordre de vente sur Kraken
 
 
 class TradingInstance:
@@ -209,40 +212,43 @@ class TradingInstance:
         if self._strategy and self.status == InstanceStatus.RUNNING:
             self._strategy.on_price(data.price)
     
-    def open_position(self, price: float, volume: float, 
+    def open_position(self, price: float, volume: float,
                        stop_loss: Optional[float] = None,
                        take_profit: Optional[float] = None,
-                       stop_loss_txid: Optional[str] = None) -> Optional[Position]:
+                       stop_loss_txid: Optional[str] = None,
+                       buy_txid: Optional[str] = None) -> Optional[Position]:
         """
         Ouvre une position (vérification et exécution atomiques) avec SL/TP optionnels.
-        
+
         CORRECTION Phase 2: Accepte stop_loss_txid pour tracking stop-loss Kraken.
+        CORRECTION Phase 3: Accepte buy_txid pour réconciliation.
         """
         order_value = price * volume
-        
+
         # CORRECTION: Tout dans un seul lock pour éviter TOCTOU
         with self._lock:
             # Vérifications
             available = self._current_capital - self._allocated_capital
             max_positions = 10
-            
+
             if not (
                 self.status == InstanceStatus.RUNNING and
                 available >= order_value and
                 len(self._positions) < max_positions
             ):
                 return None
-            
+
             # Crée la position
             position_id = str(uuid.uuid4())[:8]
-            
+
             position = Position(
                 id=position_id,
                 buy_price=price,
                 volume=volume,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
-                stop_loss_txid=stop_loss_txid  # CORRECTION Phase 2
+                stop_loss_txid=stop_loss_txid,  # CORRECTION Phase 2
+                buy_txid=buy_txid  # CORRECTION Phase 3
             )
             
             self._positions[position_id] = position
@@ -260,6 +266,7 @@ class TradingInstance:
             position_copy = position  # Garde une référence
         
         # Point #4: Sauvegarde position dans SQLite
+        # CORRECTION Phase 3: Ajoute buy_txid pour réconciliation
         self._persistence.save_position(
             position_id=position_id,
             instance_id=self.id,
@@ -268,9 +275,10 @@ class TradingInstance:
             status="open",
             strategy=self.config.strategy,
             metadata={
-                'stop_loss': stop_loss, 
+                'stop_loss': stop_loss,
                 'take_profit': take_profit,
-                'stop_loss_txid': stop_loss_txid  # CORRECTION Phase 2
+                'stop_loss_txid': stop_loss_txid,  # CORRECTION Phase 2
+                'buy_txid': buy_txid  # CORRECTION Phase 3
             }
         )
         
@@ -282,33 +290,39 @@ class TradingInstance:
         
         return position
     
-    def close_position(self, position_id: str, sell_price: float) -> Optional[float]:
-        """Ferme une position et calcule profit"""
+    def close_position(self, position_id: str, sell_price: float,
+                         sell_txid: Optional[str] = None) -> Optional[float]:
+        """
+        Ferme une position et calcule profit.
+
+        CORRECTION Phase 3: Accepte sell_txid pour tracking.
+        """
         with self._lock:
             if position_id not in self._positions:
                 return None
-            
+
             position = self._positions[position_id]
-            
+
             # CORRECTION: Accepte 'open' OU 'closing' (pour emergency stop)
             if position.status not in ("open", "closing"):
                 return None
-            
+
             # Calcule profit
             gross_profit = (sell_price - position.buy_price) * position.volume
-            
+
             # CORRECTION: Frais calculés séparément (maker 0.16%, taker 0.26%)
             buy_fee = position.buy_price * position.volume * 0.0016   # Maker
             sell_fee = sell_price * position.volume * 0.0026         # Taker
             fees = buy_fee + sell_fee
-            
+
             net_profit = gross_profit - fees
-            
+
             # Met à jour position
             position.sell_price = sell_price
             position.status = "closed"
             position.close_time = datetime.now()
             position.profit = net_profit
+            position.sell_txid = sell_txid  # CORRECTION Phase 3
             
             # Met à jour capital
             self._current_capital += net_profit
