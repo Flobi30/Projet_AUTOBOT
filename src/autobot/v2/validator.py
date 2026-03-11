@@ -153,7 +153,8 @@ class ValidatorEngine:
         if since:
             results = [r for r in results if r.timestamp >= since]
         
-        return results
+        # CORRECTION: Retourner une liste (pas deque) pour compatibilité JSON
+        return list(results)
     
     def can_execute(self, action: str, context: Dict[str, Any]) -> bool:
         """Vérifie si action peut être exécutée (statut GREEN ou YELLOW)"""
