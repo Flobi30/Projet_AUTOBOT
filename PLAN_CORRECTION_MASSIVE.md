@@ -127,22 +127,39 @@ offset = -half_range + (i * step)
 
 ---
 
-## PHASE 3 : SÉCURITÉ & ROBUSTESSE (P1)
+## PHASE 3 : RÉCONCILIATION ÉTAT ↔ EXCHANGE (P1) ✅ COMPLÉTÉ
+
+### 3.1 ReconciliationManager
+**Fichier :** `src/autobot/v2/reconciliation.py` ✅ NOUVEAU
+
+**Implémentation :**
+- ✅ `reconcile_all()` : Compare positions locales vs Kraken
+- ✅ Détecte positions orphelines (ouvertes localement mais pas sur Kraken)
+- ✅ Corrige automatiquement les divergences
+- ✅ Réconciliation périodique (toutes les heures)
+
+### 3.2 OrderExecutor - Méthodes de réconciliation
+**Fichier :** `src/autobot/v2/order_executor.py` ✅
+
+**Ajouts :**
+- ✅ `get_closed_orders()` : Récupère historique ordres fermés
+- ✅ `get_balance()` : Solde complet du compte
+- ✅ `get_trade_balance()` : Balance de trading
+
+### 3.3 Tracking complet TXIDs
+**Fichiers :** `instance.py`, `signal_handler.py` ✅
+
+**Modifications :**
+- ✅ Position : `buy_txid`, `sell_txid`, `stop_loss_txid`
+- ✅ `open_position()` stocke `buy_txid`
+- ✅ `close_position()` stocke `sell_txid`
+- ✅ SignalHandler passe les TXIDs à chaque opération
 
 ---
 
-## PHASE 4 : SÉCURITÉ & ROBUSTESSE (P1)
+## PHASE 4 : SÉCURITÉ & ROBUSTESSE RÉSIDUELLE (P2)
 
-### 4.1 Réconciliation état local ↔ exchange
-**Fichier à créer :** `src/autobot/v2/reconciliation.py`
-
-**Responsabilités :**
-- Au démarrage : comparer positions locales vs positions Kraken
-- Détecter divergences (positions orphelines, manquantes)
-- Corriger état local si nécessaire
-- Job périodique (toutes les heures)
-
-### 4.2 Singletons thread-safe
+### 4.1 Singletons thread-safe
 **Fichiers :** `persistence.py`, `risk_manager.py`
 
 **Correction :**
@@ -155,7 +172,7 @@ with _singleton_lock:
         _instance = Class()
 ```
 
-### 4.3 WebSocket heartbeat
+### 4.2 WebSocket heartbeat amélioré
 **Fichier :** `src/autobot/v2/websocket_client.py`
 
 **Correction :**
@@ -163,13 +180,10 @@ with _singleton_lock:
 - Détection prix stalé (> 30s sans update)
 - Reconnexion automatique avec backoff exponentiel
 
-### 4.4 Validateurs réellement utilisés
-**Fichier :** `src/autobot/v2/signal_handler.py`
-
-**Correction :**
-- `_execute_buy()` : Appeler `validator.validate('open_position', context)` AVANT exécution
-- `_execute_sell()` : Idem
-- Respecter le verdict (GREEN/YELLOW/RED)
+### 4.3 Frais dynamiques Kraken
+- Récupérer frais réels via API (`TradeVolume`)
+- Stocker dans config
+- Utiliser pour calcul P&L
 
 ---
 
