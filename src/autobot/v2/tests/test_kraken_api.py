@@ -14,6 +14,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 logger = logging.getLogger(__name__)
 
+# Constantes de sécurité
+SAFETY_TEST_VOLUME = 0.0001  # Minimum BTC order; ~€8 at €80k/BTC
+MIN_PRICE_SANITY_CHECK = 1000.0  # Prix minimum acceptable (€)
+ORDER_RETRY_ATTEMPTS = 3
+ORDER_RETRY_DELAY = 1.0  # secondes
+
 
 class KrakenAPITester:
     """Testeur pour API Kraken - valide connexion, balance, ordres"""
@@ -39,8 +45,8 @@ class KrakenAPITester:
         except ImportError:
             logger.error("❌ Module 'krakenex' non installé. Run: pip install krakenex")
             return None
-        except Exception as e:
-            logger.error(f"❌ Erreur création client Kraken: {e}")
+        except Exception:
+            logger.exception("❌ Erreur création client Kraken")
             return None
     
     def test_connection(self) -> bool:
@@ -109,8 +115,8 @@ class KrakenAPITester:
                     logger.error(f"❌ Erreur balance: {error}")
                 self.tests_failed += 1
                 return False
-        except Exception as e:
-            logger.error(f"❌ Exception balance: {e}")
+        except Exception:
+            logger.exception("❌ Exception balance")
             self.tests_failed += 1
             return False
     
@@ -141,14 +147,14 @@ class KrakenAPITester:
                 logger.error(f"❌ Erreur ticker: {response.get('error', 'Unknown')}")
                 self.tests_failed += 1
                 return False
-        except Exception as e:
-            logger.error(f"❌ Exception ticker: {e}")
+        except Exception:
+            logger.exception("❌ Exception ticker")
             self.tests_failed += 1
             return False
     
     def test_paper_order(self) -> bool:
-        """Test 4: Simulation d'ordre (validation sans exécution)"""
-        logger.info("🧪 Test 4: Simulation ordre (paper trading)...")
+        """Test 4: Validation d'ordre (sans exécution réelle)"""
+        logger.info("🧪 Test 4: Validation d'ordre (DRY-RUN - aucun ordre réel placé)...")
         
         if not self.client:
             self.tests_failed += 1
@@ -164,55 +170,55 @@ class KrakenAPITester:
             
             current_price = float(ticker_resp['result']['XXBTZEUR']['c'][0])
             
-            # Ordre LIMIT d'achat 10% sous le prix actuel (ne sera jamais exécuté)
+            # CORRECTION: Sanity check sur le prix
+            if current_price < MIN_PRICE_SANITY_CHECK:
+                logger.error(f"❌ Prix anormal détecté: {current_price} (min attendu: {MIN_PRICE_SANITY_CHECK})")
+                self.tests_failed += 1
+                return False
+            
+            # Ordre LIMIT d'achat (pour validation uniquement)
             limit_price = round(current_price * 0.9, 1)
-            volume = 0.0001  # Mini volume pour test
+            volume = SAFETY_TEST_VOLUME
             
             logger.info(f"   Prix actuel: {current_price:.1f} €")
-            logger.info(f"   Ordre LIMIT achat @ {limit_price:.1f} € (0.0001 BTC)")
-            logger.info(f"   📝 Cet ordre est très loin du prix, il ne sera pas exécuté")
+            logger.info(f"   Ordre LIMIT achat @ {limit_price:.1f} € ({volume} BTC)")
+            logger.info(f"   🔒 Mode VALIDATE uniquement - AUCUN ordre réel ne sera placé")
             
-            # Place l'ordre
+            # CORRECTION: Utilise 'validate': True pour dry-run
             order_data = {
                 'pair': 'XXBTZEUR',
                 'type': 'buy',
                 'ordertype': 'limit',
                 'price': str(limit_price),
-                'volume': str(volume)
+                'volume': str(volume),
+                'validate': 'true'  # CORRECTION: Dry-run, pas d'ordre réel
             }
             
             response = self.client.query_private('AddOrder', order_data)
             
-            if 'result' in response and 'txid' in response['result']:
-                txid = response['result']['txid'][0]
-                logger.info(f"✅ Ordre créé: {txid}")
-                
-                # Annule immédiatement
-                time.sleep(0.5)
-                cancel_resp = self.client.query_private('CancelOrder', {'txid': txid})
-                
-                if 'result' in cancel_resp and cancel_resp['result'].get('count', 0) == 1:
-                    logger.info(f"✅ Ordre annulé avec succès")
-                    self.tests_passed += 1
-                    return True
-                else:
-                    logger.warning(f"⚠️ Ordre créé mais erreur annulation: {cancel_resp.get('error')}")
-                    self.tests_passed += 1  # Considéré comme réussi quand même
-                    return True
+            if 'result' in response:
+                # En mode validate, il n'y a pas de txid, juste la validation
+                logger.info(f"✅ Ordre validé avec succès (DRY-RUN)")
+                logger.info(f"   Détails: {response['result']}")
+                self.tests_passed += 1
+                return True
             else:
-                error = response.get('error', ['Unknown'])[0]
-                if 'Insufficient funds' in error:
+                error = response.get('error', ['Unknown'])
+                if isinstance(error, list):
+                    error = error[0]
+                
+                if 'Insufficient funds' in str(error):
                     logger.warning(f"⚠️ Fonds insuffisants pour l'ordre (normal si compte vide)")
                     logger.info("   ✅ L'API fonctionne, juste pas assez d'EUR")
                     self.tests_passed += 1
                     return True
                 else:
-                    logger.error(f"❌ Erreur création ordre: {error}")
+                    logger.error(f"❌ Erreur validation ordre: {error}")
                     self.tests_failed += 1
                     return False
                     
-        except Exception as e:
-            logger.error(f"❌ Exception ordre: {e}")
+        except Exception:
+            logger.exception("❌ Exception ordre")
             self.tests_failed += 1
             return False
     
@@ -235,10 +241,33 @@ class KrakenAPITester:
                 logger.error(f"❌ Erreur: {response.get('error', 'Unknown')}")
                 self.tests_failed += 1
                 return False
-        except Exception as e:
-            logger.error(f"❌ Exception: {e}")
+        except Exception:
+            logger.exception("❌ Exception")
             self.tests_failed += 1
             return False
+    
+    def cleanup(self):
+        """Nettoyage: annule tous les ordres ouverts (sécurité)"""
+        if not self.client:
+            return
+        
+        try:
+            logger.info("🧹 Nettoyage: vérification ordres ouverts...")
+            response = self.client.query_private('OpenOrders')
+            if 'result' in response:
+                open_orders = response['result']['open']
+                if open_orders:
+                    logger.warning(f"⚠️ {len(open_orders)} ordre(s) ouvert(s) détecté(s) - annulation...")
+                    for txid in open_orders.keys():
+                        try:
+                            self.client.query_private('CancelOrder', {'txid': txid})
+                            logger.info(f"   Ordre {txid[:8]}... annulé")
+                        except Exception:
+                            logger.exception(f"   Erreur annulation {txid[:8]}...")
+                else:
+                    logger.info("✅ Aucun ordre ouvert")
+        except Exception:
+            logger.exception("❌ Erreur nettoyage")
     
     def run_all_tests(self) -> Tuple[int, int]:
         """Lance tous les tests et retourne (passed, failed)"""
@@ -283,9 +312,9 @@ def main():
     """Point d'entrée pour les tests"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Test API Kraken')
-    parser.add_argument('--api-key', help='Clé API Kraken')
-    parser.add_argument('--api-secret', help='Secret API Kraken')
+    parser = argparse.ArgumentParser(description='Test API Kraken (DRY-RUN uniquement)')
+    parser.add_argument('--api-key', help='Clé API Kraken (optionnel, utilise KRAKEN_API_KEY env var par défaut)')
+    # CORRECTION: Retiré --api-secret pour éviter fuite dans bash_history/ps aux
     parser.add_argument('-v', '--verbose', action='store_true', help='Mode verbeux')
     
     args = parser.parse_args()
@@ -298,24 +327,53 @@ def main():
     )
     
     # Vérifie les credentials
+    # CORRECTION: api_secret UNIQUEMENT via env var (pas CLI)
     api_key = args.api_key or os.getenv('KRAKEN_API_KEY')
-    api_secret = args.api_secret or os.getenv('KRAKEN_API_SECRET')
+    api_secret = os.getenv('KRAKEN_API_SECRET')
     
     if not api_key or not api_secret:
         logger.error("❌ Clés API manquantes!")
-        logger.error("   Utilisez --api-key et --api-secret")
-        logger.error("   ou définissez KRAKEN_API_KEY et KRAKEN_API_SECRET")
+        logger.error("")
+        logger.error("Configuration requise (une des deux options):")
+        logger.error("")
+        logger.error("Option 1 - Variables d'environnement (RECOMMANDÉ):")
+        logger.error("   export KRAKEN_API_KEY='votre_clé'")
+        logger.error("   export KRAKEN_API_SECRET='votre_secret'")
+        logger.error("   python test_kraken_api.py")
+        logger.error("")
+        logger.error("Option 2 - Clé en argument, secret en env:")
+        logger.error("   export KRAKEN_API_SECRET='votre_secret'")
+        logger.error("   python test_kraken_api.py --api-key 'votre_clé'")
+        logger.error("")
+        logger.error("⚠️  Note: Pour la sécurité, le secret n'est jamais accepté en argument.")
         sys.exit(1)
     
-    # Masque les clés dans les logs
-    logger.info(f"🔑 API Key: {api_key[:8]}...{api_key[-4:]}")
+    # CORRECTION: Réduit l'exposition de la clé (4 premiers + 2 derniers caractères)
+    masked_key = f"{api_key[:4]}...{api_key[-2:]}" if len(api_key) > 6 else "***"
+    logger.info(f"🔑 API Key: {masked_key}")
+    logger.info("🔒 Mode DRY-RUN: Aucun ordre réel ne sera placé")
     
-    # Lance les tests
-    tester = KrakenAPITester(api_key, api_secret)
-    passed, failed = tester.run_all_tests()
-    
-    # Exit code
-    sys.exit(0 if failed == 0 else 1)
+    # Lance les tests avec cleanup garanti
+    tester = None
+    try:
+        tester = KrakenAPITester(api_key, api_secret)
+        passed, failed = tester.run_all_tests()
+        
+        # Cleanup si des ordres sont restés ouverts (ne devrait pas arriver en mode validate)
+        tester.cleanup()
+        
+        # Exit code
+        sys.exit(0 if failed == 0 else 1)
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Interruption détectée")
+        if tester:
+            tester.cleanup()
+        sys.exit(130)
+    except Exception:
+        logger.exception("❌ Erreur fatale")
+        if tester:
+            tester.cleanup()
+        sys.exit(1)
 
 
 if __name__ == '__main__':

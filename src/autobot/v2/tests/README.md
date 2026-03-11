@@ -2,7 +2,13 @@
 
 ## Tests API Kraken
 
-Le fichier `test_kraken_api.py` permet de valider la connexion à l'API Kraken sans risquer de perdre d'argent.
+Le fichier `test_kraken_api.py` permet de valider la connexion à l'API Kraken en **mode DRY-RUN uniquement** (aucun ordre réel placé).
+
+### 🔒 Sécurité
+
+- **Aucun ordre réel** n'est jamais placé sur le marché
+- Les tests utilisent le flag `validate=True` de l'API Kraken
+- Le secret API n'est accepté **que** via variables d'environnement (jamais en ligne de commande)
 
 ### Prérequis
 
@@ -24,10 +30,18 @@ export KRAKEN_API_KEY="votre_clé"
 export KRAKEN_API_SECRET="votre_secret"
 ```
 
-Ou passez-les en arguments :
+Puis lancez :
 ```bash
-python src/autobot/v2/tests/test_kraken_api.py --api-key XXX --api-secret YYY
+python src/autobot/v2/tests/test_kraken_api.py
 ```
+
+Alternative (clé en argument, secret en env) :
+```bash
+export KRAKEN_API_SECRET="votre_secret"
+python src/autobot/v2/tests/test_kraken_api.py --api-key "votre_clé"
+```
+
+⚠️ **Pour la sécurité**, `--api-secret` n'est PAS supporté (évite la fuite dans bash_history).
 
 ### Exécution des tests
 
@@ -37,6 +51,9 @@ python src/autobot/v2/tests/test_kraken_api.py
 
 # Mode verbeux (plus de détails)
 python src/autobot/v2/tests/test_kraken_api.py -v
+
+# Avec le script
+./src/autobot/v2/tests/test-kraken.sh
 ```
 
 ### Ce qui est testé
@@ -44,18 +61,21 @@ python src/autobot/v2/tests/test_kraken_api.py -v
 1. ✅ **Connexion API** - Vérifie que l'API répond
 2. ✅ **Balance** - Récupère les soldes (EUR, BTC)
 3. ✅ **Ticker** - Récupère le prix XXBTZEUR
-4. ✅ **Ordre Paper** - Crée et annule un ordre LIMIT (loin du prix, pas d'exécution)
+4. ✅ **Validation d'ordre** - Valide un ordre sans l'exécuter (DRY-RUN)
 5. ✅ **Ordres Ouverts** - Liste les ordres en cours
 
-### ⚠️ Important
+### 🔒 Mode DRY-RUN (Test 4)
 
-- Le test 4 crée un ordre LIMIT d'achat à -10% du prix actuel (il ne sera pas exécuté)
-- L'ordre est annulé immédiatement après création
-- Si vous n'avez pas d'EUR, le test échouera avec "Insufficient funds" (c'est normal)
+Le test 4 utilise le paramètre `validate=True` de l'API Kraken :
+- L'API valide la signature, les fonds, le format
+- **Aucun ordre n'est placé sur le marché**
+- Pas besoin d'annulation
+- 100% safe
 
 ### Résultats attendus
 
 ```
+🔒 Mode DRY-RUN: Aucun ordre réel ne sera placé
 ✅ Réussis: 5
 ❌ Échoués: 0
 🎉 TOUS LES TESTS ONT RÉUSSI!

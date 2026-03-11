@@ -1,8 +1,10 @@
 #!/bin/bash
-# Script de test API Kraken
+# Script de test API Kraken - DRY-RUN uniquement
 
 echo "🚀 Tests API Kraken - AUTOBOT V2"
 echo "================================"
+echo "🔒 Mode DRY-RUN: Aucun ordre réel ne sera placé"
+echo ""
 
 # Vérifie si krakenex est installé
 python3 -c "import krakenex" 2>/dev/null
@@ -21,7 +23,10 @@ if [ -z "$KRAKEN_API_KEY" ] || [ -z "$KRAKEN_API_SECRET" ]; then
     echo "  export KRAKEN_API_SECRET='votre_secret'"
     echo ""
     echo "Ou utilisez:"
-    echo "  ./test-kraken.sh --api-key XXX --api-secret YYY"
+    echo "  export KRAKEN_API_SECRET='votre_secret'"
+    echo "  ./test-kraken.sh --api-key 'votre_clé'"
+    echo ""
+    echo "⚠️  Note: Pour la sécurité, le secret n'est jamais accepté en argument."
     exit 1
 fi
 
