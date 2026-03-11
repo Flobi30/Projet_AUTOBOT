@@ -355,25 +355,22 @@ def main():
     
     # Lance les tests avec cleanup garanti
     tester = None
+    exit_code = 0
     try:
         tester = KrakenAPITester(api_key, api_secret)
         passed, failed = tester.run_all_tests()
-        
-        # Cleanup si des ordres sont restés ouverts (ne devrait pas arriver en mode validate)
-        tester.cleanup()
-        
-        # Exit code
-        sys.exit(0 if failed == 0 else 1)
+        exit_code = 0 if failed == 0 else 1
     except KeyboardInterrupt:
         logger.warning("\n⚠️  Interruption détectée")
-        if tester:
-            tester.cleanup()
-        sys.exit(130)
+        exit_code = 130
     except Exception:
         logger.exception("❌ Erreur fatale")
+        exit_code = 1
+    finally:
         if tester:
             tester.cleanup()
-        sys.exit(1)
+            
+    sys.exit(exit_code)
 
 
 if __name__ == '__main__':
