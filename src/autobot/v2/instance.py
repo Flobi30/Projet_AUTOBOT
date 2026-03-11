@@ -372,21 +372,25 @@ class TradingInstance:
         return self.status == InstanceStatus.RUNNING
     
     def get_status(self) -> Dict[str, Any]:
-        """Statut complet"""
+        """Statut complet - CORRECTION: Thread-safe"""
+        with self._lock:
+            positions_copy = list(self._positions.values())
+
         return {
             'id': self.id,
             'name': self.config.name,
             'status': self.status.value,
             'strategy': self.config.strategy,
-            'capital_initial': self._initial_capital,
-            'capital_current': self.get_current_capital(),
-            'profit': self.get_profit(),
+            'initial_capital': self._initial_capital,
+            'current_capital': self.get_current_capital(),
+            'total_profit': self.get_profit(),
             'profit_pct': (self.get_profit() / self._initial_capital * 100),
             'win_streak': self._win_streak,
             'drawdown': self.get_drawdown(),
             'max_drawdown': self._max_drawdown,
-            'positions_open': len([p for p in self._positions.values() if p.status == "open"]),
-            'positions_closed': len([p for p in self._positions.values() if p.status == "closed"]),
+            'positions': positions_copy,
+            'open_positions_count': len([p for p in positions_copy if p.status == "open"]),
+            'closed_positions_count': len([p for p in positions_copy if p.status == "closed"]),
             'leverage': self.config.leverage,
             'trend': self.detect_trend(),
             'last_price': self._last_price

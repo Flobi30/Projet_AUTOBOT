@@ -407,12 +407,12 @@ class Orchestrator:
                 inst_status = instance.get_status()
                 snapshot.append({
                     'id': inst_id,
-                    'name': instance.config.name,
+                    'name': inst_status['name'],
                     'capital': inst_status['current_capital'],
                     'profit': inst_status['total_profit'],
                     'status': inst_status['status'],
-                    'strategy': instance.config.strategy,
-                    'open_positions': len(inst_status['positions'])
+                    'strategy': inst_status['strategy'],
+                    'open_positions': inst_status['open_positions_count']
                 })
             except Exception as e:
                 logger.error(f"❌ Erreur snapshot instance {inst_id}: {e}")

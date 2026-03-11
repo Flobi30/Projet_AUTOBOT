@@ -105,9 +105,9 @@ const LiveTrading: React.FC = () => {
     return () => clearInterval(interval);
   }, [setCapitalTotal, setBotStatus]);
 
-  // CORRECTION: Calcul des métriques à partir des données réelles
-  const totalPnl = positions.reduce((sum, pos) => sum + pos.pnl, 0);
-  const pnlPercent = globalStatus?.total_capital 
+  // CORRECTION: Utilise le profit global de l'API (pas seulement 1ère instance)
+  const totalPnl = globalStatus?.total_profit || 0;
+  const pnlPercent = globalStatus?.total_capital && globalStatus.total_capital > 0
     ? (totalPnl / globalStatus.total_capital) * 100 
     : 0;
 
