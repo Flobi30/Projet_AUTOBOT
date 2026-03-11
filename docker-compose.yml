@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Service principal - Bot de trading
+  autobot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autobot-v2
+    restart: unless-stopped
+    environment:
+      - KRAKEN_API_KEY=${KRAKEN_API_KEY}
+      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
+      - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN:-}
+    ports:
+      - "8080:8080"  # API Dashboard
+    volumes:
+      - ./data:/app/data  # Persistence SQLite
+      - ./logs:/app/logs  # Logs
+      - ./.env:/app/.env:ro  # Config (read-only)
+    networks:
+      - autobot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Dashboard React (frontend)
+  dashboard:
+    image: node:18-alpine
+    container_name: autobot-dashboard
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"  # Dashboard web
+    environment:
+      - VITE_API_URL=http://localhost:8080  # URL de l'API
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    depends_on:
+      autobot:
+        condition: service_healthy
+    networks:
+      - autobot-network
+    profiles:
+      - with-dashboard  # Ne démarre que si explicitement demandé
+
+networks:
+  autobot-network:
+    driver: bridge
+
+volumes:
+  autobot-data:
+    driver: local
+  autobot-logs:
+    driver: local

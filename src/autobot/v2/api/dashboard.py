@@ -85,6 +85,33 @@ app.add_middleware(
 async def root():
     return {"message": "AUTOBOT V2 Dashboard API", "version": "2.0.0"}
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check pour Docker et monitoring.
+    Vérifie que l'orchestrateur est accessible.
+    """
+    try:
+        # Vérifie si l'orchestrateur est accessible
+        if hasattr(app.state, 'orchestrator') and app.state.orchestrator:
+            return {
+                "status": "healthy",
+                "timestamp": datetime.now().isoformat(),
+                "orchestrator": "connected"
+            }
+        else:
+            return {
+                "status": "unhealthy",
+                "timestamp": datetime.now().isoformat(),
+                "orchestrator": "not_connected"
+            }
+    except Exception:
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": "internal_error"
+        }
+
 @app.get("/api/status", response_model=GlobalStatus)
 async def get_global_status(
     request: Request,
