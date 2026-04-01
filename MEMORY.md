@@ -34,13 +34,27 @@ Multi-phase development to make it production-ready.
 ### Phase 8 Shadow Trading (April 1, 2026) - ✅ COMPLETE
 | Module | Status | Tests | Reviews |
 |--------|--------|-------|---------|
-| ShadowTradingManager | ✅ Complete | 35/35 | ✅ Ready |
+| ShadowTradingManager | ✅ Complete | 35/35 | ✅ Opus + Gemini OK |
 
 **Features**:
 - Paper trading instances en parallèle du live
 - Promotion live: PF ≥ 1.5 + 30 trades + durée validation (14/21/28j)
 - Cap transfert: 25% max capital shadow
 - Corrections: time.monotonic(), PF recalculé interne, logs hors lock
+
+### Phase 9 Dashboard Enrichi (April 1, 2026) - ✅ COMPLETE
+| Module | Status | Reviews |
+|--------|--------|---------|
+| Dashboard API | ✅ Complete | ✅ Opus + Gemini OK |
+
+**Nouveaux endpoints**:
+- `/api/performance` : PF global et par instance (Sharpe, win rate)
+- `/api/drawdown` : Max drawdown et courant
+- `/api/shadow-status` : État shadow trading
+- `/api/phase1-modules` : Statut modules performance
+- `/api/strategies-dormantes` : Mean Reversion, Arbitrage status
+
+**Compatible** avec frontend React existant (/dashboard/src/)
 
 ### Critical Fixes Made
 - Fixed major wiring issue: OrderExecutor, StopLossManager, ReconciliationManager now properly connected
