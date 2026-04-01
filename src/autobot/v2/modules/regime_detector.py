@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from enum import Enum, auto
 
@@ -118,6 +119,9 @@ class RegimeDetector:
         self._tick_count: int = 0
         self._last_logged_regime: MarketRegime | None = None
 
+        # Compteur de ticks consécutifs en CRISE (fix blocage)
+        self._crisis_ticks: int = 0
+
         logger.info(
             "RegimeDetector initialisé — période=%d, seuil_faible=%.1f, "
             "seuil_fort=%.1f, crise_mult=%.1f, warm-up=%d ticks",
@@ -161,8 +165,12 @@ class RegimeDetector:
                 f"high/low/close doivent être numériques, reçu: "
                 f"{type(high).__name__}, {type(low).__name__}, {type(close).__name__}"
             )
+        if not (math.isfinite(high) and math.isfinite(low) and math.isfinite(close)):
+            raise ValueError("Données non-finies")
         if high < low:
-            raise ValueError(f"high ({high}) doit être >= low ({low})")
+            raise ValueError(f"high ({high}) < low ({low})")
+        if not (low <= close <= high):
+            raise ValueError(f"close ({close}) hors range [{low}, {high}]")
         if low <= 0:
             raise ValueError(f"low doit être > 0, reçu {low}")
 
@@ -214,13 +222,17 @@ class RegimeDetector:
             return self._current_regime
 
     def should_trade_grid(self) -> bool:
-        """True si Grid autorisé (RANGE ou TREND_FAIBLE)."""
+        """True si Grid autorisé (RANGE ou TREND_FAIBLE). False pendant warmup."""
         with self._lock:
+            if not self._phase2_done:
+                return False
             return self._current_regime in (MarketRegime.RANGE, MarketRegime.TREND_FAIBLE)
 
     def should_trade_trend(self) -> bool:
-        """True si Trend Following autorisé (TREND_FORTE)."""
+        """True si Trend Following autorisé (TREND_FORTE). False pendant warmup."""
         with self._lock:
+            if not self._phase2_done:
+                return False
             return self._current_regime == MarketRegime.TREND_FORTE
 
     def get_status(self) -> dict:
@@ -270,6 +282,7 @@ class RegimeDetector:
             self._current_regime = MarketRegime.RANGE
             self._tick_count = 0
             self._last_logged_regime = None
+            self._crisis_ticks = 0
             logger.info("RegimeDetector: réinitialisé")
 
     # ------------------------------------------------------------------
@@ -394,15 +407,39 @@ class RegimeDetector:
 
         Priorité : CRISE > TREND_FORTE > TREND_FAIBLE > RANGE
         Pendant le warm-up : retourne toujours RANGE.
+
+        Fix blocage CRISE : si CRISE persiste > 100 ticks, on force la mise
+        à jour de l'ATR moyenne (slow EMA) avec alpha/10 pour permettre au
+        seuil de rattraper et débloquer le régime.
         """
         # Warm-up : RANGE par défaut
         if not self._phase2_done:
+            self._crisis_ticks = 0
             return MarketRegime.RANGE
 
         # Détection CRISE : ATR >> ATR moyenne
+        is_crisis = False
         if self._atr is not None and self._atr_avg is not None and self._atr_avg > 0:
             if self._atr > self._atr_avg * self._crisis_multiplier:
-                return MarketRegime.CRISE
+                is_crisis = True
+
+        if is_crisis:
+            self._crisis_ticks += 1
+            # Fix blocage : si CRISE persiste > 100 ticks, forcer mise à jour
+            # de l'ATR moyenne avec un alpha réduit (alpha/10) pour que le seuil
+            # rattrape progressivement l'ATR actuel.
+            if self._crisis_ticks > 100:
+                alpha = 1.0 / self._period
+                boosted_alpha = alpha / 10.0
+                self._atr_avg = self._atr_avg * (1.0 - boosted_alpha) + self._atr * boosted_alpha
+                logger.debug(
+                    "RegimeDetector: CRISE bloquée depuis %d ticks, "
+                    "forçage slow EMA ATR_avg=%.6f",
+                    self._crisis_ticks, self._atr_avg,
+                )
+            return MarketRegime.CRISE
+        else:
+            self._crisis_ticks = 0
 
         # Classification par ADX
         if self._adx is None:
@@ -611,9 +648,9 @@ if __name__ == "__main__":
     print("\n=== Test 6 : Méthodes should_trade ===")
     det6 = RegimeDetector(adx_period=3)
 
-    # Pendant warm-up => RANGE => grid OK, trend NOK
+    # Pendant warm-up => RANGE mais should_trade_* retournent False (fix warmup)
     det6.update(101, 99, 100)
-    assert_true("warm-up: grid OK", det6.should_trade_grid())
+    assert_true("warm-up: grid NOK (warmup guard)", not det6.should_trade_grid())
     assert_true("warm-up: trend NOK", not det6.should_trade_trend())
 
     # =================================================================
@@ -663,6 +700,9 @@ if __name__ == "__main__":
     assert_raises("low = 0", ValueError, det9.update, 100, 0, 50)
     assert_raises("low < 0", ValueError, det9.update, 100, -1, 50)
     assert_raises("type string", ValueError, det9.update, "100", 90, 95)
+    assert_raises("inf high", ValueError, det9.update, float("inf"), 90, 95)
+    assert_raises("nan close", ValueError, det9.update, 100, 90, float("nan"))
+    assert_raises("close hors range", ValueError, det9.update, 100, 90, 80)
 
     # =================================================================
     # Test 10 : Thread-safety

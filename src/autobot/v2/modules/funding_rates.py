@@ -29,10 +29,11 @@ Usage:
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("autobot.v2.modules.funding_rates")
 
 
 class FundingRatesMonitor:
@@ -51,6 +52,12 @@ class FundingRatesMonitor:
         cooldown_updates: Nombre d'updates consécutifs sous le seuil
             nécessaires pour sortir de l'état PAUSE (défaut 3).
             Évite les oscillations rapides PAUSE/OK.
+        min_pause_duration: Durée minimale en secondes de l'état PAUSE
+            avant de pouvoir en sortir (défaut 60s). La sortie de PAUSE
+            nécessite AUSSI que cooldown_updates soit atteint.
+        max_age: Durée maximale en secondes sans update avant que
+            is_extreme() retourne True (stale data → pause de sécurité,
+            défaut 300s). None pour désactiver.
 
     Thread-safe: Oui (RLock interne).
     Complexité: O(1) par appel à update().
@@ -60,6 +67,8 @@ class FundingRatesMonitor:
         self,
         extreme_threshold: float = 0.1,
         cooldown_updates: int = 3,
+        min_pause_duration: float = 60.0,
+        max_age: float | None = 300.0,
     ) -> None:
         if not isinstance(extreme_threshold, (int, float)) or extreme_threshold <= 0:
             raise ValueError(
@@ -69,9 +78,21 @@ class FundingRatesMonitor:
             raise ValueError(
                 f"cooldown_updates doit être un entier >= 1, reçu {cooldown_updates}"
             )
+        if not isinstance(min_pause_duration, (int, float)) or min_pause_duration < 0:
+            raise ValueError(
+                f"min_pause_duration doit être un nombre >= 0, reçu {min_pause_duration}"
+            )
+        if max_age is not None and (
+            not isinstance(max_age, (int, float)) or max_age <= 0
+        ):
+            raise ValueError(
+                f"max_age doit être un nombre > 0 ou None, reçu {max_age}"
+            )
 
         self._threshold: float = float(extreme_threshold)
         self._cooldown_updates: int = cooldown_updates
+        self._min_pause_duration: float = float(min_pause_duration)
+        self._max_age: float | None = float(max_age) if max_age is not None else None
         self._lock: threading.RLock = threading.RLock()
 
         # État courant
@@ -80,6 +101,7 @@ class FundingRatesMonitor:
         self._consecutive_ok: int = 0
         self._update_count: int = 0
         self._last_update_ts: float | None = None
+        self._last_pause_ts: float | None = None  # monotonic ts entrée en PAUSE
 
         # Historique simplifié (pas de buffer, O(1))
         self._max_rate: float | None = None
@@ -90,8 +112,10 @@ class FundingRatesMonitor:
         self._last_logged_state: bool | None = None
 
         logger.info(
-            "FundingRatesMonitor initialisé — seuil=±%.4f%%, cooldown=%d updates",
-            extreme_threshold, cooldown_updates,
+            "FundingRatesMonitor initialisé — seuil=±%.4f%%, cooldown=%d updates, "
+            "min_pause=%.0fs, max_age=%s",
+            extreme_threshold, cooldown_updates, min_pause_duration,
+            f"{max_age:.0f}s" if max_age is not None else "None",
         )
 
     # ------------------------------------------------------------------
@@ -107,6 +131,16 @@ class FundingRatesMonitor:
     def cooldown_updates(self) -> int:
         """Nombre d'updates OK consécutifs pour sortir de PAUSE."""
         return self._cooldown_updates
+
+    @property
+    def min_pause_duration(self) -> float:
+        """Durée minimale en secondes de l'état PAUSE."""
+        return self._min_pause_duration
+
+    @property
+    def max_age(self) -> float | None:
+        """Durée max sans update avant stale data (None = désactivé)."""
+        return self._max_age
 
     # ------------------------------------------------------------------
     # API publique
@@ -127,13 +161,14 @@ class FundingRatesMonitor:
         Thread-safe: Oui (RLock interne).
         Complexité: O(1).
         """
-        if not isinstance(rate, (int, float)):
-            raise ValueError(f"rate doit être numérique, reçu {type(rate).__name__}")
+        if not isinstance(rate, (int, float)) or math.isnan(rate) or math.isinf(rate):
+            raise ValueError(f"Rate invalide: {rate}")
 
         with self._lock:
+            now = time.monotonic()
             self._current_rate = float(rate)
             self._update_count += 1
-            self._last_update_ts = time.time()
+            self._last_update_ts = now
 
             # Mise à jour min/max — O(1)
             if self._max_rate is None or rate > self._max_rate:
@@ -149,6 +184,7 @@ class FundingRatesMonitor:
                 # Rate extrême → PAUSE immédiate
                 if not self._is_extreme:
                     self._extreme_count += 1
+                    self._last_pause_ts = now
                 self._is_extreme = True
                 self._consecutive_ok = 0
             else:
@@ -156,7 +192,18 @@ class FundingRatesMonitor:
                 if self._is_extreme:
                     # En état PAUSE → incrémenter le compteur cooldown
                     self._consecutive_ok += 1
-                    if self._consecutive_ok >= self._cooldown_updates:
+                    # Sortie de PAUSE seulement si:
+                    # 1) assez d'updates OK consécutifs
+                    # 2) durée minimale de pause écoulée
+                    time_in_pause = (
+                        now - self._last_pause_ts
+                        if self._last_pause_ts is not None
+                        else float("inf")
+                    )
+                    if (
+                        self._consecutive_ok >= self._cooldown_updates
+                        and time_in_pause > self._min_pause_duration
+                    ):
                         # Cooldown écoulé → sortir de PAUSE
                         self._is_extreme = False
                         self._consecutive_ok = 0
@@ -170,14 +217,26 @@ class FundingRatesMonitor:
         """
         Indique si le funding rate actuel est en zone extrême.
 
+        Retourne aussi True si les données sont périmées (stale):
+        aucun update depuis plus de max_age secondes.
+
         Returns:
-            True si extrême (trading doit être en pause),
+            True si extrême OU stale (trading doit être en pause),
             False sinon.
 
         Thread-safe: Oui (RLock interne).
         """
         with self._lock:
-            return self._is_extreme
+            if self._is_extreme:
+                return True
+            # Stale data check
+            if (
+                self._max_age is not None
+                and self._last_update_ts is not None
+                and (time.monotonic() - self._last_update_ts) > self._max_age
+            ):
+                return True
+            return False
 
     def get_status(self) -> dict:
         """
@@ -232,6 +291,9 @@ class FundingRatesMonitor:
                 "cooldown_updates": self._cooldown_updates,
                 "cooldown_remaining": cooldown_remaining,
                 "last_update_ts": self._last_update_ts,
+                "min_pause_duration": self._min_pause_duration,
+                "max_age": self._max_age,
+                "last_pause_ts": self._last_pause_ts,
             }
 
     def reset(self) -> None:
@@ -246,6 +308,7 @@ class FundingRatesMonitor:
             self._consecutive_ok = 0
             self._update_count = 0
             self._last_update_ts = None
+            self._last_pause_ts = None
             self._max_rate = None
             self._min_rate = None
             self._extreme_count = 0
@@ -353,12 +416,14 @@ if __name__ == "__main__":
     m_def = FundingRatesMonitor()
     assert_eq("default threshold", m_def.extreme_threshold, 0.1)
     assert_eq("default cooldown", m_def.cooldown_updates, 3)
+    assert_eq("default min_pause_duration", m_def.min_pause_duration, 60.0)
+    assert_eq("default max_age", m_def.max_age, 300.0)
 
     # =================================================================
     # Test 2 : Rate normal → True (trading OK)
     # =================================================================
     print("\n=== Test 2 : Rate normal → True ===")
-    m2 = FundingRatesMonitor(extreme_threshold=0.1)
+    m2 = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
 
     assert_eq("0.01% → True", m2.update(0.01), True)
     assert_eq("is_extreme False", m2.is_extreme(), False)
@@ -370,14 +435,14 @@ if __name__ == "__main__":
     # Test 3 : Rate extrême → False (PAUSE)
     # =================================================================
     print("\n=== Test 3 : Rate extrême → False ===")
-    m3 = FundingRatesMonitor(extreme_threshold=0.1)
+    m3 = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
     assert_eq("0.1% (= seuil) → False", m3.update(0.1), False)
     assert_eq("is_extreme True", m3.is_extreme(), True)
 
-    m3b = FundingRatesMonitor(extreme_threshold=0.1)
+    m3b = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
     assert_eq("0.15% → False", m3b.update(0.15), False)
 
-    m3c = FundingRatesMonitor(extreme_threshold=0.1)
+    m3c = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
     assert_eq("-0.12% → False", m3c.update(-0.12), False)
     assert_eq("is_extreme True (négatif)", m3c.is_extreme(), True)
 
@@ -385,7 +450,7 @@ if __name__ == "__main__":
     # Test 4 : Cooldown — ne sort pas de PAUSE immédiatement
     # =================================================================
     print("\n=== Test 4 : Cooldown ===")
-    m4 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3)
+    m4 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3, min_pause_duration=0, max_age=None)
 
     m4.update(0.2)  # → PAUSE
     assert_eq("en PAUSE", m4.is_extreme(), True)
@@ -409,7 +474,7 @@ if __name__ == "__main__":
     # Test 5 : Cooldown reset si nouveau spike
     # =================================================================
     print("\n=== Test 5 : Cooldown reset par spike ===")
-    m5 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3)
+    m5 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3, min_pause_duration=0, max_age=None)
 
     m5.update(0.2)   # → PAUSE
     m5.update(0.01)  # cooldown 1/3
@@ -424,7 +489,7 @@ if __name__ == "__main__":
     # Test 6 : get_status — structure complète
     # =================================================================
     print("\n=== Test 6 : get_status — structure ===")
-    m6 = FundingRatesMonitor(extreme_threshold=0.05, cooldown_updates=2)
+    m6 = FundingRatesMonitor(extreme_threshold=0.05, cooldown_updates=2, min_pause_duration=0, max_age=None)
     m6.update(0.01)
     m6.update(-0.03)
     s = m6.get_status()
@@ -452,7 +517,7 @@ if __name__ == "__main__":
     # Test 7 : extreme_count — comptage correct
     # =================================================================
     print("\n=== Test 7 : extreme_count ===")
-    m7 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=1)
+    m7 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=1, min_pause_duration=0, max_age=None)
 
     m7.update(0.01)   # OK
     m7.update(0.2)    # → PAUSE (extreme_count=1)
@@ -469,7 +534,7 @@ if __name__ == "__main__":
     # Test 8 : reset
     # =================================================================
     print("\n=== Test 8 : reset ===")
-    m8 = FundingRatesMonitor(extreme_threshold=0.1)
+    m8 = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
     m8.update(0.2)
     m8.update(0.01)
 
@@ -487,7 +552,7 @@ if __name__ == "__main__":
     # Test 9 : Validation entrées update()
     # =================================================================
     print("\n=== Test 9 : Validation entrées ===")
-    m9 = FundingRatesMonitor()
+    m9 = FundingRatesMonitor(min_pause_duration=0, max_age=None)
     assert_raises("rate='abc'", ValueError, m9.update, "abc")
     assert_raises("rate=None", ValueError, m9.update, None)
     assert_raises("rate=[1]", ValueError, m9.update, [1])
@@ -499,7 +564,7 @@ if __name__ == "__main__":
     # Test 10 : Thread-safety — 200 appels concurrents
     # =================================================================
     print("\n=== Test 10 : Thread-safety ===")
-    m_mt = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=2)
+    m_mt = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=2, min_pause_duration=0, max_age=None)
     errors = []
 
     def thread_task(i):
@@ -526,7 +591,7 @@ if __name__ == "__main__":
     # Test 11 : Cooldown avec cooldown_updates=1 (sortie rapide)
     # =================================================================
     print("\n=== Test 11 : Cooldown rapide (cooldown=1) ===")
-    m11 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=1)
+    m11 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=1, min_pause_duration=0, max_age=None)
 
     m11.update(0.2)  # → PAUSE
     assert_eq("PAUSE", m11.is_extreme(), True)
@@ -538,7 +603,7 @@ if __name__ == "__main__":
     # Test 12 : Min/max tracking
     # =================================================================
     print("\n=== Test 12 : Min/max tracking ===")
-    m12 = FundingRatesMonitor(extreme_threshold=1.0)  # seuil haut pour pas trigger
+    m12 = FundingRatesMonitor(extreme_threshold=1.0, min_pause_duration=0, max_age=None)  # seuil haut pour pas trigger
 
     m12.update(0.05)
     m12.update(-0.03)
@@ -554,7 +619,7 @@ if __name__ == "__main__":
     # Test 13 : Scénario réaliste — séquence de funding rates
     # =================================================================
     print("\n=== Test 13 : Scénario réaliste ===")
-    m13 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3)
+    m13 = FundingRatesMonitor(extreme_threshold=0.1, cooldown_updates=3, min_pause_duration=0, max_age=None)
 
     # Rates normaux (toutes les 8h sur Kraken)
     rates_normaux = [0.01, 0.015, -0.005, 0.02, 0.008, -0.01]
@@ -595,7 +660,7 @@ if __name__ == "__main__":
     test_logger = logging.getLogger("autobot.v2.modules.funding_rates")
     test_logger.addHandler(cap)
 
-    m14 = FundingRatesMonitor(extreme_threshold=0.1)
+    m14 = FundingRatesMonitor(extreme_threshold=0.1, min_pause_duration=0, max_age=None)
     cap.records.clear()  # Clear init log
 
     m14.update(0.15)  # → PAUSE — should log
@@ -612,7 +677,7 @@ if __name__ == "__main__":
     # Test 15 : État initial avant tout update
     # =================================================================
     print("\n=== Test 15 : État initial ===")
-    m15 = FundingRatesMonitor()
+    m15 = FundingRatesMonitor(max_age=None)
     s = m15.get_status()
     assert_eq("initial current_rate", s["current_rate"], None)
     assert_eq("initial is_extreme", s["is_extreme"], False)
