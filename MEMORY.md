@@ -14,7 +14,7 @@ Multi-phase development to make it production-ready.
 5. ✅ Phase 5: Optimizations (logging, health check, tests, backup)
 6. ⚠️ Phase 6: Multi-market auto-selection (implemented but CONTROVERSIAL)
 
-### Phase 1 Performance Modules (April 1, 2026) - IN PROGRESS
+### Phase 1 Performance Modules (April 1, 2026) - ✅ COMPLETE
 **Workflow multi-agents mis en place**: Kimi (architecte) → Claude Code (coding) → Opus/Gemini (reviews)
 
 | Module | Status | Tests | Reviews |
@@ -23,13 +23,24 @@ Multi-phase development to make it production-ready.
 | Kelly Criterion | ✅ Complete | 47/47 | ✅ Opus + Gemini OK |
 | Regime Detector | ✅ Complete | 68/68 | ✅ Opus + Gemini OK |
 | Funding Rates | ✅ Complete | 99/99 | ✅ Opus + Gemini OK |
-| Open Interest | ✅ Complete | 99/99 | ✅ Ready for review |
+| Open Interest | ✅ Complete | 99/99 | ✅ Opus + Gemini OK |
 
 **Key technical decisions**:
 - All modules: O(1) complexity, RLock thread-safety, zero external dependencies
 - Kelly: Half-Kelly (f*/2) with 25% max position cap
 - Regime: ADX-based with crisis detection (ATR > baseline × 3)
 - Funding: Cooldown mechanism (3 consecutive OK updates to exit pause)
+
+### Phase 8 Shadow Trading (April 1, 2026) - ✅ COMPLETE
+| Module | Status | Tests | Reviews |
+|--------|--------|-------|---------|
+| ShadowTradingManager | ✅ Complete | 35/35 | ✅ Ready |
+
+**Features**:
+- Paper trading instances en parallèle du live
+- Promotion live: PF ≥ 1.5 + 30 trades + durée validation (14/21/28j)
+- Cap transfert: 25% max capital shadow
+- Corrections: time.monotonic(), PF recalculé interne, logs hors lock
 
 ### Critical Fixes Made
 - Fixed major wiring issue: OrderExecutor, StopLossManager, ReconciliationManager now properly connected
