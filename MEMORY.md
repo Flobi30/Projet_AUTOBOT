@@ -14,6 +14,23 @@ Multi-phase development to make it production-ready.
 5. ✅ Phase 5: Optimizations (logging, health check, tests, backup)
 6. ⚠️ Phase 6: Multi-market auto-selection (implemented but CONTROVERSIAL)
 
+### Phase 1 Performance Modules (April 1, 2026) - IN PROGRESS
+**Workflow multi-agents mis en place**: Kimi (architecte) → Claude Code (coding) → Opus/Gemini (reviews)
+
+| Module | Status | Tests | Reviews |
+|--------|--------|-------|---------|
+| ATR Filter | 🟡 Coded | 48/48 | Pending corrections |
+| Kelly Criterion | ✅ Complete | 47/47 | ✅ Opus + Gemini OK |
+| Regime Detector | ✅ Complete | 25/25 | ✅ Code review OK |
+| Funding Rates | ✅ Complete | 41/41 | ✅ Code review OK |
+| Open Interest | ⏳ Pending | — | — |
+
+**Key technical decisions**:
+- All modules: O(1) complexity, RLock thread-safety, zero external dependencies
+- Kelly: Half-Kelly (f*/2) with 25% max position cap
+- Regime: ADX-based with crisis detection (ATR > baseline × 3)
+- Funding: Cooldown mechanism (3 consecutive OK updates to exit pause)
+
 ### Critical Fixes Made
 - Fixed major wiring issue: OrderExecutor, StopLossManager, ReconciliationManager now properly connected
 - Fixed WebSocket crash on list data (isinstance check)
@@ -28,7 +45,8 @@ Multi-phase development to make it production-ready.
 - **Opus**: SAFE_FOR_TESTING after fixes. Recommends "regime-based exclusion" NOT "winner-take-all" selection.
 
 ## Current Status
-- **System**: Ready for paper trading (all critical/major issues resolved)
+- **System**: Core ready for paper trading (all critical/major issues resolved)
+- **Phase 1 Progress**: 4/5 performance modules completed (ATR corrections pending, Open Interest remaining)
 - **Controversy**: Multi-market auto-selection implemented but BOTH Gemini and Opus recommend against "best market" approach
 - **Recommendation**: Consider reverting to conservative approach (same-market duplication) per expert advice
 
@@ -41,10 +59,17 @@ Multi-phase development to make it production-ready.
 - Log rotation: 10MB max, 5 backups
 
 ## Next Steps
-1. Paper trading with small capital (100€)
-2. 48h dry run monitoring
-3. Decide on multi-market approach (keep current or revert to conservative)
-4. Production deployment if paper trading successful
+### Phase 1 Completion (Immediate)
+1. Complete Open Interest module
+2. Apply ATR Filter corrections from reviews
+3. Final review pass on all 5 modules
+4. Integration testing with Grid strategy
+
+### Phase 2 Preparation
+5. Paper trading with small capital (100€)
+6. 48h dry run monitoring
+7. Decide on multi-market approach (keep current or revert to conservative)
+8. Production deployment if paper trading successful
 
 ## Important Notes
 - User is Flo (AUTOBOT project owner)
