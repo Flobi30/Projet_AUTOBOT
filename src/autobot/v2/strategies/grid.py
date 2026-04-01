@@ -9,6 +9,10 @@ from datetime import datetime
 from collections import deque
 
 from . import Strategy, TradingSignal, SignalType, calculate_grid_levels, PositionSizing
+from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+from autobot.v2.modules.funding_rates import FundingRatesMonitor
+from autobot.v2.modules.open_interest import OpenInterestMonitor
+from autobot.v2.modules.kelly_criterion import KellyCriterion
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,12 @@ class GridStrategy(Strategy):
         self._runtime_capital_per_level: float = 0.0
         
         self._init_grid()
+        
+        # Phase 1 modules
+        self._regime_detector = RegimeDetector()
+        self._funding_monitor = FundingRatesMonitor()
+        self._oi_monitor = OpenInterestMonitor()
+        self._kelly = KellyCriterion()
         
         # Suivi des positions ouvertes par niveau (protégé par self._lock)
         self.open_levels: Dict[int, Dict] = {}  # level_index -> position_info
@@ -381,6 +391,25 @@ class GridStrategy(Strategy):
                 self.emit_signal(signal, bypass_cooldown=(i > 0))
             
             # CORRECTION: 2. Check achats (nouveaux niveaux) - DANS le lock
+            # Phase 1: Vérifications modules avant ouverture de position
+            # Funding rates extrême → pas d'achat
+            funding_rate = None
+            if hasattr(self.instance, 'get_funding_rate'):
+                funding_rate = self.instance.get_funding_rate()
+            if funding_rate is not None and not self._funding_monitor.update(funding_rate):
+                logger.info(f"⏸️ Grid: Funding rate extrême ({funding_rate}), pas d'achat")
+                return
+            
+            # Squeeze risk (OI) → pas d'achat
+            if self._oi_monitor.is_squeeze_risk():
+                logger.info(f"⏸️ Grid: Squeeze risk détecté (OI), pas d'achat")
+                return
+            
+            # Régime de marché → Grid trade uniquement en range
+            if not self._regime_detector.should_trade_grid():
+                logger.info(f"⏸️ Grid: Marché hors range, pas d'achat")
+                return
+            
             # Passe le snapshot du capital pour éviter appels multiples
             if self._can_open_position(available_capital):
                 buy_levels = self._get_buy_levels(price)
@@ -494,6 +523,11 @@ class GridStrategy(Strategy):
                     'emergency_price': self._emergency_close_price,
                     'emergency_mode': self._emergency_mode,
                     'sell_threshold_pct': self._sell_threshold_pct
+                },
+                'phase1_modules': {
+                    'regime': self._regime_detector.current_regime.value if hasattr(self._regime_detector, 'current_regime') and self._regime_detector.current_regime else 'unknown',
+                    'should_trade_grid': self._regime_detector.should_trade_grid(),
+                    'squeeze_risk': self._oi_monitor.is_squeeze_risk(),
                 }
             }
         }

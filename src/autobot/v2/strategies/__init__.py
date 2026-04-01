@@ -169,23 +169,7 @@ class PositionSizing:
         """Pourcentage du capital disponible"""
         return capital * (percent / 100)
     
-    @staticmethod
-    def kelly_criterion(win_rate: float, avg_win: float, avg_loss: float) -> float:
-        """
-        Formule de Kelly pour optimiser la taille des positions.
-        f* = (p*b - q) / b
-        où p = win rate, q = loss rate, b = avg_win/avg_loss
-        """
-        if avg_loss == 0:
-            return 0.1  # Default 10%
-        
-        loss_rate = 1 - win_rate
-        b = avg_win / avg_loss
-        
-        kelly = (win_rate * b - loss_rate) / b
-        
-        # Kelly agressif → on prend la moitié (Half-Kelly)
-        return max(0.0, min(kelly / 2, 0.25))  # Max 25%
+    # Kelly criterion supprimé — utiliser autobot.v2.modules.kelly_criterion.KellyCriterion
 
 
 def calculate_grid_levels(
