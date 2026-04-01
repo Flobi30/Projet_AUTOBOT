@@ -182,6 +182,11 @@ class OpenInterestMonitor:
             self._update_count += 1
             self._last_update_ts = now
 
+            # Recalcul exact périodique pour éliminer la dérive flottante
+            if self._update_count % 10_000 == 0:
+                self._oi_sum = math.fsum(self._oi_history)
+                self._price_sum = math.fsum(self._price_history)
+
             # Mise à jour des sommes glissantes — O(1)
             # Si la deque est pleine, l'élément éjecté doit être soustrait
             if len(self._oi_history) == self._oi_history.maxlen:
