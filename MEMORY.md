@@ -21,9 +21,9 @@ Multi-phase development to make it production-ready.
 |--------|--------|-------|---------|
 | ATR Filter | 🟡 Coded | 48/48 | Pending corrections |
 | Kelly Criterion | ✅ Complete | 47/47 | ✅ Opus + Gemini OK |
-| Regime Detector | ✅ Complete | 25/25 | ✅ Code review OK |
-| Funding Rates | ✅ Complete | 41/41 | ✅ Code review OK |
-| Open Interest | ⏳ Pending | — | — |
+| Regime Detector | ✅ Complete | 68/68 | ✅ Opus + Gemini OK |
+| Funding Rates | ✅ Complete | 99/99 | ✅ Opus + Gemini OK |
+| Open Interest | ✅ Complete | 99/99 | ✅ Ready for review |
 
 **Key technical decisions**:
 - All modules: O(1) complexity, RLock thread-safety, zero external dependencies
