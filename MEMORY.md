@@ -56,6 +56,17 @@ Multi-phase development to make it production-ready.
 
 **Compatible** avec frontend React existant (/dashboard/src/)
 
+### Phase 10 Stratégies Dormantes (April 1, 2026) - ✅ COMPLETE
+| Stratégie | Tests | Reviews |
+|-----------|-------|---------|
+| MeanReversionStrategy | 13/13 | ✅ Opus + Gemini OK |
+| TriangularArbitrage | 18/18 | ✅ Opus + Gemini OK |
+
+**Mean Reversion** : Bollinger Bands, achat < bande inf, vente à moyenne
+**Arbitrage** : Détection écart > 0.5% entre 3 paires (ex: BTC/EUR → ETH/BTC → ETH/EUR)
+
+Corrections post-review : algorithme Welford, optimisation hot path
+
 ### Critical Fixes Made
 - Fixed major wiring issue: OrderExecutor, StopLossManager, ReconciliationManager now properly connected
 - Fixed WebSocket crash on list data (isinstance check)
