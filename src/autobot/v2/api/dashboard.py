@@ -283,6 +283,380 @@ async def health_check(request: Request):
             "error": str(e)
         }
 
+
+# === NOUVEAUX ENDPOINTS PHASE 9 ===
+
+@app.get("/api/performance")
+async def get_performance(request: Request, authorized: bool = Depends(verify_token)):
+    """PF global et par instance - rendement, Sharpe, win rate"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        instances_data = orchestrator.get_instances_snapshot()
+        total_capital = sum(inst.get('capital', 0) for inst in instances_data)
+        total_profit = sum(inst.get('profit', 0) for inst in instances_data)
+        total_initial = sum(inst.get('initial_capital', inst.get('capital', 0)) for inst in instances_data)
+
+        # Performance globale
+        global_pnl_pct = (total_profit / total_initial * 100) if total_initial > 0 else 0.0
+
+        # Performance par instance
+        per_instance = []
+        for inst in instances_data:
+            initial = inst.get('initial_capital', inst.get('capital', 0))
+            profit = inst.get('profit', 0)
+            pnl_pct = (profit / initial * 100) if initial > 0 else 0.0
+
+            trades = inst.get('trades_history', [])
+            total_trades = len(trades)
+            winning = sum(1 for t in trades if t.get('pnl', 0) > 0)
+            win_rate = (winning / total_trades * 100) if total_trades > 0 else 0.0
+
+            # Sharpe simplifié (si données disponibles)
+            sharpe = inst.get('sharpe_ratio', None)
+
+            per_instance.append({
+                "id": inst['id'],
+                "name": inst.get('name', inst['id']),
+                "capital": inst.get('capital', 0),
+                "profit": profit,
+                "pnl_percent": round(pnl_pct, 2),
+                "total_trades": total_trades,
+                "win_rate": round(win_rate, 2),
+                "sharpe_ratio": round(sharpe, 3) if sharpe is not None else None,
+                "strategy": inst.get('strategy', 'unknown'),
+                "status": inst.get('status', 'unknown')
+            })
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "global": {
+                "total_capital": round(total_capital, 2),
+                "total_profit": round(total_profit, 2),
+                "pnl_percent": round(global_pnl_pct, 2),
+                "instance_count": len(instances_data)
+            },
+            "instances": per_instance
+        }
+    except Exception:
+        logger.exception("Erreur récupération performance")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/drawdown")
+async def get_drawdown(request: Request, authorized: bool = Depends(verify_token)):
+    """Max drawdown et current drawdown par instance et global"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        instances_data = orchestrator.get_instances_snapshot()
+
+        per_instance = []
+        global_peak = 0.0
+        global_current = 0.0
+
+        for inst in instances_data:
+            capital = inst.get('capital', 0)
+            peak_capital = inst.get('peak_capital', capital)
+            initial_capital = inst.get('initial_capital', capital)
+            max_drawdown = inst.get('max_drawdown', 0.0)
+
+            # Current drawdown depuis le pic
+            current_dd = 0.0
+            if peak_capital > 0:
+                current_dd = (peak_capital - capital) / peak_capital * 100
+
+            # Max drawdown (historique ou calculé)
+            max_dd = max(max_drawdown, current_dd)
+
+            global_peak += peak_capital
+            global_current += capital
+
+            per_instance.append({
+                "id": inst['id'],
+                "name": inst.get('name', inst['id']),
+                "capital": round(capital, 2),
+                "peak_capital": round(peak_capital, 2),
+                "current_drawdown_pct": round(current_dd, 2),
+                "max_drawdown_pct": round(max_dd, 2),
+                "strategy": inst.get('strategy', 'unknown')
+            })
+
+        # Drawdown global
+        global_current_dd = 0.0
+        if global_peak > 0:
+            global_current_dd = (global_peak - global_current) / global_peak * 100
+
+        global_max_dd = max(
+            (inst.get('max_drawdown', 0.0) for inst in instances_data),
+            default=0.0
+        )
+        global_max_dd = max(global_max_dd, global_current_dd)
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "global": {
+                "total_peak_capital": round(global_peak, 2),
+                "total_current_capital": round(global_current, 2),
+                "current_drawdown_pct": round(global_current_dd, 2),
+                "max_drawdown_pct": round(global_max_dd, 2)
+            },
+            "instances": per_instance
+        }
+    except Exception:
+        logger.exception("Erreur récupération drawdown")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/shadow-status")
+async def get_shadow_status(request: Request, authorized: bool = Depends(verify_token)):
+    """État du shadow trading - mode paper vs live, comparaison"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        instances_data = orchestrator.get_instances_snapshot()
+
+        shadow_instances = []
+        live_instances = []
+
+        for inst in instances_data:
+            mode = inst.get('trading_mode', 'unknown')
+            entry = {
+                "id": inst['id'],
+                "name": inst.get('name', inst['id']),
+                "strategy": inst.get('strategy', 'unknown'),
+                "capital": inst.get('capital', 0),
+                "profit": inst.get('profit', 0),
+                "status": inst.get('status', 'unknown'),
+                "open_positions": inst.get('open_positions', 0),
+                "total_trades": len(inst.get('trades_history', [])),
+                "started_at": inst.get('started_at', None)
+            }
+
+            if mode in ('shadow', 'paper', 'dry_run'):
+                shadow_instances.append(entry)
+            else:
+                live_instances.append(entry)
+
+        # Comparaison shadow vs live si les deux existent
+        shadow_profit = sum(i.get('profit', 0) for i in shadow_instances)
+        live_profit = sum(i.get('profit', 0) for i in live_instances)
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "shadow_mode_active": len(shadow_instances) > 0,
+            "summary": {
+                "shadow_count": len(shadow_instances),
+                "live_count": len(live_instances),
+                "shadow_total_profit": round(shadow_profit, 2),
+                "live_total_profit": round(live_profit, 2),
+                "divergence": round(shadow_profit - live_profit, 2)
+            },
+            "shadow_instances": shadow_instances,
+            "live_instances": live_instances
+        }
+    except Exception:
+        logger.exception("Erreur récupération shadow status")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/phase1-modules")
+async def get_phase1_modules(request: Request, authorized: bool = Depends(verify_token)):
+    """Statut des modules performance Phase 1"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        # Récupère l'état des modules depuis l'orchestrateur
+        modules_status = {}
+
+        # Module Risk Manager
+        risk_mgr = getattr(orchestrator, 'risk_manager', None)
+        modules_status['risk_manager'] = {
+            "active": risk_mgr is not None,
+            "status": "running" if risk_mgr else "not_loaded",
+            "max_position_size": getattr(risk_mgr, 'max_position_size', None),
+            "max_daily_loss": getattr(risk_mgr, 'max_daily_loss', None),
+            "daily_loss_current": getattr(risk_mgr, 'daily_loss_current', None),
+            "circuit_breaker_triggered": getattr(risk_mgr, 'circuit_breaker_triggered', False)
+        }
+
+        # Module Order Manager
+        order_mgr = getattr(orchestrator, 'order_manager', None)
+        modules_status['order_manager'] = {
+            "active": order_mgr is not None,
+            "status": "running" if order_mgr else "not_loaded",
+            "pending_orders": getattr(order_mgr, 'pending_count', 0),
+            "filled_today": getattr(order_mgr, 'filled_today', 0),
+            "rejected_today": getattr(order_mgr, 'rejected_today', 0)
+        }
+
+        # Module Data Collector
+        data_collector = getattr(orchestrator, 'data_collector', None)
+        modules_status['data_collector'] = {
+            "active": data_collector is not None,
+            "status": "running" if data_collector else "not_loaded",
+            "pairs_tracked": getattr(data_collector, 'pairs_count', 0),
+            "last_update": getattr(data_collector, 'last_update', None),
+            "buffer_size": getattr(data_collector, 'buffer_size', 0)
+        }
+
+        # Module Signal Generator
+        signal_gen = getattr(orchestrator, 'signal_generator', None)
+        modules_status['signal_generator'] = {
+            "active": signal_gen is not None,
+            "status": "running" if signal_gen else "not_loaded",
+            "signals_today": getattr(signal_gen, 'signals_today', 0),
+            "last_signal_time": getattr(signal_gen, 'last_signal_time', None),
+            "active_signals": getattr(signal_gen, 'active_count', 0)
+        }
+
+        # Module Portfolio Manager
+        portfolio_mgr = getattr(orchestrator, 'portfolio_manager', None)
+        modules_status['portfolio_manager'] = {
+            "active": portfolio_mgr is not None,
+            "status": "running" if portfolio_mgr else "not_loaded",
+            "allocation_mode": getattr(portfolio_mgr, 'allocation_mode', None),
+            "rebalance_interval": getattr(portfolio_mgr, 'rebalance_interval', None),
+            "last_rebalance": getattr(portfolio_mgr, 'last_rebalance', None)
+        }
+
+        # Compte global
+        total = len(modules_status)
+        active = sum(1 for m in modules_status.values() if m['active'])
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "summary": {
+                "total_modules": total,
+                "active_modules": active,
+                "inactive_modules": total - active,
+                "health": "healthy" if active == total else ("degraded" if active > 0 else "offline")
+            },
+            "modules": modules_status
+        }
+    except Exception:
+        logger.exception("Erreur récupération modules phase 1")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/strategies-dormantes")
+async def get_dormant_strategies(request: Request, authorized: bool = Depends(verify_token)):
+    """Stratégies dormantes - Mean Reversion, Arbitrage, etc."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        # Récupère le registre de stratégies
+        strategy_registry = getattr(orchestrator, 'strategy_registry', {})
+        instances_data = orchestrator.get_instances_snapshot()
+
+        # Stratégies actives (utilisées par des instances)
+        active_strategies = set(inst.get('strategy', '') for inst in instances_data)
+
+        # Stratégies dormantes connues
+        dormant_strategies = []
+
+        # Liste de stratégies prévues (peut être étendue)
+        known_strategies = {
+            'mean_reversion': {
+                'name': 'Mean Reversion',
+                'description': 'Retour à la moyenne - exploite les déviations statistiques',
+                'category': 'statistical',
+                'min_capital': 500,
+                'pairs_recommended': ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+            },
+            'arbitrage': {
+                'name': 'Arbitrage',
+                'description': 'Arbitrage cross-exchange et triangulaire',
+                'category': 'arbitrage',
+                'min_capital': 1000,
+                'pairs_recommended': ['BTC/USDT', 'ETH/USDT', 'ETH/BTC']
+            },
+            'breakout': {
+                'name': 'Breakout',
+                'description': 'Détection de cassures de range et momentum',
+                'category': 'momentum',
+                'min_capital': 300,
+                'pairs_recommended': ['BTC/USDT', 'ETH/USDT']
+            },
+            'grid_trading': {
+                'name': 'Grid Trading',
+                'description': 'Grille d\'ordres dans un range défini',
+                'category': 'range',
+                'min_capital': 500,
+                'pairs_recommended': ['BTC/USDT', 'ETH/USDT']
+            },
+            'dca': {
+                'name': 'DCA (Dollar Cost Averaging)',
+                'description': 'Accumulation progressive avec timing optimisé',
+                'category': 'accumulation',
+                'min_capital': 100,
+                'pairs_recommended': ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+            }
+        }
+
+        # Ajoute aussi les stratégies du registre dynamique
+        for key, info in strategy_registry.items():
+            if key not in known_strategies:
+                known_strategies[key] = {
+                    'name': info.get('name', key),
+                    'description': info.get('description', ''),
+                    'category': info.get('category', 'custom'),
+                    'min_capital': info.get('min_capital', 0),
+                    'pairs_recommended': info.get('pairs', [])
+                }
+
+        for strategy_key, strategy_info in known_strategies.items():
+            is_active = strategy_key in active_strategies
+            # Cherche dans le registre si implémentée
+            is_implemented = strategy_key in strategy_registry
+
+            if not is_active:
+                dormant_strategies.append({
+                    "key": strategy_key,
+                    "name": strategy_info['name'],
+                    "description": strategy_info['description'],
+                    "category": strategy_info['category'],
+                    "status": "implemented" if is_implemented else "planned",
+                    "min_capital_required": strategy_info['min_capital'],
+                    "pairs_recommended": strategy_info['pairs_recommended'],
+                    "ready_to_activate": is_implemented
+                })
+
+        # Stratégies actives pour référence
+        active_list = [
+            {
+                "key": s,
+                "instance_count": sum(1 for i in instances_data if i.get('strategy') == s)
+            }
+            for s in active_strategies if s
+        ]
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "summary": {
+                "total_known": len(known_strategies),
+                "active_count": len(active_strategies - {''}),
+                "dormant_count": len(dormant_strategies),
+                "ready_to_activate": sum(1 for s in dormant_strategies if s['ready_to_activate'])
+            },
+            "dormant": dormant_strategies,
+            "active": active_list
+        }
+    except Exception:
+        logger.exception("Erreur récupération stratégies dormantes")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""
     
