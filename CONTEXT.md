@@ -86,9 +86,9 @@
 ### 1. Modules Phase 1 — Performance de base
 - [ ] **ATR Filter** : Pause Grid si volatilité hors plage 2-8% (codé, corrections en attente)
 - [x] **Kelly Criterion Sizing** : Taille de position optimale selon PF historique ✅
-- [ ] **Régime de marché** : Détection range/trend/crise avec pause auto 🔨 EN COURS
-- [ ] **Funding Rates** : Surveillance temps réel, pause si extrême
-- [ ] **Open Interest** : Détection squeeze potentiel
+- [x] **Régime de marché** : Détection range/trend/crise avec pause auto ✅
+- [x] **Funding Rates** : Surveillance temps réel, pause si extrême ✅
+- [ ] **Open Interest** : Détection squeeze potentiel 🔨 EN COURS
 
 ### 2. Shadow Trading
 - [ ] Instance paper trading en parallèle du live
