@@ -1,0 +1,442 @@
+"""
+Orchestrator — Full Async + uvloop
+MIGRATION P0: Replaces orchestrator.py (threading)
+
+Central async controller for all trading instances.
+Uses:
+- asyncio event loop (uvloop if available) instead of threads
+- asyncio.Lock instead of threading.Lock
+- asyncio.Event instead of threading.Event
+- asyncio.create_task instead of Thread()
+- asyncio.sleep instead of time.sleep
+
+Public API identical to Orchestrator (with async/await).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import uuid
+from datetime import datetime
+from typing import Any, Callable, Coroutine, Dict, List, Optional
+
+from .ring_buffer_dispatcher import RingBufferDispatcher
+from .async_dispatcher import AsyncDispatcher
+from .websocket_async import TickerData
+from .instance_async import TradingInstanceAsync
+from .order_executor_async import OrderExecutorAsync, get_order_executor_async
+from .order_router import OrderRouter, get_order_router, OrderPriority
+from .stop_loss_manager_async import StopLossManagerAsync
+from .reconciliation_async import ReconciliationManagerAsync
+from .validator import ValidatorEngine, ValidationResult, ValidationStatus
+from .orchestrator import InstanceConfig  # Reuse config dataclass
+from .risk_manager import get_risk_manager
+
+logger = logging.getLogger(__name__)
+
+
+def _get_available_capital_real(
+    api_key: Optional[str] = None,
+    api_secret: Optional[str] = None,
+) -> float:
+    """Get available capital from Kraken API (sync — called via run_in_executor)."""
+    key = api_key or os.getenv("KRAKEN_API_KEY")
+    secret = api_secret or os.getenv("KRAKEN_API_SECRET")
+    if not key or not secret:
+        return 0.0
+    try:
+        import krakenex
+        k = krakenex.API(key=key, secret=secret)
+        k.session.timeout = 10
+        response = k.query_private("Balance")
+        if "result" in response:
+            return float(response["result"].get("ZEUR", 0))
+        return 0.0
+    except Exception:
+        return 0.0
+
+
+class OrchestratorAsync:
+    """
+    Async orchestrator — manages all trading instances.
+
+    Drop-in async replacement for Orchestrator.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+    ) -> None:
+        self.api_key = api_key
+        self.api_secret = api_secret
+
+        # Order executor (async)
+        self.order_executor = get_order_executor_async(api_key, api_secret)
+
+        # Stop-loss manager (async)
+        self.stop_loss_manager = StopLossManagerAsync(self.order_executor)
+
+        # P2: Ring buffer dispatcher (WebSocket → per-pair RingBuffers)
+        self.ring_dispatcher = RingBufferDispatcher(api_key, api_secret)
+        self.ws_client = self.ring_dispatcher  # Alias for is_connected() / stats
+
+        # P3: Async dispatcher (RingBuffers → per-instance asyncio.Queues)
+        self.async_dispatcher = AsyncDispatcher(self.ring_dispatcher)
+
+        # Consumer tasks — one asyncio.Task per instance (queue consumption)
+        # In P3 these are owned by TradingInstanceAsync._queue_consumer_task;
+        # we keep a reference here only for coordinated cancellation on stop().
+        self._consumer_tasks: Dict[str, asyncio.Task] = {}
+
+        # Validator
+        self.validator = ValidatorEngine()
+
+        # Instances
+        self._instances: Dict[str, TradingInstanceAsync] = {}
+
+        # Reconciliation
+        self.reconciliation_manager: Optional[ReconciliationManagerAsync] = None
+
+        # Config
+        self.config = {
+            "max_instances": 2000,  # Target: 2000+ instances
+            "spin_off_threshold": 2000.0,
+            "leverage_threshold": 1000.0,
+            "check_interval": 30,  # minutes
+            "max_drawdown_global": 0.30,
+        }
+
+        # State
+        self.running = False
+        self._main_task: Optional[asyncio.Task] = None
+        self._start_time: Optional[datetime] = None
+
+        # Callbacks
+        self._on_instance_created: Optional[Callable] = None
+        self._on_instance_spinoff: Optional[Callable] = None
+        self._on_alert: Optional[Callable] = None
+
+        # Circuit breaker
+        self._setup_circuit_breaker()
+
+        # Market selector (reuse sync version)
+        try:
+            from .market_selector import get_market_selector
+            self.market_selector = get_market_selector(self)
+        except Exception:
+            self.market_selector = None
+
+        logger.info("🎛️ OrchestratorAsync initialisé (target: 2000+ instances)")
+
+    def _setup_circuit_breaker(self) -> None:
+        async def on_cb() -> None:
+            logger.error("🚨 CIRCUIT BREAKER: Arrêt d'urgence!")
+            await self.emergency_stop_all()
+
+        self.order_executor.set_circuit_breaker_callback(on_cb)
+
+    # ------------------------------------------------------------------
+    # Instance management
+    # ------------------------------------------------------------------
+
+    async def create_instance(self, config: InstanceConfig) -> Optional[TradingInstanceAsync]:
+        """Create a new trading instance."""
+        if len(self._instances) >= self.config["max_instances"]:
+            logger.warning(f"⚠️ Limite instances: {self.config['max_instances']}")
+            return None
+
+        instance_id = str(uuid.uuid4())[:8]
+        instance = TradingInstanceAsync(
+            instance_id=instance_id,
+            config=config,
+            orchestrator=self,
+            order_executor=self.order_executor,
+        )
+
+        self._instances[instance_id] = instance
+
+        if len(self._instances) > 1000:
+            logger.warning(f"⚠️ {len(self._instances)} instances actives")
+
+        # P3: Subscribe via AsyncDispatcher — creates InstanceQueue + ring reader
+        queue = await self.async_dispatcher.subscribe(config.symbol, instance_id)
+
+        # Attach queue to instance (consumer task started in instance.start())
+        instance.attach_queue(queue)
+
+        logger.info(
+            f"✅ Instance créée: {instance_id} ({config.name}) - "
+            f"Capital: {config.initial_capital:.2f}€"
+        )
+
+        if self._on_instance_created:
+            self._on_instance_created(instance)
+
+        return instance
+
+    async def remove_instance(self, instance_id: str) -> bool:
+        if instance_id not in self._instances:
+            return False
+        instance = self._instances.pop(instance_id)
+
+        # P3: Unsubscribe from AsyncDispatcher (cancels queue, not ring reader
+        # unless last subscriber for that pair)
+        self.async_dispatcher.unsubscribe(instance_id)
+
+        # instance.stop() drains the queue and cancels the consumer task
+        await instance.stop()
+        logger.info(f"🗑️ Instance supprimée: {instance_id}")
+        return True
+
+    async def create_instance_auto(
+        self, parent_instance_id: Optional[str] = None
+    ) -> Optional[TradingInstanceAsync]:
+        """Create instance with auto market selection."""
+        if not self.market_selector:
+            return None
+        selection = self.market_selector.select_market_for_spinoff(parent_instance_id or "auto")
+        if not selection:
+            return None
+        config = InstanceConfig(
+            name=f"Auto-{selection.symbol.replace('/', '-')} ({selection.strategy})",
+            symbol=selection.symbol,
+            strategy=selection.strategy,
+            initial_capital=0,
+            leverage=1,
+            grid_config={"range_percent": 7.0, "num_levels": 15},
+        )
+        return await self.create_instance(config)
+
+    # ------------------------------------------------------------------
+    # Spin-off & leverage
+    # ------------------------------------------------------------------
+
+    async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
+        capital = parent.get_current_capital()
+        context = {
+            "capital": capital,
+            "threshold": self.config["spin_off_threshold"],
+            "available_capital": await self._get_available_capital(),
+            "min_capital": 500.0,
+            "instance_count": len(self._instances),
+            "max_instances": self.config["max_instances"],
+            "volatility": parent.get_volatility(),
+            "max_volatility": 0.10,
+        }
+        result = self.validator.validate("spin_off", context)
+        if result.status == ValidationStatus.GREEN:
+            new = await self.create_instance_auto(parent.id)
+            if new:
+                parent.record_spin_off(500.0)
+                logger.info(f"🔄 Spin-off: {parent.id} → {new.id}")
+                if self._on_instance_spinoff:
+                    self._on_instance_spinoff(parent, new)
+                return new
+        return None
+
+    def check_leverage_activation(self, instance: TradingInstanceAsync) -> bool:
+        capital = instance.get_current_capital()
+        if capital < self.config["leverage_threshold"]:
+            return False
+        context = {
+            "capital": capital,
+            "threshold": self.config["leverage_threshold"],
+            "win_streak": instance.get_win_streak(),
+            "min_win_streak": 5,
+            "drawdown": instance.get_drawdown(),
+            "max_drawdown": 0.10,
+            "trend": instance.detect_trend(),
+        }
+        result = self.validator.validate("leverage", context)
+        if result.status in (ValidationStatus.GREEN, ValidationStatus.YELLOW):
+            if instance.activate_leverage(2):
+                return True
+        return False
+
+    async def _get_available_capital(self) -> float:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, _get_available_capital_real, self.api_key, self.api_secret
+        )
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
+    async def _main_loop(self) -> None:
+        logger.info("🚀 OrchestratorAsync main loop démarré")
+        while self.running:
+            try:
+                instances = list(self._instances.values())
+                for inst in instances:
+                    if not inst.is_running():
+                        continue
+                    await self.check_spin_off(inst)
+                    if inst.config.leverage == 1:
+                        self.check_leverage_activation(inst)
+                    if inst.get_drawdown() > self.config["max_drawdown_global"]:
+                        logger.error(f"🚨 Drawdown critique: {inst.id}")
+                        await inst.emergency_stop()
+                        if self._on_alert:
+                            self._on_alert("CRITICAL_DRAWDOWN", inst)
+
+                await self._check_global_health()
+                await asyncio.sleep(self.config["check_interval"] * 60)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(f"❌ Erreur main loop: {exc}")
+                await asyncio.sleep(60)
+
+    async def _check_global_health(self) -> None:
+        if not self.ws_client.is_connected():
+            logger.warning("🔌 WS déconnecté, reconnexion...")
+            try:
+                await self.ring_dispatcher.connect()
+            except Exception as exc:
+                logger.error(f"❌ Reconnexion échouée: {exc}")
+
+        active = [i for i in self._instances.values() if i.is_running()]
+        if active:
+            rm = get_risk_manager()
+            rm.set_orchestrator(self)
+            rm.check_global_risk(active)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        if self.running:
+            return
+        self.running = True
+        self._start_time = datetime.now()
+
+        # Connect WS via ring dispatcher (P2)
+        await self.ring_dispatcher.connect()
+
+        # Start P3 async dispatcher (starts per-pair dispatch tasks)
+        await self.async_dispatcher.start()
+
+        # Start SL manager
+        await self.stop_loss_manager.start(
+            on_stop_loss_triggered=self._on_stop_loss_triggered
+        )
+
+        # Start reconciliation
+        self.reconciliation_manager = ReconciliationManagerAsync(
+            order_executor=self.order_executor,
+            instances=dict(self._instances),
+        )
+        await self.reconciliation_manager.start()
+
+        # Start instances
+        for inst in list(self._instances.values()):
+            await inst.start()
+
+        # Main loop
+        self._main_task = asyncio.create_task(self._main_loop())
+        logger.info("✅ OrchestratorAsync démarré")
+
+    async def _on_stop_loss_triggered(self, position_id: str, order_status: Any) -> None:
+        for inst in self._instances.values():
+            positions = inst.get_positions_snapshot()
+            for pos in positions:
+                if pos.get("id") == position_id:
+                    sell_price = getattr(order_status, "avg_price", None) or getattr(order_status, "price", None)
+                    if sell_price:
+                        await inst.on_stop_loss_triggered(position_id, sell_price)
+                    return
+
+    async def stop(self) -> None:
+        logger.info("🛑 Arrêt OrchestratorAsync...")
+        self.running = False
+
+        if self._main_task:
+            self._main_task.cancel()
+            try:
+                await self._main_task
+            except asyncio.CancelledError:
+                pass
+
+        for inst in list(self._instances.values()):
+            await inst.stop()  # Each instance drains its queue + cancels consumer task
+
+        # P3: Stop async dispatcher (cancels dispatch tasks, drains all queues)
+        await self.async_dispatcher.stop()
+
+        await self.ring_dispatcher.disconnect()
+        await self.stop_loss_manager.stop()
+
+        if self.reconciliation_manager:
+            await self.reconciliation_manager.stop()
+
+        await self.order_executor.close()
+
+        logger.info("✅ OrchestratorAsync arrêté")
+
+    async def emergency_stop_all(self) -> None:
+        logger.error("🚨🚨🚨 EMERGENCY STOP ALL!")
+        stopped = 0
+        for inst in list(self._instances.values()):
+            try:
+                await inst.emergency_stop()
+                stopped += 1
+            except Exception as exc:
+                logger.exception(f"❌ Erreur arrêt {inst.id}: {exc}")
+        logger.error(f"🚨 {stopped}/{len(self._instances)} arrêtées")
+        if self._on_alert:
+            self._on_alert("EMERGENCY_STOP_ALL", None)
+
+    # ------------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------------
+
+    def get_status(self) -> Dict:
+        return {
+            "running": self.running,
+            "start_time": self._start_time,
+            "uptime": datetime.now() - self._start_time if self._start_time else None,
+            "instance_count": len(self._instances),
+            "max_instances": self.config["max_instances"],
+            "websocket_connected": self.ws_client.is_connected(),
+            "instances": [
+                {
+                    "id": i.id,
+                    "name": i.config.name,
+                    "capital": i.get_current_capital(),
+                    "running": i.is_running(),
+                }
+                for i in self._instances.values()
+            ],
+        }
+
+    def get_instances_snapshot(self) -> List[Dict]:
+        snapshot = []
+        for inst_id, inst in self._instances.items():
+            try:
+                s = inst.get_status()
+                snapshot.append({
+                    "id": inst_id,
+                    "name": s["name"],
+                    "capital": s["current_capital"],
+                    "profit": s["total_profit"],
+                    "status": s["status"],
+                    "strategy": s["strategy"],
+                    "open_positions": s["open_positions_count"],
+                })
+            except Exception:
+                pass
+        return snapshot
+
+    def set_callbacks(
+        self,
+        on_instance_created: Optional[Callable] = None,
+        on_instance_spinoff: Optional[Callable] = None,        on_alert: Optional[Callable] = None,
+    ) -> None:
+        self._on_instance_created = on_instance_created
+        self._on_instance_spinoff = on_instance_spinoff
+        self._on_alert = on_alert
