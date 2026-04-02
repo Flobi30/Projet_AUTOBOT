@@ -131,12 +131,13 @@ class TrailingStopATR:
                 self._trailing_active = True
                 # Initialisation du stop trailing au niveau courant
                 self._current_stop = price - self._atr_multiplier * atr
-                logger.info(
-                    "TrailingStop activé — price=%.4f, stop=%.4f, entry=%.4f",
-                    price,
-                    self._current_stop,
-                    entry_price,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "TrailingStop activé — price=%.4f, stop=%.4f, entry=%.4f",
+                        price,
+                        self._current_stop,
+                        entry_price,
+                    )
 
             if self._trailing_active:
                 # Le stop trailing suit le prix à la hausse — jamais en baisse

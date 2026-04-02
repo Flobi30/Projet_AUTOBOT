@@ -119,12 +119,13 @@ class StrategyEnsemble:
 
         with self._lock:
             self._last_signals[strategy] = {"direction": direction, "score": score}
-            logger.debug(
-                "Signal mis à jour — stratégie=%s dir=%s score=%.3f",
-                strategy,
-                direction,
-                score,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Signal mis à jour — stratégie=%s dir=%s score=%.3f",
+                    strategy,
+                    direction,
+                    score,
+                )
 
     def get_signal(self, regime: MarketRegime) -> EnsembleSignal:
         """Calcule le signal combiné pour le régime donné.
@@ -146,23 +147,24 @@ class StrategyEnsemble:
         with self._lock:
             self._call_count += 1
             weights = REGIME_WEIGHTS[regime]
-            signals_snapshot = dict(self._last_signals)
+            # Pas de copie — on itère directement sous le lock
+            # Évite 600K allocs/sec à haute fréquence
 
-        buy_score = 0.0
-        sell_score = 0.0
+            buy_score = 0.0
+            sell_score = 0.0
 
-        for strategy, weight in weights.items():
-            if weight == 0.0:
-                continue
-            signal = signals_snapshot.get(strategy)
-            if signal is None:
-                continue
-            direction = signal["direction"]
-            score = float(signal["score"])  # type: ignore[arg-type]
-            if direction == "BUY":
-                buy_score += weight * score
-            elif direction == "SELL":
-                sell_score += weight * score
+            for strategy, weight in weights.items():
+                if weight == 0.0:
+                    continue
+                signal = self._last_signals.get(strategy)
+                if signal is None:
+                    continue
+                direction = signal["direction"]
+                score = float(signal["score"])  # type: ignore[arg-type]
+                if direction == "BUY":
+                    buy_score += weight * score
+                elif direction == "SELL":
+                    sell_score += weight * score
 
         if buy_score > sell_score and buy_score > SIGNAL_THRESHOLD:
             direction = "BUY"
@@ -174,13 +176,15 @@ class StrategyEnsemble:
             direction = "HOLD"
             winning_score = max(buy_score, sell_score)
 
-        logger.debug(
-            "get_signal régime=%s buy=%.3f sell=%.3f → %s",
-            regime.name,
-            buy_score,
-            sell_score,
-            direction,
-        )
+        # Logging conditionnel pour éviter overhead en hot path
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "get_signal régime=%s buy=%.3f sell=%.3f → %s",
+                regime.name,
+                buy_score,
+                sell_score,
+                direction,
+            )
         return EnsembleSignal(
             direction=direction, score=winning_score, weights_used=dict(weights)
         )
