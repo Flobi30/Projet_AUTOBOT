@@ -43,14 +43,17 @@ class PyramidingManager:
         """Initialise le gestionnaire de pyramiding.
 
         Args:
-            max_adds: Nombre maximum d'ajouts autorisés (1-10).
+            max_adds: Nombre maximum d'ajouts autorisés (1-3).
             profit_threshold_pct: Seuil de profit (%) pour un ajout (> 0).
 
         Raises:
             ValueError: Si max_adds ou profit_threshold_pct est invalide.
         """
-        if not (1 <= max_adds <= 10):
-            raise ValueError(f"max_adds doit être entre 1 et 10, reçu : {max_adds}")
+        max_scale_len = len(self.SCALE_INCREMENTS)
+        if not (1 <= max_adds <= max_scale_len):
+            raise ValueError(
+                f"max_adds doit être entre 1 et {max_scale_len}, reçu : {max_adds}"
+            )
         if profit_threshold_pct <= 0.0:
             raise ValueError(
                 f"profit_threshold_pct doit être > 0, reçu : {profit_threshold_pct}"
