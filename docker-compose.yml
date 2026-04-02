@@ -33,15 +33,15 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
     
-    # Limites ressources (CX11 = 2GB RAM)
+    # Limites ressources (CAX11 = 4GB RAM, 2 vCPU ARM64)
     deploy:
       resources:
         limits:
-          memory: 1.5G
-          cpus: '0.8'
+          memory: 3G
+          cpus: '1.5'
         reservations:
-          memory: 512M
-          cpus: '0.2'
+          memory: 1G
+          cpus: '0.5'
     
     # Health check
     healthcheck:

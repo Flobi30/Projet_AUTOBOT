@@ -1,4 +1,5 @@
 # Dockerfile pour AUTOBOT V2
+# Multi-architecture: supporte x86 (Intel/AMD) et ARM64 (CAX11)
 FROM python:3.11-slim
 
 # Dépendances système
