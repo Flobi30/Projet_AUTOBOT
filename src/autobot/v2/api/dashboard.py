@@ -86,30 +86,46 @@ async def root():
     return {"message": "AUTOBOT V2 Dashboard API", "version": "2.0.0"}
 
 @app.get("/health")
-async def health_check():
+async def health_check(request: Request):
     """
     Health check pour Docker et monitoring.
-    Vérifie que l'orchestrateur est accessible.
+    Vérifie l'état de tous les composants.
     """
-    try:
-        # Vérifie si l'orchestrateur est accessible
-        if hasattr(app.state, 'orchestrator') and app.state.orchestrator:
-            return {
-                "status": "healthy",
-                "timestamp": datetime.now().isoformat(),
-                "orchestrator": "connected"
-            }
-        else:
-            return {
-                "status": "unhealthy",
-                "timestamp": datetime.now().isoformat(),
-                "orchestrator": "not_connected"
-            }
-    except Exception:
+    orchestrator = getattr(request.app.state, 'orchestrator', None)
+
+    if not orchestrator:
         return {
             "status": "unhealthy",
             "timestamp": datetime.now().isoformat(),
-            "error": "internal_error"
+            "orchestrator": "not_initialized",
+            "websocket": "unknown"
+        }
+
+    try:
+        status = orchestrator.get_status()
+
+        is_healthy = (
+            status.get('running', False) and
+            status.get('websocket_connected', False)
+        )
+
+        return {
+            "status": "healthy" if is_healthy else "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0",
+            "components": {
+                "orchestrator": "running" if status.get('running') else "stopped",
+                "websocket": "connected" if status.get('websocket_connected') else "disconnected",
+                "instances": status.get('instance_count', 0),
+                "uptime_seconds": status.get('uptime_seconds')
+            }
+        }
+    except Exception as e:
+        logger.exception("Erreur health check")
+        return {
+            "status": "error",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
         }
 
 @app.get("/api/status", response_model=GlobalStatus)
@@ -234,54 +250,6 @@ async def emergency_stop(
     except Exception:
         logger.exception("Erreur arrêt d'urgence")
         raise HTTPException(status_code=500, detail="Erreur interne")
-
-
-@app.get("/health", response_model=Dict[str, Any])
-async def health_check(request: Request):
-    """
-    Health check endpoint pour monitoring
-    Retourne le statut système complet
-    """
-    orchestrator = request.app.state.orchestrator
-    
-    if not orchestrator:
-        return {
-            "status": "unhealthy",
-            "timestamp": datetime.now().isoformat(),
-            "orchestrator": "not_initialized",
-            "websocket": "unknown"
-        }
-    
-    try:
-        status = orchestrator.get_status()
-        
-        # Determine health
-        is_healthy = (
-            status.get('running', False) and
-            status.get('websocket_connected', False)
-        )
-        
-        health_data = {
-            "status": "healthy" if is_healthy else "degraded",
-            "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
-            "components": {
-                "orchestrator": "running" if status.get('running') else "stopped",
-                "websocket": "connected" if status.get('websocket_connected') else "disconnected",
-                "instances": status.get('instance_count', 0),
-                "uptime_seconds": status.get('uptime_seconds')
-            }
-        }
-        
-        return health_data
-        
-    except Exception as e:
-        logger.exception("Erreur health check")
-        return {
-            "status": "error",
-            "timestamp": datetime.now().isoformat(),
-            "error": str(e)
-        }
 
 
 # === NOUVEAUX ENDPOINTS PHASE 9 ===
@@ -660,9 +628,17 @@ async def get_dormant_strategies(request: Request, authorized: bool = Depends(ve
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""
     
-    def __init__(self, host: str = "127.0.0.1", port: int = 8080):  # CORRECTION: 127.0.0.1 par défaut
-        self.host = host
-        self.port = port
+    def __init__(self, host: str | None = None, port: int = 8080):
+        # CORRECTION: Bind 0.0.0.0 en Docker ou si DASHBOARD_HOST défini
+        if host is not None:
+            self.host = host
+        elif os.getenv('DASHBOARD_HOST'):
+            self.host = os.getenv('DASHBOARD_HOST')
+        elif os.getenv('ENV') == 'docker':
+            self.host = "0.0.0.0"
+        else:
+            self.host = "127.0.0.1"
+        self.port = int(os.getenv('DASHBOARD_PORT', str(port)))
         self.server = None
         self.uvicorn_server = None
         

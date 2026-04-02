@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import threading
 import time
@@ -28,6 +28,19 @@ class InstanceStatus(Enum):
     ERROR = "error"
 
 
+class LeverageLevel(Enum):
+    """
+    Niveau de levier à 3 paliers avec conditions strictes.
+
+    X1 = Pas de levier (défaut, mode paper safe)
+    X2 = Levier modéré, nécessite PF>2.0 sur 30j, range-bound, DD<5%
+    X3 = Levier agressif, nécessite PF>2.5 sur 60j, DD<3%, validation humaine
+    """
+    X1 = 1
+    X2 = 2
+    X3 = 3
+
+
 @dataclass(slots=True)
 class Trade:
     """Trade exécuté"""
@@ -47,7 +60,7 @@ class Position:
     volume: float
     sell_price: Optional[float] = None
     status: str = "open"  # open, closing, closed
-    open_time: datetime = field(default_factory=datetime.now)
+    open_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     close_time: Optional[datetime] = None
     profit: Optional[float] = None
     stop_loss: Optional[float] = None
@@ -125,6 +138,15 @@ class TradingInstance:
 
         # CORRECTION R1: StopLossManager callback
         self._stop_loss_callback = None
+
+        # CORRECTION Review: FeeOptimizer pour frais dynamiques (pas de frais hardcodés)
+        self._fee_optimizer = None
+        try:
+            from .modules.fee_optimizer import FeeOptimizer
+            self._fee_optimizer = FeeOptimizer()
+            logger.info(f"   ✅ FeeOptimizer chargé pour {self.id}")
+        except Exception as e:
+            logger.warning(f"   ⚠️ FeeOptimizer non disponible, fallback tier 1 Kraken: {e}")
 
         logger.info(f"📊 Instance {self.id} initialisée: {config.name}")
 
@@ -252,7 +274,7 @@ class TradingInstance:
         """Appelé quand nouveau prix reçu via WebSocket"""
         with self._lock:
             self._last_price = data.price
-            self._price_history.append((datetime.now(), data.price))
+            self._price_history.append((datetime.now(timezone.utc), data.price))
             # CORRECTION: deque gère auto la taille max
         
         # Notifie stratégie
@@ -357,9 +379,14 @@ class TradingInstance:
             # Calcule profit
             gross_profit = (sell_price - position.buy_price) * position.volume
 
-            # CORRECTION: Frais calculés séparément (maker 0.16%, taker 0.26%)
-            buy_fee = position.buy_price * position.volume * 0.0016   # Maker
-            sell_fee = sell_price * position.volume * 0.0026         # Taker
+            # CORRECTION Review: Frais dynamiques depuis FeeOptimizer
+            if self._fee_optimizer:
+                maker_pct, taker_pct = self._fee_optimizer.get_fees()
+            else:
+                maker_pct, taker_pct = 0.25, 0.40  # Fallback tier 1 Kraken
+
+            buy_fee = position.buy_price * position.volume * (maker_pct / 100.0)
+            sell_fee = sell_price * position.volume * (taker_pct / 100.0)
             fees = buy_fee + sell_fee
 
             net_profit = gross_profit - fees
@@ -367,7 +394,7 @@ class TradingInstance:
             # Met à jour position
             position.sell_price = sell_price
             position.status = "closed"
-            position.close_time = datetime.now()
+            position.close_time = datetime.now(timezone.utc)
             position.profit = net_profit
             position.sell_txid = sell_txid  # CORRECTION Phase 3
             
@@ -405,7 +432,7 @@ class TradingInstance:
                 'price': sell_price,
                 'volume': position_copy.volume,
                 'profit': profit_copy,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
         )
         
@@ -425,13 +452,136 @@ class TradingInstance:
         self.save_state()
     
     def activate_leverage(self, leverage: int) -> bool:
-        """Active levier sur instance"""
+        """Active levier sur instance (legacy — préférer activate_leverage_level)"""
         with self._lock:
             if self._current_capital >= 1000:
                 self.config.leverage = leverage
                 logger.info(f"⚡ Levier x{leverage} activé sur {self.id}")
                 return True
             return False
+
+    def activate_leverage_level(
+        self,
+        level: LeverageLevel,
+        human_approved: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Active un niveau de levier avec vérifications strictes.
+
+        Conditions X2 (levier ×2):
+          - Profit Factor > 2.0 sur les 30 derniers jours
+          - Marché range-bound (trend == "range")
+          - Drawdown courant < 5%
+
+        Conditions X3 (levier ×3):
+          - Profit Factor > 2.5 sur les 60 derniers jours
+          - Drawdown courant < 3%
+          - Validation humaine explicite (human_approved=True)
+
+        Args:
+            level: LeverageLevel (X1, X2 ou X3).
+            human_approved: True si un humain a validé (requis pour X3).
+
+        Returns:
+            Dict avec 'success': bool, 'level': int, 'reason': str
+        """
+        with self._lock:
+            # X1 = pas de levier, toujours OK
+            if level == LeverageLevel.X1:
+                self.config.leverage = 1
+                self._leverage_level = LeverageLevel.X1
+                logger.info(f"⚡ {self.id}: Levier désactivé (X1)")
+                return {"success": True, "level": 1, "reason": "Levier X1 activé"}
+
+            # Métriques communes
+            current_dd = self.get_drawdown() * 100  # en %
+            trend = self.detect_trend()
+
+            # Calcul PF sur N jours
+            pf_30 = self._compute_profit_factor_days(30)
+            pf_60 = self._compute_profit_factor_days(60)
+
+            # CORRECTION Review: En cas d'échec, retourner le level ACTUEL
+            # (pas hardcoded 1) pour refléter l'état réel
+            current_level = getattr(self, '_leverage_level', LeverageLevel.X1).value
+
+            # --- X2 : PF>2.0 30j, range-bound, DD<5% ---
+            if level == LeverageLevel.X2:
+                checks = []
+
+                if pf_30 < 2.0:
+                    checks.append(f"PF 30j = {pf_30:.2f} (requis > 2.0)")
+                if trend != "range":
+                    checks.append(f"Marché {trend} (requis range-bound)")
+                if current_dd >= 5.0:
+                    checks.append(f"DD = {current_dd:.1f}% (requis < 5%)")
+
+                if checks:
+                    reason = "Conditions X2 non remplies: " + "; ".join(checks)
+                    logger.warning(f"⚡ {self.id}: {reason}")
+                    return {"success": False, "level": current_level, "reason": reason}
+
+                self.config.leverage = 2
+                self._leverage_level = LeverageLevel.X2
+                logger.info(
+                    f"⚡ {self.id}: Levier X2 activé (PF={pf_30:.2f}, DD={current_dd:.1f}%, trend={trend})"
+                )
+                return {"success": True, "level": 2, "reason": "Levier X2 activé"}
+
+            # --- X3 : PF>2.5 60j, DD<3%, validation humaine ---
+            if level == LeverageLevel.X3:
+                checks = []
+
+                if pf_60 < 2.5:
+                    checks.append(f"PF 60j = {pf_60:.2f} (requis > 2.5)")
+                if current_dd >= 3.0:
+                    checks.append(f"DD = {current_dd:.1f}% (requis < 3%)")
+                if not human_approved:
+                    checks.append("Validation humaine manquante")
+
+                if checks:
+                    reason = "Conditions X3 non remplies: " + "; ".join(checks)
+                    logger.warning(f"⚡ {self.id}: {reason}")
+                    return {"success": False, "level": current_level, "reason": reason}
+
+                self.config.leverage = 3
+                self._leverage_level = LeverageLevel.X3
+                logger.info(
+                    f"⚡ {self.id}: Levier X3 activé (PF={pf_60:.2f}, DD={current_dd:.1f}%, humain=✓)"
+                )
+                return {"success": True, "level": 3, "reason": "Levier X3 activé avec validation humaine"}
+
+            return {"success": False, "level": current_level, "reason": f"Niveau inconnu: {level}"}
+
+    def _compute_profit_factor_days(self, days: int) -> float:
+        """
+        Calcule le Profit Factor sur les N derniers jours.
+
+        Returns:
+            PF (gross_profit / gross_loss), 0.0 si aucun trade.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        gross_profit = 0.0
+        gross_loss = 0.0
+
+        # Parcourt les trades récents (deque, accès séquentiel)
+        for trade in self._trades:
+            trade_time = trade.timestamp if isinstance(trade.timestamp, datetime) else datetime.now(timezone.utc)
+            if trade_time < cutoff:
+                continue
+            profit = trade.profit if trade.profit is not None else 0.0
+            if profit > 0:
+                gross_profit += profit
+            elif profit < 0:
+                gross_loss += abs(profit)
+
+        if gross_loss == 0:
+            return float("inf") if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
+
+    def get_leverage_level(self) -> LeverageLevel:
+        """Retourne le niveau de levier courant."""
+        return getattr(self, '_leverage_level', LeverageLevel.X1)
     
     # Getters
     
@@ -504,7 +654,7 @@ class TradingInstance:
     
     def get_volatility(self) -> float:
         """Calcule volatilité sur dernières 24h"""
-        cutoff = datetime.now() - timedelta(hours=24)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         
         # CORRECTION: Copier données sous lock, calculer hors lock
         with self._lock:
@@ -680,12 +830,13 @@ class TradingInstance:
         try:
             import krakenex
             
+            # CORRECTION Review: Créer le client API UNE SEULE FOIS et le réutiliser
+            # sur les retries pour éviter overhead de connexion répété
+            k = krakenex.API(key=api_key, secret=api_secret)
+            
             # CORRECTION: Retry logic (3 tentatives)
             for attempt in range(3):
                 try:
-                    # Crée client API
-                    k = krakenex.API(key=api_key, secret=api_secret)
-                    
                     # CORRECTION: Timeout passé directement à query_private (pas session.timeout)
                     # Appelle CancelAll
                     response = k.query_private('CancelAll', timeout=10)
@@ -810,8 +961,13 @@ class TradingInstance:
                 for attempt in range(3):
                     try:
                         # Prépare l'ordre MARKET SELL
+                        # CORRECTION: Mapping symbol Kraken — les symboles
+                        # internes (ex: BTC/EUR) doivent être convertis au format
+                        # Kraken API (ex: XXBTZEUR). On utilise le symbol tel quel
+                        # s'il est déjà au format Kraken, sinon on tente un mapping.
+                        kraken_pair = self._map_to_kraken_symbol(self.config.symbol)
                         order_params = {
-                            'pair': self.config.symbol,  # ex: XXBTZEUR
+                            'pair': kraken_pair,
                             'type': 'sell',
                             'ordertype': 'market',
                             'volume': str(position.volume),
@@ -922,6 +1078,35 @@ class TradingInstance:
             logger.exception(f"❌ {self.id}: Exception fermeture positions: {e}")
             result['errors'].append(str(e))
             return result
+
+    # =========================================================================
+    # CORRECTION: Mapping symbol Kraken
+    # =========================================================================
+
+    # Kraken utilise des noms spéciaux pour certains actifs (XBT au lieu de BTC, etc.)
+    _KRAKEN_SYMBOL_MAP = {
+        "BTC/EUR": "XXBTZEUR",
+        "BTC/USD": "XXBTZUSD",
+        "ETH/EUR": "XETHZEUR",
+        "ETH/USD": "XETHZUSD",
+        "XRP/EUR": "XXRPZEUR",
+        "XRP/USD": "XXRPZUSD",
+        "SOL/EUR": "SOLEUR",
+        "SOL/USD": "SOLUSD",
+        "ADA/EUR": "ADAEUR",
+        "ADA/USD": "ADAUSD",
+        "DOT/EUR": "DOTEUR",
+        "DOT/USD": "DOTUSD",
+    }
+
+    def _map_to_kraken_symbol(self, symbol: str) -> str:
+        """
+        Convertit un symbole générique au format Kraken API.
+
+        Ex: "BTC/EUR" → "XXBTZEUR", "XXBTZEUR" → "XXBTZEUR" (inchangé).
+        Les symboles déjà au format Kraken passent tels quels.
+        """
+        return self._KRAKEN_SYMBOL_MAP.get(symbol, symbol)
 
     # =========================================================================
     # CORRECTION: Méthodes thread-safe pour l'API Dashboard

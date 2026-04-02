@@ -4,6 +4,7 @@ FROM python:3.11-slim
 # Dépendances système
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Répertoire de travail
