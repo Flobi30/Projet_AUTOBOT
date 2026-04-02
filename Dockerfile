@@ -14,8 +14,8 @@ RUN useradd --system --no-create-home --shell /bin/false appuser
 WORKDIR /app
 
 # Copie des requirements
-COPY src/autobot/v2/api/requirements.txt /app/requirements-api.txt
-RUN pip install --no-cache-dir -r /app/requirements-api.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copie du code
 COPY src/ /app/src/

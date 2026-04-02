@@ -1,65 +1,59 @@
+# docker-compose.yml — AutoBot V2
 version: '3.8'
 
 services:
-  # Service principal - Bot de trading
   autobot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: autobot-v2
     restart: unless-stopped
+    
+    # Environnement
     environment:
+      - TZ=Europe/Paris
+      - ENV=${ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - KRAKEN_API_KEY=${KRAKEN_API_KEY}
       - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
-      - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN:-}
+      - DASHBOARD_HOST=0.0.0.0
+      - DASHBOARD_PORT=8080
+      - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN}
+      - INITIAL_CAPITAL=${INITIAL_CAPITAL:-100}
+      - MAX_INSTANCES=${MAX_INSTANCES:-10}
+      - PAPER_TRADING=${PAPER_TRADING:-true}
+    
+    # Ports exposés
     ports:
-      - "8080:8080"  # API Dashboard
+      - "8080:8080"  # Dashboard (RESTREINDRE avec firewall !)
+    
+    # Volumes persistants
     volumes:
-      - ./data:/app/data  # Persistence SQLite
-      - ./logs:/app/logs  # Logs
-      - ./.env:/app/.env:ro  # Config (read-only)
-    networks:
-      - autobot-network
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    
+    # Limites ressources (CX11 = 2GB RAM)
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '0.8'
+        reservations:
+          memory: 512M
+          cpus: '0.2'
+    
+    # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 60s
+    
+    # Logging
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
-
-  # Dashboard React (frontend)
-  dashboard:
-    image: node:18-alpine
-    container_name: autobot-dashboard
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./dashboard:/app
-      - /app/node_modules
-    ports:
-      - "3000:3000"  # Dashboard web
-    environment:
-      - VITE_API_URL=http://localhost:8080  # URL de l'API
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
-    depends_on:
-      autobot:
-        condition: service_healthy
-    networks:
-      - autobot-network
-    profiles:
-      - with-dashboard  # Ne démarre que si explicitement demandé
-
-networks:
-  autobot-network:
-    driver: bridge
-
-volumes:
-  autobot-data:
-    driver: local
-  autobot-logs:
-    driver: local
+        max-file: "5"
