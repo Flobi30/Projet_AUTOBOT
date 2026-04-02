@@ -4,7 +4,7 @@ Format: {"timestamp": "...", "level": "...", "event": "...", "data": {...}}
 """
 
 import logging
-import json
+import orjson
 import sys
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -30,7 +30,7 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info:
             log_data['exception'] = self.formatException(record.exc_info)
             
-        return json.dumps(log_data, default=str)
+        return orjson.dumps(log_data, option=orjson.OPT_NON_STR_KEYS).decode('utf-8')
 
 
 class StructuredLogger:

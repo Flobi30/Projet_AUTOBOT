@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from threading import Lock, Thread, Event
 import time
 
-from .websocket_client import KrakenWebSocket, TickerData
+from .websocket_client import KrakenWebSocket, TickerData, WebSocketMultiplexer
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .instance import TradingInstance
 from .order_executor import OrderExecutor, get_order_executor
@@ -116,8 +116,10 @@ class Orchestrator:
         # CORRECTION CRITIQUE: StopLossManager pour surveiller les SL sur Kraken
         self.stop_loss_manager = get_stop_loss_manager(self.order_executor)
 
-        # WebSocket Kraken
-        self.ws_client = KrakenWebSocket(api_key, api_secret)
+        # WebSocket Kraken — OPTIMISATION: Multiplexeur (1 connexion pour N paires)
+        self.ws_multiplexer = WebSocketMultiplexer(api_key, api_secret)
+        # Alias de compatibilité (get_last_price, is_connected, etc.)
+        self.ws_client = self.ws_multiplexer
 
         # Validator Engine
         self.validator = ValidatorEngine()
@@ -244,10 +246,10 @@ class Orchestrator:
                     f"— vérifier ressources VPS"
                 )
 
-            # Subscribe aux données de marché
+            # Subscribe aux données de marché via multiplexeur (1 connexion pour toutes les paires)
             # CORRECTION: Stocker callback pour pouvoir le retirer plus tard
             instance._ws_callback = lambda data, inst=instance: inst.on_price_update(data)
-            self.ws_client.add_ticker_listener(config.symbol, instance._ws_callback)
+            self.ws_multiplexer.subscribe(config.symbol, instance._ws_callback)
             
             logger.info(f"✅ Instance créée: {instance_id} ({config.name}) - Capital: {config.initial_capital:.2f}€")
             
@@ -267,7 +269,7 @@ class Orchestrator:
             
         # CORRECTION: Unsubscribe et stop EN DEHORS du lock pour éviter deadlock
         if hasattr(instance, '_ws_callback'):
-            self.ws_client.remove_ticker_listener(instance.config.symbol, instance._ws_callback)
+            self.ws_multiplexer.unsubscribe(instance.config.symbol, instance._ws_callback)
         
         instance.stop()  # Peut bloquer jusqu'à 60s
         logger.info(f"🗑️ Instance supprimée: {instance_id}")
@@ -425,8 +427,8 @@ class Orchestrator:
         self.running = True
         self._start_time = datetime.now()
 
-        # Connexion WebSocket
-        self.ws_client.connect()
+        # Connexion WebSocket (multiplexeur — 1 connexion pour toutes les paires)
+        self.ws_multiplexer.connect()
 
         # CORRECTION CRITIQUE: Démarre StopLossManager avec callback pour notifier instances
         self.stop_loss_manager.start(
@@ -490,8 +492,8 @@ class Orchestrator:
         for instance in instances_to_stop:
             instance.stop()
         
-        # Arrêt WebSocket
-        self.ws_client.disconnect()
+        # Arrêt WebSocket (multiplexeur)
+        self.ws_multiplexer.disconnect()
 
         # CORRECTION CRITIQUE: Arrêt StopLossManager
         if self.stop_loss_manager:

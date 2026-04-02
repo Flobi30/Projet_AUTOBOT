@@ -6,7 +6,6 @@ Garde-fous stricts basés sur les reviews Gemini + Opus
 """
 
 import logging
-import json
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, Callable

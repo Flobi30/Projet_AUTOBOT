@@ -3,7 +3,6 @@ Tests unitaires pour OrderExecutor avec mock de l'API Kraken
 """
 
 import unittest
-import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 

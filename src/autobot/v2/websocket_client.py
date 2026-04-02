@@ -388,6 +388,132 @@ class KrakenWebSocket:
         return self.running and self.ws and self.ws.sock and self.ws.sock.connected
 
 
+class WebSocketMultiplexer:
+    """
+    Multiplexeur WebSocket — 1 connexion pour N paires.
+    
+    Au lieu de créer 1 KrakenWebSocket par paire (50 connexions),
+    on utilise UNE seule connexion et on dispatch les messages
+    vers les bonnes instances via des Queues thread-safe.
+    
+    Usage:
+        mux = WebSocketMultiplexer()
+        mux.connect()
+        mux.subscribe("XXBTZEUR", callback_btc)
+        mux.subscribe("XETHZEUR", callback_eth)
+        # => 1 seule connexion WS, 2 subscriptions
+    """
+    
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+        # UNE seule connexion WebSocket
+        self._ws = KrakenWebSocket(api_key, api_secret)
+        self._lock = threading.Lock()
+        
+        # Dispatch: pair -> [Queue, ...] pour chaque instance
+        from queue import Queue
+        self._queues: Dict[str, List[Queue]] = {}
+        self._callbacks: Dict[str, List[Callable]] = {}
+        
+        # Thread de dispatch
+        self._dispatch_thread: Optional[threading.Thread] = None
+        self._running = False
+        
+        logger.info("🔀 WebSocketMultiplexer initialisé (1 connexion pour N paires)")
+    
+    def connect(self):
+        """Démarre la connexion unique"""
+        self._ws.connect()
+        self._running = True
+        logger.info("🔀 Multiplexer connecté")
+    
+    def disconnect(self):
+        """Ferme la connexion unique"""
+        self._running = False
+        self._ws.disconnect()
+        logger.info("🔀 Multiplexer déconnecté")
+    
+    def subscribe(self, pair: str, callback: Callable):
+        """
+        Subscribe une instance à une paire via le multiplexeur.
+        Réutilise la connexion existante.
+        
+        Args:
+            pair: Paire Kraken (ex: "XXBTZEUR")
+            callback: Fonction appelée avec TickerData
+        """
+        with self._lock:
+            if pair not in self._callbacks:
+                self._callbacks[pair] = []
+            self._callbacks[pair].append(callback)
+        
+        # Delegate au KrakenWebSocket sous-jacent
+        # add_ticker_listener gère la subscription WS
+        self._ws.add_ticker_listener(pair, lambda data: self._dispatch_message(pair, data))
+        
+        logger.debug(f"🔀 Paire {pair} souscrite via multiplexer ({len(self._callbacks.get(pair, []))} listeners)")
+    
+    def unsubscribe(self, pair: str, callback: Callable):
+        """
+        Retire un listener d'une paire.
+        Ne ferme la subscription WS que si plus aucun listener.
+        """
+        with self._lock:
+            if pair in self._callbacks and callback in self._callbacks[pair]:
+                self._callbacks[pair].remove(callback)
+                remaining = len(self._callbacks[pair])
+                if remaining == 0:
+                    del self._callbacks[pair]
+            else:
+                remaining = -1
+        
+        # Si plus aucun listener, unsubscribe de la connexion WS
+        if remaining == 0:
+            self._ws.unsubscribe_ticker(pair)
+            logger.debug(f"🔀 Paire {pair} désabonnée (plus de listeners)")
+    
+    def _dispatch_message(self, pair: str, data: TickerData):
+        """
+        Dispatch un message ticker vers tous les callbacks de cette paire.
+        Thread-safe: copie la liste des callbacks avant itération.
+        
+        Args:
+            pair: Paire source
+            data: Données ticker
+        """
+        with self._lock:
+            callbacks = list(self._callbacks.get(pair, []))
+        
+        for callback in callbacks:
+            try:
+                callback(data)
+            except Exception as e:
+                logger.error(f"❌ Erreur dispatch {pair}: {e}")
+    
+    def get_last_price(self, pair: str) -> Optional[TickerData]:
+        """Proxy vers KrakenWebSocket"""
+        return self._ws.get_last_price(pair)
+    
+    def is_connected(self) -> bool:
+        """Proxy vers KrakenWebSocket"""
+        return self._ws.is_connected()
+    
+    def is_data_fresh(self, max_age_seconds: int = 30) -> bool:
+        """Proxy vers KrakenWebSocket"""
+        return self._ws.is_data_fresh(max_age_seconds)
+    
+    @property
+    def stats(self) -> Dict[str, int]:
+        """Statistiques du multiplexer"""
+        with self._lock:
+            total_listeners = sum(len(cbs) for cbs in self._callbacks.values())
+            return {
+                'pairs_subscribed': len(self._callbacks),
+                'total_listeners': total_listeners,
+                'ws_connected': self._ws.is_connected(),
+                'connections': 1  # Toujours 1 !
+            }
+
+
 # Test rapide
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -5,7 +5,7 @@ Point #4: Crash recovery pour AUTOBOT V2
 
 import logging
 import sqlite3
-import json
+import orjson
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
@@ -107,7 +107,7 @@ class StatePersistence:
                     """, (
                         position_id, instance_id, buy_price, volume, status,
                         datetime.now().isoformat(), strategy,
-                        json.dumps(metadata) if metadata else None
+                        orjson.dumps(metadata).decode('utf-8') if metadata else None
                     ))
                     conn.commit()
                     
@@ -246,7 +246,7 @@ class StatePersistence:
                     for row in cursor.fetchall():
                         pos = dict(row)
                         if pos.get('metadata'):
-                            pos['metadata'] = json.loads(pos['metadata'])
+                            pos['metadata'] = orjson.loads(pos['metadata'])
                         positions.append(pos)
                         
             if positions:
