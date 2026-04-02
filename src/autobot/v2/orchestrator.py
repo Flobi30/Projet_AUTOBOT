@@ -18,6 +18,7 @@ from .order_executor import OrderExecutor, get_order_executor
 from .stop_loss_manager import StopLossManager, get_stop_loss_manager
 from .reconciliation import ReconciliationManager
 from .market_selector import MarketSelector, get_market_selector
+from .risk_manager import get_risk_manager
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +130,9 @@ class Orchestrator:
         self.reconciliation_manager: Optional[ReconciliationManager] = None
 
         # Configuration globale
+        # Progressif : démarrer avec 5, monter à 50 selon capital
         self.config = {
-            'max_instances': 5,  # Hard limit sécurité
+            'max_instances': 50,  # Hard limit sécurité (configurable, progressif jusqu'à 50)
             'spin_off_threshold': 2000.0,
             'leverage_threshold': 1000.0,
             'check_interval': 30,  # minutes
@@ -233,7 +235,15 @@ class Orchestrator:
             )
             
             self._instances[instance_id] = instance
-            
+
+            # Warning si approche du max instances
+            instance_count = len(self._instances)
+            if instance_count > 20:
+                logger.warning(
+                    f"⚠️ Approche des 50 instances ({instance_count} actives) "
+                    f"— vérifier ressources VPS"
+                )
+
             # Subscribe aux données de marché
             # CORRECTION: Stocker callback pour pouvoir le retirer plus tard
             instance._ws_callback = lambda data, inst=instance: inst.on_price_update(data)
@@ -395,6 +405,16 @@ class Orchestrator:
                 self.ws_client.connect()
             except Exception as e:
                 logger.error(f"❌ Échec reconnexion WebSocket: {e}")
+
+        # DISJONCTEUR: Vérification PF global < 1.2
+        with self._instance_lock:
+            active_instances = [
+                inst for inst in self._instances.values() if inst.is_running()
+            ]
+        if active_instances:
+            risk_manager = get_risk_manager()
+            risk_manager.set_orchestrator(self)
+            risk_manager.check_global_risk(active_instances)
     
     def start(self):
         """Démarre l'orchestrateur"""
@@ -487,6 +507,30 @@ class Orchestrator:
 
         logger.info("✅ Orchestrator arrêté")
     
+    def emergency_stop_all(self):
+        """
+        Arrêt d'urgence de TOUTES les instances.
+        Déclenché par le disjoncteur (circuit breaker) quand conditions critiques.
+        """
+        logger.error("🚨🚨🚨 EMERGENCY STOP ALL — Arrêt de toutes les instances!")
+
+        with self._instance_lock:
+            instances_to_stop = list(self._instances.values())
+
+        stopped = 0
+        for instance in instances_to_stop:
+            try:
+                instance.emergency_stop()
+                stopped += 1
+            except Exception as e:
+                logger.exception(f"❌ Erreur arrêt urgence {instance.id}: {e}")
+
+        logger.error(f"🚨 Emergency stop: {stopped}/{len(instances_to_stop)} instances arrêtées")
+
+        # Émet alerte
+        if self._on_alert:
+            self._on_alert('EMERGENCY_STOP_ALL', None)
+
     def get_status(self) -> Dict:
         """Retourne statut global"""
         # CORRECTION: Copier instances sous lock

@@ -27,6 +27,7 @@ class RiskManager:
     Gère les paramètres de risque dynamiques selon le capital.
     
     Plus le capital est élevé, plus on protège (SL plus serré, TP plus conservateur).
+    Inclut disjoncteur global si Profit Factor < 1.2.
     """
     
     # Configuration par niveau de capital
@@ -78,10 +79,14 @@ class RiskManager:
         )
     ]
     
-    def __init__(self, configs: Optional[list] = None):
+    # Seuil PF global pour disjoncteur
+    PF_CIRCUIT_BREAKER_THRESHOLD = 1.2
+
+    def __init__(self, configs: Optional[list] = None, orchestrator: Optional[object] = None):
         self.configs = configs or self.DEFAULT_CONFIGS
         self._on_sl_triggered: Optional[Callable] = None
         self._on_tp_triggered: Optional[Callable] = None
+        self._orchestrator = orchestrator  # Référence orchestrator pour disjoncteur
         
         logger.info("🛡️ RiskManager initialisé")
     
@@ -200,6 +205,91 @@ class RiskManager:
         # Ne dépasse jamais max
         return min(recommended, config.max_leverage)
     
+    def set_orchestrator(self, orchestrator: object):
+        """Définit la référence vers l'orchestrator (pour disjoncteur)."""
+        self._orchestrator = orchestrator
+
+    def _check_risk_limits(self, global_pf: float) -> bool:
+        """
+        Vérifie les limites de risque globales.
+
+        Args:
+            global_pf: Profit Factor global calculé sur toutes les instances.
+
+        Returns:
+            True si limites OK, False si disjoncteur déclenché.
+        """
+        if global_pf < self.PF_CIRCUIT_BREAKER_THRESHOLD:
+            self.circuit_breaker_pf_low(global_pf)
+            return False
+        return True
+
+    def circuit_breaker_pf_low(self, pf: float):
+        """
+        Disjoncteur global : PF trop bas → arrêt de toutes les instances.
+
+        Déclenché quand le Profit Factor global descend sous 1.2.
+        Arrête toutes les instances via l'orchestrator.
+
+        Args:
+            pf: Profit Factor global actuel.
+        """
+        logger.error(
+            f"🚨 DISJONCTEUR — PF global {pf:.2f} < {self.PF_CIRCUIT_BREAKER_THRESHOLD} "
+            f"— Arrêt de toutes les instances"
+        )
+
+        if self._orchestrator is not None:
+            try:
+                self._orchestrator.emergency_stop_all()
+            except Exception as e:
+                logger.exception(f"❌ Erreur arrêt via orchestrator: {e}")
+        else:
+            logger.error("❌ Orchestrator non configuré — impossible d'arrêter les instances")
+
+    def compute_global_profit_factor(self, instances: list) -> float:
+        """
+        Calcule le Profit Factor global sur toutes les instances.
+
+        Args:
+            instances: Liste des TradingInstance.
+
+        Returns:
+            PF global (gross_profit / gross_loss), 0.0 si aucun trade.
+        """
+        gross_profit = 0.0
+        gross_loss = 0.0
+
+        for instance in instances:
+            profit = instance.get_profit()
+            if profit > 0:
+                gross_profit += profit
+            elif profit < 0:
+                gross_loss += abs(profit)
+
+        if gross_loss == 0:
+            return float("inf") if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
+
+    def check_global_risk(self, instances: list) -> bool:
+        """
+        Point d'entrée pour vérification globale des risques.
+        Calcule le PF global et déclenche le disjoncteur si nécessaire.
+
+        Args:
+            instances: Liste des TradingInstance actives.
+
+        Returns:
+            True si tout est OK, False si disjoncteur déclenché.
+        """
+        if not instances:
+            return True
+
+        global_pf = self.compute_global_profit_factor(instances)
+        logger.debug(f"📊 PF global: {global_pf:.2f}")
+
+        return self._check_risk_limits(global_pf)
+
     def get_summary(self, capital: float) -> Dict:
         """Retourne résumé des paramètres de risque"""
         config = self.get_config_for_capital(capital)

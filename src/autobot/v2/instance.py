@@ -280,6 +280,10 @@ class TradingInstance:
         # Notifie stratégie
         if self._strategy and self.status == InstanceStatus.RUNNING:
             self._strategy.on_price(data.price)
+
+        # Rétrogradation dynamique du levier (vérifie à chaque tick)
+        if self.status == InstanceStatus.RUNNING:
+            self.check_leverage_downgrade()
     
     def open_position(self, price: float, volume: float,
                        stop_loss: Optional[float] = None,
@@ -578,6 +582,80 @@ class TradingInstance:
         if gross_loss == 0:
             return float("inf") if gross_profit > 0 else 0.0
         return gross_profit / gross_loss
+
+    def check_leverage_downgrade(self) -> Optional[Dict[str, Any]]:
+        """
+        Rétrogradation dynamique du levier.
+
+        Vérifie si les conditions du levier actuel sont toujours remplies.
+        Si non, rétrograde automatiquement :
+          - X3 → X2  si PF 60j < 2.5 ou DD > 3%
+          - X2 → X1  si PF 30j < 2.0 ou DD > 5% ou tendance forte (up/down)
+
+        Returns:
+            Dict avec détails de la rétrogradation, ou None si pas de changement.
+        """
+        current_level = getattr(self, '_leverage_level', LeverageLevel.X1)
+
+        # X1 = rien à rétrograder
+        if current_level == LeverageLevel.X1:
+            return None
+
+        current_dd = self.get_drawdown() * 100  # en %
+        trend = self.detect_trend()
+
+        with self._lock:
+            # --- X3 → X2 : PF 60j < 2.5 ou DD > 3% ---
+            if current_level == LeverageLevel.X3:
+                pf_60 = self._compute_profit_factor_days(60)
+                reasons = []
+
+                if pf_60 < 2.5:
+                    reasons.append(f"PF 60j={pf_60:.2f} < 2.5")
+                if current_dd > 3.0:
+                    reasons.append(f"DD={current_dd:.1f}% > 3%")
+
+                if reasons:
+                    self.config.leverage = 2
+                    self._leverage_level = LeverageLevel.X2
+                    reason_str = ", ".join(reasons)
+                    logger.warning(
+                        f"⚡ {self.id}: Levier rétrogradé X3→X2 — conditions non remplies ({reason_str})"
+                    )
+                    return {
+                        "downgraded": True,
+                        "from": "X3",
+                        "to": "X2",
+                        "reason": reason_str,
+                    }
+
+            # --- X2 → X1 : PF 30j < 2.0 ou DD > 5% ou tendance forte ---
+            if current_level == LeverageLevel.X2:
+                pf_30 = self._compute_profit_factor_days(30)
+                reasons = []
+
+                if pf_30 < 2.0:
+                    reasons.append(f"PF 30j={pf_30:.2f} < 2.0")
+                if current_dd > 5.0:
+                    reasons.append(f"DD={current_dd:.1f}% > 5%")
+                if trend in ("up", "down"):
+                    reasons.append(f"tendance forte ({trend})")
+
+                if reasons:
+                    self.config.leverage = 1
+                    self._leverage_level = LeverageLevel.X1
+                    reason_str = ", ".join(reasons)
+                    logger.warning(
+                        f"⚡ {self.id}: Levier rétrogradé X2→X1 — conditions non remplies ({reason_str})"
+                    )
+                    return {
+                        "downgraded": True,
+                        "from": "X2",
+                        "to": "X1",
+                        "reason": reason_str,
+                    }
+
+        return None
 
     def get_leverage_level(self) -> LeverageLevel:
         """Retourne le niveau de levier courant."""
