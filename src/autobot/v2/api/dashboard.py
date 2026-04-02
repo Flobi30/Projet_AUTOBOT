@@ -5,6 +5,7 @@ CORRECTIONS: Auth, thread-safety, graceful shutdown, error handling
 
 import logging
 import os
+import time
 import threading
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -84,10 +85,13 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORRECTION: CORS moins permissif
+# SEC-06: CORS origins configurable via env var for production restriction
+_cors_env = os.getenv('DASHBOARD_CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000')
+_cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST"],  # CORRECTION: Pas "*"
     allow_headers=["Content-Type", "Authorization"],  # CORRECTION: Pas "*"
@@ -103,6 +107,17 @@ async def health_check(request: Request):
     Health check pour Docker et monitoring.
     Vérifie l'état de tous les composants.
     """
+    # SEC-13: simple rate limiter — max 10 req/s per IP
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    _health_calls = getattr(app.state, '_health_calls', {})
+    calls = [t for t in _health_calls.get(client_ip, []) if now - t < 1.0]
+    if len(calls) >= 10:
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+    calls.append(now)
+    _health_calls[client_ip] = calls
+    app.state._health_calls = _health_calls
+
     orchestrator = getattr(request.app.state, 'orchestrator', None)
 
     if not orchestrator:
@@ -660,20 +675,30 @@ class DashboardServer:
         app.state.orchestrator = orchestrator
         
         def run_server():
-            # CORRECTION: Utilise uvicorn.Server pour shutdown propre
+            # SEC-02: HTTPS support via env-configured SSL cert/key
+            ssl_certfile = os.getenv('DASHBOARD_SSL_CERT')
+            ssl_keyfile = os.getenv('DASHBOARD_SSL_KEY')
             config = uvicorn.Config(
-                app, 
-                host=self.host, 
-                port=self.port, 
+                app,
+                host=self.host,
+                port=self.port,
                 log_level="info",
-                loop="asyncio"
+                loop="asyncio",
+                ssl_certfile=ssl_certfile,
+                ssl_keyfile=ssl_keyfile,
             )
             self.uvicorn_server = uvicorn.Server(config)
             self.uvicorn_server.run()
-        
+
         self.server = threading.Thread(target=run_server)
         self.server.start()
-        logger.info(f"🌐 Dashboard API démarré sur http://{self.host}:{self.port}")
+        ssl_certfile = os.getenv('DASHBOARD_SSL_CERT')
+        scheme = "https" if ssl_certfile else "http"
+        logger.info(f"Dashboard API demarré sur {scheme}://{self.host}:{self.port}")
+        if ssl_certfile:
+            logger.info("HTTPS active")
+        else:
+            logger.warning("Dashboard en HTTP (non chiffre)")
         
         if os.getenv('DASHBOARD_API_TOKEN'):
             logger.info("🔒 Authentification activée (token configuré)")

@@ -5,11 +5,15 @@ Point #4: Crash recovery pour AUTOBOT V2
 
 import logging
 import sqlite3
+import threading as _threading
 import orjson
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 import threading
+
+# ARCH-03: thread-local storage for SQLite connections (one conn per thread)
+_local = _threading.local()
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,17 @@ class StatePersistence:
         
         logger.info(f"💾 Persistance initialisée: {self.db_path}")
     
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return a thread-local SQLite connection (avoids opening a new conn per call)."""
+        conn = getattr(_local, 'conn', None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            _local.conn = conn
+        return conn
+
     def _init_db(self):
         """Crée les tables si elles n'existent pas"""
         with sqlite3.connect(self.db_path) as conn:
@@ -99,18 +114,18 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.execute("""
-                        INSERT OR REPLACE INTO positions 
-                        (id, instance_id, buy_price, volume, status, open_time, strategy, metadata)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        position_id, instance_id, buy_price, volume, status,
-                        datetime.now().isoformat(), strategy,
-                        orjson.dumps(metadata).decode('utf-8') if metadata else None
-                    ))
-                    conn.commit()
-                    
+                conn = self._get_conn()
+                conn.execute("""
+                    INSERT OR REPLACE INTO positions
+                    (id, instance_id, buy_price, volume, status, open_time, strategy, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    position_id, instance_id, buy_price, volume, status,
+                    datetime.now().isoformat(), strategy,
+                    orjson.dumps(metadata).decode('utf-8') if metadata else None
+                ))
+                conn.commit()
+
             logger.debug(f"💾 Position sauvegardée: {instance_id}/{position_id}")
             return True
             
@@ -124,13 +139,13 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.execute("""
-                        UPDATE positions SET status = ? WHERE id = ?
-                    """, (status, position_id))
-                    conn.commit()
-                    logger.debug(f"📝 Position mise à jour: {position_id} -> {status}")
-                    
+                conn = self._get_conn()
+                conn.execute("""
+                    UPDATE positions SET status = ? WHERE id = ?
+                """, (status, position_id))
+                conn.commit()
+                logger.debug(f"📝 Position mise à jour: {position_id} -> {status}")
+
             return True
             
         except Exception as e:
@@ -145,29 +160,29 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    # Transaction atomique
-                    with conn:  # Auto-commit/rollback
-                        # 1. Supprime la position
-                        conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
-                        
-                        # 2. Enregistre le trade
-                        conn.execute("""
-                            INSERT INTO trades
-                            (position_id, instance_id, side, price, volume, profit, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            position_id,
-                            trade_data['instance_id'],
-                            trade_data['side'],
-                            trade_data['price'],
-                            trade_data['volume'],
-                            trade_data.get('profit'),
-                            trade_data['timestamp']
-                        ))
-                    
-                    logger.debug(f"🗑️ Position {position_id} fermée + trade enregistré (atomique)")
-                    
+                conn = self._get_conn()
+                # Transaction atomique
+                with conn:  # Auto-commit/rollback
+                    # 1. Supprime la position
+                    conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+
+                    # 2. Enregistre le trade
+                    conn.execute("""
+                        INSERT INTO trades
+                        (position_id, instance_id, side, price, volume, profit, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        position_id,
+                        trade_data['instance_id'],
+                        trade_data['side'],
+                        trade_data['price'],
+                        trade_data['volume'],
+                        trade_data.get('profit'),
+                        trade_data['timestamp']
+                    ))
+
+                logger.debug(f"🗑️ Position {position_id} fermée + trade enregistré (atomique)")
+
             return True
             
         except Exception as e:
@@ -183,18 +198,18 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.execute("""
-                        INSERT OR REPLACE INTO instance_state
-                        (instance_id, status, current_capital, allocated_capital, 
-                         win_count, loss_count, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        instance_id, status, current_capital, allocated_capital,
-                        win_count, loss_count, datetime.now().isoformat()
-                    ))
-                    conn.commit()
-                    
+                conn = self._get_conn()
+                conn.execute("""
+                    INSERT OR REPLACE INTO instance_state
+                    (instance_id, status, current_capital, allocated_capital,
+                     win_count, loss_count, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    instance_id, status, current_capital, allocated_capital,
+                    win_count, loss_count, datetime.now().isoformat()
+                ))
+                conn.commit()
+
             logger.debug(f"💾 État instance sauvegardé: {instance_id}")
             return True
             
@@ -210,17 +225,17 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.execute("""
-                        INSERT INTO trades
-                        (position_id, instance_id, side, price, volume, profit, timestamp)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        position_id, instance_id, side, price, volume, profit,
-                        datetime.now().isoformat()
-                    ))
-                    conn.commit()
-                    
+                conn = self._get_conn()
+                conn.execute("""
+                    INSERT INTO trades
+                    (position_id, instance_id, side, price, volume, profit, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    position_id, instance_id, side, price, volume, profit,
+                    datetime.now().isoformat()
+                ))
+                conn.commit()
+
             logger.debug(f"💾 Trade enregistré: {instance_id} {side} {volume}")
             return True
             
@@ -235,19 +250,19 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.execute("""
-                        SELECT * FROM positions 
-                        WHERE instance_id = ? AND status = 'open'
-                    """, (instance_id,))
-                    
-                    positions = []
-                    for row in cursor.fetchall():
-                        pos = dict(row)
-                        if pos.get('metadata'):
-                            pos['metadata'] = orjson.loads(pos['metadata'])
-                        positions.append(pos)
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT * FROM positions
+                    WHERE instance_id = ? AND status = 'open'
+                """, (instance_id,))
+
+                positions = []
+                for row in cursor.fetchall():
+                    pos = dict(row)
+                    if pos.get('metadata'):
+                        pos['metadata'] = orjson.loads(pos['metadata'])
+                    positions.append(pos)
                         
             if positions:
                 logger.warning(f"🔄 Recovery: {len(positions)} position(s) ouverte(s) trouvée(s) pour {instance_id}")
@@ -266,17 +281,17 @@ class StatePersistence:
         """
         try:
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.execute("""
-                        SELECT * FROM instance_state 
-                        WHERE instance_id = ?
-                    """, (instance_id,))
-                    
-                    row = cursor.fetchone()
-                    if row:
-                        return dict(row)
-                    return None
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT * FROM instance_state
+                    WHERE instance_id = ?
+                """, (instance_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                return None
                     
         except Exception as e:
             logger.exception(f"❌ Erreur récupération état instance: {e}")
@@ -291,14 +306,13 @@ class StatePersistence:
             cutoff = datetime.now().timestamp() - (days * 24 * 3600)
             
             with self._lock:
-                with sqlite3.connect(self.db_path) as conn:
-                    # Supprime les trades vieux de plus de N jours
-                    cursor = conn.execute("""
-                        DELETE FROM trades 
-                        WHERE julianday('now') - julianday(timestamp) > ?
-                    """, (days,))
-                    deleted = cursor.rowcount
-                    conn.commit()
+                conn = self._get_conn()
+                cursor = conn.execute("""
+                    DELETE FROM trades
+                    WHERE julianday('now') - julianday(timestamp) > ?
+                """, (days,))
+                deleted = cursor.rowcount
+                conn.commit()
                     
             if deleted > 0:
                 logger.info(f"🧹 Nettoyage: {deleted} vieux trades supprimés")
@@ -403,8 +417,8 @@ class MaintenanceScheduler:
     - Nettoyage des vieilles données
     """
     
-    def __init__(self, persistence: StatePersistence, 
-                 backup_interval_hours: int = 24,
+    def __init__(self, persistence: StatePersistence,
+                 backup_interval_hours: int = 1,  # PROD-04: hourly backups
                  cleanup_interval_hours: int = 24):
         self.persistence = persistence
         self.backup_interval = backup_interval_hours * 3600

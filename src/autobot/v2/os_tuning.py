@@ -265,6 +265,15 @@ class OSTuner:
             )
             return False
 
+        # SEC-11: warn when priority is near the maximum — risk of system lockup
+        if priority >= 90:
+            logger.warning(
+                "RT scheduling: priority=%d >= 90 is near maximum -- "
+                "ensure a watchdog (e.g. systemd WatchdogSec) is configured "
+                "to prevent system lockup if the process hangs.",
+                priority,
+            )
+
         try:
             param = os.sched_param(priority)
             os.sched_setscheduler(0, os.SCHED_FIFO, param)

@@ -72,6 +72,7 @@ class OrchestratorAsync:
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
     ) -> None:
+        # SEC-01: store API credentials — do NOT log these values
         self.api_key = api_key
         self.api_secret = api_secret
 
@@ -102,6 +103,8 @@ class OrchestratorAsync:
 
         # Instances
         self._instances: Dict[str, TradingInstanceAsync] = {}
+        # ARCH-01: protect _instances dict mutations across concurrent coroutines
+        self._instances_lock = asyncio.Lock()
 
         # Reconciliation
         self.reconciliation_manager: Optional[ReconciliationManagerAsync] = None
@@ -137,6 +140,11 @@ class OrchestratorAsync:
 
         logger.info("🎛️ OrchestratorAsync initialisé (target: 2000+ instances)")
 
+    # SEC-01: safe repr — never expose raw API keys in logs/repr
+    def __repr__(self) -> str:
+        key_hint = f"...{self.api_key[-4:]}" if self.api_key else "None"
+        return f"OrchestratorAsync(api_key={key_hint!r}, instances={len(self._instances)})"
+
     def _setup_circuit_breaker(self) -> None:
         async def on_cb() -> None:
             logger.error("🚨 CIRCUIT BREAKER: Arrêt d'urgence!")
@@ -150,6 +158,18 @@ class OrchestratorAsync:
 
     async def create_instance(self, config: InstanceConfig) -> Optional[TradingInstanceAsync]:
         """Create a new trading instance."""
+        # ARCH-02: check system resources before accepting a new instance
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            if mem.percent > 90:
+                logger.warning(
+                    f"Memoire systeme critique ({mem.percent:.0f}%) -- instance refusee"
+                )
+                return None
+        except ImportError:
+            pass  # psutil optionnel
+
         if len(self._instances) >= self.config["max_instances"]:
             logger.warning(f"⚠️ Limite instances: {self.config['max_instances']}")
             return None
@@ -162,7 +182,9 @@ class OrchestratorAsync:
             order_executor=self.order_executor,
         )
 
-        self._instances[instance_id] = instance
+        # ARCH-01: protect dict mutation with lock
+        async with self._instances_lock:
+            self._instances[instance_id] = instance
 
         if len(self._instances) > 1000:
             logger.warning(f"⚠️ {len(self._instances)} instances actives")
@@ -187,9 +209,11 @@ class OrchestratorAsync:
         return instance
 
     async def remove_instance(self, instance_id: str) -> bool:
-        if instance_id not in self._instances:
-            return False
-        instance = self._instances.pop(instance_id)
+        # ARCH-01: protect dict mutation with lock
+        async with self._instances_lock:
+            if instance_id not in self._instances:
+                return False
+            instance = self._instances.pop(instance_id)
 
         # P3: Unsubscribe from AsyncDispatcher (cancels queue, not ring reader
         # unless last subscriber for that pair)
@@ -351,10 +375,10 @@ class OrchestratorAsync:
             on_stop_loss_triggered=self._on_stop_loss_triggered
         )
 
-        # Start reconciliation
+        # Start reconciliation — ARCH-06: pass callable for dynamic snapshot
         self.reconciliation_manager = ReconciliationManagerAsync(
             order_executor=self.order_executor,
-            instances=dict(self._instances),
+            instances=lambda: dict(self._instances),
         )
         await self.reconciliation_manager.start()
 

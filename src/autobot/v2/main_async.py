@@ -18,11 +18,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# SEC-04: validate path before inserting into sys.path
+_src_path = Path(__file__).parent.parent.parent.resolve()
+if _src_path.exists() and _src_path.is_dir():
+    if str(_src_path) not in sys.path:
+        sys.path.insert(0, str(_src_path))
 
-# Setup logging
-from autobot.v2.utils import setup_structured_logging
+# Setup logging  # noqa: E402
+from autobot.v2.utils import setup_structured_logging  # noqa: E402
 
 setup_structured_logging(
     level=logging.INFO,
@@ -134,9 +137,19 @@ class AutoBotV2Async:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
 
-            # 5. Keep running
+            # 5. Keep running with health reporting (PROD-01)
+            _health_tick = 0
             while self.running:
                 await asyncio.sleep(1)
+                _health_tick += 1
+                if _health_tick % 60 == 0:
+                    status = self.orchestrator.get_status()
+                    logger.info(
+                        "Health: running=%s instances=%d ws=%s",
+                        status['running'],
+                        status['instance_count'],
+                        status['websocket_connected'],
+                    )
 
         except Exception as exc:
             logger.exception(f"❌ Erreur fatale: {exc}")

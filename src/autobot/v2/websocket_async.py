@@ -71,6 +71,14 @@ class KrakenWebSocketAsync:
         self._reconnect_backoff: float = 1.0
         self._max_reconnect_backoff: float = 60.0
 
+        # ARCH-08: backpressure monitoring counters
+        self._msg_count: int = 0
+        self._msg_rate_window: float = 0.0
+
+        # ROB-03: circuit breaker for runaway reconnects
+        self._reconnect_attempts: int = 0
+        self._max_reconnect_attempts: int = 20
+
         logger.info("📡 KrakenWebSocketAsync initialisé")
 
     # ------------------------------------------------------------------
@@ -167,6 +175,7 @@ class KrakenWebSocketAsync:
                 if not self._running:
                     break
                 self._last_message_time = time.monotonic()
+                self._msg_count += 1  # ARCH-08: backpressure counter
                 try:
                     await self._on_message(raw)
                 except Exception as exc:
@@ -319,12 +328,28 @@ class KrakenWebSocketAsync:
                     f"🚨 Prix stalé depuis {elapsed:.0f}s - Reconnexion nécessaire"
                 )
                 await self._reconnect()
-            elif not self.is_connected():
-                logger.warning("🔌 WS déconnecté - Tentative reconnexion...")
-                await self._reconnect()
+            else:
+                # ARCH-08: backpressure monitoring — warn if rate > 100 msg/s
+                rate = self._msg_count / max(elapsed, 1)
+                if rate > 100:
+                    logger.warning("WS backpressure: %.0f msg/s", rate)
+                self._msg_count = 0  # reset window
+                if not self.is_connected():
+                    logger.warning("🔌 WS déconnecté - Tentative reconnexion...")
+                    await self._reconnect()
         logger.info("💓 Heartbeat monitoring arrêté (async)")
 
     async def _reconnect(self) -> None:
+        # ROB-03: circuit breaker — abort after too many consecutive reconnects
+        self._reconnect_attempts += 1
+        if self._reconnect_attempts > self._max_reconnect_attempts:
+            logger.error(
+                "WS CIRCUIT BREAKER: %d tentatives de reconnexion -- abandon",
+                self._reconnect_attempts,
+            )
+            self._running = False
+            return
+
         logger.info(
             f"🔄 Reconnexion WS (backoff: {self._reconnect_backoff}s)..."
         )
@@ -365,6 +390,7 @@ class KrakenWebSocketAsync:
                 await self._send_subscribe(pair)
 
             self._reconnect_backoff = 1.0
+            self._reconnect_attempts = 0  # ROB-03: reset circuit breaker on success
             logger.info("✅ Reconnexion réussie (async)")
         except Exception as exc:
             logger.error(f"❌ Échec reconnexion: {exc}")

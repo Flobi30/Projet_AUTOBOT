@@ -70,6 +70,9 @@ class OrderExecutorAsync:
         self._lock = asyncio.Lock()
         self._session: Optional[aiohttp.ClientSession] = None
 
+        # SEC-03: monotone nonce counter (thread-safe via self._lock)
+        self._nonce_counter: int = 0
+
         # Rate limiting
         self._last_call_time: float = 0
         self._min_interval: float = 1.0
@@ -119,7 +122,12 @@ class OrderExecutorAsync:
         urlpath = f"/0/private/{method}"
         url = f"{self.KRAKEN_API_URL}{urlpath}"
 
-        params["nonce"] = str(int(time.time() * 1000))
+        # SEC-03: monotone nonce — always > previous nonce even if clock goes back
+        time_ms = int(time.time() * 1000)
+        async with self._lock:
+            self._nonce_counter = max(self._nonce_counter + 1, time_ms)
+            nonce = self._nonce_counter
+        params["nonce"] = str(nonce)
         sig = _kraken_signature(urlpath, params, self._api_secret)
 
         headers = {
@@ -277,7 +285,11 @@ class OrderExecutorAsync:
 
         txid = None
         if "result" in response and "txid" in response["result"]:
-            txid = response["result"]["txid"][0]
+            # SEC-08: validate response shape before indexing
+            txid_list = response["result"]["txid"]
+            if not isinstance(txid_list, list) or len(txid_list) == 0:
+                return OrderResult(success=False, error="txid vide ou invalide dans réponse Kraken")
+            txid = txid_list[0]
             logger.info(f"✅ Ordre accepté, txid: {txid[:8]}...")
         else:
             return OrderResult(success=False, error="Pas de txid dans réponse")

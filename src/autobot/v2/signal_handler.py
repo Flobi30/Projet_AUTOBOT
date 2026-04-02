@@ -5,7 +5,9 @@ CORRECTION CRITIQUE : Utilise OrderExecutor pour passer de VRAIS ordres sur Krak
 pas seulement mettre à jour l'état local.
 """
 
+import json
 import logging
+import pathlib
 from typing import Optional, Callable
 from datetime import datetime
 
@@ -37,7 +39,12 @@ class SignalHandler:
         self.validator = create_default_validator_engine()
         self._last_signal_time: Optional[datetime] = None
         self._cooldown_seconds = 5  # Minimum 5s entre ordres
-        
+
+        # ROB-01: Write-Ahead Log — prevent double-buying on restart
+        self._wal_path = pathlib.Path(f"data/wal_{instance.id}.json")
+        self._wal_path.parent.mkdir(parents=True, exist_ok=True)
+        self._pending_order_ids: set = self._load_wal()
+
         # Callback pour recevoir les signaux
         self._setup_signal_callback()
         
@@ -50,6 +57,29 @@ class SignalHandler:
             logger.info(f"🔗 Callback signal configuré pour {self.instance.id}")
         else:
             logger.warning(f"⚠️ Pas de stratégie sur {self.instance.id}")
+
+    # ------------------------------------------------------------------
+    # ROB-01: Write-Ahead Log helpers
+    # ------------------------------------------------------------------
+
+    def _load_wal(self) -> set:
+        """Load pending order IDs from WAL file (crash recovery)."""
+        if self._wal_path.exists():
+            try:
+                return set(json.loads(self._wal_path.read_text()))
+            except Exception:
+                return set()
+        return set()
+
+    def _wal_add(self, order_key: str) -> None:
+        """Record an in-flight order key in the WAL."""
+        self._pending_order_ids.add(order_key)
+        self._wal_path.write_text(json.dumps(list(self._pending_order_ids)))
+
+    def _wal_remove(self, order_key: str) -> None:
+        """Remove a completed/failed order key from the WAL."""
+        self._pending_order_ids.discard(order_key)
+        self._wal_path.write_text(json.dumps(list(self._pending_order_ids)))
     
     def _on_signal(self, signal: TradingSignal):
         """
@@ -91,7 +121,14 @@ class SignalHandler:
         5. Met à jour état local avec données réelles
         """
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
-        
+
+        # ROB-01: idempotency check — skip if this order is already in flight
+        order_key = f"BUY_{signal.symbol}_{signal.price}"
+        if order_key in self._pending_order_ids:
+            logger.warning(f"WAL: ordre {order_key} deja en cours -- ignore (anti-double achat)")
+            return
+        self._wal_add(order_key)
+
         # CORRECTION: Validation via ValidatorEngine (était contournée !)
         available = self.instance.get_available_capital()
         open_pos_count = len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open'])
@@ -117,8 +154,9 @@ class SignalHandler:
         # Vérification OrderExecutor
         if self.order_executor is None:
             logger.error("❌ OrderExecutor non configuré - impossible de passer ordre réel")
+            self._wal_remove(order_key)
             return
-        
+
         # Calcul volume
         if signal.volume > 0:
             volume = signal.volume
@@ -126,9 +164,10 @@ class SignalHandler:
             volume = (available * 0.10) / signal.price
         
         volume = round(volume, 6)
-        
+
         if volume <= 0:
             logger.error(f"❌ Volume calculé invalide: {volume}")
+            self._wal_remove(order_key)
             return
         
         # CORRECTION: Exécution RÉELLE sur Kraken
@@ -144,6 +183,7 @@ class SignalHandler:
         
         if not result.success:
             logger.error(f"❌ Échec ordre Kraken: {result.error}")
+            self._wal_remove(order_key)
             return
         
         # Récupération prix d'exécution RÉEL
@@ -189,6 +229,15 @@ class SignalHandler:
             logger.info(f"✅ Position créée: {position.id}")
         else:
             logger.error(f"❌ Échec création position locale")
+            # ROB-02: cancel orphaned stop-loss when position creation fails
+            if stop_loss_txid:
+                logger.warning(f"Annulation stop-loss orphelin: {stop_loss_txid[:8]}...")
+                self.order_executor.cancel_order(stop_loss_txid)
+                sl_manager = get_stop_loss_manager()
+                sl_manager.unregister_stop_loss(stop_loss_txid)
+
+        # ROB-01: order is complete (success or failure) — remove from WAL
+        self._wal_remove(order_key)
     
     def _execute_sell(self, signal: TradingSignal):
         """

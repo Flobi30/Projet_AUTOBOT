@@ -266,16 +266,26 @@ class AsyncDispatcher:
         After this call the dispatcher is quiescent: no tasks are running
         and all queues are empty.  Subscriptions remain intact so the
         dispatcher can be restarted via :meth:`start`.
-        """
-        self._running = False
 
-        # Cancel all pair-level dispatch tasks
+        ROB-07: signal loops via _running=False and wait for current batch
+        to complete (max 2s) before force-cancelling.
+        """
+        self._running = False  # ROB-07: signal loops to exit gracefully
+
+        # Wait for dispatch tasks to complete their current batch (max 2s)
         tasks = list(self._dispatch_tasks.values())
-        for task in tasks:
-            if not task.done():
-                task.cancel()
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                # Force cancel if not done within timeout
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
         self._dispatch_tasks.clear()
 
         # Drain all instance queues (graceful shutdown)
@@ -339,7 +349,7 @@ class AsyncDispatcher:
 
         logger.debug(f"📬 _dispatch_loop démarrée: {pair}")
         try:
-            while True:
+            while self._running:  # ROB-07: exit naturally when stop() sets _running=False
                 messages = poll_batch(self._poll_batch)
 
                 if messages:

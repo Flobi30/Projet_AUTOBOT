@@ -11,7 +11,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from .order_executor_async import OrderExecutorAsync, OrderStatus
 from .reconciliation import Divergence
@@ -25,11 +25,14 @@ class ReconciliationManagerAsync:
     def __init__(
         self,
         order_executor: OrderExecutorAsync,
-        instances: Dict[str, Any],
+        instances: Union[Dict[str, Any], Callable[[], Dict[str, Any]]],
         check_interval: int = 3600,
     ) -> None:
         self.order_executor = order_executor
-        self.instances = instances
+        # ARCH-06: accept either a static dict or a callable returning current dict
+        self._get_instances: Callable[[], Dict[str, Any]] = (
+            instances if callable(instances) else (lambda: instances)  # type: ignore[arg-type]
+        )
         self.check_interval = check_interval
 
         self._running = False
@@ -42,7 +45,8 @@ class ReconciliationManagerAsync:
     async def reconcile_all(self) -> List[Divergence]:
         all_div: List[Divergence] = []
         logger.info("🔄 Réconciliation complète (async)...")
-        for inst_id, inst in self.instances.items():
+        # ARCH-06: use callable to get the current (dynamic) instances snapshot
+        for inst_id, inst in self._get_instances().items():
             try:
                 divs = await self._reconcile_instance(inst)
                 all_div.extend(divs)

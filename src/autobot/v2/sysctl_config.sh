@@ -103,6 +103,13 @@ apply_params() {
   local dry="${1:-false}"
   local applied=0 skipped=0
 
+  # SEC-05: warn about high-impact parameters before applying
+  if [[ "${dry}" != "true" ]]; then
+    warn "Applying kernel parameters that affect system security and stability."
+    warn "net.core.somaxconn=65535 increases attack surface for SYN-flood attacks."
+    warn "Ensure a firewall (iptables/nftables) is active before applying."
+  fi
+
   for key in "${!PARAMS[@]}"; do
     val="${PARAMS[$key]}"
     if [[ "${dry}" == "true" ]]; then
