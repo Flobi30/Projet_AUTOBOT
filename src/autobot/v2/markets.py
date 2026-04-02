@@ -21,12 +21,11 @@ class MarketConfig:
     max_leverage: int
     trading_hours: str  # "24/7", "24/5", "23/24"
     decimal_places: int  # Price precision
-    pip_value: Optional[float] = None  # For forex (0.0001 for most pairs)
-    contract_size: Optional[float] = None  # For commodities
-    
     # Grid strategy defaults
     default_grid_range: float  # 7.0 for crypto, 1.0 for forex
     default_grid_step: float   # 1.0 for crypto, 0.1 for forex
+    pip_value: Optional[float] = None  # For forex (0.0001 for most pairs)
+    contract_size: Optional[float] = None  # For commodities
 
 
 # Market configurations

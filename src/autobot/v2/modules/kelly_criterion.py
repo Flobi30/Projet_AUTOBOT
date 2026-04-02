@@ -204,6 +204,84 @@ class KellyCriterion:
 
             return position_size
 
+    def calculate_position_size_dynamic(
+        self,
+        win_rate: float,
+        avg_win: float,
+        avg_loss: float,
+        capital: float,
+        current_pf: float,
+        consecutive_losses: int = 0,
+    ) -> float:
+        """
+        Taille de position Kelly avec decrement apres pertes consecutives.
+
+        Apres 3 pertes consecutives, applique un facteur de reduction :
+            f = base_kelly * 0.85^(consecutive_losses - 2)
+        Half-Kelly applique. Plafond absolu a 2% du capital.
+
+        Args:
+            win_rate: Taux de trades gagnants (]0, 1[).
+            avg_win: Gain moyen en euros (> 0).
+            avg_loss: Perte moyenne en euros (> 0).
+            capital: Capital disponible en euros (> 0).
+            current_pf: Profit Factor actuel (doit etre >= 1.0 pour trader).
+            consecutive_losses: Nombre de pertes consecutives (>= 0, defaut 0).
+
+        Returns:
+            Taille de position en euros, plafonnee a 2% du capital.
+            0.0 si conditions non remplies (PF < 1.0, edge negative, entrees invalides).
+        """
+        with self._lock:
+            # --- Validation ---
+            if not self._validate_position_inputs(
+                win_rate, avg_win, avg_loss, capital, current_pf
+            ):
+                return 0.0
+
+            if not isinstance(consecutive_losses, int) or consecutive_losses < 0:
+                logger.warning(
+                    "Kelly dynamic: consecutive_losses invalide (%s)", consecutive_losses
+                )
+                return 0.0
+
+            # --- Filtre Profit Factor ---
+            if current_pf < 1.0:
+                logger.info(
+                    "Kelly dynamic: PF %.2f < 1.0 — position 0.00 euros",
+                    current_pf,
+                )
+                return 0.0
+
+            # --- Calcul Kelly brut + Half-Kelly ---
+            f_star = self._compute_kelly(win_rate, avg_win, avg_loss)
+            if f_star <= 0.0:
+                return 0.0
+
+            kelly = f_star / 2.0
+
+            # --- Decrement apres 3 pertes consecutives ---
+            if consecutive_losses >= 3:
+                exponent = consecutive_losses - 2
+                kelly *= 0.85 ** exponent
+                logger.info(
+                    "Kelly dynamic: %d pertes => facteur 0.85^%d = %.4f applique",
+                    consecutive_losses,
+                    exponent,
+                    0.85 ** exponent,
+                )
+
+            # --- Plafond a 2% du capital ---
+            position = min(kelly * capital, capital * 0.02)
+
+            logger.info(
+                "Kelly dynamic: position %.2f euros (%.4f%% capital, %d pertes consecutives)",
+                position,
+                (position / capital) * 100 if capital > 0 else 0.0,
+                consecutive_losses,
+            )
+            return position
+
     def get_status(self) -> dict:
         """Retourne l'etat du calculateur."""
         with self._lock:

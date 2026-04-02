@@ -94,12 +94,17 @@ class SignalHandler:
         
         # CORRECTION: Validation via ValidatorEngine (était contournée !)
         available = self.instance.get_available_capital()
+        open_pos_count = len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open'])
+        order_value = signal.volume * signal.price if signal.volume > 0 else 0.0
         context = {
-            'available_capital': available,
-            'signal_price': signal.price,
+            # CQ-04: clés alignées sur open_position_validator
+            'balance': available,
+            'order_value': order_value,
+            'open_positions': open_pos_count,
+            'max_positions': getattr(self.instance.config, 'max_positions', 10),
+            'price': signal.price,
+            # Extra context (non utilisé par le validateur mais utile pour le log)
             'instance_status': self.instance.status.value,
-            'open_positions_count': len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open']),
-            'max_positions': getattr(self.instance.config, 'max_positions', 10)
         }
         
         validation = self.validator.validate('open_position', context)
@@ -220,9 +225,18 @@ class SignalHandler:
             positions_to_close = open_positions
             logger.info(f"   Fermeture de {len(positions_to_close)} position(s)")
         elif level_index is not None:
-            # Grid: trouve position correspondant au niveau
-            # Note: nécessite que grid.py passe level_index dans metadata
-            positions_to_close = open_positions  # Fallback: ferme toutes
+            # CQ-05: Grid — ferme uniquement la position du niveau concerné
+            matched = [
+                p for p in open_positions
+                if p.get('metadata', {}).get('level_index') == level_index
+            ]
+            if matched:
+                positions_to_close = [matched[0]]
+                logger.info(f"   Grid: fermeture position niveau {level_index} (id={matched[0].get('id')})")
+            else:
+                # Fallback: position la plus récente si pas de metadata level_index
+                positions_to_close = [open_positions[-1]]
+                logger.warning(f"   Grid: level_index={level_index} introuvable, fallback dernière position")
         else:
             # Fallback: ferme la dernière
             positions_to_close = [open_positions[-1]]

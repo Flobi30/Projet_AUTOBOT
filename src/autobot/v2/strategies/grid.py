@@ -4,6 +4,7 @@ Achat aux supports, vente aux résistances
 """
 
 import logging
+import math
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from collections import deque
@@ -264,6 +265,38 @@ class GridStrategy(Strategy):
         Vérifie si le prix est sorti de la grille (crash sous les niveaux).
         """
         return current_price < self._emergency_close_price
+
+    def _check_grid_drift(self, price: float) -> bool:
+        """
+        Recentre la grille si le prix a dérivé de plus de 5% du centre actuel.
+
+        Met à jour center_price, recalcule les niveaux et recalcule
+        _emergency_close_price. Retourne True si recentrage effectué.
+
+        N'est appelé que hors mode urgence et hors positions ouvertes,
+        pour éviter de perturber des ordres actifs.
+        """
+        if self._emergency_mode:
+            return False
+        drift = abs(price - self.center_price) / self.center_price
+        if drift <= 0.05:
+            return False
+        # Recentrage uniquement si aucune position ouverte (sécurité)
+        with self._lock:
+            has_open = bool(self.open_levels)
+        if has_open:
+            return False
+        self.center_price = price
+        self._init_grid()
+        self._emergency_close_price = (
+            self.center_price
+            * (1 - self.range_percent * self._grid_invalidation_factor / 100)
+        )
+        logger.info(
+            f"🔄 Grille recentrée sur {price:.0f} "
+            f"(seuil urgence: {self._emergency_close_price:.0f})"
+        )
+        return True
     
     def on_price(self, price: float):
         """
@@ -272,8 +305,8 @@ class GridStrategy(Strategy):
         if not self._initialized:
             return
 
-        # CORRECTION P0: Guard contre prix invalide (division par zéro)
-        if price <= 0:
+        # CORRECTION P0: Guard contre prix invalide (NaN, Inf, division par zéro)
+        if not math.isfinite(price) or price <= 0:
             logger.error(f"❌ Prix invalide: {price}. Ignoré.")
             return
 
@@ -284,6 +317,9 @@ class GridStrategy(Strategy):
             if hasattr(ws_client, 'is_data_fresh') and not ws_client.is_data_fresh():
                 logger.warning(f"⏸️ {self.instance.id}: Données WebSocket stale, signal ignoré")
                 return
+
+        # S3: Recentre la grille si dérive > 5% (met à jour _emergency_close_price)
+        self._check_grid_drift(price)
 
         # CORRECTION P1: Snapshot unique du capital pour tout le cycle
         # Évite les appels API redondants et les incohérences
@@ -304,9 +340,8 @@ class GridStrategy(Strategy):
             
             # Si mode urgence, vendre TOUTES les positions
             if self._emergency_mode:
-                # CORRECTION P0: Copier items() pas juste keys() pour éviter KeyError
-                with self._lock:
-                    all_positions = list(self.open_levels.items())  # (level_idx, position_info)
+                # Déjà sous self._lock (outer) — pas de lock imbriqué nécessaire
+                all_positions = list(self.open_levels.items())  # (level_idx, position_info)
                 
                 for i, (level_idx, position) in enumerate(all_positions):
                     signal = TradingSignal(
@@ -330,9 +365,8 @@ class GridStrategy(Strategy):
             # Check drawdown individuel sur chaque position
             emergency_level = self._check_drawdown(price)
             if emergency_level is not None:
-                # CORRECTION P0: Accès sous lock pour éviter KeyError
-                with self._lock:
-                    position = self.open_levels.get(emergency_level)
+                # Déjà sous self._lock (outer) — accès direct
+                position = self.open_levels.get(emergency_level)
                     
                 if position is None:
                     logger.warning(f"⚠️ Position d'urgence {emergency_level} déjà fermée")
@@ -358,14 +392,13 @@ class GridStrategy(Strategy):
             
             # 1. Check ventes normales (positions à fermer en profit)
             sell_levels = self._get_sell_levels(price)
-            # CORRECTION P0: Copier les données sous lock avant itération
-            with self._lock:
-                sell_positions = []
-                for level_idx in sell_levels:
-                    position = self.open_levels.get(level_idx)
-                    if position:
-                        level_price = self.grid_levels[level_idx]
-                        sell_positions.append((level_idx, position, level_price))
+            # Déjà sous self._lock (outer) — copie directe sans lock imbriqué
+            sell_positions = []
+            for level_idx in sell_levels:
+                position = self.open_levels.get(level_idx)
+                if position:
+                    level_price = self.grid_levels[level_idx]
+                    sell_positions.append((level_idx, position, level_price))
             
             # CORRECTION: Batch sells - bypass cooldown pour tous sauf le premier
             for i, (level_idx, position, level_price) in enumerate(sell_positions):

@@ -4,6 +4,7 @@ Achat en tendance haussière, vente en baissière
 """
 
 import logging
+import math
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from collections import deque
@@ -16,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 class TrendStrategy(Strategy):
     """
-    Stratégie de suivi de tendance (Trend Following).
-    
-    Principe:
-    - Détecte la tendance avec des moyennes mobiles (MA)
-    - Achète quand la tendance est haussière (golden cross)
-    - Vend quand la tendance est baissière (death cross)
-    - Utilise le RSI pour éviter les entrées en surachat/survente
-    
+    Stratégie de suivi de tendance (Trend Following) — version synchrone.
+
+    DEPRECATED: Remplacée par TrendStrategyAsync (src/autobot/v2/strategies/trend_async.py).
+    Cette version synchrone est maintenue pour compatibilité avec instance.py.
+    Toute nouvelle instance de production doit utiliser TrendStrategyAsync.
+
+    PRODUCTION_READY = False — W2: utiliser TrendStrategyAsync pour la production.
+
     Configuration:
     - fast_ma: Période MA rapide (défaut: 10)
     - slow_ma: Période MA lente (défaut: 30)
@@ -32,8 +33,15 @@ class TrendStrategy(Strategy):
     - rsi_oversold: Seuil survente (défaut: 30)
     - min_trend_strength: Force min. tendance en % (défaut: 1.0)
     """
-    
+
+    PRODUCTION_READY = False  # W2: utiliser TrendStrategyAsync en production
+
     def __init__(self, instance: Any, config: Optional[Dict] = None):
+        if not self.PRODUCTION_READY:
+            logger.warning(
+                "⚠️ TrendStrategy (sync) est dépréciée. "
+                "Migrer vers TrendStrategyAsync pour la production."
+            )
         super().__init__(instance, config)
         
         # Configuration
@@ -152,7 +160,11 @@ class TrendStrategy(Strategy):
         """Analyse le prix et émet des signaux - OPTIMISÉ O(1)"""
         if not self._initialized:
             return
-        
+
+        if not math.isfinite(price) or price <= 0:
+            logger.warning(f"❌ Prix invalide ignoré: {price}")
+            return
+
         with self._lock:
             self._price_history.append(price)
             
@@ -208,10 +220,11 @@ class TrendStrategy(Strategy):
                 with self._lock:
                     available = self.instance.get_current_capital()
                 
-                # CORRECTION: Réduire sizing de 50% à 20% (50% = suicide financier)
-                # Norme institutionnelle: 1-2% de risque par trade
-                from . import PositionSizing
-                volume = PositionSizing.percentage_capital(available, 20) / price
+                # CQ-06: Risk-based sizing — 2% du capital risqué par trade
+                # Stop-loss à 5% sous l'entrée → volume = (capital * 0.02) / (prix * 0.05)
+                risk_amount = available * 0.02
+                stop_distance_pct = 0.05
+                volume = risk_amount / (price * stop_distance_pct)
                 
                 signal = TradingSignal(
                     type=SignalType.BUY,

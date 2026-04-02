@@ -865,7 +865,7 @@ class TradingInstance:
             'initial_capital': self._initial_capital,
             'current_capital': self.get_current_capital(),
             'total_profit': self.get_profit(),
-            'profit_pct': (self.get_profit() / self._initial_capital * 100),
+            'profit_pct': (self.get_profit() / self._initial_capital * 100) if self._initial_capital > 0 else 0.0,
             'win_streak': self._win_streak,
             'drawdown': self.get_drawdown(),
             'max_drawdown': self._max_drawdown,

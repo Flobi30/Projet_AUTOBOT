@@ -14,6 +14,11 @@ P3 extension: Queue-based consumption
 - _queue_consumer_loop(): async loop that consumes from the queue
 - stop(): drains the queue before stopping (graceful shutdown)
 
+P4 extension: Hot/Cold path separation
+- on_price_update() is the hot path: no lock, no I/O, no allocation
+- check_leverage_downgrade() moved to cold path (periodic, via ColdPathScheduler)
+- HotPathOptimizer injected via attach_hot_optimizer() for latency telemetry
+
 Public API identical to TradingInstance (with async/await).
 """
 
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -130,6 +136,10 @@ class TradingInstanceAsync:
         self._instance_queue: Optional[Any] = None      # InstanceQueue | None
         self._queue_consumer_task: Optional[asyncio.Task] = None
 
+        # P4: Hot-path optimizer — injected by orchestrator via attach_hot_optimizer()
+        # None → latency measurement skipped (backward-compatible).
+        self._hot_optimizer: Optional[Any] = None       # HotPathOptimizer | None
+
         logger.info(f"📊 InstanceAsync {self.id} initialisée: {config.name}")
 
     # ------------------------------------------------------------------
@@ -230,6 +240,21 @@ class TradingInstanceAsync:
         """
         self._instance_queue = queue
         logger.debug(f"📬 Queue attachée à {self.id}")
+
+    # P4: Hot-path optimizer injection
+    def attach_hot_optimizer(self, optimizer: Any) -> None:
+        """
+        Attach a :class:`~hot_path_optimizer.HotPathOptimizer` for latency
+        telemetry on the hot path.
+
+        Optional — if not called, latency measurement is skipped and the hot
+        path runs without any instrumentation overhead.
+
+        Args:
+            optimizer: :class:`HotPathOptimizer` provided by the orchestrator.
+        """
+        self._hot_optimizer = optimizer
+        logger.debug(f"⚡ HotPathOptimizer attaché à {self.id}")
 
     async def start_queue_consumer(self) -> None:
         """
@@ -379,18 +404,56 @@ class TradingInstanceAsync:
     # Price update (async — called from WS multiplexer)
     # ------------------------------------------------------------------
 
-    async def on_price_update(self, data: TickerData) -> None:
-        """Called when new price received via WebSocket (async)."""
-        async with self._lock:
-            self._last_price = data.price
-            self._price_history.append((datetime.now(timezone.utc), data.price))
+    def _validate_price(self, price: float) -> bool:
+        """
+        C1/C5 guard: reject invalid, non-finite, or suspiciously large price jumps.
 
-        if self._strategy and self.status == InstanceStatus.RUNNING:
+        Returns True and updates self._last_price if the price is valid.
+        Returns False (and logs) without touching state if invalid.
+        """
+        if not math.isfinite(price) or price <= 0:
+            logger.warning(f"❌ Prix invalide reçu: {price}")
+            return False
+        if self._last_price is not None and self._last_price > 0:
+            if abs(price - self._last_price) / self._last_price > 0.10:
+                logger.warning(f"⚠️ Variation anormale: {self._last_price} → {price}")
+                return False
+        self._last_price = price
+        return True
+
+    async def on_price_update(self, data: TickerData) -> None:
+        """
+        Hot path: called on every price tick from the WebSocket feed.
+
+        P4 invariants:
+            - Zero asyncio.Lock (asyncio is single-threaded — direct attribute
+              writes have no await between them and are therefore atomic).
+            - Zero I/O (no SQLite, no network).
+            - Zero per-tick allocation (data.timestamp reused from TickerData;
+              deque.append is O(1) with no object creation).
+            - check_leverage_downgrade() removed — moved to the cold path via
+              ColdPathScheduler.schedule_periodic() in the orchestrator.
+
+        Latency telemetry is gated on self._hot_optimizer so instances without
+        an attached optimizer incur zero overhead.
+        """
+        opt = self._hot_optimizer
+        t0 = opt.start_tick() if opt is not None else 0
+
+        # C1/C5: reject invalid prices before any downstream computation.
+        # _last_price is updated as a side-effect of _validate_price().
+        if not self._validate_price(data.price):
+            return
+
+        # Reuse timestamp from TickerData (set once per WS message, not per instance)
+        self._price_history.append((data.timestamp, data.price))
+
+        if self._strategy is not None and self.status == InstanceStatus.RUNNING:
             # Strategy.on_price is sync (CPU-bound, no I/O)
             self._strategy.on_price(data.price)
 
-        if self.status == InstanceStatus.RUNNING:
-            self.check_leverage_downgrade()
+        if opt is not None:
+            opt.record_tick(t0)
 
     # ------------------------------------------------------------------
     # Position management

@@ -33,6 +33,8 @@ from .reconciliation_async import ReconciliationManagerAsync
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .orchestrator import InstanceConfig  # Reuse config dataclass
 from .risk_manager import get_risk_manager
+from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
+from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,10 @@ class OrchestratorAsync:
 
         # P3: Async dispatcher (RingBuffers → per-instance asyncio.Queues)
         self.async_dispatcher = AsyncDispatcher(self.ring_dispatcher)
+
+        # P4: Hot/Cold path separation
+        self.hot_optimizer: HotPathOptimizer = get_hot_path_optimizer()
+        self.cold_scheduler: ColdPathScheduler = get_cold_path_scheduler()
 
         # Consumer tasks — one asyncio.Task per instance (queue consumption)
         # In P3 these are owned by TradingInstanceAsync._queue_consumer_task;
@@ -166,6 +172,9 @@ class OrchestratorAsync:
 
         # Attach queue to instance (consumer task started in instance.start())
         instance.attach_queue(queue)
+
+        # P4: Attach shared hot-path optimizer for latency telemetry
+        instance.attach_hot_optimizer(self.hot_optimizer)
 
         logger.info(
             f"✅ Instance créée: {instance_id} ({config.name}) - "
@@ -315,6 +324,22 @@ class OrchestratorAsync:
         self.running = True
         self._start_time = datetime.now()
 
+        # P4: Disable GC for the hot path — periodic collection via cold scheduler
+        self.hot_optimizer.enter_hot_path()
+
+        # P4: Start cold-path scheduler
+        await self.cold_scheduler.start()
+
+        # P4: Periodic GC every 30 s (reclaims memory while hot path is GC-free)
+        self.cold_scheduler.schedule_gc(self.hot_optimizer, interval=30.0)
+
+        # P4: Periodic leverage-downgrade check for all instances every 60 s
+        self.cold_scheduler.schedule_periodic(
+            self._check_leverage_all_instances,
+            interval=60.0,
+            name="leverage-downgrade",
+        )
+
         # Connect WS via ring dispatcher (P2)
         await self.ring_dispatcher.connect()
 
@@ -339,7 +364,24 @@ class OrchestratorAsync:
 
         # Main loop
         self._main_task = asyncio.create_task(self._main_loop())
-        logger.info("✅ OrchestratorAsync démarré")
+        logger.info("✅ OrchestratorAsync démarré (P4: hot/cold path actif)")
+
+    def _check_leverage_all_instances(self) -> None:
+        """
+        Cold-path periodic task: run leverage downgrade checks for all instances.
+
+        Previously called per-tick inside on_price_update() (P0 behaviour).
+        P4 moves it here — runs every 60 s via ColdPathScheduler, keeping the
+        hot path free of O(N_trades) computation.
+        """
+        for inst in list(self._instances.values()):
+            if inst.is_running():
+                try:
+                    inst.check_leverage_downgrade()
+                except Exception as exc:
+                    logger.error(
+                        f"❄️ Erreur check_leverage {inst.id}: {exc}", exc_info=True
+                    )
 
     async def _on_stop_loss_triggered(self, position_id: str, order_status: Any) -> None:
         for inst in self._instances.values():
@@ -376,7 +418,14 @@ class OrchestratorAsync:
 
         await self.order_executor.close()
 
-        logger.info("✅ OrchestratorAsync arrêté")
+        # P4: Stop cold scheduler then re-enable GC
+        await self.cold_scheduler.stop()
+        self.hot_optimizer.exit_hot_path()
+
+        logger.info(
+            "✅ OrchestratorAsync arrêté — "
+            f"hot path stats: {self.hot_optimizer.stats}"
+        )
 
     async def emergency_stop_all(self) -> None:
         logger.error("🚨🚨🚨 EMERGENCY STOP ALL!")

@@ -6,7 +6,7 @@ CORRECTION CRITIQUE : Ce module remplace l'exécution "simulation" par de vrais 
 
 import logging
 import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Callable, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import threading

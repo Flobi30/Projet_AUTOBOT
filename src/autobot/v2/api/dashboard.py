@@ -20,19 +20,31 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    """Vérifie le token API (si configuré)"""
+    """Vérifie le token API.
+
+    - En mode development (APP_ENV=development) : token facultatif.
+    - En tout autre environnement : token obligatoire.
+    """
+    app_env = os.getenv('APP_ENV', 'production').lower()
     expected_token = os.getenv('DASHBOARD_API_TOKEN')
-    
-    # Si pas de token configuré, on laisse passer (mode dev)
-    if not expected_token:
+
+    # Mode development sans token configuré : accès libre
+    if app_env == 'development' and not expected_token:
         return True
-    
+
+    # Hors development OU token configuré : authentification obligatoire
     if not credentials:
         raise HTTPException(status_code=401, detail="Token manquant")
-    
+
+    if not expected_token:
+        raise HTTPException(
+            status_code=500,
+            detail="DASHBOARD_API_TOKEN non configuré — accès refusé en production"
+        )
+
     if credentials.credentials != expected_token:
         raise HTTPException(status_code=403, detail="Token invalide")
-    
+
     return True
 
 # Modèles Pydantic pour les réponses

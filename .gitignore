@@ -1,5 +1,11 @@
 __pycache__/
 *.pyc
 .claude-skills/
-__pycache__/
-*.pyc
+
+# SEC-05: Fichiers sensibles et données locales
+.env
+.env.local
+*.db
+data/
+logs/
+*.log

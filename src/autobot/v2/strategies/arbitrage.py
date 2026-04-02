@@ -43,7 +43,8 @@ class ArbitrageOpportunity:
     rates: List[float]          # execution rate for each leg
     gross_product: float        # product of effective rates (>1 = profit)
     net_profit_pct: float       # profit % after fees
-    timestamp: float = field(default_factory=time.time)
+    # W3: monotonic clock — immune to NTP jumps, safe for elapsed-time checks
+    timestamp: float = field(default_factory=time.monotonic)
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +54,8 @@ class ArbitrageOpportunity:
 class TriangularArbitrage:
     """
     Detect and execute triangular-arbitrage opportunities.
+
+    PRODUCTION_READY = False — strategy under development, not approved for live trading.
 
     Parameters
     ----------
@@ -64,12 +67,19 @@ class TriangularArbitrage:
         Minimum net profit % to consider an opportunity valid (default 0.5).
     """
 
+    PRODUCTION_READY = False  # W2: stratégie non approuvée pour production
+
     def __init__(
         self,
         pairs: List[str],
         fee_pct: float = 0.1,
         min_profit_pct: float = 0.5,
     ) -> None:
+        if not self.PRODUCTION_READY:
+            raise RuntimeError(
+                "❌ TriangularArbitrage non approuvée pour production. "
+                "Définir PRODUCTION_READY = True pour activer."
+            )
         if len(pairs) != 3:
             raise ValueError(f"Exactly 3 pairs required, got {len(pairs)}")
 
@@ -273,7 +283,7 @@ class TriangularArbitrage:
         Returns True on (simulated) success, False otherwise.
         """
         with self._lock:
-            age = time.time() - opp.timestamp
+            age = time.monotonic() - opp.timestamp
             if age > 5.0:
                 logger.warning("Opportunity expired (%.1f s old)", age)
                 return False
@@ -287,7 +297,7 @@ class TriangularArbitrage:
                 "directions": opp.directions,
                 "rates": opp.rates,
                 "net_profit_pct": opp.net_profit_pct,
-                "executed_at": time.time(),
+                "executed_at": time.monotonic(),
             }
             self._execution_log.append(record)
             logger.info("Executed arbitrage: %.4f%% profit", opp.net_profit_pct)
@@ -299,6 +309,16 @@ class TriangularArbitrage:
 # ========================================================================
 
 def _run_tests() -> int:
+    """Run all integrated tests and return the count of passed tests."""
+    # Allow test instantiation past PRODUCTION_READY guard
+    TriangularArbitrage.PRODUCTION_READY = True
+    try:
+        return _run_tests_impl()
+    finally:
+        TriangularArbitrage.PRODUCTION_READY = False
+
+
+def _run_tests_impl() -> int:
     """Run all integrated tests and return the count of passed tests."""
     import math
 
@@ -392,7 +412,7 @@ def _run_tests() -> int:
             rates=opp.rates,
             gross_product=opp.gross_product,
             net_profit_pct=opp.net_profit_pct,
-            timestamp=time.time() - 10.0,  # 10 seconds ago
+            timestamp=time.monotonic() - 10.0,  # 10 seconds ago (monotonic)
         )
         result = arb.execute_arbitrage(expired)
         _assert(result is False, "T8 – reject expired opportunity")

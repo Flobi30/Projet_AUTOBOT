@@ -6,18 +6,33 @@ Thread-safe (RLock), O(1) amortized via deque(maxlen).
 Aucune dépendance externe (pas de numpy/pandas).
 
 Uses Welford's online algorithm for numerically stable variance.
-Price update is decoupled from entry/exit decisions to avoid double-push bugs.
+
+IMPORTANT: Call update(price) ONCE per tick, then query should_enter() /
+should_exit() without a price argument.  Never call should_enter/should_exit
+with a price directly — that was the old API that caused double-push bugs.
+
+PRODUCTION_READY = False — this strategy is not approved for live trading.
 """
 
 from collections import deque
 from math import sqrt
 from threading import RLock
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MeanReversionStrategy:
     """Mean-reversion strategy based on simplified Bollinger Bands."""
 
+    PRODUCTION_READY = False  # Stratégie non approuvée pour production
+
     def __init__(self, window: int = 20, deviation: float = 2.0) -> None:
+        if not self.PRODUCTION_READY:
+            raise RuntimeError(
+                "❌ MeanReversionStrategy non approuvée pour production. "
+                "Définir PRODUCTION_READY = True pour activer."
+            )
         if window < 2:
             raise ValueError("window must be >= 2")
         if deviation <= 0:
@@ -32,6 +47,8 @@ class MeanReversionStrategy:
         self._m2: float = 0.0         # sum of squared deviations from mean
         self._in_position: bool = False
         self._lock = RLock()
+        # Last price pushed via update() — used by should_enter / should_exit
+        self._current_price: float = 0.0
 
     # ── internal helpers (caller must hold _lock) ──────────────────
 
@@ -81,35 +98,35 @@ class MeanReversionStrategy:
     # ── public API ─────────────────────────────────────────────────
 
     def update(self, price: float) -> None:
-        """Update the price window without making any entry/exit decision."""
+        """Push price into the window. Call this ONCE per tick before
+        querying should_enter() or should_exit()."""
         with self._lock:
             self._push(price)
+            self._current_price = price
 
-    def should_enter(self, price: float) -> bool:
-        """Return True if price < lower band and not already in position.
+    def should_enter(self) -> bool:
+        """Return True if current price < lower band and not already in position.
 
-        Also pushes the price into the window (for backward compat).
+        Must call update(price) before calling this method.
         """
         with self._lock:
-            self._push(price)
             if not self._ready() or self._in_position:
                 return False
             lower = self._mean() - self._deviation * self._std()
-            if price < lower:
+            if self._current_price < lower:
                 self._in_position = True
                 return True
             return False
 
-    def should_exit(self, price: float) -> bool:
-        """Return True if price >= mean and currently in position.
+    def should_exit(self) -> bool:
+        """Return True if current price >= mean and currently in position.
 
-        Also pushes the price into the window (for backward compat).
+        Must call update(price) before calling this method.
         """
         with self._lock:
-            self._push(price)
             if not self._ready() or not self._in_position:
                 return False
-            if price >= self._mean():
+            if self._current_price >= self._mean():
                 self._in_position = False
                 return True
             return False
@@ -150,6 +167,15 @@ class MeanReversionStrategy:
 # ═══════════════════════════════════════════════════════════════════
 
 def _run_tests() -> int:
+    # Allow test instantiation without PRODUCTION_READY guard
+    MeanReversionStrategy.PRODUCTION_READY = True
+    try:
+        return _run_tests_impl()
+    finally:
+        MeanReversionStrategy.PRODUCTION_READY = False
+
+
+def _run_tests_impl() -> int:
     passed = 0
 
     # ── 1. Paramètre validation ────────────────────────────────────
@@ -168,7 +194,8 @@ def _run_tests() -> int:
     # ── 2. Not ready until window is full ──────────────────────────
     s = MeanReversionStrategy(window=5, deviation=1.0)
     for p in [100, 101, 102, 103]:
-        assert s.should_enter(p) is False
+        s.update(p)
+        assert s.should_enter() is False
         assert s.get_status()["ready"] is False
     passed += 1
 
@@ -176,31 +203,33 @@ def _run_tests() -> int:
     s = MeanReversionStrategy(window=5, deviation=2.0)
     stable = [100.0, 100.0, 100.0, 100.0, 100.0]
     for p in stable:
-        s.should_enter(p)
+        s.update(p)
     # Price at the mean → should NOT enter
-    assert s.should_enter(100.0) is False
+    s.update(100.0)
+    assert s.should_enter() is False
     passed += 1
 
     # ── 4. Entry on extreme drop below lower band ─────────────────
     s = MeanReversionStrategy(window=5, deviation=1.0)
-    # Build window with relatively stable prices
     for p in [100, 100, 100, 100]:
-        s.should_enter(p)
+        s.update(p)
     # 5th price is a crash → std will be non-zero, price should be below lower
-    entered = s.should_enter(80.0)
+    s.update(80.0)
+    entered = s.should_enter()
     assert entered is True, "Expected entry on extreme drop"
     assert s.get_status()["in_position"] is True
     passed += 1
 
     # ── 5. No double entry ─────────────────────────────────────────
-    assert s.should_enter(70.0) is False, "Should not enter twice"
+    s.update(70.0)
+    assert s.should_enter() is False, "Should not enter twice"
     passed += 1
 
     # ── 6. Exit when price returns to mean ─────────────────────────
-    # Feed prices back up towards the mean
     exited = False
     for p in [95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105]:
-        if s.should_exit(p):
+        s.update(p)
+        if s.should_exit():
             exited = True
             break
     assert exited is True, "Expected exit when price >= mean"
@@ -210,7 +239,8 @@ def _run_tests() -> int:
     # ── 7. No exit when not in position ────────────────────────────
     s2 = MeanReversionStrategy(window=5, deviation=1.0)
     for p in [100, 100, 100, 100, 100]:
-        assert s2.should_exit(p) is False
+        s2.update(p)
+        assert s2.should_exit() is False
     passed += 1
 
     # ── 8. get_status() returns correct structure ──────────────────
@@ -220,7 +250,7 @@ def _run_tests() -> int:
     assert st["samples"] == 0
     assert st["mean"] is None
     for p in [10, 20, 30]:
-        s3.should_enter(p)
+        s3.update(p)
     st = s3.get_status()
     assert st["ready"] is True
     assert st["samples"] == 3
@@ -233,16 +263,15 @@ def _run_tests() -> int:
     # ── 9. O(1) deque eviction correctness ────────────────────────
     s4 = MeanReversionStrategy(window=3, deviation=2.0)
     for p in [10, 20, 30]:
-        s4.should_enter(p)
+        s4.update(p)
     # Push one more → oldest (10) evicted, window = [20, 30, 40]
-    s4.should_enter(40)
+    s4.update(40)
     st = s4.get_status()
     assert st["mean"] == 30.0, f"Expected mean=30, got {st['mean']}"
     passed += 1
 
     # ── 10. Thread safety (RLock re-entrance) ──────────────────────
     s5 = MeanReversionStrategy(window=5, deviation=1.0)
-    # get_status inside lock should not deadlock (RLock allows re-entrance)
     with s5._lock:
         st = s5.get_status()
     assert st["samples"] == 0
@@ -250,37 +279,52 @@ def _run_tests() -> int:
 
     # ── 11. Full cycle: enter → exit ──────────────────────────────
     s6 = MeanReversionStrategy(window=5, deviation=1.0)
-    # Stable window
     for p in [100, 100, 100, 100]:
-        s6.should_enter(p)
-    # Enter on crash
-    assert s6.should_enter(80.0) is True
-    # Exit on recovery
+        s6.update(p)
+    s6.update(80.0)
+    assert s6.should_enter() is True
     exited = False
     for p in [90, 95, 100, 105]:
-        if s6.should_exit(p):
+        s6.update(p)
+        if s6.should_exit():
             exited = True
             break
     assert exited is True
     # Can re-enter after exit
-    # Feed stable prices to rebuild window
     for p in [100, 100, 100, 100]:
-        s6.should_enter(p)
-    re_entered = s6.should_enter(80.0)
+        s6.update(p)
+    s6.update(80.0)
+    re_entered = s6.should_enter()
     assert re_entered is True, "Should be able to re-enter after exit"
     passed += 1
 
-    # ── 12. Concurrent threads ─────────────────────────────────────
+    # ── 12. No double-push: update() + should_enter() don't corrupt stats ──
+    s7 = MeanReversionStrategy(window=5, deviation=1.0)
+    for p in [100, 100, 100, 100, 100]:
+        s7.update(p)
+    mean_before = s7.get_status()["mean"]
+    # Calling should_enter() must NOT push again
+    s7.should_enter()
+    mean_after = s7.get_status()["mean"]
+    assert mean_before == mean_after, "should_enter() must not push price"
+    # Same for should_exit()
+    s7.should_exit()
+    mean_exit = s7.get_status()["mean"]
+    assert mean_before == mean_exit, "should_exit() must not push price"
+    passed += 1
+
+    # ── 13. Concurrent threads ─────────────────────────────────────
     from threading import Thread
-    s7 = MeanReversionStrategy(window=10, deviation=1.0)
+    s8 = MeanReversionStrategy(window=10, deviation=1.0)
     errors = []
 
     def feed(prices):
         try:
             for p in prices:
-                s7.should_enter(p)
-                s7.get_status()
-                s7.should_exit(p)
+                s8.update(p)
+                s8.should_enter()
+                s8.get_status()
+                s8.should_exit()
         except Exception as e:
             errors.append(e)
 
