@@ -5,7 +5,7 @@ Orchestrator - Gestionnaire central des instances de trading
 import asyncio
 import logging
 import uuid
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock, Thread, Event

@@ -163,12 +163,16 @@ class KrakenWebSocket:
     def _process_trade(self, pair: str, data: list):
         """Traite données trades"""
         try:
-            if pair in self._trades:
-                for callback in self._trades[pair]:
-                    try:
-                        callback(pair, data)
-                    except Exception as e:
-                        logger.error(f"❌ Erreur callback trade: {e}")
+            with self._lock:
+                # CORRECTION: Copier la liste pour éviter race condition
+                callbacks = list(self._trades.get(pair, []))
+            
+            # Notifie les listeners hors lock
+            for callback in callbacks:
+                try:
+                    callback(pair, data)
+                except Exception as e:
+                    logger.error(f"❌ Erreur callback trade: {e}")
         except Exception as e:
             logger.error(f"❌ Erreur parsing trade: {e}")
     
@@ -260,8 +264,14 @@ class KrakenWebSocket:
     def _reconnect(self):
         """
         CORRECTION Phase 4: Reconnexion automatique avec backoff exponentiel.
+        CORRECTION: Arrête heartbeat avant reconnexion pour éviter double thread.
         """
         logger.info(f"🔄 Reconnexion WebSocket (backoff: {self._reconnect_backoff}s)...")
+
+        # CORRECTION: Arrête heartbeat monitoring avant reconnexion
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            self.running = False
+            self._heartbeat_thread.join(timeout=2)
 
         # Ferme connexion existante
         try:
@@ -281,7 +291,6 @@ class KrakenWebSocket:
 
         # Redémarre
         try:
-            self.running = False
             self.connect()
             logger.info("✅ Reconnexion réussie")
             self._reconnect_backoff = 1  # Reset backoff
