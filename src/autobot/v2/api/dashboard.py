@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import uvicorn
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +98,10 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],  # CORRECTION: Pas "*"
 )
 
-@app.get("/")
-async def root():
-    return {"message": "AUTOBOT V2 Dashboard API", "version": "2.0.0"}
+# Serve static files from React build
+static_dir = os.getenv("DASHBOARD_STATIC_DIR", "/app/dashboard/dist")
+if os.path.exists(static_dir):
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 @app.get("/health")
 async def health_check(request: Request):

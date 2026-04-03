@@ -38,6 +38,7 @@ setup_structured_logging(
 from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.orchestrator import InstanceConfig
 from autobot.v2.os_tuning import OSTuner
+from autobot.v2.api.dashboard import DashboardServer
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ class AutoBotV2Async:
         api_secret: Optional[str] = None,
     ) -> None:
         self.orchestrator: Optional[OrchestratorAsync] = None
+        self.dashboard = None
         self.running = False
         self.dashboard_host = dashboard_host
         self.dashboard_port = dashboard_port
@@ -122,6 +124,16 @@ class AutoBotV2Async:
 
             # 3. Start orchestrator
             await self.orchestrator.start()
+            
+            # Démarrage du dashboard
+            try:
+                from autobot.v2.api.dashboard import DashboardServer
+                self.dashboard = DashboardServer(host=None, port=self.dashboard_port)
+                self.dashboard.start(self.orchestrator)
+                logger.info(f"📊 Dashboard: http://{self.dashboard_host}:{self.dashboard_port}")
+                logger.info(f"📈 API Health: http://{self.dashboard_host}:{self.dashboard_port}/health")
+            except Exception as e:
+                logger.warning(f"⚠️ Dashboard non démarré: {e}")
 
             logger.info("")
             logger.info("=" * 60)

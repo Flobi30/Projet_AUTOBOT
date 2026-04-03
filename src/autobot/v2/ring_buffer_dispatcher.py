@@ -49,6 +49,27 @@ from typing import Any, Callable, Coroutine, Dict, Optional, Set, Tuple
 from .ring_buffer import RingBuffer, RingBufferReader, DEFAULT_BUFFER_SIZE
 from .websocket_async import KrakenWebSocketAsync, TickerData
 
+def _convert_to_ws_pair(symbol: str) -> str:
+    """Convert REST symbol (XXBTZEUR) to WebSocket format (XBT/EUR)."""
+    if symbol == "XXBTZEUR":
+        return "XBT/EUR"
+    if symbol == "XXBTZUSD":
+        return "XBT/USD"
+    if symbol == "XETHZEUR":
+        return "ETH/EUR"
+    if symbol == "XETHZUSD":
+        return "ETH/USD"
+    # Format générique: XXBTZEUR -> XBT/EUR
+    if len(symbol) >= 7 and symbol[0] == 'X':
+        base_end = symbol.find('Z')
+        if base_end > 0:
+            base = symbol[1:base_end]
+            quote = symbol[base_end+1:]
+            return f"{base}/{quote}"
+    return symbol
+
+
+
 logger = logging.getLogger(__name__)
 
 # Type alias matching websocket_async.AsyncCallback
@@ -165,7 +186,7 @@ class RingBufferDispatcher:
                 self._write_ticker(_pair, data)
 
             self._ws.add_ticker_callback(pair, _write_cb)
-            await self._ws.subscribe_ticker(pair)
+            await self._ws.subscribe_ticker(_convert_to_ws_pair(pair))
 
         logger.debug(
             f"🔁 {instance_id} → {pair} "
