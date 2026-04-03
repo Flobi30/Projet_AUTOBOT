@@ -6,6 +6,7 @@ import LiveTrading from './pages/LiveTrading';
 import Backtest from './pages/Backtest';
 import Capital from './pages/Capital';
 import Analytics from './pages/Analytics';
+import Diagnostic from './pages/Diagnostic';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -32,6 +33,7 @@ function App() {
               <Route path="/backtest" element={<Backtest />} />
               <Route path="/capital" element={<Capital />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/diagnostic" element={<Diagnostic />} />
             </Routes>
           </main>
         </div>

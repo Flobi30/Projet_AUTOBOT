@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { TrendingUp, BarChart3, Wallet, PieChart, Bot, User, Activity, Menu, X } from 'lucide-react';
+import { TrendingUp, BarChart3, Wallet, PieChart, Bot, User, Activity, Menu, X, Activity as ActivityIcon, HeartPulse } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -21,6 +21,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       items: [
         { name: 'Capital', path: '/capital', icon: Wallet },
         { name: 'Analytics', path: '/analytics', icon: PieChart },
+      ]
+    },
+    {
+      category: 'SYSTÈME',
+      items: [
+        { name: 'Diagnostic', path: '/diagnostic', icon: HeartPulse },
       ]
     }
   ];
