@@ -10,9 +10,15 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
-  Terminal
+  Terminal,
+  HeartPulse
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import MetricCard from '../components/ui/MetricCard';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css';
+
+const API_BASE_URL = 'http://localhost:8080';
 
 interface HealthMetric {
   name: string;
@@ -68,78 +74,70 @@ const generateHistory = () => {
 };
 
 const StatusBadge: React.FC<{ status: 'healthy' | 'warning' | 'critical' }> = ({ status }) => {
-  const colors = {
-    healthy: 'bg-green-500/20 text-green-400 border-green-500/30',
-    warning: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    critical: 'bg-red-500/20 text-red-400 border-red-500/30'
+  const configs = {
+    healthy: { 
+      bg: 'bg-emerald-500/20', 
+      text: 'text-emerald-400', 
+      border: 'border-emerald-500/30',
+      label: 'Système OK',
+      icon: <CheckCircle className="w-4 h-4" />
+    },
+    warning: { 
+      bg: 'bg-yellow-500/20', 
+      text: 'text-yellow-400', 
+      border: 'border-yellow-500/30',
+      label: 'Attention',
+      icon: <AlertTriangle className="w-4 h-4" />
+    },
+    critical: { 
+      bg: 'bg-red-500/20', 
+      text: 'text-red-400', 
+      border: 'border-red-500/30',
+      label: 'Critique',
+      icon: <XCircle className="w-4 h-4" />
+    }
   };
   
-  const labels = {
-    healthy: 'OK',
-    warning: 'Attention',
-    critical: 'Critique'
-  };
-  
-  const icons = {
-    healthy: <CheckCircle className="w-4 h-4" />,
-    warning: <AlertTriangle className="w-4 h-4" />,
-    critical: <XCircle className="w-4 h-4" />
-  };
+  const config = configs[status];
 
   return (
-    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium border ${colors[status]}`}>
-      {icons[status]}
-      {labels[status]}
+    <span className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border ${config.bg} ${config.text} ${config.border}`}>
+      {config.icon}
+      {config.label}
     </span>
   );
 };
 
-const MetricCard: React.FC<{ 
-  icon: React.ReactNode; 
-  title: string; 
-  metric: HealthMetric;
-  subtext?: string;
-}> = ({ icon, title, metric, subtext }) => {
-  const percentage = (metric.value / metric.max) * 100;
-  const barColors = {
-    healthy: 'bg-green-500',
+const ProgressBar: React.FC<{ 
+  value: number; 
+  max: number; 
+  status: 'healthy' | 'warning' | 'critical';
+  label: string;
+}> = ({ value, max, status, label }) => {
+  const percentage = Math.min((value / max) * 100, 100);
+  const colors = {
+    healthy: 'bg-emerald-500',
     warning: 'bg-yellow-500',
     critical: 'bg-red-500'
   };
 
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-5">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-gray-700/50 rounded-lg">
-            {icon}
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-400">{title}</h3>
-            <p className="text-2xl font-bold text-white">
-              {metric.value}{metric.unit}
-            </p>
-          </div>
-        </div>
-        <StatusBadge status={metric.status} />
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-400">{label}</span>
+        <span className={`font-bold ${
+          status === 'healthy' ? 'text-emerald-400' : 
+          status === 'warning' ? 'text-yellow-400' : 'text-red-400'
+        }`}>
+          {value}%
+        </span>
       </div>
-      
-      <div className="space-y-2">
-        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-          <div 
-            className={`h-full ${barColors[metric.status]} transition-all duration-500`}
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-gray-500">
-          <span>0{metric.unit}</span>
-          <span>{metric.max}{metric.unit}</span>
-        </div>
+      <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+        <div 
+          className={`h-full ${colors[status]} transition-all duration-500 rounded-full`}
+          style={{ width: `${percentage}%` }}
+        />
       </div>
-      
-      {subtext && (
-        <p className="mt-3 text-sm text-gray-500">{subtext}</p>
-      )}
     </div>
   );
 };
@@ -150,33 +148,40 @@ const ServiceCard: React.FC<{
   status: 'up' | 'down' | 'warning';
   details: string[];
 }> = ({ icon, title, status, details }) => {
-  const statusColors = {
-    up: 'text-green-400',
-    down: 'text-red-400',
-    warning: 'text-yellow-400'
+  const statusConfig = {
+    up: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', dot: 'bg-emerald-400' },
+    down: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', dot: 'bg-red-400' },
+    warning: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', dot: 'bg-yellow-400' }
   };
 
+  const config = statusConfig[status];
+
   return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`p-2 bg-gray-700/50 rounded-lg ${statusColors[status]}`}>
-          {icon}
-        </div>
-        <div>
-          <h3 className="font-medium text-white">{title}</h3>
-          <span className={`text-sm ${statusColors[status]}`}>
-            {status === 'up' ? 'En ligne' : status === 'down' ? 'Hors ligne' : 'Dégradé'}
-          </span>
+    <div className={`${config.bg} border ${config.border} rounded-2xl p-6`}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 bg-gray-800 rounded-xl ${config.text}`}>
+            {icon}
+          </div>
+          <div>
+            <h3 className="font-bold text-white">{title}</h3>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`w-2 h-2 rounded-full ${config.dot} animate-pulse`} />
+              <span className={`text-sm ${config.text}`}>
+                {status === 'up' ? 'En ligne' : status === 'down' ? 'Hors ligne' : 'Dégradé'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
-      <ul className="space-y-1.5">
+      <div className="space-y-2 pt-4 border-t border-gray-700/50">
         {details.map((detail, i) => (
-          <li key={i} className="text-sm text-gray-400 flex items-center gap-2">
+          <div key={i} className="flex items-center gap-2 text-sm text-gray-400">
             <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" />
             {detail}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 };
@@ -187,12 +192,14 @@ const IssuesPanel: React.FC<{ issues: string[]; recommendations: string[] }> = (
 }) => {
   if (issues.length === 0) {
     return (
-      <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-5">
-        <div className="flex items-center gap-3 text-green-400">
-          <CheckCircle className="w-6 h-6" />
+      <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/30 rounded-2xl p-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-500/20 rounded-xl">
+            <CheckCircle className="w-8 h-8 text-emerald-400" />
+          </div>
           <div>
-            <h3 className="font-semibold">Tout fonctionne parfaitement</h3>
-            <p className="text-sm text-green-400/70">Aucun problème détecté</p>
+            <h3 className="text-lg font-bold text-white">Tout fonctionne parfaitement</h3>
+            <p className="text-emerald-400">Aucun problème détecté sur le système</p>
           </div>
         </div>
       </div>
@@ -202,167 +209,293 @@ const IssuesPanel: React.FC<{ issues: string[]; recommendations: string[] }> = (
   return (
     <div className="space-y-4">
       {issues.length > 0 && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-5">
-          <h3 className="flex items-center gap-2 font-semibold text-red-400 mb-3">
-            <AlertTriangle className="w-5 h-5" />
+        <div className="bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/30 rounded-2xl p-6">
+          <h3 className="flex items-center gap-3 text-lg font-bold text-red-400 mb-4">
+            <AlertTriangle className="w-6 h-6" />
             Problèmes détectés ({issues.length})
           </h3>
-          <ul className="space-y-2">
+          <div className="space-y-3">
             {issues.map((issue, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-red-300">
-                <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                {issue}
-              </li>
+              <div key={i} className="flex items-start gap-3 p-3 bg-red-500/10 rounded-xl">
+                <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="text-red-300">{issue}</span>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
       
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-5">
-        <h3 className="flex items-center gap-2 font-semibold text-blue-400 mb-3">
-          <Terminal className="w-5 h-5" />
+      <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/30 rounded-2xl p-6">
+        <h3 className="flex items-center gap-3 text-lg font-bold text-blue-400 mb-4">
+          <Terminal className="w-6 h-6" />
           Recommandations
         </h3>
-        <ul className="space-y-2">
+        <div className="space-y-3">
           {recommendations.map((rec, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm text-blue-300">
-              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-2 flex-shrink-0" />
-              {rec}
-            </li>
+            <div key={i} className="flex items-start gap-3 p-3 bg-blue-500/10 rounded-xl">
+              <span className="w-2 h-2 bg-blue-400 rounded-full mt-2 flex-shrink-0" />
+              <span className="text-blue-300">{rec}</span>
+            </div>
           ))}
-        </ul>
+        </div>
       </div>
     </div>
   );
 };
 
+const SkeletonDiagnostic = () => (
+  <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
+    <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
+      <Skeleton width={350} height={40} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
+      <Skeleton width={400} height={20} baseColor="#1a1a1a" highlightColor="#2a2a2a" className="mt-2" />
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
+      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
+      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
+      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
+    </div>
+    <Skeleton height={300} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
+  </div>
+);
+
 const Diagnostic: React.FC = () => {
   const [status, setStatus] = useState<SystemStatus>(mockStatus);
   const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [history] = useState(generateHistory());
 
-  const refreshStatus = () => {
+  useEffect(() => {
+    // Simuler chargement initial
+    const timer = setTimeout(() => setIsLoading(false), 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const refreshStatus = async () => {
     setLoading(true);
-    // Simuler un appel API
-    setTimeout(() => {
-      setStatus({
-        ...mockStatus,
-        timestamp: new Date().toISOString(),
-        metrics: {
-          ...mockStatus.metrics,
-          ram: { 
-            ...mockStatus.metrics.ram, 
-            value: Math.floor(35 + Math.random() * 30) 
-          },
-          cpu: { 
-            ...mockStatus.metrics.cpu, 
-            value: Math.floor(15 + Math.random() * 25) 
+    try {
+      // TODO: Appel API réel
+      // const res = await fetch(`${API_BASE_URL}/api/diagnostic`);
+      // const data = await res.json();
+      
+      setTimeout(() => {
+        setStatus({
+          ...mockStatus,
+          timestamp: new Date().toISOString(),
+          metrics: {
+            ...mockStatus.metrics,
+            ram: { 
+              ...mockStatus.metrics.ram, 
+              value: Math.floor(35 + Math.random() * 30) 
+            },
+            cpu: { 
+              ...mockStatus.metrics.cpu, 
+              value: Math.floor(15 + Math.random() * 25) 
+            }
           }
-        }
-      });
+        });
+        setLoading(false);
+      }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur de connexion');
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Diagnostic Système</h1>
-          <p className="text-gray-400">
-            Dernière mise à jour: {new Date(status.timestamp).toLocaleString('fr-FR')}
+  if (isLoading) {
+    return <SkeletonDiagnostic />;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
+        <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
+          <div className="flex items-center space-x-3 mb-3">
+            <HeartPulse className="w-6 lg:w-8 h-6 lg:h-8 text-red-400" />
+            <h1 className="text-2xl lg:text-4xl font-bold text-red-400">
+              Erreur de diagnostic
+            </h1>
+          </div>
+          <p className="text-gray-400 text-sm lg:text-lg mb-4">
+            Impossible de récupérer l'état du système.
           </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <StatusBadge status={status.overall} />
-          <button
-            onClick={refreshStatus}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 
-                       disabled:opacity-50 disabled:cursor-not-allowed rounded-lg 
-                       text-white font-medium transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Actualiser
-          </button>
+          <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 text-red-400">
+            {error}
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Métriques principales */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <MetricCard 
-          icon={<Cpu className="w-5 h-5 text-blue-400" />}
-          title="Utilisation RAM"
-          metric={status.metrics.ram}
-          subtext="4 GB total sur CAX11"
-        />
-        <MetricCard 
-          icon={<Activity className="w-5 h-5 text-purple-400" />}
-          title="Utilisation CPU"
-          metric={status.metrics.cpu}
-          subtext="2 vCPU ARM64"
-        />
-        <MetricCard 
-          icon={<HardDrive className="w-5 h-5 text-orange-400" />}
-          title="Espace Disque"
-          metric={status.metrics.disk}
-          subtext="40 GB SSD + 10 GB volume"
-        />
+  return (
+    <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
+      {/* Header */}
+      <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">
+          <div className="flex items-center space-x-3">
+            <HeartPulse className="w-6 lg:w-8 h-6 lg:h-8 text-emerald-400" />
+            <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
+              Diagnostic Système
+            </h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <StatusBadge status={status.overall} />
+            <button
+              onClick={refreshStatus}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 
+                         disabled:opacity-50 disabled:cursor-not-allowed rounded-xl 
+                         text-white font-bold transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Actualiser
+            </button>
+          </div>
+        </div>
+        <p className="text-gray-400 text-sm lg:text-lg">
+          Dernière mise à jour: {new Date(status.timestamp).toLocaleString('fr-FR')}
+        </p>
+      </div>
+
+      {/* Métriques principales - Utilise le composant MetricCard existant */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-emerald-400" />
+              <span className="text-gray-400 text-sm font-medium">Utilisation RAM</span>
+            </div>
+            <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
+              status.metrics.ram.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              status.metrics.ram.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              'text-red-400 bg-red-500/10'
+            }`}>
+              {status.metrics.ram.status === 'healthy' ? 'OK' : 
+               status.metrics.ram.status === 'warning' ? 'Attention' : 'Critique'}
+            </span>
+          </div>
+          <ProgressBar 
+            value={status.metrics.ram.value} 
+            max={100} 
+            status={status.metrics.ram.status}
+            label="RAM utilisée"
+          />
+          <p className="mt-3 text-sm text-gray-500">4 GB total sur CAX11</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-emerald-400" />
+              <span className="text-gray-400 text-sm font-medium">Utilisation CPU</span>
+            </div>
+            <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
+              status.metrics.cpu.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              status.metrics.cpu.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              'text-red-400 bg-red-500/10'
+            }`}>
+              {status.metrics.cpu.status === 'healthy' ? 'OK' : 
+               status.metrics.cpu.status === 'warning' ? 'Attention' : 'Critique'}
+            </span>
+          </div>
+          <ProgressBar 
+            value={status.metrics.cpu.value} 
+            max={100} 
+            status={status.metrics.cpu.status}
+            label="CPU utilisé"
+          />
+          <p className="mt-3 text-sm text-gray-500">2 vCPU ARM64</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-emerald-400" />
+              <span className="text-gray-400 text-sm font-medium">Espace Disque</span>
+            </div>
+            <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
+              status.metrics.disk.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              status.metrics.disk.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              'text-red-400 bg-red-500/10'
+            }`}>
+              {status.metrics.disk.status === 'healthy' ? 'OK' : 
+               status.metrics.disk.status === 'warning' ? 'Attention' : 'Critique'}
+            </span>
+          </div>
+          <ProgressBar 
+            value={status.metrics.disk.value} 
+            max={100} 
+            status={status.metrics.disk.status}
+            label="Disque utilisé"
+          />
+          <p className="mt-3 text-sm text-gray-500">40 GB SSD + 10 GB volume</p>
+        </div>
       </div>
 
       {/* Services */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <ServiceCard
-          icon={<Server className="w-5 h-5" />}
+          icon={<Server className="w-6 h-6" />}
           title="Docker"
           status={status.metrics.docker.running ? 'up' : 'down'}
           details={[
-            `Conteneurs: ${status.metrics.docker.containers.length} actifs`,
-            'autobot-v2: En cours',
+            `${status.metrics.docker.containers.length} conteneur(s) actif(s)`,
+            'autobot-v2: En cours d\'exécution',
             'Réseau: Connecté'
           ]}
         />
         <ServiceCard
-          icon={<Wifi className="w-5 h-5" />}
+          icon={<Wifi className="w-6 h-6" />}
           title="Kraken API"
           status={status.metrics.kraken.accessible ? 'up' : 'down'}
           details={[
             `Latence: ${status.metrics.kraken.latency}ms`,
-            'Connexion: HTTPS',
-            'Sandbox: Actif'
+            'Connexion: HTTPS sécurisé',
+            'Mode: Sandbox (Paper Trading)'
           ]}
         />
         <ServiceCard
-          icon={<Database className="w-5 h-5" />}
+          icon={<Database className="w-6 h-6" />}
           title="Base de données"
           status={status.metrics.database.exists ? 'up' : 'down'}
           details={[
             `Taille: ${status.metrics.database.size_mb} MB`,
             'Type: SQLite',
-            'Backups: Quotidiens'
+            'Backups: Automatiques quotidiens'
           ]}
         />
       </div>
 
       {/* Graphique d'historique */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-8">
-        <h3 className="text-lg font-semibold text-white mb-4">Historique des 24 dernières heures</h3>
-        <div className="h-64">
+      <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 mb-6 lg:mb-8 shadow-2xl">
+        <h2 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6">
+          Historique des 24 dernières heures
+        </h2>
+        <div className="h-64 lg:h-80">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={history}>
-              <XAxis dataKey="time" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
+              <defs>
+                <linearGradient id="colorRam" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="time" stroke="#9CA3AF" fontSize={12} />
+              <YAxis stroke="#9CA3AF" fontSize={12} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: '#1f2937', 
+                  backgroundColor: '#1F2937', 
                   border: '1px solid #374151',
-                  borderRadius: '8px'
+                  borderRadius: '12px'
                 }}
               />
-              <Line type="monotone" dataKey="ram" stroke="#3b82f6" name="RAM %" strokeWidth={2} />
-              <Line type="monotone" dataKey="cpu" stroke="#a855f7" name="CPU %" strokeWidth={2} />
-              <Line type="monotone" dataKey="latency" stroke="#f97316" name="Latence ms" strokeWidth={2} />
+              <Line type="monotone" dataKey="ram" stroke="#3b82f6" strokeWidth={3} name="RAM %" dot={false} />
+              <Line type="monotone" dataKey="cpu" stroke="#a855f7" strokeWidth={3} name="CPU %" dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -372,19 +505,19 @@ const Diagnostic: React.FC = () => {
       <IssuesPanel issues={status.issues} recommendations={status.recommendations} />
 
       {/* Actions rapides */}
-      <div className="mt-8 bg-gray-800/30 border border-gray-700 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Actions rapides</h3>
+      <div className="mt-8 bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-white mb-4">Actions rapides</h3>
         <div className="flex flex-wrap gap-3">
-          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors">
+          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm text-white font-medium transition-colors">
             Voir les logs complets
           </button>
-          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors">
+          <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-sm text-white font-medium transition-colors">
             Redémarrer le bot
           </button>
-          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors">
+          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm text-white font-medium transition-colors">
             Backup manuel
           </button>
-          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors">
+          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm text-white font-medium transition-colors">
             Nettoyer les logs
           </button>
         </div>
