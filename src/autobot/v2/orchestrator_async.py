@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from .ring_buffer_dispatcher import RingBufferDispatcher
@@ -346,7 +346,7 @@ class OrchestratorAsync:
         if self.running:
             return
         self.running = True
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(timezone.utc)
 
         # P4: Disable GC for the hot path — periodic collection via cold scheduler
         self.hot_optimizer.enter_hot_path()
@@ -472,7 +472,7 @@ class OrchestratorAsync:
         return {
             "running": self.running,
             "start_time": self._start_time,
-            "uptime": datetime.now() - self._start_time if self._start_time else None,
+            "uptime": datetime.now(timezone.utc) - self._start_time if self._start_time else None,
             "instance_count": len(self._instances),
             "max_instances": self.config["max_instances"],
             "websocket_connected": self.ws_client.is_connected(),
