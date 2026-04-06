@@ -113,23 +113,55 @@ class MarketSelector:
         return markets
     
     def _get_all_available_markets(self) -> List:
-        """Retourne tous les marchés disponibles avec leurs métriques"""
-        # Symboles supportés
-        symbols = [
-            # Crypto
-            "BTC/EUR", "ETH/EUR", "SOL/EUR", "ADA/EUR",
-            # Forex
-            "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
-            # Commodités (via tokens)
-            "GOLD/EUR", "SILVER/EUR"
+        """Retourne tous les marchés disponibles avec leurs métriques
+        
+        50 Cryptos + 20 Forex = 70 paires au total
+        """
+        # 50 Cryptos
+        CRYPTO_PAIRS = [
+            # Majors (10)
+            "BTC/EUR", "ETH/EUR", "SOL/EUR", "ADA/EUR", "DOT/EUR",
+            "LINK/EUR", "AVAX/EUR", "MATIC/EUR", "UNI/EUR", "AAVE/EUR",
+            # Altcoins majeurs (10)
+            "XRP/EUR", "LTC/EUR", "BCH/EUR", "XLM/EUR", "ETC/EUR",
+            "ALGO/EUR", "ATOM/EUR", "FIL/EUR", "XTZ/EUR", "EOS/EUR",
+            # DeFi (10)
+            "MKR/EUR", "COMP/EUR", "YFI/EUR", "SNX/EUR", "CRV/EUR",
+            "SUSHI/EUR", "1INCH/EUR", "LRC/EUR", "GRT/EUR", "BAT/EUR",
+            # Layer 1 & Metaverse (10)
+            "NEAR/EUR", "FTM/EUR", "ONE/EUR", "EGLD/EUR", "ICP/EUR",
+            "FLOW/EUR", "CHZ/EUR", "ENJ/EUR", "MANA/EUR", "SAND/EUR",
+            # Memes & Divers (10)
+            "DOGE/EUR", "SHIB/EUR", "TRX/EUR", "XMR/EUR", "DASH/EUR",
+            "ZEC/EUR", "WAVES/EUR", "THETA/EUR", "VET/EUR", "HBAR/EUR"
         ]
         
+        # 20 Forex
+        FOREX_PAIRS = [
+            # Majors (4)
+            "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
+            # Commodities (3)
+            "AUD/USD", "USD/CAD", "NZD/USD",
+            # Euro crosses (3)
+            "EUR/GBP", "EUR/JPY", "EUR/CHF",
+            # Other crosses (3)
+            "GBP/JPY", "GBP/CHF", "CHF/JPY",
+            # Yen crosses (3)
+            "AUD/JPY", "CAD/JPY", "NZD/JPY",
+            # Minor crosses (4)
+            "EUR/AUD", "EUR/CAD", "GBP/AUD", "AUD/CAD"
+        ]
+        
+        all_symbols = CRYPTO_PAIRS + FOREX_PAIRS
+        logger.info(f"📊 Analyse de {len(all_symbols)} paires (50 cryptos + 20 forex)")
+        
         markets = []
-        for symbol in symbols:
+        for symbol in all_symbols:
             metrics = self.analyzer.analyze_market(symbol)
             if metrics:
                 markets.append(metrics)
         
+        logger.info(f"✅ {len(markets)} marchés disponibles après analyse")
         return markets
     
     def _filter_candidates(self, markets: List, current_markets: Dict[str, int]) -> List:
