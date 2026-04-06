@@ -117,7 +117,7 @@ const LiveTrading: React.FC = () => {
     { time: '04:00', value: globalStatus ? globalStatus.total_capital * 0.98 : 5150 },
     { time: '08:00', value: globalStatus ? globalStatus.total_capital * 1.02 : 5280 },
     { time: '12:00', value: globalStatus ? globalStatus.total_capital * 0.99 : 5190 },
-    { time: '16:00', value: globalStatus ? globalStatus.total_capital : 5420 },
+    { time: '16:00', value: globalStatus ? globalStatus.total_capital : 1000 },
     { time: '20:00', value: globalStatus ? globalStatus.total_capital * 0.97 : 5380 },
   ];
 
