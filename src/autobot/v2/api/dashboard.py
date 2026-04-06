@@ -48,15 +48,28 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
 
     # Hors development OU token configuré : authentification obligatoire
     if not credentials:
+        logger.warning("🔒 Auth: pas de credentials dans la requête")
         raise HTTPException(status_code=401, detail="Token manquant")
 
     if not expected_token:
+        logger.error("🔒 DASHBOARD_API_TOKEN non configuré dans .env!")
         raise HTTPException(
             status_code=500,
             detail="DASHBOARD_API_TOKEN non configuré — accès refusé en production"
         )
 
-    if credentials.credentials != expected_token:
+    # FIX: Strip whitespace/newlines from both tokens before comparison
+    # .env files and HTTP headers can have trailing whitespace
+    received = credentials.credentials.strip()
+    expected = expected_token.strip()
+
+    if received != expected:
+        logger.warning(
+            f"🔒 Token invalide — reçu[:{min(10, len(received))}]: "
+            f"{received[:10]}... (len={len(received)}), "
+            f"attendu[:{min(10, len(expected))}]: "
+            f"{expected[:10]}... (len={len(expected)})"
+        )
         raise HTTPException(status_code=403, detail="Token invalide")
 
     return True

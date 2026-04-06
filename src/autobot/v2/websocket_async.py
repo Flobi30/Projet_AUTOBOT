@@ -202,10 +202,16 @@ class KrakenWebSocketAsync:
             if event == "subscriptionStatus":
                 pair = data.get("pair")
                 status = data.get("status")
-                logger.info(f"📡 Subscription {pair}: {status}")
+                err = data.get("errorMessage", "")
+                logger.info(f"📡 Subscription {pair}: {status} {err}")
                 if status == "subscribed" and pair:
                     self._subscribed_pairs.add(pair)
+                elif status == "error":
+                    logger.error(f"❌ Subscription échouée pour {pair}: {err}")
                 return
+            # Log unexpected events for debug
+            logger.debug(f"📨 WS event non géré: {event} — {str(data)[:200]}")
+            return
 
         # Channel data
         if isinstance(data, list) and len(data) >= 4:
@@ -215,6 +221,8 @@ class KrakenWebSocketAsync:
 
             if "ticker" in channel_name:
                 await self._process_ticker(pair, channel_data)
+            else:
+                logger.debug(f"📨 WS channel non géré: {channel_name} pair={pair}")
 
     async def _process_ticker(self, pair: str, data: dict) -> None:
         """Process ticker update and dispatch to subscribers."""
@@ -250,6 +258,13 @@ class KrakenWebSocketAsync:
 
         # Dispatch to async callbacks
         callbacks = list(self._ticker_callbacks.get(pair, []))
+        if not callbacks and self._msg_count % 60 == 1:
+            # Log periodically if no callbacks registered for this pair
+            registered_keys = list(self._ticker_callbacks.keys())
+            logger.warning(
+                f"⚠️ Ticker {pair}: aucun callback enregistré "
+                f"(clés connues: {registered_keys})"
+            )
         for cb in callbacks:
             try:
                 await cb(ticker)

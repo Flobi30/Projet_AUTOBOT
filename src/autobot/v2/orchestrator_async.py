@@ -336,7 +336,7 @@ class OrchestratorAsync:
         if active:
             rm = get_risk_manager()
             rm.set_orchestrator(self)
-            rm.check_global_risk(active)
+            await rm.check_global_risk(active)
 
     # ------------------------------------------------------------------
     # Lifecycle
