@@ -3,7 +3,7 @@ import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader, Exter
 import MetricCard from '../components/ui/MetricCard';
 import { useAppStore } from '../store/useAppStore';
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
 interface CapitalData {
   total_capital: number;
@@ -55,7 +55,7 @@ const Capital: React.FC = () => {
           total_capital: statusData.total_capital || 0,
           total_profit: statusData.total_profit || 0,
           total_invested: (statusData.total_capital || 0) - (statusData.total_profit || 0),
-          available_cash: (statusData.total_capital || 0) * 0.1,
+          available_cash: 0,  // N/A en mode fallback
           currency: 'EUR',
           timestamp: new Date().toISOString(),
         };
@@ -151,7 +151,7 @@ const Capital: React.FC = () => {
         />
         <MetricCard
           title="Cash Disponible"
-          value={capitalData ? formatCurrency(capitalData.available_cash) : '—'}
+          value={capitalData ? (capitalData.available_cash === 0 ? '—' : formatCurrency(capitalData.available_cash)) : '—'}
           icon={<Wallet className="w-5 h-5" />}
         />
       </div>

@@ -18,6 +18,18 @@ from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 
+# P2: Cache pour get_instances_snapshot — TTL 1 seconde
+_snapshot_cache: Dict[str, Any] = {"data": None, "ts": 0.0, "ttl": 1.0}
+
+def get_cached_snapshot(orchestrator: Any) -> list:
+    """Retourne un snapshot caché (TTL 1s) pour éviter les appels répétés."""
+    global _snapshot_cache
+    now = time.time()
+    if _snapshot_cache["data"] is None or now - _snapshot_cache["ts"] > _snapshot_cache["ttl"]:
+        _snapshot_cache["data"] = orchestrator.get_instances_snapshot()
+        _snapshot_cache["ts"] = now
+    return _snapshot_cache["data"]
+
 # CORRECTION: Sécurité - Token Bearer pour auth
 security = HTTPBearer(auto_error=False)
 
@@ -189,7 +201,7 @@ async def get_instances(
     
     try:
         # CORRECTION: Utilise méthode thread-safe
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
         return [
             InstanceStatus(
                 id=inst['id'],
@@ -285,7 +297,7 @@ async def get_performance(request: Request, authorized: bool = Depends(verify_to
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
         total_capital = sum(inst.get('capital', 0) for inst in instances_data)
         total_profit = sum(inst.get('profit', 0) for inst in instances_data)
         total_initial = sum(inst.get('initial_capital', inst.get('capital', 0)) for inst in instances_data)
@@ -344,7 +356,7 @@ async def get_drawdown(request: Request, authorized: bool = Depends(verify_token
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
 
         per_instance = []
         global_peak = 0.0
@@ -411,7 +423,7 @@ async def get_shadow_status(request: Request, authorized: bool = Depends(verify_
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
 
         shadow_instances = []
         live_instances = []
@@ -548,7 +560,7 @@ async def get_dormant_strategies(request: Request, authorized: bool = Depends(ve
     try:
         # Récupère le registre de stratégies
         strategy_registry = getattr(orchestrator, 'strategy_registry', {})
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
 
         # Stratégies actives (utilisées par des instances)
         active_strategies = set(inst.get('strategy', '') for inst in instances_data)
@@ -656,7 +668,7 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
+        instances_data = get_cached_snapshot(orchestrator)
         total_capital = sum(inst.get('capital', 0) for inst in instances_data)
         total_profit = sum(inst.get('profit', 0) for inst in instances_data)
         total_invested = total_capital - total_profit
@@ -683,31 +695,35 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
-        trades = []
+        instances_data = get_cached_snapshot(orchestrator)
 
+        # Collecter tous les trades avec timestamp pour tri global
+        all_trades = []
         for inst in instances_data:
-            inst_trades = inst.get('trades_history', [])
-            chunk_size = max(1, limit // len(instances_data)) if instances_data else limit
-            for trade in inst_trades[-chunk_size:]:
-                trades.append({
-                    "id": trade.get('id', 'unknown'),
-                    "instance_id": inst['id'],
-                    "instance_name": inst.get('name', 'Unknown'),
-                    "pair": trade.get('pair', 'XBT/EUR'),
-                    "side": trade.get('side', 'BUY'),
-                    "amount": trade.get('amount', 0),
-                    "price": trade.get('price', 0),
-                    "pnl": trade.get('pnl', 0),
-                    "timestamp": trade.get('timestamp', datetime.now().isoformat()),
-                    "strategy": inst.get('strategy', 'unknown')
-                })
+            for trade in inst.get('trades_history', []):
+                all_trades.append((
+                    trade.get('timestamp', ''),
+                    {
+                        "id": trade.get('id', 'unknown'),
+                        "instance_id": inst['id'],
+                        "instance_name": inst.get('name', 'Unknown'),
+                        "pair": trade.get('pair', 'XBT/EUR'),
+                        "side": trade.get('side', 'BUY'),
+                        "amount": trade.get('amount', 0),
+                        "price": trade.get('price', 0),
+                        "pnl": trade.get('pnl', 0),
+                        "timestamp": trade.get('timestamp', datetime.now().isoformat()),
+                        "strategy": inst.get('strategy', 'unknown')
+                    }
+                ))
 
-        trades.sort(key=lambda x: x['timestamp'], reverse=True)
+        # Trier par timestamp décroissant et prendre limit
+        all_trades.sort(key=lambda x: x[0], reverse=True)
+        trades = [t[1] for t in all_trades[:limit]]
 
         return {
             "count": len(trades),
-            "trades": trades[:limit]
+            "trades": trades
         }
     except Exception:
         logger.exception("Erreur récupération trades")

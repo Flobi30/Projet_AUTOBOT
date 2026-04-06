@@ -65,6 +65,8 @@ class GridStrategyAsync(StrategyAsync):
         # P6 — must be set before _init_grid() which checks it
         self._spec_cache: Optional[SpeculativeOrderCache] = None
         self._grid_initialized = False
+        self._init_prices: deque = deque(maxlen=5)  # Buffer pour médiane
+        self._init_min_samples = 5
 
         # Only init grid now if center_price was explicitly provided
         if self.center_price is not None:
@@ -228,11 +230,16 @@ class GridStrategyAsync(StrategyAsync):
         if not self._initialized or not math.isfinite(price) or price <= 0:
             return
 
-        # Dynamic grid initialization on first price received
+        # Dynamic grid initialization — collect samples then use median
         if not self._grid_initialized:
-            if self.center_price is None:
-                self.center_price = price
-                logger.info(f"📊 Grid initialisée au prix: {price:.2f}€")
+            self._init_prices.append(price)
+            if len(self._init_prices) < self._init_min_samples:
+                logger.info(f"📊 Grid: collecte échantillons {len(self._init_prices)}/{self._init_min_samples}")
+                return  # Attendre plus d'échantillons
+            # Calculer la médiane
+            sorted_prices = sorted(self._init_prices)
+            self.center_price = sorted_prices[len(sorted_prices) // 2]
+            logger.info(f"📊 Grid initialisée au prix (médiane): {self.center_price:.2f}€")
             self._init_grid()
             self._grid_initialized = True
 
