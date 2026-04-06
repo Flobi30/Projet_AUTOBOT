@@ -1,28 +1,104 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Banknote, Loader } from 'lucide-react';
+import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Banknote, Loader, RefreshCw } from 'lucide-react';
 import MetricCard from '../components/ui/MetricCard';
 import WithdrawalForm from '../components/ui/WithdrawalForm';
 import Modal from '../components/ui/Modal';
+import { useAppStore } from '../store/useAppStore';
 import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:8080';
 
 // Chargez votre clé publique Stripe depuis les variables d'environnement
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
+interface CapitalData {
+  total_capital: number;
+  total_profit: number;
+  total_invested: number;
+  available_cash: number;
+  currency: string;
+  timestamp: string;
+}
+
+interface TradeData {
+  id: string;
+  instance_id: string;
+  instance_name: string;
+  pair: string;
+  side: string;
+  amount: number;
+  price: number;
+  pnl: number;
+  timestamp: string;
+  strategy: string;
+}
+
 const Capital: React.FC = () => {
+  const { setCapitalTotal } = useAppStore();
   const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
   const [isDepositLoading, setIsDepositLoading] = useState(false);
+
+  // État pour les données réelles de l'API
+  const [capitalData, setCapitalData] = useState<CapitalData | null>(null);
+  const [trades, setTrades] = useState<TradeData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch des données capital et trades depuis l'API
+  const fetchCapitalData = useCallback(async () => {
+    try {
+      setError(null);
+
+      // Fetch capital details
+      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`);
+      if (capitalRes.ok) {
+        const data: CapitalData = await capitalRes.json();
+        setCapitalData(data);
+        setCapitalTotal(data.total_capital);
+      } else {
+        // Fallback sur /api/status si /api/capital n'existe pas encore
+        const statusRes = await fetch(`${API_BASE_URL}/api/status`);
+        if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
+        const statusData = await statusRes.json();
+        const fallback: CapitalData = {
+          total_capital: statusData.total_capital || 0,
+          total_profit: statusData.total_profit || 0,
+          total_invested: (statusData.total_capital || 0) - (statusData.total_profit || 0),
+          available_cash: (statusData.total_capital || 0) * 0.1,
+          currency: 'EUR',
+          timestamp: new Date().toISOString(),
+        };
+        setCapitalData(fallback);
+        setCapitalTotal(fallback.total_capital);
+      }
+
+      // Fetch recent trades
+      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`);
+      if (tradesRes.ok) {
+        const tradesData = await tradesRes.json();
+        setTrades(tradesData.trades || []);
+      }
+
+      setIsLoading(false);
+    } catch (err) {
+      console.error('Erreur connexion API Capital:', err);
+      setError(err instanceof Error ? err.message : 'Erreur de connexion');
+      setIsLoading(false);
+    }
+  }, [setCapitalTotal]);
+
+  useEffect(() => {
+    fetchCapitalData();
+    const interval = setInterval(fetchCapitalData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchCapitalData]);
 
   const handleDepositClick = async () => {
     setIsDepositLoading(true);
 
-    // --- GUIDE POUR DEVIN ---
-    // Étape 1: Appeler votre backend pour créer une session de Checkout Stripe.
-    // Vous devez créer un endpoint (ex: POST /api/create-checkout-session)
-    // qui utilise la bibliothèque Stripe Node.js pour créer une session.
-    // Il doit retourner un { sessionId: 'cs_...' }.
     try {
-      // NOTE POUR DEVIN: Décommentez et adaptez ce code pour l'appel réel au backend.
+      // NOTE: Décommentez et adaptez ce code pour l'appel réel au backend Stripe.
       /*
       const response = await axios.post('/api/create-checkout-session', {
         amount: 5000, // Montant en centimes, ex: 50.00€
@@ -31,35 +107,41 @@ const Capital: React.FC = () => {
       const { sessionId } = response.data;
       */
 
-      // Simulation pour la démo. Devin remplacera ceci.
+      // Simulation pour la démo
       await new Promise(resolve => setTimeout(resolve, 1500));
-      const sessionId = 'cs_test_...'; // Ceci est un ID de session factice.
-      console.log("DEVIN: Session de Checkout créée sur le backend avec l'ID:", sessionId);
-      alert("Redirection vers Stripe Checkout simulée. Devin doit implémenter l'appel backend pour que cela fonctionne réellement.");
+      const sessionId = 'cs_test_...';
+      console.log("Session de Checkout créée:", sessionId);
+      alert("Redirection vers Stripe Checkout simulée. L'appel backend doit être implémenté.");
 
-      // Étape 2: Rediriger l'utilisateur vers la page de paiement Stripe.
       const stripe = await stripePromise;
-      if (stripe && sessionId !== 'cs_test_...') { // Ne pas rediriger avec le faux ID
+      if (stripe && sessionId !== 'cs_test_...') {
         const { error } = await stripe.redirectToCheckout({ sessionId });
         if (error) {
           console.error("Erreur de redirection Stripe:", error.message);
-          // Gérer l'erreur côté client ici
         }
       }
     } catch (error) {
       console.error("Erreur lors de la création de la session de Checkout:", error);
       alert("Le backend pour créer la session de paiement n'est pas encore implémenté.");
     }
-    // --- FIN DU GUIDE POUR DEVIN ---
 
     setIsDepositLoading(false);
   };
-  
-  const recentTransactions = [
-    { type: 'deposit', amount: '+1,500€', description: 'Dépôt par carte', date: '23/01/2025' },
-    { type: 'profit', amount: '+127€', description: 'Profit trading BTC/USD', date: '22/01/2025' },
-    { type: 'withdraw', amount: '-300€', description: 'Retrait vers compte bancaire', date: '20/01/2025' },
-  ];
+
+  // Formatage monétaire
+  const formatCurrency = (value: number): string => {
+    return value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  };
+
+  // Transformer les trades en transactions affichables
+  const recentTransactions = trades.length > 0
+    ? trades.map((trade) => ({
+        type: trade.pnl >= 0 ? 'profit' : 'withdraw',
+        amount: `${trade.pnl >= 0 ? '+' : ''}${formatCurrency(trade.pnl)}`,
+        description: `${trade.side} ${trade.pair} (${trade.instance_name})`,
+        date: new Date(trade.timestamp).toLocaleDateString('fr-FR'),
+      }))
+    : [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -70,16 +152,42 @@ const Capital: React.FC = () => {
           <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
             Portail Capital
           </h1>
+          {isLoading && <Loader className="w-5 h-5 text-emerald-400 animate-spin" />}
         </div>
         <p className="text-gray-400 text-sm lg:text-lg">Gérez vos fonds de manière sécurisée.</p>
+        {error && (
+          <div className="mt-2 bg-red-500/20 border border-red-500/50 rounded-lg p-3 text-red-400 text-sm">
+            ⚠️ {error} — Les données affichées peuvent ne pas être à jour.
+          </div>
+        )}
       </div>
 
-      {/* Metrics */}
+      {/* Metrics - données réelles de l'API */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
-        <MetricCard title="Capital Total" value="5,420€" icon={<DollarSign className="w-5 h-5" />} />
-        <MetricCard title="Profit Réalisé" value="1,285€" icon={<TrendingUp className="w-5 h-5" />} />
-        <MetricCard title="Capital Investi" value="4,135€" icon={<CreditCard className="w-5 h-5" />} />
-        <MetricCard title="Cash Disponible" value="285€" icon={<Wallet className="w-5 h-5" />} />
+        <MetricCard
+          title="Capital Total"
+          value={capitalData ? formatCurrency(capitalData.total_capital) : '—'}
+          icon={<DollarSign className="w-5 h-5" />}
+        />
+        <MetricCard
+          title="Profit Réalisé"
+          value={capitalData ? formatCurrency(capitalData.total_profit) : '—'}
+          icon={<TrendingUp className="w-5 h-5" />}
+          isPositive={(capitalData?.total_profit ?? 0) >= 0}
+          change={capitalData && capitalData.total_capital > 0
+            ? `${((capitalData.total_profit / capitalData.total_capital) * 100).toFixed(2)}%`
+            : undefined}
+        />
+        <MetricCard
+          title="Capital Investi"
+          value={capitalData ? formatCurrency(capitalData.total_invested) : '—'}
+          icon={<CreditCard className="w-5 h-5" />}
+        />
+        <MetricCard
+          title="Cash Disponible"
+          value={capitalData ? formatCurrency(capitalData.available_cash) : '—'}
+          icon={<Wallet className="w-5 h-5" />}
+        />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8">
@@ -105,33 +213,39 @@ const Capital: React.FC = () => {
             </div>
         </div>
 
-        {/* Recent Transactions */}
+        {/* Recent Transactions - données réelles */}
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl">
           <h3 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6">Historique des Transactions</h3>
           <div className="space-y-3">
-            {recentTransactions.map((transaction, index) => (
-              <div key={index} className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 lg:p-4 bg-gray-700/50 rounded-xl space-y-2 sm:space-y-0">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-8 lg:w-10 h-8 lg:h-10 rounded-lg flex items-center justify-center ${
-                    transaction.type === 'deposit' || transaction.type === 'profit' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                  }`}>
-                    {transaction.type === 'withdraw' ? 
-                      <TrendingDown className="w-4 lg:w-5 h-4 lg:h-5" /> : 
-                      <TrendingUp className="w-4 lg:w-5 h-4 lg:h-5" />
-                    }
-                  </div>
-                  <div>
-                    <p className="text-white font-medium text-sm lg:text-base">{transaction.description}</p>
-                    <p className="text-gray-400 text-xs lg:text-sm">{transaction.date}</p>
-                  </div>
-                </div>
-                <div className={`font-bold text-sm lg:text-lg ${
-                  transaction.amount.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
-                }`}>
-                  {transaction.amount}
-                </div>
+            {recentTransactions.length === 0 ? (
+              <div className="text-gray-500 text-center py-8">
+                Aucune transaction récente
               </div>
-            ))}
+            ) : (
+              recentTransactions.map((transaction, index) => (
+                <div key={index} className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 lg:p-4 bg-gray-700/50 rounded-xl space-y-2 sm:space-y-0">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-8 lg:w-10 h-8 lg:h-10 rounded-lg flex items-center justify-center ${
+                      transaction.type === 'deposit' || transaction.type === 'profit' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {transaction.type === 'withdraw' ? 
+                        <TrendingDown className="w-4 lg:w-5 h-4 lg:h-5" /> : 
+                        <TrendingUp className="w-4 lg:w-5 h-4 lg:h-5" />
+                      }
+                    </div>
+                    <div>
+                      <p className="text-white font-medium text-sm lg:text-base">{transaction.description}</p>
+                      <p className="text-gray-400 text-xs lg:text-sm">{transaction.date}</p>
+                    </div>
+                  </div>
+                  <div className={`font-bold text-sm lg:text-lg ${
+                    transaction.amount.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
+                  }`}>
+                    {transaction.amount}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

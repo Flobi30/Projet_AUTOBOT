@@ -209,7 +209,7 @@ class RiskManager:
         """Définit la référence vers l'orchestrator (pour disjoncteur)."""
         self._orchestrator = orchestrator
 
-    def _check_risk_limits(self, global_pf: float) -> bool:
+    async def _check_risk_limits(self, global_pf: float) -> bool:
         """
         Vérifie les limites de risque globales.
 
@@ -223,11 +223,11 @@ class RiskManager:
         if global_pf == 0.0:
             return True
         if global_pf < self.PF_CIRCUIT_BREAKER_THRESHOLD:
-            self.circuit_breaker_pf_low(global_pf)
+            await self.circuit_breaker_pf_low(global_pf)
             return False
         return True
 
-    def circuit_breaker_pf_low(self, pf: float):
+    async def circuit_breaker_pf_low(self, pf: float):
         """
         Disjoncteur global : PF trop bas → arrêt de toutes les instances.
 
@@ -244,7 +244,7 @@ class RiskManager:
 
         if self._orchestrator is not None:
             try:
-                self._orchestrator.emergency_stop_all()
+                await self._orchestrator.emergency_stop_all()
             except Exception as e:
                 logger.exception(f"❌ Erreur arrêt via orchestrator: {e}")
         else:
@@ -274,7 +274,7 @@ class RiskManager:
             return float("inf") if gross_profit > 0 else 0.0
         return gross_profit / gross_loss
 
-    def check_global_risk(self, instances: list) -> bool:
+    async def check_global_risk(self, instances: list) -> bool:
         """
         Point d'entrée pour vérification globale des risques.
         Calcule le PF global et déclenche le disjoncteur si nécessaire.
@@ -291,7 +291,7 @@ class RiskManager:
         global_pf = self.compute_global_profit_factor(instances)
         logger.debug(f"📊 PF global: {global_pf:.2f}")
 
-        return self._check_risk_limits(global_pf)
+        return await self._check_risk_limits(global_pf)
 
     def get_summary(self, capital: float) -> Dict:
         """Retourne résumé des paramètres de risque"""

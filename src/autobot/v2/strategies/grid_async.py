@@ -54,7 +54,7 @@ class GridStrategyAsync(StrategyAsync):
     def __init__(self, instance: Any, config: Optional[Dict] = None) -> None:
         super().__init__(instance, config)
 
-        self.center_price = self.config.get("center_price", 50000.0)
+        self.center_price = self.config.get("center_price", None)
         self.range_percent = self.config.get("range_percent", 7.0)
         self.num_levels = self.config.get("num_levels", 15)
         self.max_capital_per_level = self.config.get("max_capital_per_level", 50.0)
@@ -64,7 +64,12 @@ class GridStrategyAsync(StrategyAsync):
         self._runtime_capital_per_level: float = 0.0
         # P6 — must be set before _init_grid() which checks it
         self._spec_cache: Optional[SpeculativeOrderCache] = None
-        self._init_grid()
+        self._grid_initialized = False
+
+        # Only init grid now if center_price was explicitly provided
+        if self.center_price is not None:
+            self._init_grid()
+            self._grid_initialized = True
 
         # Modules
         _load_modules()
@@ -79,7 +84,10 @@ class GridStrategyAsync(StrategyAsync):
         self._sell_threshold_pct = max(1.5, grid_step * 0.8)
         self._max_drawdown_pct = self.config.get("max_drawdown_pct", 10.0)
         self._grid_invalidation_factor = self.config.get("grid_invalidation_factor", 2.0)
-        self._emergency_close_price = self.center_price * (1 - self.range_percent * self._grid_invalidation_factor / 100)
+        self._emergency_close_price = (
+            self.center_price * (1 - self.range_percent * self._grid_invalidation_factor / 100)
+            if self.center_price is not None else 0.0
+        )
 
         self._price_history: deque = deque(maxlen=100)
         self._initialized = True
@@ -87,7 +95,7 @@ class GridStrategyAsync(StrategyAsync):
 
         # DGT — Dynamic Grid Recentering (NTU 2025)
         self._dgt: Optional[GridRecenteringManager] = None
-        if self.config.get("enable_dgt", True):
+        if self.config.get("enable_dgt", True) and self.center_price is not None:
             self._dgt = GridRecenteringManager(
                 center_price=self.center_price,
                 range_percent=self.range_percent,
@@ -99,10 +107,16 @@ class GridStrategyAsync(StrategyAsync):
                 trailing_pct=self.config.get("dgt_trailing_pct", 5.0),
             )
 
-        logger.info(
-            f"📊 GridAsync: {self.num_levels} niveaux, ±{self.range_percent}% "
-            f"sur {self.center_price:.0f}€"
-        )
+        if self.center_price is not None:
+            logger.info(
+                f"📊 GridAsync: {self.num_levels} niveaux, ±{self.range_percent}% "
+                f"sur {self.center_price:.0f}€"
+            )
+        else:
+            logger.info(
+                f"📊 GridAsync: {self.num_levels} niveaux, ±{self.range_percent}% "
+                f"— center_price sera initialisé au premier prix reçu"
+            )
 
     def _init_grid(self) -> None:
         self.grid_levels = calculate_grid_levels(
@@ -213,6 +227,37 @@ class GridStrategyAsync(StrategyAsync):
     def on_price(self, price: float) -> None:
         if not self._initialized or not math.isfinite(price) or price <= 0:
             return
+
+        # Dynamic grid initialization on first price received
+        if not self._grid_initialized:
+            if self.center_price is None:
+                self.center_price = price
+                logger.info(f"📊 Grid initialisée au prix: {price:.2f}€")
+            self._init_grid()
+            self._grid_initialized = True
+
+            # Initialize DGT now that center_price is known
+            if self._dgt is None and self.config.get("enable_dgt", True):
+                self._dgt = GridRecenteringManager(
+                    center_price=self.center_price,
+                    range_percent=self.range_percent,
+                    num_levels=self.num_levels,
+                    drift_threshold_pct=self.config.get("dgt_drift_threshold_pct", 7.0),
+                    adx_threshold=self.config.get("dgt_adx_threshold", 25.0),
+                    cooldown_minutes=self.config.get("dgt_cooldown_minutes", 60),
+                    max_recenters_per_day=self.config.get("dgt_max_recenters_per_day", 3),
+                    trailing_pct=self.config.get("dgt_trailing_pct", 5.0),
+                )
+
+            # Update emergency close price
+            self._emergency_close_price = self.center_price * (
+                1 - self.range_percent * self._grid_invalidation_factor / 100
+            )
+
+            logger.info(
+                f"📊 GridAsync: {self.num_levels} niveaux, ±{self.range_percent}% "
+                f"sur {self.center_price:.0f}€"
+            )
 
         # Stale data check
         if hasattr(self.instance, "orchestrator") and self.instance.orchestrator:

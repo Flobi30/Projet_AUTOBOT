@@ -648,6 +648,72 @@ async def get_dormant_strategies(request: Request, authorized: bool = Depends(ve
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/capital")
+async def get_capital_detail(request: Request, authorized: bool = Depends(verify_token)):
+    """Détails du capital (investi, disponible, profit)"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        instances_data = orchestrator.get_instances_snapshot()
+        total_capital = sum(inst.get('capital', 0) for inst in instances_data)
+        total_profit = sum(inst.get('profit', 0) for inst in instances_data)
+        total_invested = total_capital - total_profit
+        available = total_capital * 0.1
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "total_capital": round(total_capital, 2),
+            "total_profit": round(total_profit, 2),
+            "total_invested": round(total_invested, 2),
+            "available_cash": round(available, 2),
+            "currency": "EUR"
+        }
+    except Exception:
+        logger.exception("Erreur récupération capital")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/trades")
+async def get_trades(request: Request, authorized: bool = Depends(verify_token), limit: int = 50):
+    """Liste des trades exécutés"""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        instances_data = orchestrator.get_instances_snapshot()
+        trades = []
+
+        for inst in instances_data:
+            inst_trades = inst.get('trades_history', [])
+            chunk_size = max(1, limit // len(instances_data)) if instances_data else limit
+            for trade in inst_trades[-chunk_size:]:
+                trades.append({
+                    "id": trade.get('id', 'unknown'),
+                    "instance_id": inst['id'],
+                    "instance_name": inst.get('name', 'Unknown'),
+                    "pair": trade.get('pair', 'XBT/EUR'),
+                    "side": trade.get('side', 'BUY'),
+                    "amount": trade.get('amount', 0),
+                    "price": trade.get('price', 0),
+                    "pnl": trade.get('pnl', 0),
+                    "timestamp": trade.get('timestamp', datetime.now().isoformat()),
+                    "strategy": inst.get('strategy', 'unknown')
+                })
+
+        trades.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        return {
+            "count": len(trades),
+            "trades": trades[:limit]
+        }
+    except Exception:
+        logger.exception("Erreur récupération trades")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""
     
