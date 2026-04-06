@@ -95,7 +95,7 @@ class AutoBotV2Async:
         return InstanceConfig(
             name="Instance Principale",
             symbol="XXBTZEUR",
-            initial_capital=500.0,
+            initial_capital=float(os.getenv("INITIAL_CAPITAL", 500.0)),
             strategy="grid",
             leverage=1,
             grid_config={"range_percent": 7.0, "num_levels": 15},

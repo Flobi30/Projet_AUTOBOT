@@ -97,12 +97,6 @@ app.add_middleware(
     allow_methods=["GET", "POST"],  # CORRECTION: Pas "*"
     allow_headers=["Content-Type", "Authorization"],  # CORRECTION: Pas "*"
 )
-
-# Serve static files from React build
-static_dir = os.getenv("DASHBOARD_STATIC_DIR", "/app/dashboard/dist")
-if os.path.exists(static_dir):
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
 @app.get("/health")
 async def health_check(request: Request):
     """
@@ -722,3 +716,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     # CORRECTION: Bind localhost par défaut
     uvicorn.run(app, host="127.0.0.1", port=8080)
+
+# Serve static files from React build (MUST be last to not override API routes)
+static_dir = os.getenv("DASHBOARD_STATIC_DIR", "/app/dashboard/dist")
+if os.path.exists(static_dir):
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

@@ -25,9 +25,9 @@ services:
     
     # Ports exposés
     ports:
-      - "8080:8080"  # Dashboard (RESTREINDRE avec firewall !)
+      - "8080:8080"
     
-    # Volumes persistants
+# Volumes persistants
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

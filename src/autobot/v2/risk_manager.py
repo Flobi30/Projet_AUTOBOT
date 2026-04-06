@@ -219,6 +219,9 @@ class RiskManager:
         Returns:
             True si limites OK, False si disjoncteur déclenché.
         """
+        # CORRECTION: Ne pas déclencher si pas encore de trades (PF = 0.0)
+        if global_pf == 0.0:
+            return True
         if global_pf < self.PF_CIRCUIT_BREAKER_THRESHOLD:
             self.circuit_breaker_pf_low(global_pf)
             return False
