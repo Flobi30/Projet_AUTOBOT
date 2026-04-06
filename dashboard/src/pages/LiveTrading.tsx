@@ -7,7 +7,7 @@ import { useAppStore } from '../store/useAppStore';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = 'http://178.104.0.255:8080';
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {

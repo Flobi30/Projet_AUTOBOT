@@ -7,7 +7,7 @@ import Modal from '../components/ui/Modal';
 import { useAppStore } from '../store/useAppStore';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = 'http://178.104.0.255:8080';
 
 // Chargez votre clé publique Stripe depuis les variables d'environnement
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
