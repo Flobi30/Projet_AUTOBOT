@@ -185,7 +185,8 @@ class RingBufferDispatcher:
             async def _write_cb(data: TickerData, _pair: str = pair) -> None:
                 self._write_ticker(_pair, data)
 
-            self._ws.add_ticker_callback(pair, _write_cb)
+            ws_pair = _convert_to_ws_pair(pair)
+            self._ws.add_ticker_callback(ws_pair, _write_cb)
             await self._ws.subscribe_ticker(_convert_to_ws_pair(pair))
 
         logger.debug(

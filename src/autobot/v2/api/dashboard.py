@@ -44,7 +44,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
             detail="DASHBOARD_API_TOKEN non configuré — accès refusé en production"
         )
 
-    if credentials.credentials != expected_token:
+    if credentials.credentials.strip() != expected_token.strip():
         raise HTTPException(status_code=403, detail="Token invalide")
 
     return True
