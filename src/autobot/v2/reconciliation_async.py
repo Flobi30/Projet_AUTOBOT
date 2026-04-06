@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from .order_executor_async import OrderExecutorAsync, OrderStatus
@@ -53,7 +53,7 @@ class ReconciliationManagerAsync:
             except Exception as exc:
                 logger.exception(f"❌ Erreur réconciliation {inst_id}: {exc}")
         self._count += 1
-        self._last = datetime.now()
+        self._last = datetime.now(timezone.utc)
         if all_div:
             logger.warning(f"⚠️ {len(all_div)} divergence(s) trouvée(s)")
         else:

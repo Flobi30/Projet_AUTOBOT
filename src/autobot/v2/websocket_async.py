@@ -17,7 +17,7 @@ import asyncio
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
 import orjson
@@ -243,7 +243,7 @@ class KrakenWebSocketAsync:
             bid=bid,
             ask=ask,
             volume_24h=volume,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         self._last_prices[pair] = ticker

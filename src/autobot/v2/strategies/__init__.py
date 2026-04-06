@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -114,12 +114,12 @@ class Strategy(ABC):
         if not bypass_cooldown:
             last_time = self._last_signal_times.get(signal_key)
             if last_time:
-                elapsed = (datetime.now() - last_time).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - last_time).total_seconds()
                 if elapsed < self._signal_cooldown_seconds:
                     logger.debug(f"⏱️ Signal {signal_key} ignoré (cooldown): {signal.reason}")
                     return
         
-        self._last_signal_times[signal_key] = datetime.now()
+        self._last_signal_times[signal_key] = datetime.now(timezone.utc)
         
         logger.info(f"📡 Signal {signal_key.upper()}: {signal.reason} @ {signal.price:.2f}")
         

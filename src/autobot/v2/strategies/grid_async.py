@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import TradingSignal, SignalType, calculate_grid_levels, PositionSizing
@@ -288,7 +288,7 @@ class GridStrategyAsync(StrategyAsync):
                         price=price,
                         volume=pos["volume"],
                         reason=f"DGT: recentering — closing level {idx}",
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         metadata={"level_index": idx, "dgt_recenter": True, "strategy": "grid"},
                     )
                     self.emit_signal(sig, bypass_cooldown=(i > 0))
@@ -315,7 +315,7 @@ class GridStrategyAsync(StrategyAsync):
                     type=SignalType.SELL, symbol=symbol, price=price,
                     volume=pos["volume"],
                     reason=f"EMERGENCY: Grid invalidated - level {idx}",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={"level_index": idx, "emergency": True, "strategy": "grid"},
                 )
                 self.emit_signal(sig, bypass_cooldown=(i > 0))
@@ -330,7 +330,7 @@ class GridStrategyAsync(StrategyAsync):
                     type=SignalType.SELL, symbol=symbol, price=price,
                     volume=pos["volume"],
                     reason=f"STOP-LOSS: Drawdown {self._max_drawdown_pct}% atteint",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={"level_index": emergency_level, "stop_loss": True, "strategy": "grid"},
                 )
                 self.emit_signal(sig)
@@ -344,7 +344,7 @@ class GridStrategyAsync(StrategyAsync):
                 type=SignalType.SELL, symbol=symbol, price=price,
                 volume=pos["volume"],
                 reason=f"Grid level {idx} profit: +{pct:.2f}%",
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 metadata={"level_index": idx, "level_price": lp, "entry_price": pos["entry_price"], "strategy": "grid"},
             )
             self.emit_signal(sig, bypass_cooldown=(i > 0))
@@ -367,7 +367,7 @@ class GridStrategyAsync(StrategyAsync):
                         type=SignalType.BUY, symbol=symbol, price=price,
                         volume=volume,
                         reason=f"Grid buy level {best} @ {self.grid_levels[best]:.0f}",
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         metadata={"level_index": best, "level_price": self.grid_levels[best], "strategy": "grid"},
                     )
                     self.emit_signal(sig)
@@ -380,7 +380,7 @@ class GridStrategyAsync(StrategyAsync):
             self.open_levels[idx] = {
                 "entry_price": position.buy_price,
                 "volume": position.volume,
-                "opened_at": datetime.now(),
+                "opened_at": datetime.now(timezone.utc),
             }
             # P6 — pre-compute SELL template now that volume is known
             if self._spec_cache is not None:

@@ -9,7 +9,7 @@ import json
 import logging
 import pathlib
 from typing import Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .strategies import TradingSignal, SignalType
 from .instance import TradingInstance
@@ -90,7 +90,7 @@ class SignalHandler:
         
         # Vérification cooldown
         if self._last_signal_time:
-            elapsed = (datetime.now() - self._last_signal_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self._last_signal_time).total_seconds()
             if elapsed < self._cooldown_seconds:
                 logger.warning(f"⏱️ Signal ignoré (cooldown): {elapsed:.1f}s < {self._cooldown_seconds}s")
                 return
@@ -104,7 +104,7 @@ class SignalHandler:
             elif signal.type == SignalType.CLOSE:
                 self._execute_sell(signal)
             
-            self._last_signal_time = datetime.now()
+            self._last_signal_time = datetime.now(timezone.utc)
             
         except Exception as e:
             logger.exception(f"❌ Erreur exécution signal: {e}")

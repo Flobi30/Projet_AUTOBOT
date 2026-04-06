@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -448,7 +448,7 @@ class TestInstanceHotPath:
 
     @pytest.mark.asyncio
     async def test_on_price_update_reuses_ticker_timestamp(self, instance):
-        """Timestamp in history must come from TickerData, not datetime.now()."""
+        """Timestamp in history must come from TickerData, not datetime.now(timezone.utc)."""
         ticker = _make_ticker(44_000.0)
         ts = ticker.timestamp
         await instance.on_price_update(ticker)

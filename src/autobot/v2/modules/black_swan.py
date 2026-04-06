@@ -27,7 +27,7 @@ import logging
 import math
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

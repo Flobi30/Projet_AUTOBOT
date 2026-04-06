@@ -21,7 +21,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

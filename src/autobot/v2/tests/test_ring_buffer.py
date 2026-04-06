@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -363,7 +363,7 @@ async def test_dispatcher_subscribe_and_read() -> None:
         bid=49_990.0,
         ask=50_010.0,
         volume_24h=100.0,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
     )
     dispatcher._write_ticker("XBT/EUR", ticker)
 
@@ -396,7 +396,7 @@ async def test_dispatcher_run_consumer() -> None:
         bid=2_999.0,
         ask=3_001.0,
         volume_24h=50.0,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
     )
     for _ in range(3):
         dispatcher._write_ticker("ETH/EUR", ticker)
@@ -430,7 +430,7 @@ async def test_dispatcher_multiple_instances_same_pair() -> None:
         bid=59_990.0,
         ask=60_010.0,
         volume_24h=200.0,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
     )
     dispatcher._write_ticker("XBT/EUR", ticker)
 

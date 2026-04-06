@@ -8,7 +8,7 @@ import os
 import time
 import threading
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -119,7 +119,7 @@ async def health_check(request: Request):
     if not orchestrator:
         return {
             "status": "unhealthy",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "orchestrator": "not_initialized",
             "websocket": "unknown"
         }
@@ -134,7 +134,7 @@ async def health_check(request: Request):
 
         return {
             "status": "healthy" if is_healthy else "degraded",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "version": "2.0.0",
             "components": {
                 "orchestrator": "running" if status.get('running') else "stopped",
@@ -147,7 +147,7 @@ async def health_check(request: Request):
         logger.exception("Erreur health check")
         return {
             "status": "error",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error": str(e)
         }
 
@@ -170,7 +170,7 @@ async def get_global_status(
             total_capital=sum(inst['capital'] for inst in status['instances']),
             total_profit=sum(inst.get('profit', 0) for inst in status['instances']),
             websocket_connected=status['websocket_connected'],
-            uptime_seconds=(datetime.now() - status['start_time']).total_seconds() if status['start_time'] else None
+            uptime_seconds=(datetime.now(timezone.utc) - status['start_time']).total_seconds() if status['start_time'] else None
         )
     except Exception:
         logger.exception("Erreur récupération statut global")
@@ -267,7 +267,7 @@ async def emergency_stop(
         orchestrator.stop()
         return {
             "message": "Arrêt d'urgence exécuté", 
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "stopped"
         }
     except Exception:
@@ -322,7 +322,7 @@ async def get_performance(request: Request, authorized: bool = Depends(verify_to
             })
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "global": {
                 "total_capital": round(total_capital, 2),
                 "total_profit": round(total_profit, 2),
@@ -389,7 +389,7 @@ async def get_drawdown(request: Request, authorized: bool = Depends(verify_token
         global_max_dd = max(global_max_dd, global_current_dd)
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "global": {
                 "total_peak_capital": round(global_peak, 2),
                 "total_current_capital": round(global_current, 2),
@@ -440,7 +440,7 @@ async def get_shadow_status(request: Request, authorized: bool = Depends(verify_
         live_profit = sum(i.get('profit', 0) for i in live_instances)
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "shadow_mode_active": len(shadow_instances) > 0,
             "summary": {
                 "shadow_count": len(shadow_instances),
@@ -524,7 +524,7 @@ async def get_phase1_modules(request: Request, authorized: bool = Depends(verify
         active = sum(1 for m in modules_status.values() if m['active'])
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "summary": {
                 "total_modules": total,
                 "active_modules": active,
@@ -633,7 +633,7 @@ async def get_dormant_strategies(request: Request, authorized: bool = Depends(ve
         ]
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "summary": {
                 "total_known": len(known_strategies),
                 "active_count": len(active_strategies - {''}),
@@ -663,7 +663,7 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         available = total_capital * 0.1
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "total_capital": round(total_capital, 2),
             "total_profit": round(total_profit, 2),
             "total_invested": round(total_invested, 2),
@@ -699,7 +699,7 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
                     "amount": trade.get('amount', 0),
                     "price": trade.get('price', 0),
                     "pnl": trade.get('pnl', 0),
-                    "timestamp": trade.get('timestamp', datetime.now().isoformat()),
+                    "timestamp": trade.get('timestamp', datetime.now(timezone.utc).isoformat()),
                     "strategy": inst.get('strategy', 'unknown')
                 })
 

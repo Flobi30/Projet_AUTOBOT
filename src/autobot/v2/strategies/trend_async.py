@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from . import TradingSignal, SignalType, RollingEMA, RollingRSI, PositionSizing
@@ -105,7 +105,7 @@ class TrendStrategyAsync(StrategyAsync):
                 sig = TradingSignal(
                     type=SignalType.SELL, symbol=symbol, price=price, volume=-1,
                     reason=f"Trend reversal: {ind['trend']} (MA diff: {ind['diff_pct']:.2f}%)",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={"strategy": "trend", "close_all": True, **{k: ind.get(k) for k in ("fast_ma", "slow_ma", "rsi", "trend")}},
                 )
                 self.emit_signal(sig)
@@ -116,7 +116,7 @@ class TrendStrategyAsync(StrategyAsync):
                 sig = TradingSignal(
                     type=SignalType.BUY, symbol=symbol, price=price, volume=volume,
                     reason=f"Uptrend: MA{self.fast_period} > MA{self.slow_period} ({ind['diff_pct']:.2f}%)",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={"strategy": "trend", **{k: ind.get(k) for k in ("fast_ma", "slow_ma", "rsi", "trend")}},
                 )
                 self.emit_signal(sig)

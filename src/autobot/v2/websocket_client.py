@@ -11,7 +11,7 @@ import websocket
 import threading
 from typing import Dict, Callable, Optional, List
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class KrakenWebSocket:
         """Gestion messages reçus"""
         try:
             # CORRECTION Phase 4: Met à jour timestamp dernier message
-            self._last_message_time = datetime.now()
+            self._last_message_time = datetime.now(timezone.utc)
 
             data = orjson.loads(message)
 
@@ -142,7 +142,7 @@ class KrakenWebSocket:
                 bid=bid,
                 ask=ask,
                 volume_24h=volume,
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
             
             with self._lock:
@@ -225,7 +225,7 @@ class KrakenWebSocket:
         CORRECTION Phase 4: Démarre le monitoring heartbeat.
         Détecte connexion silencieuse et gère reconnexion automatique.
         """
-        self._last_message_time = datetime.now()
+        self._last_message_time = datetime.now(timezone.utc)
         self._reconnect_backoff = 1
 
         def heartbeat_loop():
@@ -240,7 +240,7 @@ class KrakenWebSocket:
 
                     # Vérifie si prix stalé
                     if self._last_message_time:
-                        elapsed = (datetime.now() - self._last_message_time).total_seconds()
+                        elapsed = (datetime.now(timezone.utc) - self._last_message_time).total_seconds()
 
                         if elapsed > self._stale_threshold:
                             logger.warning(f"🚨 Prix stalé depuis {elapsed:.0f}s - Reconnexion nécessaire")
@@ -389,7 +389,7 @@ class KrakenWebSocket:
         if not self._last_message_time:
             return False
 
-        elapsed = (datetime.now() - self._last_message_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - self._last_message_time).total_seconds()
         return elapsed < max_age_seconds
 
     def is_connected(self) -> bool:

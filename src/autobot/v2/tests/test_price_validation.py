@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -66,7 +66,7 @@ def _make_ticker(price=50_000.0, bid=49_990.0, ask=50_010.0):
         bid=bid,
         ask=ask,
         volume_24h=100.0,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
     )
 
 

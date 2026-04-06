@@ -7,7 +7,7 @@ import threading
 from typing import Dict, List, Callable, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from collections import deque
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class ValidatorEngine:
                 action=action,
                 message=f"Action inconnue: {action}",
                 details={},
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
             self._log_result(result)
             return result
@@ -136,7 +136,7 @@ class ValidatorEngine:
                 'checks': all_checks,
                 'context': context
             },
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
         
         self._log_result(result)

@@ -6,7 +6,7 @@ Achat en tendance haussière, vente en baissière
 import logging
 import math
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import deque
 
 # CORRECTION: Utilisation des indicateurs O(1) pour maximale performance
@@ -200,7 +200,7 @@ class TrendStrategy(Strategy):
                     volume=-1,  # CORRECTION: -1 = close all, pas 0
                     reason=f"Trend reversal: {indicators['trend']} "
                            f"(MA diff: {indicators['diff_pct']:.2f}%)",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={
                         'fast_ma': indicators['fast_ma'],
                         'slow_ma': indicators['slow_ma'],
@@ -233,7 +233,7 @@ class TrendStrategy(Strategy):
                     volume=volume,
                     reason=f"Uptrend detected: MA{self.fast_period} > MA{self.slow_period} "
                            f"({indicators['diff_pct']:.2f}%)",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={
                         'fast_ma': indicators['fast_ma'],
                         'slow_ma': indicators['slow_ma'],

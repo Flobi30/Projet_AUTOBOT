@@ -6,7 +6,7 @@ Format: {"timestamp": "...", "level": "...", "event": "...", "data": {...}}
 import logging
 import orjson
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 class JSONFormatter(logging.Formatter):

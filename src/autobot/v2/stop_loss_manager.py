@@ -9,7 +9,7 @@ le bot est offline, la position sera correctement marquée comme fermée au red�
 import logging
 import time
 from typing import Optional, Dict, List, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from threading import Thread, Event, Lock
 
 from .order_executor import OrderExecutor, OrderStatus

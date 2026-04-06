@@ -8,7 +8,7 @@ import random
 import threading
 from typing import List, Optional, Dict, TYPE_CHECKING
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .market_analyzer import MarketAnalyzer, get_market_analyzer, MarketQualityScore
 from .markets import MarketType, MarketConfig, get_market_config, is_market_open
