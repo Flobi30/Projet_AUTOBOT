@@ -183,7 +183,7 @@ class MarketSelector:
                 continue
             
             # Vérifier score composite minimum
-            if market.composite_score < 40:
+            if market.composite_score < 25:  # Lowered from 40 for bootstrap data
                 continue
             
             candidates.append(market)

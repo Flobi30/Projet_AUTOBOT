@@ -146,7 +146,7 @@ class MarketAnalyzer:
             
             return metrics
     
-    def get_best_markets(self, min_score: float = 50.0) -> List[MarketMetrics]:
+    def get_best_markets(self, min_score: float = 25.0) -> List[MarketMetrics]:
         """
         Retourne les marchés classés par score composite.
         Filtre ceux avec score < min_score.

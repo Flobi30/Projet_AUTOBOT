@@ -41,6 +41,7 @@ from .persistence import get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
 from .module_manager import ModuleManager
+from .analysis_feed import AnalysisFeed
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,9 @@ class OrchestratorAsync:
             self.market_selector = get_market_selector(self)
         except Exception:
             self.market_selector = None
+
+        # Analysis feed for 70 analysis pairs (P0 fix)
+        self.analysis_feed = None
 
         # Module manager -- conditional activation of all optional modules
         self.module_manager = ModuleManager()
@@ -547,6 +551,16 @@ class OrchestratorAsync:
         # Connect WS via ring dispatcher (P2)
         await self.ring_dispatcher.connect()
 
+        # P0 FIX: Bootstrap analysis feeds for all 70 pairs
+        try:
+            self.analysis_feed = AnalysisFeed(
+                ws_client=self.ring_dispatcher._ws,
+            )
+            await self.analysis_feed.bootstrap_and_subscribe()
+            logger.info("Analysis feed ready: %s", self.analysis_feed.stats)
+        except Exception as exc:
+            logger.warning("Analysis feed init failed (non-fatal): %s", exc)
+
         # Start P3 async dispatcher (starts per-pair dispatch tasks)
         await self.async_dispatcher.start()
 
@@ -625,6 +639,9 @@ class OrchestratorAsync:
 
         # Stop optional modules
         await self.module_manager.stop()
+
+        if self.analysis_feed:
+            await self.analysis_feed.close()
 
         await self.order_executor.close()
 
