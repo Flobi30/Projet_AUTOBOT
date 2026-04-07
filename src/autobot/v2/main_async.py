@@ -15,6 +15,20 @@ Uses:
 
 from __future__ import annotations
 
+# ── Load .env file BEFORE any module reads env vars ──────────────
+# This ensures MODULE_* variables from .env are available to os.getenv()
+from dotenv import load_dotenv as _load_dotenv
+from pathlib import Path as _DotenvPath
+
+# Try multiple locations: /app/.env (Docker), or project root .env
+for _env_candidate in [
+    _DotenvPath("/app/.env"),
+    _DotenvPath(__file__).resolve().parent.parent.parent.parent / ".env",
+]:
+    if _env_candidate.is_file():
+        _load_dotenv(_env_candidate, override=False)
+        break
+
 import asyncio
 import logging
 import os
