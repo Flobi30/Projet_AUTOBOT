@@ -33,6 +33,7 @@ from .reconciliation_async import ReconciliationManagerAsync
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .orchestrator import InstanceConfig  # Reuse config dataclass
 from .risk_manager import get_risk_manager
+from .persistence import get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
 
@@ -348,6 +349,15 @@ class OrchestratorAsync:
         self.running = True
         self._start_time = datetime.now(timezone.utc)
 
+        # Cleanup orphaned instance_state records at startup
+        try:
+            persistence = get_persistence()
+            deleted = persistence.cleanup_orphaned_instances()
+            if deleted:
+                logger.info(f"🧹 Startup cleanup: {deleted} orphaned instances removed")
+        except Exception as exc:
+            logger.warning(f"⚠️ Startup cleanup failed: {exc}")
+
         # P4: Disable GC for the hot path — periodic collection via cold scheduler
         self.hot_optimizer.enter_hot_path()
 
@@ -473,6 +483,7 @@ class OrchestratorAsync:
             "running": self.running,
             "start_time": self._start_time,
             "uptime": datetime.now(timezone.utc) - self._start_time if self._start_time else None,
+            "uptime_seconds": (datetime.now(timezone.utc) - self._start_time).total_seconds() if self._start_time else None,
             "instance_count": len(self._instances),
             "max_instances": self.config["max_instances"],
             "websocket_connected": self.ws_client.is_connected(),

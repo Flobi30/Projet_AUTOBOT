@@ -57,7 +57,7 @@ __all__ = ["AsyncDispatcher"]
 
 # Hot-path tuning — kept as module constants so tests can override via monkeypatch
 _POLL_BATCH: int = 64
-_SLEEP_EMPTY: float = 0.0        # asyncio.sleep(0) yields without wall-clock delay
+_SLEEP_EMPTY: float = 0.005    # 5ms sleep to prevent CPU spinning (was 0.0)
 _LAG_WARN_RATIO: float = 0.5     # Warn when reader.lag > 50% of buffer size
 
 

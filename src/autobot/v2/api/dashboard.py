@@ -661,7 +661,16 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         total_capital = sum(inst.get('capital', 0) for inst in instances_data)
         total_profit = sum(inst.get('profit', 0) for inst in instances_data)
         total_invested = total_capital - total_profit
-        available = total_capital * 0.1
+        # Use real available capital from orchestrator (was hardcoded 10%)
+        get_available = getattr(orchestrator, '_get_available_capital', None)
+        if get_available:
+            import asyncio
+            try:
+                available = await get_available()
+            except Exception:
+                available = total_capital * 0.1  # fallback
+        else:
+            available = total_capital * 0.1  # fallback
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),

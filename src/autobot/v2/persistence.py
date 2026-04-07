@@ -323,6 +323,31 @@ class StatePersistence:
             return 0
 
 
+
+    def cleanup_orphaned_instances(self, max_age_hours: int = 24) -> int:
+        """
+        Nettoie les enregistrements instance_state orphelins.
+        Supprime les instances arrêtées depuis plus de max_age_hours.
+        Retourne le nombre de lignes supprimées.
+        """
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                cursor = conn.execute("""
+                    DELETE FROM instance_state 
+                    WHERE status='stopped' 
+                    AND updated_at < datetime('now', '-1 day')
+                """)
+                deleted = cursor.rowcount
+                conn.commit()
+            
+            if deleted > 0:
+                logger.info(f"🧹 Nettoyage: {deleted} instances orphelines supprimées")
+            return deleted
+        except Exception as e:
+            logger.exception(f"❌ Erreur nettoyage instances orphelines: {e}")
+            return 0
+
 # Singleton global - CORRECTION Phase 4: Thread-safe
 _persistence_instance: Optional[StatePersistence] = None
 _persistence_lock = threading.Lock()
