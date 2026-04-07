@@ -94,7 +94,7 @@ class GridStrategyAsync(StrategyAsync):
         _load_modules()
 
         self.center_price = self.config.get("center_price", None)
-        self.range_percent = self.config.get("range_percent", 7.0)
+        self.range_percent = self.config.get("range_percent", 2.0)
         self.num_levels = self.config.get("num_levels", 15)
         self.max_capital_per_level = self.config.get("max_capital_per_level", 50.0)
         self.max_positions = self.config.get("max_positions", 10)

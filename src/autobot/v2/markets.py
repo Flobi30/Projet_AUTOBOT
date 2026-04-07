@@ -38,8 +38,8 @@ MARKETS: Dict[str, MarketConfig] = {
         max_leverage=3,
         trading_hours="24/7",
         decimal_places=1,
-        default_grid_range=7.0,
-        default_grid_step=1.0
+        default_grid_range=2.0,
+        default_grid_step=0.3
     ),
     "ETH/EUR": MarketConfig(
         symbol="XETHZEUR",
@@ -48,8 +48,88 @@ MARKETS: Dict[str, MarketConfig] = {
         max_leverage=3,
         trading_hours="24/7",
         decimal_places=2,
-        default_grid_range=7.0,
-        default_grid_step=1.0
+        default_grid_range=3.0,
+        default_grid_step=0.5
+    ),
+    "SOL/EUR": MarketConfig(
+        symbol="SOLEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=0.01,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=2,
+        default_grid_range=4.0,
+        default_grid_step=0.7
+    ),
+    "ADA/EUR": MarketConfig(
+        symbol="ADAEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=1.0,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=4,
+        default_grid_range=4.0,
+        default_grid_step=0.7
+    ),
+    "DOT/EUR": MarketConfig(
+        symbol="DOTEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=0.1,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=3,
+        default_grid_range=4.0,
+        default_grid_step=0.7
+    ),
+    "XRP/EUR": MarketConfig(
+        symbol="XXRPZEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=1.0,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=4,
+        default_grid_range=4.0,
+        default_grid_step=0.7
+    ),
+    "LINK/EUR": MarketConfig(
+        symbol="LINKEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=0.1,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=3,
+        default_grid_range=4.0,
+        default_grid_step=0.7
+    ),
+    "MATIC/EUR": MarketConfig(
+        symbol="MATICEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=1.0,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=4,
+        default_grid_range=4.5,
+        default_grid_step=0.8
+    ),
+    "AVAX/EUR": MarketConfig(
+        symbol="AVAXEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=0.1,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=2,
+        default_grid_range=4.5,
+        default_grid_step=0.8
+    ),
+    "UNI/EUR": MarketConfig(
+        symbol="UNIEUR",
+        market_type=MarketType.CRYPTO,
+        min_volume=0.1,
+        max_leverage=2,
+        trading_hours="24/7",
+        decimal_places=3,
+        default_grid_range=4.5,
+        default_grid_step=0.8
     ),
     
     # Forex

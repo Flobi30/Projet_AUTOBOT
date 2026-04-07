@@ -144,7 +144,7 @@ class ModuleManager:
         if c["pairs_trading"]:
             def f():
                 from .modules.pairs_trading import PairsTrader
-                return PairsTrader(pair_a=os.getenv("PAIRS_TRADING_A", "BTC/USD"), pair_b=os.getenv("PAIRS_TRADING_B", "ETH/USD"))
+                return PairsTrader(pair_a=os.getenv("PAIRS_TRADING_A", "XBT/EUR"), pair_b=os.getenv("PAIRS_TRADING_B", "ETH/EUR"))
             self._try_init("pairs_trading", f)
 
         if c["momentum_scoring"]:

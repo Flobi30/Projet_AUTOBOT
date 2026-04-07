@@ -97,7 +97,7 @@ class MarketAnalyzer:
                 return None
             
             history = self._price_history[symbol]
-            if len(history) < 20:  # Minimum 20 points (was 100 — too strict for startup)
+            if len(history) < 5:  # Minimum 5 points (was 100 — too strict for startup)
                 return None
             
             prices = [p for _, p in history]
