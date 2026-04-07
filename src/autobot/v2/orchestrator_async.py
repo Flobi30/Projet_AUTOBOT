@@ -27,6 +27,10 @@ from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
 from .order_executor_async import OrderExecutorAsync, get_order_executor_async
+try:
+    from .paper_trading_fix import PaperTradingExecutor
+except ImportError:
+    PaperTradingExecutor = None
 from .order_router import OrderRouter, get_order_router, OrderPriority
 from .stop_loss_manager_async import StopLossManagerAsync
 from .reconciliation_async import ReconciliationManagerAsync
@@ -77,8 +81,20 @@ class OrchestratorAsync:
         self.api_key = api_key
         self.api_secret = api_secret
 
-        # Order executor (async)
-        self.order_executor = get_order_executor_async(api_key, api_secret)
+        # Order executor (async) — PaperTrading si PAPER_TRADING=true
+        import os as _os
+        self.paper_mode = _os.getenv("PAPER_TRADING", "false").lower() == "true"
+        
+        if self.paper_mode and PaperTradingExecutor is not None:
+            initial_capital = float(_os.getenv("INITIAL_CAPITAL", "1000.0"))
+            self.order_executor = PaperTradingExecutor(
+                db_path="data/paper_trades.db",
+                initial_capital=initial_capital,
+            )
+            logger.info(f"🎮 MODE PAPER TRADING (capital: {initial_capital:.0f}€)")
+        else:
+            self.order_executor = get_order_executor_async(api_key, api_secret)
+            logger.info("🔴 MODE LIVE TRADING")
 
         # Stop-loss manager (async)
         self.stop_loss_manager = StopLossManagerAsync(self.order_executor)
