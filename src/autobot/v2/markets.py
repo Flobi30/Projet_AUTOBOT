@@ -101,8 +101,8 @@ MARKETS: Dict[str, MarketConfig] = {
         default_grid_range=4.0,
         default_grid_step=0.7
     ),
-    "MATIC/EUR": MarketConfig(
-        symbol="MATICEUR",
+    "POL/EUR": MarketConfig(
+        symbol="POLEUR",
         market_type=MarketType.CRYPTO,
         min_volume=1.0,
         max_leverage=2,

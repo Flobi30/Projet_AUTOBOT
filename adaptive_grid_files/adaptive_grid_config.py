@@ -206,8 +206,8 @@ _DEFAULT_PROFILES: Dict[str, PairProfile] = {
         tags=("altcoin", "link"),
     ),
     # --- MATIC ---
-    "MATICEUR": PairProfile(
-        symbol="MATICEUR",
+    "POLEUR": PairProfile(
+        symbol="POLEUR",
         base_range_pct=4.5,
         min_range_pct=1.5,
         max_range_pct=8.0,
@@ -218,7 +218,7 @@ _DEFAULT_PROFILES: Dict[str, PairProfile] = {
         capital_weight=0.5,
         atr_multiplier=2.0,
         hv_ratio_band=(0.55, 1.45),
-        tags=("altcoin", "matic"),
+        tags=("altcoin", "pol"),
     ),
     # --- AVAX ---
     "AVAXEUR": PairProfile(

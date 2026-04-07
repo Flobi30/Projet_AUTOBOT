@@ -199,7 +199,7 @@ class AutoBotV2Async:
                 "XXBTZEUR": "BTC/EUR", "XETHZEUR": "ETH/EUR",
                 "SOLEUR": "SOL/EUR", "ADAEUR": "ADA/EUR",
                 "DOTEUR": "DOT/EUR", "XXRPZEUR": "XRP/EUR",
-                "LINKEUR": "LINK/EUR", "MATICEUR": "MATIC/EUR",
+                "LINKEUR": "LINK/EUR", "POLEUR": "POL/EUR",
                 "AVAXEUR": "AVAX/EUR", "UNIEUR": "UNI/EUR",
             }
             name = name_map.get(symbol, symbol)
