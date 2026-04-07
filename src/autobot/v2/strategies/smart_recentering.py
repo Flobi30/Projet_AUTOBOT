@@ -23,6 +23,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
+from collections import deque
 
 from ..strategies import calculate_grid_levels
 
@@ -99,7 +100,7 @@ class SmartRecentering:
         self._recenter_history: List[SmartRecenterResult] = []
 
         # Velocity tracking (recent prices)
-        self._recent_prices: List[float] = []
+        self._recent_prices: deque = deque(maxlen=velocity_window)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -158,8 +159,8 @@ class SmartRecentering:
 
         # Track price for velocity
         self._recent_prices.append(price)
-        if len(self._recent_prices) > self.velocity_window:
-            self._recent_prices = self._recent_prices[-self.velocity_window:]
+        # Trim automatique par maxlen, pas besoin de trim manuel
+            
 
         # Condition 1: drift exceeds threshold
         if self._drift_pct(price) < self.drift_threshold_pct:

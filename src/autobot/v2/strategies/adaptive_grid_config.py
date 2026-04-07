@@ -12,6 +12,7 @@ O(1) lookup via dict, no I/O, fully sync (CPU-only), thread-safe for reads
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -228,6 +229,8 @@ _FALLBACK_PROFILE = PairProfile(
 # PairProfileRegistry — O(1) lookup, immutable after construction
 # ---------------------------------------------------------------------------
 
+_registry_lock = threading.Lock()
+
 class PairProfileRegistry:
     """Registry of per-pair profiles for adaptive grid trading.
 
@@ -268,7 +271,8 @@ class PairProfileRegistry:
 
     def register(self, profile: PairProfile) -> None:
         """Register (or override) a profile at runtime."""
-        self._profiles[profile.symbol] = profile
+        with _registry_lock:
+            self._profiles[profile.symbol] = profile
         logger.info("PairProfileRegistry: profil enregistre pour %s", profile.symbol)
 
     @property
@@ -387,9 +391,13 @@ class DynamicGridAllocator:
 _registry: Optional[PairProfileRegistry] = None
 
 
+_registry_lock = threading.Lock()
+
 def get_default_registry() -> PairProfileRegistry:
-    """Return the module-level singleton registry (lazy init)."""
+    """Return the module-level singleton registry (lazy init, thread-safe)."""
     global _registry
     if _registry is None:
-        _registry = PairProfileRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = PairProfileRegistry()
     return _registry

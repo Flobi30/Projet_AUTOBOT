@@ -1040,41 +1040,6 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             pair_map[symbol].append(inst)
 
         # Group by symbol
-        pair_map: Dict[str, list] = {}
-        for inst in all_instances:
-            symbol = inst.get("symbol", "UNKNOWN")
-            if symbol == "UNKNOWN" or symbol == "XXBTZEUR":
-                name = inst.get("name", "")
-                config = inst.get("config", {})
-                # Try to get symbol from config first
-                if config and "symbol" in config:
-                    sym = config["symbol"]
-                    if "BTC" in sym or "XBT" in sym:
-                        symbol = "BTC/EUR"
-                    elif "ETH" in sym:
-                        symbol = "ETH/EUR"
-                    elif "SOL" in sym:
-                        symbol = "SOL/EUR"
-                # Fallback to name parsing
-                if symbol == "UNKNOWN":
-                    for known in ["BTC/EUR", "ETH/EUR", "SOL/EUR", "BTC/USD",
-                                  "ETH/USD", "SOL/USD", "XRP/EUR"]:
-                        if known.replace("/", "-") in name or known in name:
-                            symbol = known
-                            break
-                # Default for BTC if still unknown
-                if symbol == "UNKNOWN" and ("BTC" in name or "bitcoin" in name.lower()):
-                    symbol = "BTC/EUR"
-            if symbol not in pair_map:
-                pair_map[symbol] = []
-            pair_map[symbol].append(inst)
-
-        by_pair = []
-        pairs_tested = list(pair_map.keys())
-
-        for symbol, instances in pair_map.items():
-            profits_pct = []
-            pfs = []
             total_trades = 0
             winning_trades = 0
             gross_profit = 0.0
