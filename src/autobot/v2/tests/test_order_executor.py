@@ -4,7 +4,7 @@ Tests unitaires pour OrderExecutor avec mock de l'API Kraken
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 
 import sys
 sys.path.insert(0, 'src')

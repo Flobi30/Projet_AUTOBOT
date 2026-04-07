@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from threading import Thread, Event, Lock
 
 from .order_executor import OrderExecutor, OrderStatus
@@ -86,7 +86,7 @@ class ReconciliationManager:
                 logger.exception(f"❌ Erreur réconciliation instance {instance_id}: {e}")
         
         self._reconciliation_count += 1
-        self._last_reconciliation = datetime.now()
+        self._last_reconciliation = datetime.now(timezone.utc)
         
         if all_divergences:
             critical = len([d for d in all_divergences if d.severity == 'critical'])

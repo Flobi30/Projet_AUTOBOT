@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from .ring_buffer_dispatcher import RingBufferDispatcher
@@ -27,12 +27,17 @@ from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
 from .order_executor_async import OrderExecutorAsync, get_order_executor_async
+try:
+    from .paper_trading_fix import PaperTradingExecutor
+except ImportError:
+    PaperTradingExecutor = None
 from .order_router import OrderRouter, get_order_router, OrderPriority
 from .stop_loss_manager_async import StopLossManagerAsync
 from .reconciliation_async import ReconciliationManagerAsync
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .orchestrator import InstanceConfig  # Reuse config dataclass
 from .risk_manager import get_risk_manager
+from .persistence import get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
 
@@ -76,8 +81,20 @@ class OrchestratorAsync:
         self.api_key = api_key
         self.api_secret = api_secret
 
-        # Order executor (async)
-        self.order_executor = get_order_executor_async(api_key, api_secret)
+        # Order executor (async) — PaperTrading si PAPER_TRADING=true
+        import os as _os
+        self.paper_mode = _os.getenv("PAPER_TRADING", "false").lower() == "true"
+        
+        if self.paper_mode and PaperTradingExecutor is not None:
+            initial_capital = float(_os.getenv("INITIAL_CAPITAL", "1000.0"))
+            self.order_executor = PaperTradingExecutor(
+                db_path="data/paper_trades.db",
+                initial_capital=initial_capital,
+            )
+            logger.info(f"🎮 MODE PAPER TRADING (capital: {initial_capital:.0f}€)")
+        else:
+            self.order_executor = get_order_executor_async(api_key, api_secret)
+            logger.info("🔴 MODE LIVE TRADING")
 
         # Stop-loss manager (async)
         self.stop_loss_manager = StopLossManagerAsync(self.order_executor)
@@ -346,7 +363,16 @@ class OrchestratorAsync:
         if self.running:
             return
         self.running = True
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(timezone.utc)
+
+        # Cleanup orphaned instance_state records at startup
+        try:
+            persistence = get_persistence()
+            deleted = persistence.cleanup_orphaned_instances()
+            if deleted:
+                logger.info(f"🧹 Startup cleanup: {deleted} orphaned instances removed")
+        except Exception as exc:
+            logger.warning(f"⚠️ Startup cleanup failed: {exc}")
 
         # P4: Disable GC for the hot path — periodic collection via cold scheduler
         self.hot_optimizer.enter_hot_path()
@@ -472,7 +498,8 @@ class OrchestratorAsync:
         return {
             "running": self.running,
             "start_time": self._start_time,
-            "uptime": datetime.now() - self._start_time if self._start_time else None,
+            "uptime": datetime.now(timezone.utc) - self._start_time if self._start_time else None,
+            "uptime_seconds": (datetime.now(timezone.utc) - self._start_time).total_seconds() if self._start_time else None,
             "instance_count": len(self._instances),
             "max_instances": self.config["max_instances"],
             "websocket_connected": self.ws_client.is_connected(),

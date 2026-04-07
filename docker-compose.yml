@@ -19,19 +19,22 @@ services:
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=8080
       - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN}
+      - DASHBOARD_SSL_CERT=/app/certs/server.crt
+      - DASHBOARD_SSL_KEY=/app/certs/server.key
       - INITIAL_CAPITAL=${INITIAL_CAPITAL:-100}
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
       - PAPER_TRADING=${PAPER_TRADING:-true}
     
     # Ports exposés
     ports:
-      - "8080:8080"
+      - "0.0.0.0:8080:8080"
     
 # Volumes persistants
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
+      - ./certs:/app/certs:ro
     
     # Limites ressources (CAX11 = 4GB RAM, 2 vCPU ARM64)
     deploy:
@@ -45,7 +48,7 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "https://localhost:8080/health", "-k"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .strategies import TradingSignal, SignalType
@@ -52,7 +52,7 @@ class SignalHandlerAsync:
         logger.info(f"📡 Signal: {signal.type.value.upper()} {signal.symbol} @ {signal.price:.2f}")
 
         if self._last_signal_time:
-            elapsed = (datetime.now() - self._last_signal_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self._last_signal_time).total_seconds()
             if elapsed < self._cooldown_seconds:
                 logger.warning(f"⏱️ Signal ignoré (cooldown): {elapsed:.1f}s")
                 return
@@ -62,7 +62,7 @@ class SignalHandlerAsync:
                 await self._execute_buy(signal)
             elif signal.type in (SignalType.SELL, SignalType.CLOSE):
                 await self._execute_sell(signal)
-            self._last_signal_time = datetime.now()
+            self._last_signal_time = datetime.now(timezone.utc)
         except Exception as exc:
             logger.exception(f"❌ Erreur exécution signal: {exc}")
 

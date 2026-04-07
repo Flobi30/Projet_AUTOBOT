@@ -6,7 +6,7 @@ Garde-fous stricts basés sur les reviews Gemini + Opus
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, Callable
 from enum import Enum
@@ -101,8 +101,8 @@ class AutoEvolutionManager:
         self._lock = threading.Lock()
         self.db_path = db_path
         self._current_phase = SystemPhase.PHASE_1_SURVIVAL
-        self._phase_start_date = datetime.now()
-        self._last_evaluation = datetime.now()
+        self._phase_start_date = datetime.now(timezone.utc)
+        self._last_evaluation = datetime.now(timezone.utc)
         self._last_transition_date: Optional[datetime] = None
         self._approval_pending = False
         self._metrics_history = []
@@ -170,11 +170,11 @@ class AutoEvolutionManager:
                 }
             
             criteria = PHASE_1_TO_2_CRITERIA
-            phase_duration = (datetime.now() - self._phase_start_date).days
+            phase_duration = (datetime.now(timezone.utc) - self._phase_start_date).days
             
             # Vérifier circuit breaker (48h entre transitions)
             if self._last_transition_date:
-                days_since_last = (datetime.now() - self._last_transition_date).days
+                days_since_last = (datetime.now(timezone.utc) - self._last_transition_date).days
                 if days_since_last < criteria.min_days_between_transitions:
                     return {
                         'eligible': False,
@@ -265,7 +265,7 @@ class AutoEvolutionManager:
                 }
             
             # Hystérésis : 7j minimum avant transition (Gemini)
-            days_in_phase = (datetime.now() - self._phase_start_date).days
+            days_in_phase = (datetime.now(timezone.utc) - self._phase_start_date).days
             if days_in_phase < 7:
                 return {
                     'success': False,
@@ -275,8 +275,8 @@ class AutoEvolutionManager:
             # Exécuter la transition
             old_phase = self._current_phase
             self._current_phase = SystemPhase.PHASE_2_ASSISTED
-            self._phase_start_date = datetime.now()
-            self._last_transition_date = datetime.now()  # Pour circuit breaker
+            self._phase_start_date = datetime.now(timezone.utc)
+            self._last_transition_date = datetime.now(timezone.utc)  # Pour circuit breaker
             self._approval_pending = False
             
             # Logger
@@ -286,7 +286,7 @@ class AutoEvolutionManager:
                 self._on_phase_change({
                     'old_phase': old_phase.value,
                     'new_phase': SystemPhase.PHASE_2_ASSISTED.value,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 })
             
             logger.info(f"🚀 Transition effectuée: {old_phase.value} → {SystemPhase.PHASE_2_ASSISTED.value}")
@@ -384,8 +384,8 @@ class AutoEvolutionManager:
             # Exécuter le downgrade
             old_phase = self._current_phase
             self._current_phase = SystemPhase.PHASE_1_SURVIVAL
-            self._phase_start_date = datetime.now()
-            self._last_transition_date = datetime.now()
+            self._phase_start_date = datetime.now(timezone.utc)
+            self._last_transition_date = datetime.now(timezone.utc)
             
             # Logger
             self._log_phase_transition(
@@ -410,7 +410,7 @@ class AutoEvolutionManager:
     def get_dashboard_data(self, current_capital: float = 0, initial_capital: float = 0) -> Dict[str, Any]:
         """Retourne les données pour le dashboard utilisateur"""
         with self._lock:
-            phase_duration = (datetime.now() - self._phase_start_date).days
+            phase_duration = (datetime.now(timezone.utc) - self._phase_start_date).days
             config = self.get_phase_config()
             
             # Calcul progression vers critères Phase 2
@@ -421,7 +421,7 @@ class AutoEvolutionManager:
                 # Vérifier circuit breaker
                 circuit_breaker_active = False
                 if self._last_transition_date:
-                    days_since = (datetime.now() - self._last_transition_date).days
+                    days_since = (datetime.now(timezone.utc) - self._last_transition_date).days
                     circuit_breaker_active = days_since < criteria.min_days_between_transitions
             else:
                 progress_pct = 100
@@ -465,7 +465,7 @@ class AutoEvolutionManager:
                 """INSERT INTO phase_history 
                    (phase, start_date, approved_by_user, notes)
                    VALUES (?, ?, ?, ?)""",
-                (new_phase.value, datetime.now().isoformat(), approved, full_note)
+                (new_phase.value, datetime.now(timezone.utc).isoformat(), approved, full_note)
             )
             conn.commit()
     

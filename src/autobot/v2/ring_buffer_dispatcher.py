@@ -166,7 +166,7 @@ class RingBufferDispatcher:
         Sends the WebSocket subscription once per pair.
 
         Args:
-            pair:        Trading pair (e.g. ``"XBT/EUR"`` or ``"XXBTZEUR"``).
+            pair:        Trading pair (e.g. ``"XBT/EUR"``).
             instance_id: Unique instance identifier.
 
         Returns:
@@ -181,20 +181,13 @@ class RingBufferDispatcher:
         if pair not in self._ws_subscribed:
             self._ws_subscribed.add(pair)
 
-            # FIX: Register callback under WS pair name (e.g. "XBT/EUR"),
-            # not REST pair name (e.g. "XXBTZEUR").  Kraken WS sends ticker
-            # data with the WS pair name; KrakenWebSocketAsync dispatches
-            # callbacks by that name.  But we write to the buffer keyed by
-            # the original `pair` so that consumers (instances) see data
-            # under the same key they subscribed with.
-            ws_pair = _convert_to_ws_pair(pair)
-
             # Capture pair in default argument to avoid closure late-binding.
             async def _write_cb(data: TickerData, _pair: str = pair) -> None:
                 self._write_ticker(_pair, data)
 
+            ws_pair = _convert_to_ws_pair(pair)
             self._ws.add_ticker_callback(ws_pair, _write_cb)
-            await self._ws.subscribe_ticker(ws_pair)
+            await self._ws.subscribe_ticker(_convert_to_ws_pair(pair))
 
         logger.debug(
             f"🔁 {instance_id} → {pair} "

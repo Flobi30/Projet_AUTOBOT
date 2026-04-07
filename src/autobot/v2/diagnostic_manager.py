@@ -15,7 +15,7 @@ import psutil
 import socket
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,7 @@ class DiagnosticManager:
             overall = "healthy"
         
         return HealthStatus(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             overall=overall,
             docker=docker_status,
             system=system_status,

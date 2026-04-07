@@ -7,7 +7,7 @@ import logging
 import sqlite3
 import threading as _threading
 import orjson
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 import threading
@@ -121,7 +121,7 @@ class StatePersistence:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     position_id, instance_id, buy_price, volume, status,
-                    datetime.now().isoformat(), strategy,
+                    datetime.now(timezone.utc).isoformat(), strategy,
                     orjson.dumps(metadata).decode('utf-8') if metadata else None
                 ))
                 conn.commit()
@@ -206,7 +206,7 @@ class StatePersistence:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
                     instance_id, status, current_capital, allocated_capital,
-                    win_count, loss_count, datetime.now().isoformat()
+                    win_count, loss_count, datetime.now(timezone.utc).isoformat()
                 ))
                 conn.commit()
 
@@ -232,7 +232,7 @@ class StatePersistence:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
                     position_id, instance_id, side, price, volume, profit,
-                    datetime.now().isoformat()
+                    datetime.now(timezone.utc).isoformat()
                 ))
                 conn.commit()
 
@@ -303,7 +303,7 @@ class StatePersistence:
         Retourne le nombre de lignes supprimées.
         """
         try:
-            cutoff = datetime.now().timestamp() - (days * 24 * 3600)
+            cutoff = datetime.now(timezone.utc).timestamp() - (days * 24 * 3600)
             
             with self._lock:
                 conn = self._get_conn()
@@ -322,6 +322,31 @@ class StatePersistence:
             logger.exception(f"❌ Erreur nettoyage: {e}")
             return 0
 
+
+
+    def cleanup_orphaned_instances(self, max_age_hours: int = 24) -> int:
+        """
+        Nettoie les enregistrements instance_state orphelins.
+        Supprime les instances arrêtées depuis plus de max_age_hours.
+        Retourne le nombre de lignes supprimées.
+        """
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                cursor = conn.execute("""
+                    DELETE FROM instance_state 
+                    WHERE status='stopped' 
+                    AND updated_at < datetime('now', '-1 day')
+                """)
+                deleted = cursor.rowcount
+                conn.commit()
+            
+            if deleted > 0:
+                logger.info(f"🧹 Nettoyage: {deleted} instances orphelines supprimées")
+            return deleted
+        except Exception as e:
+            logger.exception(f"❌ Erreur nettoyage instances orphelines: {e}")
+            return 0
 
 # Singleton global - CORRECTION Phase 4: Thread-safe
 _persistence_instance: Optional[StatePersistence] = None
@@ -363,7 +388,7 @@ def backup_database(source: str = "data/autobot_state.db",
     
     Path(backup_dir).mkdir(parents=True, exist_ok=True)
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_path = Path(backup_dir) / f"autobot_state_{timestamp}.db"
     
     # CORRECTION: Backup atomique via API SQLite
@@ -396,7 +421,7 @@ def cleanup_old_backups(backup_dir: str = "data/backups", keep_days: int = 7) ->
     if not backup_path.exists():
         return 0
     
-    cutoff = datetime.now().timestamp() - (keep_days * 24 * 3600)
+    cutoff = datetime.now(timezone.utc).timestamp() - (keep_days * 24 * 3600)
     deleted = 0
     
     for backup_file in backup_path.glob("autobot_state_*.db"):

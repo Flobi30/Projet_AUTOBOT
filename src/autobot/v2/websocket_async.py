@@ -17,7 +17,7 @@ import asyncio
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
 import orjson
@@ -26,6 +26,8 @@ import orjson
 from .websocket_client import TickerData
 from .os_tuning import get_os_tuner
 
+
+from .market_analyzer import get_market_analyzer
 logger = logging.getLogger(__name__)
 
 # Type alias for async callbacks
@@ -251,10 +253,17 @@ class KrakenWebSocketAsync:
             bid=bid,
             ask=ask,
             volume_24h=volume,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         self._last_prices[pair] = ticker
+
+        # Feed price to market analyzer for market selector
+        try:
+            analyzer = get_market_analyzer()
+            analyzer.add_price(pair, price)
+        except Exception:
+            pass  # Non-critical — don't break WS flow
 
         # Dispatch to async callbacks
         callbacks = list(self._ticker_callbacks.get(pair, []))

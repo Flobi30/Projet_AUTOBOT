@@ -7,7 +7,7 @@ import logging
 import statistics
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 import threading
 
@@ -73,10 +73,10 @@ class MarketAnalyzer:
             if symbol not in self._price_history:
                 self._price_history[symbol] = []
             
-            self._price_history[symbol].append((datetime.now(), price))
+            self._price_history[symbol].append((datetime.now(timezone.utc), price))
             
             # Garde seulement 7 jours d'historique
-            cutoff = datetime.now() - timedelta(days=7)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
             self._price_history[symbol] = [
                 (t, p) for t, p in self._price_history[symbol] if t > cutoff
             ]
@@ -89,7 +89,7 @@ class MarketAnalyzer:
         # Check cache
         if symbol in self._cache:
             last_update = self._cache_time.get(symbol)
-            if last_update and datetime.now() - last_update < self._cache_ttl:
+            if last_update and datetime.now(timezone.utc) - last_update < self._cache_ttl:
                 return self._cache[symbol]
         
         with self._lock:
@@ -97,7 +97,7 @@ class MarketAnalyzer:
                 return None
             
             history = self._price_history[symbol]
-            if len(history) < 100:  # Minimum 100 points
+            if len(history) < 20:  # Minimum 20 points (was 100 — too strict for startup)
                 return None
             
             prices = [p for _, p in history]
@@ -142,7 +142,7 @@ class MarketAnalyzer:
             
             # Cache
             self._cache[symbol] = metrics
-            self._cache_time[symbol] = datetime.now()
+            self._cache_time[symbol] = datetime.now(timezone.utc)
             
             return metrics
     
@@ -166,7 +166,7 @@ class MarketAnalyzer:
     
     def _calc_volatility(self, history: List[Tuple[datetime, float]], hours: int) -> float:
         """Calcule la volatilité (ATR %) sur N heures"""
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         recent = [p for t, p in history if t > cutoff]
         
         if len(recent) < 2:
@@ -215,7 +215,7 @@ class MarketAnalyzer:
     
     def _estimate_volume(self, history: List[Tuple[datetime, float]]) -> float:
         """Estime le volume (proxy: nombre de ticks)"""
-        cutoff = datetime.now() - timedelta(hours=24)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         recent_ticks = len([t for t, _ in history if t > cutoff])
         return float(recent_ticks)
     

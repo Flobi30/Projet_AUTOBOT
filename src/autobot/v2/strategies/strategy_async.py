@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from . import TradingSignal, SignalType
@@ -65,11 +65,11 @@ class StrategyAsync(ABC):
         if not bypass_cooldown:
             last = self._last_signal_times.get(key)
             if last:
-                elapsed = (datetime.now() - last).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - last).total_seconds()
                 if elapsed < self._signal_cooldown_seconds:
                     return
 
-        self._last_signal_times[key] = datetime.now()
+        self._last_signal_times[key] = datetime.now(timezone.utc)
         logger.info(f"📡 Signal {key.upper()}: {signal.reason} @ {signal.price:.2f}")
 
         if self._on_signal:

@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import Queue, Empty
 from enum import Enum
 
@@ -35,7 +35,7 @@ class OrderRequest:
     
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 
 
 class TokenBucket:

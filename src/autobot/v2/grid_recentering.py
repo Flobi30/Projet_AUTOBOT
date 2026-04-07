@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 
 from .strategies import calculate_grid_levels
@@ -95,7 +95,7 @@ class GridRecenteringManager:
 
     def _reset_daily_counter_if_needed(self) -> None:
         """Reset the daily counter when the calendar date changes."""
-        today = datetime.now().date()
+        today = datetime.now(timezone.utc).date()
         if self._today_date != today:
             self._today_date = today
             self._recenters_today = 0
@@ -137,7 +137,7 @@ class GridRecenteringManager:
 
         # Condition 3 — cooldown elapsed
         if self._last_recenter is not None:
-            elapsed_min = (datetime.now() - self._last_recenter).total_seconds() / 60.0
+            elapsed_min = (datetime.now(timezone.utc) - self._last_recenter).total_seconds() / 60.0
             if elapsed_min < self.cooldown_minutes:
                 logger.debug(
                     "DGT: blocked — cooldown %.1f / %d min remaining",
@@ -182,7 +182,7 @@ class GridRecenteringManager:
             num_levels=self.num_levels,
         )
 
-        self._last_recenter = datetime.now()
+        self._last_recenter = datetime.now(timezone.utc)
         self._recenters_today += 1
 
         result = RecenterResult(
@@ -191,7 +191,7 @@ class GridRecenteringManager:
             new_center=price,
             new_grid_levels=new_levels,
             reason=f"DGT: {old_center:.2f}→{price:.2f} (drift {drift_pct:.1f}%)",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             recenter_count_today=self._recenters_today,
         )
         self._recenter_history.append(result)

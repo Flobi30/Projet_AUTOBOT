@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
 import Tabs, { Tab } from '../components/ui/Tabs';
-import { Activity, TrendingUp, BarChart3, Wallet, Target, Layers, GraduationCap, RefreshCw, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Activity, TrendingUp, BarChart3, Wallet, Target, Layers, GraduationCap, RefreshCw, AlertTriangle, CheckCircle, XCircle, Wifi, WifiOff, Clock } from 'lucide-react';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
 const API_TOKEN = 'autobot_token_12345';
 
 interface GlobalPerf {
@@ -25,7 +25,7 @@ interface PaperPair {
   avg_profit_percent: number; avg_pf: number; win_rate: number;
   recommendation: string;
 }
-interface PaperSummary { active_instances: number; live_instances: number; pairs_tested: string[]; by_pair: PaperPair[]; }
+interface PaperSummary { active_instances: number; live_instances: number; pairs_tested: number; is_paper_mode: boolean; by_pair: PaperPair[]; }
 interface RebEvent { timestamp: string; instance_id: string; instance_name: string; action: string; amount: number; reason: string; }
 interface RebStatus {
   enabled: boolean; check_count: number; last_check: string|null;
@@ -33,7 +33,23 @@ interface RebStatus {
   thresholds: { profit_threshold_pct: number; drawdown_threshold_pct: number; reinvest_pct: number; reduce_pct: number; };
   recent_events: RebEvent[];
 }
+interface BotStatus {
+  running: boolean; instance_count: number; total_capital: number;
+  total_profit: number; websocket_connected: boolean; uptime_seconds: number | null;
+  total_trades?: number;
+}
+const formatUptime = (seconds: number | null): string => {
+  if (!seconds) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+};
 const fmt = (n: number, d=2) => n.toLocaleString('fr-FR', {minimumFractionDigits:d, maximumFractionDigits:d});
+interface BotStatus {
+  running: boolean; instance_count: number; total_capital: number;
+  total_profit: number; websocket_connected: boolean; uptime_seconds: number | null;
+  total_trades?: number;
+}
 const fmtEur = (n: number) => `${fmt(n)}€`;
 const pfColor = (pf: number) => pf>=2?'text-emerald-400':pf>=1.5?'text-green-400':pf>=1?'text-yellow-400':'text-red-400';
 const profitColor = (n: number) => n>=0?'text-emerald-400':'text-red-400';
@@ -43,7 +59,14 @@ const stratLabel = (s: string): string => {
 };
 
 async function apiFetch<T>(path: string): Promise<T|null> {
-  try { const r = await fetch(`${API_BASE_URL}${path}`, { headers: { 'Authorization': `Bearer ${API_TOKEN}` } }); return r.ok ? await r.json() : null; } catch { return null; }
+  try { 
+    const r = await fetch(`${API_BASE_URL}${path}`, { 
+      headers: { "Authorization": `Bearer ${API_TOKEN}` } 
+    }); 
+    return r.ok ? await r.json() : null; 
+  } catch { 
+    return null; 
+  }
 }
 
 const RecBadge: React.FC<{rec:string}> = ({rec}) => {
@@ -58,6 +81,7 @@ const Performance: React.FC = () => {
   const [pairPerfs, setPairPerfs] = useState<PairPerf[]>([]);
   const [paperSummary, setPaperSummary] = useState<PaperSummary|null>(null);
   const [rebStatus, setRebStatus] = useState<RebStatus|null>(null);
+  const [botStatus, setBotStatus] = useState<BotStatus|null>(null);
   const [expandedPair, setExpandedPair] = useState<string|null>(null);
 
   const tabs: Tab[] = [
@@ -67,14 +91,15 @@ const Performance: React.FC = () => {
   ];
 
   const fetchAll = useCallback(async () => {
-    const [g,p,pp,rb] = await Promise.all([
+    const [g,p,pp,rb,bs] = await Promise.all([
       apiFetch<GlobalPerf>('/api/performance/global'),
       apiFetch<{pairs:PairPerf[]}>('/api/performance/by-pair'),
       apiFetch<PaperSummary>('/api/paper-trading/summary'),
       apiFetch<RebStatus>('/api/rebalance/status'),
+      apiFetch<BotStatus>('/api/status'),
     ]);
     if(g) setGlobalPerf(g); if(p) setPairPerfs(p.pairs);
-    if(pp) setPaperSummary(pp); if(rb) setRebStatus(rb);
+    if(pp) setPaperSummary(pp); if(rb) setRebStatus(rb); if(bs) setBotStatus(bs);
     setIsLoading(false);
   }, []);
 
@@ -92,7 +117,7 @@ const Performance: React.FC = () => {
     if (!globalPerf) return (
       <div className="text-center py-12 text-gray-400">
         <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-yellow-500"/>
-        <p>Impossible de charger les donn\u00e9es. V\u00e9rifiez que le bot est actif.</p>
+        <p>Impossible de charger les données. Vérifiez que le bot est actif.</p>
       </div>
     );
     const pos = globalPerf.profit_total >= 0;
@@ -107,15 +132,15 @@ const Performance: React.FC = () => {
         </div>
         {globalPerf.history.length > 1 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
-            <h3 className="text-xl font-bold text-emerald-400 mb-4">{"\ud83d\udcca"} \u00c9volution du Capital</h3>
+            <h3 className="text-xl font-bold text-emerald-400 mb-4">📊 Évolution du Capital</h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={globalPerf.history}>
                   <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10B981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10B981" stopOpacity={0}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151"/>
                   <XAxis dataKey="timestamp" stroke="#9CA3AF" tickFormatter={t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}/>
-                  <YAxis stroke="#9CA3AF" tickFormatter={v=>`${v}\u20ac`}/>
-                  <Tooltip contentStyle={{backgroundColor:'#1F2937',border:'1px solid #10B981',borderRadius:'8px'}} formatter={(v:number)=>[`${fmt(v)}\u20ac`,'Capital']}/>
+                  <YAxis stroke="#9CA3AF" tickFormatter={v=>`${v}€`}/>
+                  <Tooltip contentStyle={{backgroundColor:'#1F2937',border:'1px solid #10B981',borderRadius:'8px'}} formatter={(v:number)=>[`${fmt(v)}€`,'Capital']}/>
                   <Area type="monotone" dataKey="capital" stroke="#10B981" strokeWidth={2} fill="url(#cg)"/>
                 </AreaChart>
               </ResponsiveContainer>
@@ -124,7 +149,7 @@ const Performance: React.FC = () => {
         )}
         {globalPerf.by_strategy.length > 0 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
-            <h3 className="text-xl font-bold text-emerald-400 mb-4">{"\ud83d\udcc9"} Par Strat\u00e9gie</h3>
+            <h3 className="text-xl font-bold text-emerald-400 mb-4">📉 Par Stratégie</h3>
             <div className="space-y-3">
               {globalPerf.by_strategy.map(s=>(
                 <div key={s.strategy} className="flex items-center justify-between p-4 bg-gray-700/30 rounded-xl border border-gray-600/30">
@@ -141,19 +166,19 @@ const Performance: React.FC = () => {
         )}
         {rebStatus && rebStatus.enabled && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
-            <h3 className="text-xl font-bold text-emerald-400 mb-4">{"\u2696\ufe0f"} Auto-Rebalancement</h3>
+            <h3 className="text-xl font-bold text-emerald-400 mb-4">⚖️ Auto-Rebalancement</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">V\u00e9rifications</p><p className="text-white font-bold text-lg">{rebStatus.check_count}</p></div>
-              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">R\u00e9investi</p><p className="text-emerald-400 font-bold text-lg">{fmtEur(rebStatus.total_reinvested)}</p></div>
-              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">R\u00e9duit</p><p className="text-red-400 font-bold text-lg">{fmtEur(rebStatus.total_reduced)}</p></div>
+              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">Vérifications</p><p className="text-white font-bold text-lg">{rebStatus.check_count}</p></div>
+              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">Réinvesti</p><p className="text-emerald-400 font-bold text-lg">{fmtEur(rebStatus.total_reinvested)}</p></div>
+              <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">Réduit</p><p className="text-red-400 font-bold text-lg">{fmtEur(rebStatus.total_reduced)}</p></div>
               <div className="p-3 bg-gray-700/30 rounded-lg"><p className="text-gray-400 text-xs">Seuil Profit</p><p className="text-white font-bold text-lg">{rebStatus.thresholds.profit_threshold_pct}%</p></div>
             </div>
             {rebStatus.recent_events.length > 0 && (
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {rebStatus.recent_events.map((e,i)=>(
                   <div key={i} className="flex items-center justify-between p-2 bg-gray-700/20 rounded-lg text-sm">
-                    <span className={e.action==='reinvest'?'text-emerald-400':'text-red-400'}>{e.action==='reinvest'?'\ud83d\udcb0':'\u26a0\ufe0f'} {e.instance_name} \u2014 {e.reason}</span>
-                    <span className={`font-bold ${e.action==='reinvest'?'text-emerald-400':'text-red-400'}`}>{e.action==='reinvest'?'+':'-'}{fmt(e.amount)}\u20ac</span>
+                    <span className={e.action==='reinvest'?'text-emerald-400':'text-red-400'}>{e.action==='reinvest'?'💰':'⚠️'} {e.instance_name} — {e.reason}</span>
+                    <span className={`font-bold ${e.action==='reinvest'?'text-emerald-400':'text-red-400'}`}>{e.action==='reinvest'?'+':'-'}{fmt(e.amount)}€</span>
                   </div>
                 ))}
               </div>
@@ -202,7 +227,7 @@ const Performance: React.FC = () => {
                     <p className="text-gray-400 text-xs">Max DD</p>
                     <p className="text-red-400 font-bold">{fmt(pair.max_drawdown,1)}%</p>
                   </div>
-                  <span className={`text-gray-400 transition-transform ${expandedPair===pair.symbol?'rotate-180':''}`}>{"\u25bc"}</span>
+                  <span className={`text-gray-400 transition-transform ${expandedPair===pair.symbol?'rotate-180':''}`}>{"▼"}</span>
                 </div>
               </div>
             </div>
@@ -235,7 +260,7 @@ const Performance: React.FC = () => {
     if (!paperSummary) return (
       <div className="text-center py-12 text-gray-400">
         <GraduationCap className="w-12 h-12 mx-auto mb-4 text-gray-600"/>
-        <p>Donn\u00e9es d'entra\u00eenement non disponibles.</p>
+        <p>Données d'entraînement non disponibles.</p>
       </div>
     );
     return (
@@ -243,9 +268,9 @@ const Performance: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <MetricCard title="Instances Paper" value={String(paperSummary.active_instances)} icon={<GraduationCap className="w-5 h-5"/>}/>
           <MetricCard title="Instances Live" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
-          <MetricCard title="Paires test\u00e9es" value={String(paperSummary.pairs_tested.length)} icon={<Layers className="w-5 h-5"/>}/>
+          <MetricCard title="Paires testées" value={String(paperSummary.pairs_tested)} icon={<Layers className="w-5 h-5"/>}/>
         </div>
-        {paperSummary.pairs_tested.length > 0 && (
+        {false && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
             <h3 className="text-xl font-bold text-emerald-400 mb-2">Paires en test</h3>
             <div className="flex flex-wrap gap-2 mb-6">
@@ -299,8 +324,62 @@ const Performance: React.FC = () => {
           <TrendingUp className="w-6 lg:w-8 h-6 lg:h-8 text-emerald-400"/>
           <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">Performance</h1>
         </div>
-        <p className="text-gray-400 text-sm lg:text-lg">Vue consolid\u00e9e des performances — donn\u00e9es r\u00e9elles en temps r\u00e9el.</p>
+        <p className="text-gray-400 text-sm lg:text-lg">Vue consolidée des performances — données réelles en temps réel.</p>
       </div>
+
+
+      {/* Paper Trading Banner */}
+      {paperSummary && paperSummary.is_paper_mode && (
+        <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-start gap-3">
+          <span className="text-2xl">🎓</span>
+          <div>
+            <h3 className="text-amber-400 font-bold text-lg">Mode Entraînement (Paper Trading)</h3>
+            <p className="text-amber-300/80 text-sm">Le bot s'entraîne avec du capital virtuel. Aucun argent réel n'est engagé.</p>
+            <div className="flex gap-4 mt-2 text-sm">
+              <span className="text-gray-400">Capital réel : <strong className="text-white">0,00 €</strong></span>
+              <span className="text-gray-400">Capital paper : <strong className="text-amber-400">{globalPerf ? fmtEur(globalPerf.capital_total) : '—'}</strong></span>
+            </div>
+          </div>
+        </div>
+      )}
+      {paperSummary && !paperSummary.is_paper_mode && (
+        <div className="mb-6 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 flex items-start gap-3">
+          <span className="text-2xl">🚀</span>
+          <div>
+            <h3 className="text-emerald-400 font-bold text-lg">Mode Live Trading</h3>
+            <p className="text-emerald-300/80 text-sm">Le bot trade avec du capital réel sur Kraken.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Bot Status */}
+      {botStatus && (
+        <div className="mb-6 bg-gray-800 border border-gray-700/50 rounded-2xl p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              {botStatus.running ? (
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+              ) : (
+                <span className="h-3 w-3 rounded-full bg-red-500"></span>
+              )}
+              <span className={`font-bold ${botStatus.running ? 'text-emerald-400' : 'text-red-400'}`}>
+                {botStatus.running ? 'Bot Actif — Données Kraken Live' : 'Bot Déconnecté'}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
+              <span className="flex items-center gap-1">
+                {botStatus.websocket_connected ? <Wifi className="w-4 h-4 text-emerald-400"/> : <WifiOff className="w-4 h-4 text-red-400"/>}
+                {botStatus.websocket_connected ? <span className="text-emerald-400 ml-1">Connecté</span> : <span className="text-red-400 ml-1">Déconnecté</span>}
+              </span>
+              <span>Instances : <strong className="text-white">{botStatus.instance_count}</strong></span>
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4"/> Uptime : <strong className="text-white">{formatUptime(botStatus.uptime_seconds)}</strong></span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-6">
         <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab}/>

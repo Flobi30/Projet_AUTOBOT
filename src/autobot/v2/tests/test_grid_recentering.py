@@ -35,7 +35,7 @@ Coverage:
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any, List
 from unittest.mock import MagicMock, patch
 
@@ -137,24 +137,24 @@ class TestShouldRecenter:
     def test_returns_false_during_cooldown(self):
         mgr = _make_manager(center=50_000.0, cooldown_minutes=60)
         # Simulate a recent recenter
-        mgr._last_recenter = datetime.now() - timedelta(minutes=30)
+        mgr._last_recenter = datetime.now(timezone.utc) - timedelta(minutes=30)
         assert mgr.should_recenter(54_000.0) is False
 
     def test_returns_true_after_cooldown_elapsed(self):
         mgr = _make_manager(center=50_000.0, cooldown_minutes=60)
-        mgr._last_recenter = datetime.now() - timedelta(minutes=61)
+        mgr._last_recenter = datetime.now(timezone.utc) - timedelta(minutes=61)
         assert mgr.should_recenter(54_000.0) is True
 
     def test_returns_false_when_daily_cap_reached(self):
         mgr = _make_manager(center=50_000.0, cooldown_minutes=0, max_per_day=3)
         mgr._recenters_today = 3
-        mgr._today_date = datetime.now().date()
+        mgr._today_date = datetime.now(timezone.utc).date()
         assert mgr.should_recenter(54_000.0) is False
 
     def test_returns_true_when_under_daily_cap(self):
         mgr = _make_manager(center=50_000.0, cooldown_minutes=0, max_per_day=3)
         mgr._recenters_today = 2
-        mgr._today_date = datetime.now().date()
+        mgr._today_date = datetime.now(timezone.utc).date()
         assert mgr.should_recenter(54_000.0) is True
 
     def test_downside_drift_also_triggers(self):
@@ -195,7 +195,7 @@ class TestRecenter:
 
     def test_increments_daily_counter(self):
         mgr = _make_manager()
-        mgr._today_date = datetime.now().date()
+        mgr._today_date = datetime.now(timezone.utc).date()
         mgr.recenter(54_000.0)
         assert mgr.recenters_today == 1
         mgr.recenter(56_000.0)
@@ -203,9 +203,9 @@ class TestRecenter:
 
     def test_records_last_recenter_timestamp(self):
         mgr = _make_manager()
-        before = datetime.now()
+        before = datetime.now(timezone.utc)
         mgr.recenter(54_000.0)
-        after = datetime.now()
+        after = datetime.now(timezone.utc)
         assert mgr.last_recenter is not None
         assert before <= mgr.last_recenter <= after
 
@@ -230,7 +230,7 @@ class TestRecenter:
 
     def test_recenter_count_today_in_result(self):
         mgr = _make_manager()
-        mgr._today_date = datetime.now().date()
+        mgr._today_date = datetime.now(timezone.utc).date()
         result = mgr.recenter(54_000.0)
         assert result.recenter_count_today == 1
 
@@ -260,13 +260,13 @@ class TestTrailingAnchor:
 
     def test_does_not_consume_daily_quota(self):
         mgr = _make_manager(center=50_000.0, trailing_pct=5.0)
-        mgr._today_date = datetime.now().date()
+        mgr._today_date = datetime.now(timezone.utc).date()
         mgr.check_trailing_anchor(53_000.0)
         assert mgr.recenters_today == 0
 
     def test_does_not_reset_cooldown_timer(self):
         mgr = _make_manager(center=50_000.0, trailing_pct=5.0)
-        sentinel = datetime.now() - timedelta(hours=2)
+        sentinel = datetime.now(timezone.utc) - timedelta(hours=2)
         mgr._last_recenter = sentinel
         mgr.check_trailing_anchor(53_000.0)
         assert mgr.last_recenter == sentinel
@@ -371,8 +371,8 @@ class TestGridStrategyAsyncDGT:
 
         # Manually inject open positions
         strategy.open_levels = {
-            0: {"entry_price": 49_000.0, "volume": 0.01, "opened_at": datetime.now()},
-            1: {"entry_price": 48_000.0, "volume": 0.02, "opened_at": datetime.now()},
+            0: {"entry_price": 49_000.0, "volume": 0.01, "opened_at": datetime.now(timezone.utc)},
+            1: {"entry_price": 48_000.0, "volume": 0.02, "opened_at": datetime.now(timezone.utc)},
         }
 
         signals: list = []
@@ -388,7 +388,7 @@ class TestGridStrategyAsyncDGT:
     def test_open_levels_cleared_after_recenter(self):
         strategy, instance = self._make_strategy(center=50_000.0, cooldown=0)
         strategy.open_levels = {
-            0: {"entry_price": 49_000.0, "volume": 0.01, "opened_at": datetime.now()},
+            0: {"entry_price": 49_000.0, "volume": 0.01, "opened_at": datetime.now(timezone.utc)},
         }
         strategy.on_price(45_000.0)
         assert strategy.open_levels == {}
@@ -443,7 +443,7 @@ class TestGridStrategyAsyncDGT:
     def test_dgt_daily_counter_increments(self):
         strategy, _ = self._make_strategy(center=50_000.0, cooldown=0)
         assert strategy._dgt is not None
-        strategy._dgt._today_date = datetime.now().date()
+        strategy._dgt._today_date = datetime.now(timezone.utc).date()
 
         strategy.on_price(45_000.0)
         assert strategy._dgt.recenters_today == 1

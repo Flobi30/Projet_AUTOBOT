@@ -6,7 +6,7 @@ Achat aux supports, vente aux résistances
 import logging
 import math
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import deque
 
 from . import Strategy, TradingSignal, SignalType, calculate_grid_levels, PositionSizing
@@ -350,7 +350,7 @@ class GridStrategy(Strategy):
                         price=price,
                         volume=position['volume'],
                         reason=f"EMERGENCY: Grid invalidated - level {level_idx}",
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         metadata={
                             'level_index': level_idx,
                             'emergency': True,
@@ -380,7 +380,7 @@ class GridStrategy(Strategy):
                         price=price,
                         volume=position['volume'],
                         reason=f"STOP-LOSS: Drawdown {self._max_drawdown_pct}% atteint",
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         metadata={
                             'level_index': emergency_level,
                             'stop_loss': True,
@@ -410,7 +410,7 @@ class GridStrategy(Strategy):
                     price=price,
                     volume=position['volume'],
                     reason=f"Grid level {level_idx} profit: +{profit_pct:.2f}%",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     metadata={
                         'level_index': level_idx,
                         'level_price': level_price,
@@ -463,7 +463,7 @@ class GridStrategy(Strategy):
                             price=price,
                             volume=volume,
                             reason=f"Grid buy level {best_level} @ {level_price:.0f}",
-                            timestamp=datetime.now(),
+                            timestamp=datetime.now(timezone.utc),
                             metadata={
                                 'level_index': best_level,
                                 'level_price': level_price,
@@ -492,7 +492,7 @@ class GridStrategy(Strategy):
                     self.open_levels[nearest_level] = {
                         'entry_price': entry_price,
                         'volume': position.volume,
-                        'opened_at': datetime.now()
+                        'opened_at': datetime.now(timezone.utc)
                     }
                 
                 logger.info(f"📊 Position ouverte niveau {nearest_level}: "

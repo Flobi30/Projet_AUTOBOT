@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from threading import Lock, Thread, Event
 import time
 
@@ -425,7 +425,7 @@ class Orchestrator:
             return
 
         self.running = True
-        self._start_time = datetime.now()
+        self._start_time = datetime.now(timezone.utc)
 
         # Connexion WebSocket (multiplexeur — 1 connexion pour toutes les paires)
         self.ws_multiplexer.connect()
@@ -543,7 +543,7 @@ class Orchestrator:
         return {
             'running': self.running,
             'start_time': self._start_time,
-            'uptime': datetime.now() - self._start_time if self._start_time else None,
+            'uptime': datetime.now(timezone.utc) - self._start_time if self._start_time else None,
             'instance_count': instance_count,
             'max_instances': self.config['max_instances'],
             'websocket_connected': self.ws_client.is_connected(),

@@ -7,9 +7,8 @@ import { useAppStore } from '../store/useAppStore';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
 const API_TOKEN = 'autobot_token_12345';
-const authHeaders = { 'Authorization': `Bearer ${API_TOKEN}` };
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {
@@ -67,7 +66,7 @@ const LiveTrading: React.FC = () => {
         setError(null);
 
         // Récupère le statut global
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: authHeaders });
+        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData: GlobalStatus = await statusRes.json();
         setGlobalStatus(statusData);
@@ -75,7 +74,7 @@ const LiveTrading: React.FC = () => {
         setBotStatus(statusData.running ? 'ACTIVE' : 'INACTIVE');
 
         // Récupère les instances
-        const instancesRes = await fetch(`${API_BASE_URL}/api/instances`, { headers: authHeaders });
+        const instancesRes = await fetch(`${API_BASE_URL}/api/instances`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!instancesRes.ok) throw new Error(`API Error: ${instancesRes.status}`);
         const instancesData: InstanceStatus[] = await instancesRes.json();
         setInstances(instancesData);
@@ -83,7 +82,7 @@ const LiveTrading: React.FC = () => {
         // Récupère les positions de la première instance (s'il y en a une)
         if (instancesData.length > 0) {
           const firstInstanceId = instancesData[0].id;
-          const positionsRes = await fetch(`${API_BASE_URL}/api/instances/${firstInstanceId}/positions`, { headers: authHeaders });
+          const positionsRes = await fetch(`${API_BASE_URL}/api/instances/${firstInstanceId}/positions`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
           if (positionsRes.ok) {
             const positionsData: PositionInfo[] = await positionsRes.json();
             setPositions(positionsData);

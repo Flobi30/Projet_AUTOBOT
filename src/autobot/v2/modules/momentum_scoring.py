@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
