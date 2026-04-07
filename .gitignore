@@ -11,3 +11,4 @@ logs/
 *.log
 certs/
 audit_final_opus.md
+MEMORY.md
