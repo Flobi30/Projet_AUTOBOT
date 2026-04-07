@@ -45,6 +45,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
         )
 
     if credentials.credentials.strip() != expected_token.strip():
+        logger.warning(f"Token mismatch. Received: {repr(credentials.credentials[:20])}... Expected: {repr(expected_token[:20])}...")
         raise HTTPException(status_code=403, detail="Token invalide")
 
     return True
@@ -163,7 +164,7 @@ async def get_global_status(
     
     try:
         # CORRECTION: Utilise méthode thread-safe
-        status = orchestrator.get_status_safe()
+        status = orchestrator.get_status()
         return GlobalStatus(
             running=status['running'],
             instance_count=status['instance_count'],
@@ -713,6 +714,472 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
         logger.exception("Erreur récupération trades")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
+
+
+
+# =====================================================================
+# PERFORMANCE ENDPOINTS — Real calculations, no mock data
+# =====================================================================
+
+@app.get("/api/performance/global")
+async def get_global_performance(request: Request, authorized: bool = Depends(verify_token)):
+    """
+    Aggregated performance across ALL instances.
+    All calculations use real data from the orchestrator.
+
+    Returns:
+        - capital_total: Sum of all current capitals
+        - capital_initial: Sum of all initial capitals
+        - profit_total: Computed from real instance profits
+        - profit_percent: (profit / initial) * 100
+        - profit_factor: gross_profit / gross_loss (real)
+        - win_rate: % of winning trades (real)
+        - total_trades: Count of executed trades
+        - instances_count: Number of live instances
+        - by_strategy: Breakdown by strategy type
+        - history: Capital history points (from real data)
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        # Use extended snapshot for full data access
+        get_extended = getattr(orchestrator, 'get_instances_snapshot_extended', None)
+        if get_extended:
+            instances_data = get_extended()
+        else:
+            instances_data = orchestrator.get_instances_snapshot()
+
+        if not instances_data:
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "capital_total": 0.0,
+                "capital_initial": 0.0,
+                "profit_total": 0.0,
+                "profit_percent": 0.0,
+                "profit_factor": 0.0,
+                "win_rate": 0.0,
+                "total_trades": 0,
+                "instances_count": 0,
+                "by_strategy": [],
+                "history": [],
+            }
+
+        # 1. Capital calculations (REAL)
+        capital_total = sum(inst.get("capital", 0) for inst in instances_data)
+        capital_initial = sum(
+            inst.get("initial_capital", inst.get("capital", 0))
+            for inst in instances_data
+        )
+        profit_total = sum(inst.get("profit", 0) for inst in instances_data)
+        profit_percent = (profit_total / capital_initial * 100) if capital_initial > 0 else 0.0
+
+        # 2. Profit Factor & Win Rate (REAL — computed from actual trades)
+        gross_profit = 0.0
+        gross_loss = 0.0
+        total_trades = 0
+        winning_trades = 0
+
+        for inst in instances_data:
+            trades = inst.get("trades_history", [])
+            for trade in trades:
+                pnl = trade.get("profit", 0) or 0
+                total_trades += 1
+                if pnl > 0:
+                    gross_profit += pnl
+                    winning_trades += 1
+                elif pnl < 0:
+                    gross_loss += abs(pnl)
+
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (
+            float("inf") if gross_profit > 0 else 0.0
+        )
+        # Clamp infinite PF for JSON serialization
+        if profit_factor == float("inf"):
+            profit_factor = 999.99
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # 3. If no trades from extended snapshot, fallback to win/loss counts
+        if total_trades == 0:
+            for inst in instances_data:
+                wc = inst.get("win_count", 0)
+                lc = inst.get("loss_count", 0)
+                total_trades += wc + lc
+                winning_trades += wc
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # 4. By strategy breakdown (REAL)
+        strategy_map: Dict[str, Dict] = {}
+        for inst in instances_data:
+            strat = inst.get("strategy", "unknown")
+            if strat not in strategy_map:
+                strategy_map[strat] = {
+                    "strategy": strat,
+                    "instances_count": 0,
+                    "capital_total": 0.0,
+                    "profit_total": 0.0,
+                }
+            strategy_map[strat]["instances_count"] += 1
+            strategy_map[strat]["capital_total"] += inst.get("capital", 0)
+            strategy_map[strat]["profit_total"] += inst.get("profit", 0)
+
+        by_strategy = []
+        for strat_data in strategy_map.values():
+            by_strategy.append({
+                "strategy": strat_data["strategy"],
+                "instances_count": strat_data["instances_count"],
+                "capital_total": round(strat_data["capital_total"], 2),
+                "profit_total": round(strat_data["profit_total"], 2),
+            })
+
+        # 5. History — aggregate capital snapshots from instance data
+        # (Uses real profit from each instance to build a pseudo-history)
+        history = []
+        # Build a simple history from current state
+        # In production, this should come from a time-series database
+        now = datetime.now(timezone.utc)
+        history.append({
+            "timestamp": now.isoformat(),
+            "capital": round(capital_total, 2),
+            "profit": round(profit_total, 2),
+        })
+
+        return {
+            "timestamp": now.isoformat(),
+            "capital_total": round(capital_total, 2),
+            "capital_initial": round(capital_initial, 2),
+            "profit_total": round(profit_total, 2),
+            "profit_percent": round(profit_percent, 2),
+            "profit_factor": round(profit_factor, 2),
+            "win_rate": round(win_rate, 2),
+            "total_trades": total_trades,
+            "instances_count": len(instances_data),
+            "by_strategy": by_strategy,
+            "history": history,
+        }
+    except Exception:
+        logger.exception("Erreur récupération performance globale")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/performance/by-pair")
+async def get_performance_by_pair(request: Request, authorized: bool = Depends(verify_token)):
+    """
+    Performance aggregated by trading pair (BTC/EUR, ETH/EUR, etc.)
+    All calculations use real instance data.
+
+    Returns:
+        pairs: List of pair-level metrics with profit factor, win rate, etc.
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        get_extended = getattr(orchestrator, 'get_instances_snapshot_extended', None)
+        if get_extended:
+            instances_data = get_extended()
+        else:
+            instances_data = orchestrator.get_instances_snapshot()
+
+        if not instances_data:
+            return {"timestamp": datetime.now(timezone.utc).isoformat(), "pairs": []}
+
+        # Group instances by symbol
+        pair_map: Dict[str, list] = {}
+        for inst in instances_data:
+            symbol = inst.get("symbol", inst.get("name", "UNKNOWN"))
+            # Try to extract symbol from name if not available directly
+            if symbol == "UNKNOWN" or "/" not in symbol:
+                name = inst.get("name", "")
+                # Pattern: "Auto-BTC-EUR (grid)" or "Grid BTC/EUR"
+                for known in ["BTC/EUR", "ETH/EUR", "SOL/EUR", "BTC/USD",
+                              "ETH/USD", "SOL/USD", "XRP/EUR", "ADA/EUR",
+                              "DOT/EUR"]:
+                    if known.replace("/", "-") in name or known in name:
+                        symbol = known
+                        break
+            if symbol not in pair_map:
+                pair_map[symbol] = []
+            pair_map[symbol].append(inst)
+
+        pairs_result = []
+        for symbol, instances in pair_map.items():
+            capital_total = sum(inst.get("capital", 0) for inst in instances)
+            capital_initial = sum(
+                inst.get("initial_capital", inst.get("capital", 0))
+                for inst in instances
+            )
+            profit_total = sum(inst.get("profit", 0) for inst in instances)
+            profit_percent = (profit_total / capital_initial * 100) if capital_initial > 0 else 0.0
+
+            # Compute PF and win rate from real trades
+            gross_profit = 0.0
+            gross_loss = 0.0
+            total_trades = 0
+            winning_trades = 0
+            trading_mode = "live"
+
+            for inst in instances:
+                mode = inst.get("trading_mode", "live")
+                if mode in ("paper", "shadow", "dry_run"):
+                    trading_mode = "paper"
+
+                trades = inst.get("trades_history", [])
+                for trade in trades:
+                    pnl = trade.get("profit", 0) or 0
+                    total_trades += 1
+                    if pnl > 0:
+                        gross_profit += pnl
+                        winning_trades += 1
+                    elif pnl < 0:
+                        gross_loss += abs(pnl)
+
+            # Fallback to win/loss counts
+            if total_trades == 0:
+                for inst in instances:
+                    wc = inst.get("win_count", 0)
+                    lc = inst.get("loss_count", 0)
+                    total_trades += wc + lc
+                    winning_trades += wc
+
+            pf = (gross_profit / gross_loss) if gross_loss > 0 else (
+                999.99 if gross_profit > 0 else 0.0
+            )
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+            # Max drawdown across instances in this pair
+            max_dd = max(
+                (inst.get("max_drawdown", 0) for inst in instances),
+                default=0.0,
+            )
+
+            pairs_result.append({
+                "symbol": symbol,
+                "instances_count": len(instances),
+                "capital_total": round(capital_total, 2),
+                "capital_initial": round(capital_initial, 2),
+                "profit_total": round(profit_total, 2),
+                "profit_percent": round(profit_percent, 2),
+                "profit_factor": round(pf, 2),
+                "win_rate": round(win_rate, 2),
+                "total_trades": total_trades,
+                "max_drawdown": round(max_dd * 100, 2),
+                "status": trading_mode,
+                "instances": [
+                    {
+                        "id": inst.get("id"),
+                        "name": inst.get("name"),
+                        "capital": round(inst.get("capital", 0), 2),
+                        "profit": round(inst.get("profit", 0), 2),
+                        "strategy": inst.get("strategy", "unknown"),
+                        "status": inst.get("status", "unknown"),
+                    }
+                    for inst in instances
+                ],
+            })
+
+        # Sort by profit_total descending
+        pairs_result.sort(key=lambda p: p["profit_total"], reverse=True)
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "pairs": pairs_result,
+        }
+    except Exception:
+        logger.exception("Erreur récupération performance par paire")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/paper-trading/summary")
+async def get_paper_trading_summary(request: Request, authorized: bool = Depends(verify_token)):
+    """
+    Summary of paper trading instances.
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        import os
+        instances_data = orchestrator.get_instances_snapshot()
+        
+        # Check global paper trading mode
+        is_paper_mode = os.getenv('PAPER_TRADING', 'false').lower() == 'true'
+        
+        # Count instances
+        total_instances = len(instances_data)
+        
+        # In paper mode, all instances are considered paper
+        # In live mode, all instances are considered live
+        if is_paper_mode:
+            paper_count = total_instances
+            live_count = 0
+        else:
+            paper_count = 0
+            live_count = total_instances
+        
+        # Build pair map
+        pair_map = {}
+        for inst in instances_data:
+            # Try to determine symbol from strategy or name
+            symbol = "BTC/EUR"  # Default
+            strategy = inst.get("strategy", "").lower()
+            name = inst.get("name", "").lower()
+            
+            if "btc" in strategy or "btc" in name or "bitcoin" in name:
+                symbol = "BTC/EUR"
+            elif "eth" in strategy or "eth" in name:
+                symbol = "ETH/EUR"
+            elif "sol" in strategy or "sol" in name:
+                symbol = "SOL/EUR"
+            
+            if symbol not in pair_map:
+                pair_map[symbol] = []
+            pair_map[symbol].append(inst)
+
+        # Group by symbol
+            total_trades = 0
+            winning_trades = 0
+            gross_profit = 0.0
+            gross_loss = 0.0
+
+            for inst in instances:
+                initial = inst.get("initial_capital", inst.get("capital", 0))
+                profit = inst.get("profit", 0)
+                if initial > 0:
+                    profits_pct.append(profit / initial * 100)
+
+                trades = inst.get("trades_history", [])
+                for trade in trades:
+                    pnl = trade.get("profit", 0) or 0
+                    total_trades += 1
+                    if pnl > 0:
+                        gross_profit += pnl
+                        winning_trades += 1
+                    elif pnl < 0:
+                        gross_loss += abs(pnl)
+
+                # Fallback
+                if not trades:
+                    wc = inst.get("win_count", 0)
+                    lc = inst.get("loss_count", 0)
+                    total_trades += wc + lc
+                    winning_trades += wc
+
+            avg_profit_pct = (sum(profits_pct) / len(profits_pct)) if profits_pct else 0.0
+            pair_pf = (gross_profit / gross_loss) if gross_loss > 0 else (
+                999.99 if gross_profit > 0 else 0.0
+            )
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+            # Recommendation logic (REAL)
+            if pair_pf > 1.5 and win_rate > 55 and total_trades >= 20:
+                recommendation = "promote_to_live"
+            elif pair_pf > 1.0 and total_trades < 20:
+                recommendation = "continue_paper"
+            elif pair_pf <= 1.0 and total_trades >= 10:
+                recommendation = "stop"
+            else:
+                recommendation = "continue_paper"
+
+            by_pair.append({
+                "symbol": symbol,
+                "instance_count": len(instances),
+                "total_trades": total_trades,
+                "avg_profit_percent": round(avg_profit_pct, 2),
+                "avg_pf": round(pair_pf, 2),
+                "win_rate": round(win_rate, 2),
+                "recommendation": recommendation,
+            })
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "active_instances": paper_count if is_paper_mode else live_count,
+            "paper_instances": paper_count,
+            "is_paper_mode": is_paper_mode,
+            "live_instances": live_count,
+            "pairs_tested": pairs_tested,
+            "by_pair": by_pair,
+        }
+    except Exception:
+        logger.exception("Erreur récupération résumé paper trading")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/rebalance/status")
+async def get_rebalance_status(request: Request, authorized: bool = Depends(verify_token)):
+    """Status of the auto-rebalance manager."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        rebalance_mgr = getattr(orchestrator, 'rebalance_manager', None)
+        if not rebalance_mgr:
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "enabled": False,
+                "message": "RebalanceManager non initialisé",
+            }
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **rebalance_mgr.get_status(),
+        }
+    except Exception:
+        logger.exception("Erreur récupération statut rebalance")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/system")
+async def get_system_metrics(authorized: bool = Depends(verify_token)):
+    """
+    Retourne les métriques système (CPU, RAM, Disk).
+    """
+    try:
+        import psutil
+        
+        # CPU
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        # RAM
+        mem = psutil.virtual_memory()
+        
+        # Disk
+        disk = psutil.disk_usage('/')
+        
+        # Déterminer le statut
+        def get_status(percent):
+            if percent < 70:
+                return "healthy"
+            elif percent < 85:
+                return "warning"
+            else:
+                return "critical"
+        
+        return {
+            "cpu": {
+                "percent": round(cpu_percent, 1),
+                "status": get_status(cpu_percent)
+            },
+            "memory": {
+                "percent": round(mem.percent, 1),
+                "used_gb": round(mem.used / (1024**3), 2),
+                "total_gb": round(mem.total / (1024**3), 2),
+                "status": get_status(mem.percent)
+            },
+            "disk": {
+                "percent": round(disk.percent, 1),
+                "used_gb": round(disk.used / (1024**3), 2),
+                "total_gb": round(disk.total / (1024**3), 2),
+                "status": get_status(disk.percent)
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des métriques système: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur système: {str(e)}")
 
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""

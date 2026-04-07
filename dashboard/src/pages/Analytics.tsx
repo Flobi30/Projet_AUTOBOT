@@ -3,7 +3,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3, Loader } from 'lucide-react';
 
-const API_BASE_URL = 'http://178.104.0.255:8080';
+const API_BASE_URL = 'http://204.168.205.73:8080';
 
 const Analytics: React.FC = () => {
   const [performanceData, setPerformanceData] = useState<any[]>([]);
@@ -57,8 +57,10 @@ const Analytics: React.FC = () => {
   if (isLoading) {
     return (
       <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">
-        <Loader className="w-8 h-8 text-emerald-400 animate-spin" />
-        <span className="ml-3 text-emerald-400">Chargement...</span>
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+          <span className="mt-4 text-emerald-400">Chargement...</span>
+        </div>
       </div>
     );
   }

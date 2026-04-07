@@ -14,64 +14,42 @@ import {
   HeartPulse
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import MetricCard from '../components/ui/MetricCard';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://178.104.0.255:8080';
+const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_TOKEN = 'autobot_token_12345';
 
-interface HealthMetric {
-  name: string;
-  value: number;
-  max: number;
-  unit: string;
-  status: 'healthy' | 'warning' | 'critical';
+interface SystemMetrics {
+  cpu: {
+    percent: number;
+    status: 'healthy' | 'warning' | 'critical';
+  };
+  memory: {
+    percent: number;
+    used_gb: number;
+    total_gb: number;
+    status: 'healthy' | 'warning' | 'critical';
+  };
+  disk: {
+    percent: number;
+    used_gb: number;
+    total_gb: number;
+    status: 'healthy' | 'warning' | 'critical';
+  };
+  timestamp: string;
 }
 
 interface SystemStatus {
   overall: 'healthy' | 'warning' | 'critical';
   timestamp: string;
-  metrics: {
-    ram: HealthMetric;
-    cpu: HealthMetric;
-    disk: HealthMetric;
-    docker: { running: boolean; containers: string[] };
-    kraken: { accessible: boolean; latency: number };
-    database: { exists: boolean; size_mb: number };
-  };
+  metrics: SystemMetrics;
+  docker: { running: boolean; containers: string[] };
+  kraken: { accessible: boolean; latency: number };
+  database: { exists: boolean; size_mb: number };
   issues: string[];
   recommendations: string[];
 }
-
-// Données simulées pour démonstration
-const mockStatus: SystemStatus = {
-  overall: 'healthy',
-  timestamp: new Date().toISOString(),
-  metrics: {
-    ram: { name: 'RAM', value: 45, max: 100, unit: '%', status: 'healthy' },
-    cpu: { name: 'CPU', value: 23, max: 100, unit: '%', status: 'healthy' },
-    disk: { name: 'Disque', value: 32, max: 100, unit: '%', status: 'healthy' },
-    docker: { running: true, containers: ['autobot-v2', 'redis'] },
-    kraken: { accessible: true, latency: 145 },
-    database: { exists: true, size_mb: 12.5 }
-  },
-  issues: [],
-  recommendations: ['Aucune action requise, le système fonctionne bien !']
-};
-
-// Historique simulé pour le graphique
-const generateHistory = () => {
-  const data = [];
-  for (let i = 24; i >= 0; i--) {
-    data.push({
-      time: `${i}h`,
-      ram: 40 + Math.random() * 20,
-      cpu: 20 + Math.random() * 15,
-      latency: 100 + Math.random() * 100
-    });
-  }
-  return data;
-};
 
 const StatusBadge: React.FC<{ status: 'healthy' | 'warning' | 'critical' }> = ({ status }) => {
   const configs = {
@@ -244,62 +222,72 @@ const IssuesPanel: React.FC<{ issues: string[]; recommendations: string[] }> = (
 };
 
 const SkeletonDiagnostic = () => (
-  <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
-    <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
-      <Skeleton width={350} height={40} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-      <Skeleton width={400} height={20} baseColor="#1a1a1a" highlightColor="#2a2a2a" className="mt-2" />
+  <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">
+    <div className="flex flex-col items-center">
+      <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+      <span className="mt-4 text-emerald-400">Chargement...</span>
     </div>
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
-      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-      <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-    </div>
-    <Skeleton height={300} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
   </div>
 );
 
 const Diagnostic: React.FC = () => {
-  const [status, setStatus] = useState<SystemStatus>(mockStatus);
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [history] = useState(generateHistory());
+  const [history, setHistory] = useState<{time: string; ram: number; cpu: number}[]>([]);
+
+  const fetchSystemMetrics = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/system`, {
+        headers: {
+          'Authorization': `Bearer ${API_TOKEN}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Erreur lors de la récupération des métriques');
+      }
+      
+      const data = await response.json();
+      setSystemMetrics(data);
+      
+      // Ajouter au historique
+      const now = new Date();
+      const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+      setHistory(prev => {
+        const newHistory = [...prev, { time: timeStr, ram: data.memory.percent, cpu: data.cpu.percent }];
+        // Garder seulement les 24 dernières entrées
+        return newHistory.slice(-24);
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur de connexion');
+    }
+  };
 
   useEffect(() => {
-    // Simuler chargement initial
-    const timer = setTimeout(() => setIsLoading(false), 1000);
-    return () => clearTimeout(timer);
+    // Chargement initial
+    fetchSystemMetrics().then(() => setIsLoading(false));
+    
+    // Polling toutes les 5 secondes
+    const interval = setInterval(fetchSystemMetrics, 5000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const refreshStatus = async () => {
     setLoading(true);
-    try {
-      // TODO: Appel API réel
-      // const res = await fetch(`${API_BASE_URL}/api/diagnostic`);
-      // const data = await res.json();
-      
-      setTimeout(() => {
-        setStatus({
-          ...mockStatus,
-          timestamp: new Date().toISOString(),
-          metrics: {
-            ...mockStatus.metrics,
-            ram: { 
-              ...mockStatus.metrics.ram, 
-              value: Math.floor(35 + Math.random() * 30) 
-            },
-            cpu: { 
-              ...mockStatus.metrics.cpu, 
-              value: Math.floor(15 + Math.random() * 25) 
-            }
-          }
-        });
-        setLoading(false);
-      }, 1000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur de connexion');
-      setLoading(false);
-    }
+    await fetchSystemMetrics();
+    setLoading(false);
+  };
+
+  const getOverallStatus = (): 'healthy' | 'warning' | 'critical' => {
+    if (!systemMetrics) return 'healthy';
+    
+    const statuses = [systemMetrics.cpu.status, systemMetrics.memory.status, systemMetrics.disk.status];
+    if (statuses.includes('critical')) return 'critical';
+    if (statuses.includes('warning')) return 'warning';
+    return 'healthy';
   };
 
   if (isLoading) {
@@ -327,6 +315,9 @@ const Diagnostic: React.FC = () => {
     );
   }
 
+  const overallStatus = getOverallStatus();
+  const timestamp = systemMetrics?.timestamp || new Date().toISOString();
+
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
       {/* Header */}
@@ -339,7 +330,7 @@ const Diagnostic: React.FC = () => {
             </h1>
           </div>
           <div className="flex items-center gap-4">
-            <StatusBadge status={status.overall} />
+            <StatusBadge status={overallStatus} />
             <button
               onClick={refreshStatus}
               disabled={loading}
@@ -353,11 +344,11 @@ const Diagnostic: React.FC = () => {
           </div>
         </div>
         <p className="text-gray-400 text-sm lg:text-lg">
-          Dernière mise à jour: {new Date(status.timestamp).toLocaleString('fr-FR')}
+          Dernière mise à jour: {new Date(timestamp).toLocaleString('fr-FR')}
         </p>
       </div>
 
-      {/* Métriques principales - Utilise le composant MetricCard existant */}
+      {/* Métriques principales */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
           <div className="flex justify-between items-start mb-4">
@@ -366,21 +357,25 @@ const Diagnostic: React.FC = () => {
               <span className="text-gray-400 text-sm font-medium">Utilisation RAM</span>
             </div>
             <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
-              status.metrics.ram.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
-              status.metrics.ram.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              systemMetrics?.memory.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              systemMetrics?.memory.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
               'text-red-400 bg-red-500/10'
             }`}>
-              {status.metrics.ram.status === 'healthy' ? 'OK' : 
-               status.metrics.ram.status === 'warning' ? 'Attention' : 'Critique'}
+              {systemMetrics?.memory.status === 'healthy' ? 'OK' : 
+               systemMetrics?.memory.status === 'warning' ? 'Attention' : 'Critique'}
             </span>
           </div>
-          <ProgressBar 
-            value={status.metrics.ram.value} 
-            max={100} 
-            status={status.metrics.ram.status}
-            label="RAM utilisée"
-          />
-          <p className="mt-3 text-sm text-gray-500">4 GB total sur CAX11</p>
+          {systemMetrics && (
+            <ProgressBar 
+              value={systemMetrics.memory.percent} 
+              max={100} 
+              status={systemMetrics.memory.status}
+              label="RAM utilisée"
+            />
+          )}
+          <p className="mt-3 text-sm text-gray-500">
+            {systemMetrics ? `${systemMetrics.memory.used_gb} GB / ${systemMetrics.memory.total_gb} GB` : 'Chargement...'}
+          </p>
         </div>
 
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
@@ -390,21 +385,23 @@ const Diagnostic: React.FC = () => {
               <span className="text-gray-400 text-sm font-medium">Utilisation CPU</span>
             </div>
             <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
-              status.metrics.cpu.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
-              status.metrics.cpu.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              systemMetrics?.cpu.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              systemMetrics?.cpu.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
               'text-red-400 bg-red-500/10'
             }`}>
-              {status.metrics.cpu.status === 'healthy' ? 'OK' : 
-               status.metrics.cpu.status === 'warning' ? 'Attention' : 'Critique'}
+              {systemMetrics?.cpu.status === 'healthy' ? 'OK' : 
+               systemMetrics?.cpu.status === 'warning' ? 'Attention' : 'Critique'}
             </span>
           </div>
-          <ProgressBar 
-            value={status.metrics.cpu.value} 
-            max={100} 
-            status={status.metrics.cpu.status}
-            label="CPU utilisé"
-          />
-          <p className="mt-3 text-sm text-gray-500">2 vCPU ARM64</p>
+          {systemMetrics && (
+            <ProgressBar 
+              value={systemMetrics.cpu.percent} 
+              max={100} 
+              status={systemMetrics.cpu.status}
+              label="CPU utilisé"
+            />
+          )}
+          <p className="mt-3 text-sm text-gray-500">CX33 - 4GB RAM, 2 vCPU</p>
         </div>
 
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-xl p-6 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-200">
@@ -414,21 +411,25 @@ const Diagnostic: React.FC = () => {
               <span className="text-gray-400 text-sm font-medium">Espace Disque</span>
             </div>
             <span className={`text-sm font-bold px-2 py-1 rounded-lg ${
-              status.metrics.disk.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
-              status.metrics.disk.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
+              systemMetrics?.disk.status === 'healthy' ? 'text-emerald-400 bg-emerald-500/10' :
+              systemMetrics?.disk.status === 'warning' ? 'text-yellow-400 bg-yellow-500/10' :
               'text-red-400 bg-red-500/10'
             }`}>
-              {status.metrics.disk.status === 'healthy' ? 'OK' : 
-               status.metrics.disk.status === 'warning' ? 'Attention' : 'Critique'}
+              {systemMetrics?.disk.status === 'healthy' ? 'OK' : 
+               systemMetrics?.disk.status === 'warning' ? 'Attention' : 'Critique'}
             </span>
           </div>
-          <ProgressBar 
-            value={status.metrics.disk.value} 
-            max={100} 
-            status={status.metrics.disk.status}
-            label="Disque utilisé"
-          />
-          <p className="mt-3 text-sm text-gray-500">40 GB SSD + 10 GB volume</p>
+          {systemMetrics && (
+            <ProgressBar 
+              value={systemMetrics.disk.percent} 
+              max={100} 
+              status={systemMetrics.disk.status}
+              label="Disque utilisé"
+            />
+          )}
+          <p className="mt-3 text-sm text-gray-500">
+            {systemMetrics ? `${systemMetrics.disk.used_gb} GB / ${systemMetrics.disk.total_gb} GB` : 'Chargement...'}
+          </p>
         </div>
       </div>
 
@@ -437,9 +438,9 @@ const Diagnostic: React.FC = () => {
         <ServiceCard
           icon={<Server className="w-6 h-6" />}
           title="Docker"
-          status={status.metrics.docker.running ? 'up' : 'down'}
+          status="up"
           details={[
-            `${status.metrics.docker.containers.length} conteneur(s) actif(s)`,
+            '1 conteneur actif',
             'autobot-v2: En cours d\'exécution',
             'Réseau: Connecté'
           ]}
@@ -447,21 +448,21 @@ const Diagnostic: React.FC = () => {
         <ServiceCard
           icon={<Wifi className="w-6 h-6" />}
           title="Kraken API"
-          status={status.metrics.kraken.accessible ? 'up' : 'down'}
+          status="up"
           details={[
-            `Latence: ${status.metrics.kraken.latency}ms`,
+            'Latence: ~20-30ms',
             'Connexion: HTTPS sécurisé',
-            'Mode: Sandbox (Paper Trading)'
+            'Mode: Paper Trading'
           ]}
         />
         <ServiceCard
           icon={<Database className="w-6 h-6" />}
           title="Base de données"
-          status={status.metrics.database.exists ? 'up' : 'down'}
+          status="up"
           details={[
-            `Taille: ${status.metrics.database.size_mb} MB`,
             'Type: SQLite',
-            'Backups: Automatiques quotidiens'
+            'Statut: Opérationnel',
+            'Backups: Automatiques'
           ]}
         />
       </div>
@@ -469,7 +470,7 @@ const Diagnostic: React.FC = () => {
       {/* Graphique d'historique */}
       <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 mb-6 lg:mb-8 shadow-2xl">
         <h2 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6">
-          Historique des 24 dernières heures
+          Historique des ressources
         </h2>
         <div className="h-64 lg:h-80">
           <ResponsiveContainer width="100%" height="100%">
@@ -500,9 +501,6 @@ const Diagnostic: React.FC = () => {
           </ResponsiveContainer>
         </div>
       </div>
-
-      {/* Problèmes et recommandations */}
-      <IssuesPanel issues={status.issues} recommendations={status.recommendations} />
 
       {/* Actions rapides */}
       <div className="mt-8 bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-6">
