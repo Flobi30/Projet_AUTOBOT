@@ -46,7 +46,7 @@ class GridStrategy(Strategy):
         
         # Configuration
         self.center_price = self.config.get('center_price', 50000.0)
-        self.range_percent = self.config.get('range_percent', 7.0)
+        self.range_percent = self.config.get('range_percent', 2.0)
         self.num_levels = self.config.get('num_levels', 15)
         # CORRECTION Point #5: capital_per_level devient un MAX, pas une valeur fixe
         self.max_capital_per_level = self.config.get('max_capital_per_level', 50.0)

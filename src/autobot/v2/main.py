@@ -66,7 +66,7 @@ class AutoBotV2:
             strategy="grid",
             leverage=1,
             grid_config={
-                'range_percent': 7.0,
+                'range_percent': 2.0,
                 'num_levels': 15
             }
         )

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class GridConfig:
     """Configuration pour le calcul de la grille"""
     num_levels: int = 15
-    range_percent: float = 14.0  # +/- 7% = 14% total
+    range_percent: float = 4.0  # +/- 2% = 4% total
     capital: float = 500.0
     symbol: str = "XXBTZEUR"
 

@@ -15,6 +15,20 @@ Uses:
 
 from __future__ import annotations
 
+# ── Load .env file BEFORE any module reads env vars ──────────────
+# This ensures MODULE_* variables from .env are available to os.getenv()
+from dotenv import load_dotenv as _load_dotenv
+from pathlib import Path as _DotenvPath
+
+# Try multiple locations: /app/.env (Docker), or project root .env
+for _env_candidate in [
+    _DotenvPath("/app/.env"),
+    _DotenvPath(__file__).resolve().parent.parent.parent.parent / ".env",
+]:
+    if _env_candidate.is_file():
+        _load_dotenv(_env_candidate, override=False)
+        break
+
 import asyncio
 import logging
 import os
@@ -111,7 +125,7 @@ def _build_grid_config(symbol: str) -> dict:
     V3: If a PairProfile exists, injects it into grid_config so that
     GridStrategyAsync can switch to adaptive mode.
 
-    Legacy fallback: returns {"range_percent": 7.0, "num_levels": 15}.
+    Legacy fallback: returns {"range_percent": 2.0, "num_levels": 20}.
     """
     if _pair_registry is not None and _pair_registry.has(symbol):
         profile = _pair_registry.get(symbol)
@@ -127,7 +141,7 @@ def _build_grid_config(symbol: str) -> dict:
         }
     else:
         # Legacy: 7% range, 15 levels (unchanged from V2)
-        return {"range_percent": 7.0, "num_levels": 15}
+        return {"range_percent": 2.0, "num_levels": 20}
 
 
 class AutoBotV2Async:
@@ -148,18 +162,62 @@ class AutoBotV2Async:
         self.api_key = api_key or os.getenv("KRAKEN_API_KEY")
         self.api_secret = api_secret or os.getenv("KRAKEN_API_SECRET")
 
-    def _create_default_instance(self) -> InstanceConfig:
-        symbol = os.getenv("TRADING_SYMBOL", "XXBTZEUR")
-        grid_config = _build_grid_config(symbol)
-
-        return InstanceConfig(
-            name="Instance Principale",
-            symbol=symbol,
-            initial_capital=float(os.getenv("INITIAL_CAPITAL", 500.0)),
-            strategy="grid",
-            leverage=1,
-            grid_config=grid_config,
-        )
+    def _create_all_instance_configs(self) -> list:
+        """Create instance configs for all TRADING_PAIRS (multi-pair support).
+        
+        Reads TRADING_PAIRS env var (comma-separated Kraken symbols).
+        Falls back to TRADING_SYMBOL for backward compatibility.
+        Capital is split equally across all pairs.
+        """
+        pairs_str = os.getenv("TRADING_PAIRS", "")
+        if pairs_str:
+            symbols = [s.strip() for s in pairs_str.split(",") if s.strip()]
+        else:
+            symbols = [os.getenv("TRADING_SYMBOL", "XXBTZEUR")]
+        
+        total_capital = float(os.getenv("INITIAL_CAPITAL", 1000.0))
+        capital_per_pair = total_capital / len(symbols)
+        
+        # Capital weighting: BTC and ETH get more (1.5x), alts get standard (1.0x)
+        weights = {}
+        for s in symbols:
+            if "XBT" in s or "BTC" in s:
+                weights[s] = 1.5
+            elif "ETH" in s:
+                weights[s] = 1.3
+            else:
+                weights[s] = 1.0
+        total_weight = sum(weights.values())
+        
+        configs = []
+        for symbol in symbols:
+            weighted_capital = total_capital * (weights[symbol] / total_weight)
+            grid_config = _build_grid_config(symbol)
+            
+            # Friendly name mapping
+            name_map = {
+                "XXBTZEUR": "BTC/EUR", "XETHZEUR": "ETH/EUR",
+                "SOLEUR": "SOL/EUR", "ADAEUR": "ADA/EUR",
+                "DOTEUR": "DOT/EUR", "XXRPZEUR": "XRP/EUR",
+                "LINKEUR": "LINK/EUR", "POLEUR": "POL/EUR",
+                "AVAXEUR": "AVAX/EUR", "UNIEUR": "UNI/EUR",
+            }
+            name = name_map.get(symbol, symbol)
+            
+            configs.append(InstanceConfig(
+                name=f"Grid {name}",
+                symbol=symbol,
+                initial_capital=round(weighted_capital, 2),
+                strategy="grid",
+                leverage=1,
+                grid_config=grid_config,
+            ))
+        
+        logger.info(f"Multi-pair: {len(configs)} pairs, total capital={total_capital}")
+        for cfg in configs:
+            logger.info(f"  {cfg.symbol}: {cfg.initial_capital:.2f} EUR")
+        
+        return configs
 
     async def start(self) -> None:
         logger.info("=" * 60)
@@ -175,12 +233,22 @@ class AutoBotV2Async:
                 api_key=self.api_key, api_secret=self.api_secret
             )
 
-            # 2. Create default instance
-            config = self._create_default_instance()
-            instance = await self.orchestrator.create_instance(config)
-            if not instance:
-                logger.error("Impossible de creer l'instance par defaut")
+            # 2. Create instances for all configured trading pairs
+            configs = self._create_all_instance_configs()
+            instances_created = 0
+            for config in configs:
+                instance = await self.orchestrator.create_instance(config)
+                if instance:
+                    instances_created += 1
+                    logger.info(f"  Created: {config.name} ({config.symbol})")
+                else:
+                    logger.warning(f"  Failed: {config.name} ({config.symbol})")
+            
+            if instances_created == 0:
+                logger.error("Impossible de creer aucune instance")
                 return
+            
+            logger.info(f"Created {instances_created}/{len(configs)} instances")
 
             # 3. Start orchestrator
             await self.orchestrator.start()
@@ -202,17 +270,24 @@ class AutoBotV2Async:
             logger.info(f"   Instances: {len(self.orchestrator._instances)}")
             logger.info(f"   Max instances: {self.orchestrator.config['max_instances']}")
 
-            # V3: Log adaptive grid status
+            # V3: Log adaptive grid status for all pairs
             if _pair_registry:
                 logger.info(f"   Adaptive Grid V3: {len(_pair_registry.symbols)} pair profiles loaded")
-                symbol = config.symbol
-                if _pair_registry.has(symbol):
-                    profile = _pair_registry.get(symbol)
-                    logger.info(
-                        f"   {symbol}: range={profile.base_range_pct}%% "
-                        f"[{profile.min_range_pct}-{profile.max_range_pct}%%], "
-                        f"levels={profile.base_num_levels} [{profile.min_levels}-{profile.max_levels}]"
-                    )
+                for cfg in configs:
+                    if _pair_registry.has(cfg.symbol):
+                        profile = _pair_registry.get(cfg.symbol)
+                        logger.info(
+                            f"   {cfg.symbol}: range={profile.base_range_pct}%% "
+                            f"[{profile.min_range_pct}-{profile.max_range_pct}%%], "
+                            f"levels={profile.base_num_levels} [{profile.min_levels}-{profile.max_levels}]"
+                        )
+
+            # Log module manager status
+            if self.orchestrator.module_manager:
+                mm_status = self.orchestrator.module_manager.get_status()
+                logger.info(f"   Modules: {mm_status['total_loaded']}/{mm_status['total_enabled']} loaded")
+                if self.orchestrator.module_manager.loaded_modules:
+                    logger.info(f"   Active: {', '.join(self.orchestrator.module_manager.loaded_modules)}")
 
             logger.info("Arret: Ctrl+C")
             logger.info("")

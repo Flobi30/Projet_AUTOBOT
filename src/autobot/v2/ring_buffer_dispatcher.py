@@ -50,22 +50,70 @@ from .ring_buffer import RingBuffer, RingBufferReader, DEFAULT_BUFFER_SIZE
 from .websocket_async import KrakenWebSocketAsync, TickerData
 
 def _convert_to_ws_pair(symbol: str) -> str:
-    """Convert REST symbol (XXBTZEUR) to WebSocket format (XBT/EUR)."""
-    if symbol == "XXBTZEUR":
-        return "XBT/EUR"
-    if symbol == "XXBTZUSD":
-        return "XBT/USD"
-    if symbol == "XETHZEUR":
-        return "ETH/EUR"
-    if symbol == "XETHZUSD":
-        return "ETH/USD"
-    # Format générique: XXBTZEUR -> XBT/EUR
-    if len(symbol) >= 7 and symbol[0] == 'X':
-        base_end = symbol.find('Z')
+    """Convert REST symbol (XXBTZEUR) to WebSocket format (XBT/EUR).
+    
+    Handles all Kraken naming conventions:
+    - XXBTZEUR -> XBT/EUR (prefixed with X, quote prefixed with Z)
+    - SOLEUR -> SOL/EUR (no prefix, 3-char base + 3-char quote)
+    - ADAEUR -> ADA/EUR
+    - LINKEUR -> LINK/EUR (4-char base)
+    - MATICEUR -> MATIC/EUR (5-char base)
+    - AVAXEUR -> AVAX/EUR
+    - UNIEUR -> UNI/EUR
+    """
+    # Explicit mapping for known pairs (most reliable)
+    _SYMBOL_MAP = {
+        "XXBTZEUR": "XBT/EUR",
+        "XXBTZUSD": "XBT/USD",
+        "XETHZEUR": "ETH/EUR",
+        "XETHZUSD": "ETH/USD",
+        "XXRPZEUR": "XRP/EUR",
+        "XXRPZUSD": "XRP/USD",
+        "XXLMZEUR": "XLM/EUR",
+        "XLTCZEUR": "LTC/EUR",
+        "SOLEUR": "SOL/EUR",
+        "SOLUSD": "SOL/USD",
+        "ADAEUR": "ADA/EUR",
+        "ADAUSD": "ADA/USD",
+        "DOTEUR": "DOT/EUR",
+        "DOTUSD": "DOT/USD",
+        "LINKEUR": "LINK/EUR",
+        "LINKUSD": "LINK/USD",
+        "POLEUR": "POL/EUR",
+        "POLUSD": "POL/USD",
+        "AVAXEUR": "AVAX/EUR",
+        "AVAXUSD": "AVAX/USD",
+        "UNIEUR": "UNI/EUR",
+        "UNIUSD": "UNI/USD",
+        "AAVEEUR": "AAVE/EUR",
+        "ATOMEUR": "ATOM/EUR",
+        "DOGEEUR": "DOGE/EUR",
+        "SHIBEUR": "SHIB/EUR",
+        "TRXEUR": "TRX/EUR",
+    }
+    
+    if symbol in _SYMBOL_MAP:
+        return _SYMBOL_MAP[symbol]
+    
+    # Already in WS format (contains /)
+    if "/" in symbol:
+        return symbol
+    
+    # Generic conversion: Try X-prefix format (XXBTZEUR -> XBT/EUR)
+    if len(symbol) >= 7 and symbol[0] == "X":
+        base_end = symbol.find("Z", 1)
         if base_end > 0:
             base = symbol[1:base_end]
-            quote = symbol[base_end+1:]
+            quote = symbol[base_end + 1:]
             return f"{base}/{quote}"
+    
+    # Generic: try to split by known quote currencies
+    for quote in ("EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD"):
+        if symbol.endswith(quote):
+            base = symbol[:-len(quote)]
+            if base:
+                return f"{base}/{quote}"
+    
     return symbol
 
 

@@ -188,7 +188,7 @@ class Orchestrator:
             initial_capital=0,  # Sera calculé par capital_allocation
             leverage=1,
             grid_config={
-                'range_percent': 7.0 if selection.market_type.value == 'crypto' else 1.0,
+                'range_percent': 2.0 if selection.market_type.value == 'crypto' else 1.0,
                 'num_levels': 15
             }
         )
