@@ -214,6 +214,13 @@ class AutoBotV2Async:
                         f"levels={profile.base_num_levels} [{profile.min_levels}-{profile.max_levels}]"
                     )
 
+            # Log module manager status
+            if self.orchestrator.module_manager:
+                mm_status = self.orchestrator.module_manager.get_status()
+                logger.info(f"   Modules: {mm_status['total_loaded']}/{mm_status['total_enabled']} loaded")
+                if self.orchestrator.module_manager.loaded_modules:
+                    logger.info(f"   Active: {', '.join(self.orchestrator.module_manager.loaded_modules)}")
+
             logger.info("Arret: Ctrl+C")
             logger.info("")
 

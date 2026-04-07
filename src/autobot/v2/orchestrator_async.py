@@ -40,6 +40,7 @@ from .risk_manager import get_risk_manager
 from .persistence import get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
+from .module_manager import ModuleManager
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,10 @@ class OrchestratorAsync:
             self.market_selector = get_market_selector(self)
         except Exception:
             self.market_selector = None
+
+        # Module manager -- conditional activation of all optional modules
+        self.module_manager = ModuleManager()
+        self.module_manager.init_modules(self)
 
         logger.info("🎛️ OrchestratorAsync initialisé (target: 2000+ instances)")
 
@@ -408,6 +413,9 @@ class OrchestratorAsync:
         )
         await self.reconciliation_manager.start()
 
+        # Start optional modules (DailyReporter, RebalanceManager, etc.)
+        await self.module_manager.start()
+
         # Start instances
         for inst in list(self._instances.values()):
             await inst.start()
@@ -466,6 +474,9 @@ class OrchestratorAsync:
         if self.reconciliation_manager:
             await self.reconciliation_manager.stop()
 
+        # Stop optional modules
+        await self.module_manager.stop()
+
         await self.order_executor.close()
 
         # P4: Stop cold scheduler then re-enable GC
@@ -503,6 +514,7 @@ class OrchestratorAsync:
             "instance_count": len(self._instances),
             "max_instances": self.config["max_instances"],
             "websocket_connected": self.ws_client.is_connected(),
+            "modules": self.module_manager.get_status() if self.module_manager else {},
             "instances": [
                 {
                     "id": i.id,
