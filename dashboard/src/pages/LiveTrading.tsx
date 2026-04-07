@@ -7,7 +7,7 @@ import { useAppStore } from '../store/useAppStore';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
 const API_TOKEN = 'autobot_token_12345';
 
 // CORRECTION: Types pour les données API

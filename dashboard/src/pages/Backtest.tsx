@@ -5,7 +5,7 @@ import Modal from '../components/ui/Modal';
 import StrategyDetailModal from '../components/ui/StrategyDetailModal';
 import { BarChart3, Brain, Cpu, Target, TrendingUp, Calendar, Loader } from 'lucide-react';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
 const API_TOKEN = 'autobot_token_12345';
 
 export interface Strategy {
@@ -45,7 +45,7 @@ const Backtest: React.FC = () => {
         }
 
         // Données historiques pour le graphique
-        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=30`);
+        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=30`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (historyData.history) {

@@ -3,7 +3,8 @@ import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader } from
 import MetricCard from '../components/ui/MetricCard';
 import { useAppStore } from '../store/useAppStore';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
+const API_TOKEN = 'autobot_token_12345';
 
 interface CapitalData {
   total_capital: number;
@@ -35,6 +36,7 @@ const Capital: React.FC = () => {
   const [trades, setTrades] = useState<TradeData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPaperMode, setIsPaperMode] = useState<boolean>(false);
 
   // Fetch des données capital et trades depuis l'API
   const fetchCapitalData = useCallback(async () => {
@@ -42,14 +44,14 @@ const Capital: React.FC = () => {
       setError(null);
 
       // Fetch capital details
-      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`);
+      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
       if (capitalRes.ok) {
         const data: CapitalData = await capitalRes.json();
         setCapitalData(data);
         setCapitalTotal(data.total_capital);
       } else {
         // Fallback sur /api/status si /api/capital n'existe pas encore
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`);
+        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData = await statusRes.json();
         const fallback: CapitalData = {
@@ -65,11 +67,21 @@ const Capital: React.FC = () => {
       }
 
       // Fetch recent trades
-      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`);
+      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
       if (tradesRes.ok) {
         const tradesData = await tradesRes.json();
         setTrades(tradesData.trades || []);
       }
+
+      
+      // Check if paper mode
+      try {
+        const paperRes = await fetch(`${API_BASE_URL}/api/paper-trading/summary`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        if (paperRes.ok) {
+          const paperData = await paperRes.json();
+          setIsPaperMode(paperData.is_paper_mode === true);
+        }
+      } catch {}
 
       setIsLoading(false);
     } catch (err) {
@@ -119,10 +131,22 @@ const Capital: React.FC = () => {
         )}
       </div>
 
+
+      {/* Paper Trading Banner */}
+      {isPaperMode && (
+        <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-start gap-3">
+          <span className="text-2xl">🎓</span>
+          <div>
+            <h3 className="text-amber-400 font-bold text-lg">Mode Paper Trading actif</h3>
+            <p className="text-amber-300/80 text-sm">Les montants affichés sont virtuels (entraînement). Aucun argent réel n'est engagé.</p>
+          </div>
+        </div>
+      )}
+
       {/* Metrics - données réelles de l'API */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <MetricCard
-          title="Capital Total"
+          title={isPaperMode ? "Capital Paper (virtuel)" : "Capital Total"}
           value={capitalData ? formatCurrency(capitalData.total_capital) : '—'}
           icon={<DollarSign className="w-5 h-5" />}
         />

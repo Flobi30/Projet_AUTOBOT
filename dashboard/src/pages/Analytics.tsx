@@ -3,7 +3,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3, Loader } from 'lucide-react';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_BASE_URL = '';
+const API_TOKEN = 'autobot_token_12345';
 
 const Analytics: React.FC = () => {
   const [performanceData, setPerformanceData] = useState<any[]>([]);
@@ -19,7 +20,7 @@ const Analytics: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`);
+        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (capitalRes.ok) {
           const capitalData = await capitalRes.json();
           const pnlPercent = capitalData.total_capital > 0 
@@ -32,7 +33,7 @@ const Analytics: React.FC = () => {
           }));
         }
 
-        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=7`);
+        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=7`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (historyData.history && historyData.history.length > 0) {
