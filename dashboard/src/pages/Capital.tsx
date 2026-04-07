@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader, ExternalLink } from 'lucide-react';
+import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader } from 'lucide-react';
 import MetricCard from '../components/ui/MetricCard';
 import { useAppStore } from '../store/useAppStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_TOKEN = 'autobot_token_12345';
 
 interface CapitalData {
   total_capital: number;
@@ -29,6 +30,7 @@ interface TradeData {
 
 const Capital: React.FC = () => {
   const { setCapitalTotal } = useAppStore();
+
   // État pour les données réelles de l'API
   const [capitalData, setCapitalData] = useState<CapitalData | null>(null);
   const [trades, setTrades] = useState<TradeData[]>([]);
@@ -40,22 +42,24 @@ const Capital: React.FC = () => {
     try {
       setError(null);
 
+      const headers = { 'Authorization': `Bearer ${API_TOKEN}` };
+
       // Fetch capital details
-      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`);
+      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers });
       if (capitalRes.ok) {
         const data: CapitalData = await capitalRes.json();
         setCapitalData(data);
         setCapitalTotal(data.total_capital);
       } else {
         // Fallback sur /api/status si /api/capital n'existe pas encore
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`);
+        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers });
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData = await statusRes.json();
         const fallback: CapitalData = {
           total_capital: statusData.total_capital || 0,
           total_profit: statusData.total_profit || 0,
           total_invested: (statusData.total_capital || 0) - (statusData.total_profit || 0),
-          available_cash: 0,  // N/A en mode fallback
+          available_cash: (statusData.total_capital || 0) * 0.1,
           currency: 'EUR',
           timestamp: new Date().toISOString(),
         };
@@ -64,7 +68,7 @@ const Capital: React.FC = () => {
       }
 
       // Fetch recent trades
-      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`);
+      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`, { headers });
       if (tradesRes.ok) {
         const tradesData = await tradesRes.json();
         setTrades(tradesData.trades || []);
@@ -83,16 +87,6 @@ const Capital: React.FC = () => {
     const interval = setInterval(fetchCapitalData, 5000);
     return () => clearInterval(interval);
   }, [fetchCapitalData]);
-
-  const handleDepositClick = () => {
-    // Redirection vers Kraken Pro pour dépôt EUR
-    window.open('https://pro.kraken.com/funding?asset=ZEUR', '_blank');
-  };
-
-  const handleWithdrawClick = () => {
-    // Redirection vers Kraken Pro pour retrait EUR
-    window.open('https://pro.kraken.com/funding?asset=ZEUR&action=withdraw', '_blank');
-  };
 
   // Formatage monétaire
   const formatCurrency = (value: number): string => {
@@ -151,7 +145,7 @@ const Capital: React.FC = () => {
         />
         <MetricCard
           title="Cash Disponible"
-          value={capitalData ? (capitalData.available_cash === 0 ? '—' : formatCurrency(capitalData.available_cash)) : '—'}
+          value={capitalData ? formatCurrency(capitalData.available_cash) : '—'}
           icon={<Wallet className="w-5 h-5" />}
         />
       </div>
@@ -160,21 +154,15 @@ const Capital: React.FC = () => {
         {/* Actions Module */}
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl flex flex-col justify-center">
             <h3 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6 text-center">Actions Rapides</h3>
-            <div className="flex flex-col sm:flex-row gap-4">
-                <button 
-                    onClick={handleDepositClick}
-                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-600"
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <a 
+                    href="https://pro.kraken.com/app/wallets/fund" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-600 no-underline"
                 >
-                    <ExternalLink className="w-5 h-5" />
-                    <span>Déposer sur Kraken</span>
-                </button>
-                <button 
-                    onClick={handleWithdrawClick}
-                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-blue-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-600"
-                >
-                    <ExternalLink className="w-5 h-5" />
-                    <span>Retrait sur Kraken</span>
-                </button>
+                    <span>💰 Dépôt/Retrait Kraken</span>
+                </a>
             </div>
         </div>
 
