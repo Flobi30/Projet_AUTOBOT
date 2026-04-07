@@ -1040,6 +1040,10 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             pair_map[symbol].append(inst)
 
         # Group by symbol
+        by_pair = []
+        pairs_tested = len(pair_map)
+        for symbol, instances in pair_map.items():
+            profits_pct = []
             total_trades = 0
             winning_trades = 0
             gross_profit = 0.0
