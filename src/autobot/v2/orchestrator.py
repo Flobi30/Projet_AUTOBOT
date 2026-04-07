@@ -160,13 +160,18 @@ class Orchestrator:
 
         logger.info("🎛️ Orchestrator initialisé")
 
-    def create_instance_auto(self, parent_instance_id: Optional[str] = None) -> Optional[TradingInstance]:
+    def create_instance_auto(
+        self,
+        parent_instance_id: Optional[str] = None,
+        spin_off_capital: float = 0.0,
+    ) -> Optional[TradingInstance]:
         """
         FEATURE: Crée une instance sur le meilleur marché disponible.
         Sélection automatique basée sur l'analyse des marchés.
         
         Args:
             parent_instance_id: ID instance parente (pour spin-off) ou None
+            spin_off_capital: Capital to seed the new instance with (from parent).
             
         Returns:
             Instance créée ou None si pas de marché approprié
@@ -185,7 +190,7 @@ class Orchestrator:
             name=f"Auto-{selection.symbol.replace('/', '-')} ({selection.strategy})",
             symbol=selection.symbol,
             strategy=selection.strategy,
-            initial_capital=0,  # Sera calculé par capital_allocation
+            initial_capital=spin_off_capital,  # BUG-FIX: was 0 — capital from parent
             leverage=1,
             grid_config={
                 'range_percent': 2.0 if selection.market_type.value == 'crypto' else 1.0,
@@ -289,11 +294,12 @@ class Orchestrator:
         """
         capital = parent_instance.get_current_capital()
         
+        spin_off_amount = 500.0
         context = {
             'capital': capital,
             'threshold': self.config['spin_off_threshold'],
             'available_capital': self._get_available_capital(),
-            'min_capital': 500.0,
+            'min_capital': spin_off_amount,
             'instance_count': len(self._instances),
             'max_instances': self.config['max_instances'],
             'volatility': parent_instance.get_volatility(),
@@ -304,16 +310,31 @@ class Orchestrator:
         
         if result.status == ValidationStatus.GREEN:
             # FEATURE: Auto-sélection du marché pour spin-off
-            new_instance = self.create_instance_auto(parent_instance.id)
+            # ATOMIC: deduct from parent first, then create child with that capital.
+            # If child creation fails, roll back the deduction.
+            parent_instance.record_spin_off(spin_off_amount)
+            try:
+                new_instance = self.create_instance_auto(
+                    parent_instance.id, spin_off_capital=spin_off_amount,
+                )
+            except Exception:
+                new_instance = None
+            if new_instance is None:
+                # Rollback: return capital to parent
+                parent_instance.record_spin_off(-spin_off_amount)
+                logger.warning(
+                    f"⚠️ Spin-off rolled back for {parent_instance.id}: child creation failed"
+                )
+                return None
+
+            logger.info(
+                f"🔄 Spin-off réussi: {parent_instance.id} → {new_instance.id} "
+                f"(transferred {spin_off_amount:.0f}€)"
+            )
+            if self._on_instance_spinoff:
+                self._on_instance_spinoff(parent_instance, new_instance)
             
-            if new_instance:
-                parent_instance.record_spin_off(500.0)
-                logger.info(f"🔄 Spin-off réussi: {parent_instance.id} → {new_instance.id}")
-                
-                if self._on_instance_spinoff:
-                    self._on_instance_spinoff(parent_instance, new_instance)
-                
-                return new_instance
+            return new_instance
         else:
             logger.debug(f"⏳ Spin-off bloqué pour {parent_instance.id}: {result.message}")
         

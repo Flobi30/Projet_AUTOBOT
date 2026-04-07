@@ -247,9 +247,16 @@ class OrchestratorAsync:
         return True
 
     async def create_instance_auto(
-        self, parent_instance_id: Optional[str] = None
+        self,
+        parent_instance_id: Optional[str] = None,
+        spin_off_capital: float = 0.0,
     ) -> Optional[TradingInstanceAsync]:
-        """Create instance with auto market selection."""
+        """Create instance with auto market selection.
+
+        Args:
+            parent_instance_id: Parent instance id (for spin-off) or None.
+            spin_off_capital: Capital to seed the new instance with (from parent).
+        """
         if not self.market_selector:
             return None
         selection = self.market_selector.select_market_for_spinoff(parent_instance_id or "auto")
@@ -259,7 +266,7 @@ class OrchestratorAsync:
             name=f"Auto-{selection.symbol.replace('/', '-')} ({selection.strategy})",
             symbol=selection.symbol,
             strategy=selection.strategy,
-            initial_capital=0,
+            initial_capital=spin_off_capital,
             leverage=1,
             grid_config={"range_percent": 7.0, "num_levels": 15},
         )
@@ -271,11 +278,12 @@ class OrchestratorAsync:
 
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
         capital = parent.get_current_capital()
+        spin_off_amount = 500.0
         context = {
             "capital": capital,
             "threshold": self.config["spin_off_threshold"],
             "available_capital": await self._get_available_capital(),
-            "min_capital": 500.0,
+            "min_capital": spin_off_amount,
             "instance_count": len(self._instances),
             "max_instances": self.config["max_instances"],
             "volatility": parent.get_volatility(),
@@ -283,13 +291,27 @@ class OrchestratorAsync:
         }
         result = self.validator.validate("spin_off", context)
         if result.status == ValidationStatus.GREEN:
-            new = await self.create_instance_auto(parent.id)
-            if new:
-                parent.record_spin_off(500.0)
-                logger.info(f"🔄 Spin-off: {parent.id} → {new.id}")
-                if self._on_instance_spinoff:
-                    self._on_instance_spinoff(parent, new)
-                return new
+            # ATOMIC: deduct from parent first, then create child with that capital.
+            # If child creation fails, roll back the deduction.
+            parent.record_spin_off(spin_off_amount)
+            try:
+                new = await self.create_instance_auto(
+                    parent.id, spin_off_capital=spin_off_amount,
+                )
+            except Exception:
+                new = None
+            if new is None:
+                # Rollback: return capital to parent
+                parent.record_spin_off(-spin_off_amount)
+                logger.warning(f"⚠️ Spin-off rolled back for {parent.id}: child creation failed")
+                return None
+            logger.info(
+                f"🔄 Spin-off: {parent.id} → {new.id} "
+                f"(transferred {spin_off_amount:.0f}€)"
+            )
+            if self._on_instance_spinoff:
+                self._on_instance_spinoff(parent, new)
+            return new
         return None
 
     def check_leverage_activation(self, instance: TradingInstanceAsync) -> bool:
