@@ -14,6 +14,22 @@
 AUTOBOT V2 is a crypto/forex/commodity algorithmic trading bot for Flo.
 Multi-phase development to make it production-ready.
 
+### 🌳 Architecture "Arbre" (Tree-Model Growth)
+
+**Principe fondamental :**
+1. **Démarrage** : 1 instance sur 1 paire (ex: BTC/EUR) avec tout le capital (1000€)
+2. **Croissance** : L'instance trade et fait croître le capital
+3. **Spin-off** : Quand capital atteint 2000€ → crée une NOUVELLE instance sur une AUTRE paire
+4. **Split capital** : Parent garde 1500€, enfant reçoit 500€
+5. **Règle** : Chaque instance peut créer UN SEUL enfant (pas de division infinie)
+6. **MarketAnalyzer** : Surveille 70 paires (50 crypto + 20 forex) pour trouver la meilleure opportunité de spin-off
+
+**IMPORTANT :**
+- PAS de multiples instances manuelles
+- PAS de division du capital initial
+- PAS de grid ±18-25% (trop large, pas de trades)
+- Grid adaptatif selon volatilité de la paire
+
 ## Session du 3 Avril 2026 — Bilan
 
 ### ✅ Accomplissements Majeurs
