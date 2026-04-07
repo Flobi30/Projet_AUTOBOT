@@ -50,12 +50,6 @@ interface BotStatus {
   total_profit: number; websocket_connected: boolean; uptime_seconds: number | null;
   total_trades?: number;
 }
-const formatUptime = (seconds: number | null): string => {
-  if (!seconds) return '—';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-};
 const fmtEur = (n: number) => `${fmt(n)}€`;
 const pfColor = (pf: number) => pf>=2?'text-emerald-400':pf>=1.5?'text-green-400':pf>=1?'text-yellow-400':'text-red-400';
 const profitColor = (n: number) => n>=0?'text-emerald-400':'text-red-400';
@@ -183,7 +177,7 @@ const Performance: React.FC = () => {
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {rebStatus.recent_events.map((e,i)=>(
                   <div key={i} className="flex items-center justify-between p-2 bg-gray-700/20 rounded-lg text-sm">
-                    <span className={e.action==='reinvest'?'text-emerald-400':'text-red-400'}>{e.action==='reinvest'?💰:⚠️} {e.instance_name} — {e.reason}</span>
+                    <span className={e.action==='reinvest'?'text-emerald-400':'text-red-400'}>{e.action==='reinvest'?'💰':'⚠️'} {e.instance_name} — {e.reason}</span>
                     <span className={`font-bold ${e.action==='reinvest'?'text-emerald-400':'text-red-400'}`}>{e.action==='reinvest'?'+':'-'}{fmt(e.amount)}€</span>
                   </div>
                 ))}
