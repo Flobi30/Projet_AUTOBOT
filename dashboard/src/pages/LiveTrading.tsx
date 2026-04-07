@@ -7,7 +7,8 @@ import { useAppStore } from '../store/useAppStore';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://178.104.0.255:8080';
+const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_TOKEN = 'autobot_token_12345';
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {
@@ -65,7 +66,7 @@ const LiveTrading: React.FC = () => {
         setError(null);
 
         // Récupère le statut global
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`);
+        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData: GlobalStatus = await statusRes.json();
         setGlobalStatus(statusData);
@@ -73,7 +74,7 @@ const LiveTrading: React.FC = () => {
         setBotStatus(statusData.running ? 'ACTIVE' : 'INACTIVE');
 
         // Récupère les instances
-        const instancesRes = await fetch(`${API_BASE_URL}/api/instances`);
+        const instancesRes = await fetch(`${API_BASE_URL}/api/instances`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!instancesRes.ok) throw new Error(`API Error: ${instancesRes.status}`);
         const instancesData: InstanceStatus[] = await instancesRes.json();
         setInstances(instancesData);
@@ -81,7 +82,7 @@ const LiveTrading: React.FC = () => {
         // Récupère les positions de la première instance (s'il y en a une)
         if (instancesData.length > 0) {
           const firstInstanceId = instancesData[0].id;
-          const positionsRes = await fetch(`${API_BASE_URL}/api/instances/${firstInstanceId}/positions`);
+          const positionsRes = await fetch(`${API_BASE_URL}/api/instances/${firstInstanceId}/positions`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
           if (positionsRes.ok) {
             const positionsData: PositionInfo[] = await positionsRes.json();
             setPositions(positionsData);
@@ -123,13 +124,11 @@ const LiveTrading: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
-        <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
-          <Skeleton width={300} height={40} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-          <Skeleton width={400} height={20} baseColor="#1a1a1a" highlightColor="#2a2a2a" className="mt-2" />
+      <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+          <span className="mt-4 text-emerald-400">Chargement...</span>
         </div>
-        <SkeletonGrid />
-        <Skeleton height={400} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
       </div>
     );
   }

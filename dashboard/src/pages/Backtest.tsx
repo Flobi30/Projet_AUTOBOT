@@ -5,7 +5,8 @@ import Modal from '../components/ui/Modal';
 import StrategyDetailModal from '../components/ui/StrategyDetailModal';
 import { BarChart3, Brain, Cpu, Target, TrendingUp, Calendar, Loader } from 'lucide-react';
 
-const API_BASE_URL = 'http://178.104.0.255:8080';
+const API_BASE_URL = 'http://204.168.205.73:8080';
+const API_TOKEN = 'autobot_token_12345';
 
 export interface Strategy {
   name: string;
@@ -30,7 +31,7 @@ const Backtest: React.FC = () => {
     const fetchData = async () => {
       try {
         // Fetch pour remplir les métriques si disponibles
-        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`);
+        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (capitalRes.ok) {
           const data = await capitalRes.json();
           const perf = data.total_invested > 0 
@@ -79,8 +80,10 @@ const Backtest: React.FC = () => {
   if (isLoading) {
     return (
       <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">
-        <Loader className="w-8 h-8 text-emerald-400 animate-spin" />
-        <span className="ml-3 text-emerald-400">Chargement...</span>
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+          <span className="mt-4 text-emerald-400">Chargement...</span>
+        </div>
       </div>
     );
   }

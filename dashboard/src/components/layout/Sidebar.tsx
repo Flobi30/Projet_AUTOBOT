@@ -10,17 +10,15 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const navItems = [
     {
-      category: 'TRADING & ANALYSE',
+      category: 'TRADING',
       items: [
-        { name: 'Live Trading', path: '/trading', icon: TrendingUp },
-        { name: 'Backtest', path: '/backtest', icon: BarChart3 },
+        { name: 'Performance', path: '/performance', icon: Activity },
       ]
     },
     {
       category: 'GESTION',
       items: [
         { name: 'Capital', path: '/capital', icon: Wallet },
-        { name: 'Analytics', path: '/analytics', icon: PieChart },
       ]
     },
     {
@@ -61,7 +59,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             {/* Logo Container */}
             <div className="w-12 h-12 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
               <Bot className="w-7 h-7 text-white" />
-              {/* Ou utilisez votre logo : <img src="/path/to/your/logo.png" alt="AUTOBOT" className="w-8 h-8" /> */}
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white tracking-tight">AUTOBOT</h1>
@@ -85,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                   <NavLink
                     key={item.name}
                     to={item.path}
-                    onClick={() => setIsOpen(false)} // Ferme le menu sur mobile après clic
+                    onClick={() => setIsOpen(false)}
                     className={({ isActive }) =>
                       `flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group ${
                         isActive

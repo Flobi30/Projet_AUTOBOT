@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './components/layout/Sidebar';
-import LiveTrading from './pages/LiveTrading';
-import Backtest from './pages/Backtest';
+
+
 import Capital from './pages/Capital';
-import Analytics from './pages/Analytics';
+
 import Diagnostic from './pages/Diagnostic';
+import Performance from './pages/Performance';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -28,11 +29,9 @@ function App() {
           <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
           <main className="flex-1 lg:ml-64 transition-all duration-300">
             <Routes>
-              <Route path="/" element={<LiveTrading />} />
-              <Route path="/trading" element={<LiveTrading />} />
-              <Route path="/backtest" element={<Backtest />} />
+              <Route path="/" element={<Performance />} />
+              <Route path="/performance" element={<Performance />} />
               <Route path="/capital" element={<Capital />} />
-              <Route path="/analytics" element={<Analytics />} />
               <Route path="/diagnostic" element={<Diagnostic />} />
             </Routes>
           </main>

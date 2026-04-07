@@ -1,16 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
-import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Banknote, Loader, RefreshCw } from 'lucide-react';
+import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader } from 'lucide-react';
 import MetricCard from '../components/ui/MetricCard';
-import WithdrawalForm from '../components/ui/WithdrawalForm';
-import Modal from '../components/ui/Modal';
 import { useAppStore } from '../store/useAppStore';
-import axios from 'axios';
 
-const API_BASE_URL = 'http://178.104.0.255:8080';
-
-// Chargez votre clé publique Stripe depuis les variables d'environnement
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+const API_BASE_URL = 'http://204.168.205.73:8080';
 
 interface CapitalData {
   total_capital: number;
@@ -36,8 +29,6 @@ interface TradeData {
 
 const Capital: React.FC = () => {
   const { setCapitalTotal } = useAppStore();
-  const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
-  const [isDepositLoading, setIsDepositLoading] = useState(false);
 
   // État pour les données réelles de l'API
   const [capitalData, setCapitalData] = useState<CapitalData | null>(null);
@@ -93,40 +84,6 @@ const Capital: React.FC = () => {
     const interval = setInterval(fetchCapitalData, 5000);
     return () => clearInterval(interval);
   }, [fetchCapitalData]);
-
-  const handleDepositClick = async () => {
-    setIsDepositLoading(true);
-
-    try {
-      // NOTE: Décommentez et adaptez ce code pour l'appel réel au backend Stripe.
-      /*
-      const response = await axios.post('/api/create-checkout-session', {
-        amount: 5000, // Montant en centimes, ex: 50.00€
-        currency: 'eur',
-      });
-      const { sessionId } = response.data;
-      */
-
-      // Simulation pour la démo
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const sessionId = 'cs_test_...';
-      console.log("Session de Checkout créée:", sessionId);
-      alert("Redirection vers Stripe Checkout simulée. L'appel backend doit être implémenté.");
-
-      const stripe = await stripePromise;
-      if (stripe && sessionId !== 'cs_test_...') {
-        const { error } = await stripe.redirectToCheckout({ sessionId });
-        if (error) {
-          console.error("Erreur de redirection Stripe:", error.message);
-        }
-      }
-    } catch (error) {
-      console.error("Erreur lors de la création de la session de Checkout:", error);
-      alert("Le backend pour créer la session de paiement n'est pas encore implémenté.");
-    }
-
-    setIsDepositLoading(false);
-  };
 
   // Formatage monétaire
   const formatCurrency = (value: number): string => {
@@ -194,22 +151,15 @@ const Capital: React.FC = () => {
         {/* Actions Module */}
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl flex flex-col justify-center">
             <h3 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6 text-center">Actions Rapides</h3>
-            <div className="flex flex-col sm:flex-row gap-4">
-                <button 
-                    onClick={handleDepositClick}
-                    disabled={isDepositLoading}
-                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-600 disabled:bg-gray-600 disabled:cursor-not-allowed"
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <a 
+                    href="https://pro.kraken.com/app/wallets/fund" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-600 no-underline"
                 >
-                    {isDepositLoading ? <Loader className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
-                    <span>{isDepositLoading ? 'Préparation...' : 'Effectuer un Dépôt'}</span>
-                </button>
-                <button 
-                    onClick={() => setIsWithdrawalModalOpen(true)}
-                    className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-blue-500 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-600"
-                >
-                    <Banknote className="w-5 h-5" />
-                    <span>Faire un Retrait</span>
-                </button>
+                    <span>💰 Dépôt/Retrait Kraken</span>
+                </a>
             </div>
         </div>
 
@@ -250,10 +200,6 @@ const Capital: React.FC = () => {
         </div>
       </div>
 
-      {/* Withdrawal Modal */}
-      <Modal isOpen={isWithdrawalModalOpen} onClose={() => setIsWithdrawalModalOpen(false)} title="Demande de Retrait">
-        <WithdrawalForm />
-      </Modal>
     </div>
   );
 };
