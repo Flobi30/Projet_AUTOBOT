@@ -115,6 +115,71 @@ Full asyncio migration with uvloop, 253+ tests passing, <1µs latency achieved.
 - Installation & diagnostic scripts
 - Integrated diagnostic system
 
+## Session du 7 Avril 2026 — Audit Opus & Fix Paper Trading CRITIQUE
+
+### 🚨 Problème Critique Identifié (Audit Opus Runtime)
+L'audit runtime (~30 min) a révélé que **le Paper Trading n'existait pas réellement** :
+- `OrderExecutorAsync` appelait directement l'API Kraken LIVE (HMAC signing)
+- `PAPER_TRADING=true` dans `.env` était **complètement ignoré** par le code
+- Aucune simulation, aucune persistance des trades — juste des variables qui flottaient
+- **Risque majeur :** Si la Grid émettait un signal BUY/SELL, un vrai ordre partait sur Kraken
+- **Résultat :** 30 min de runtime, 0 trades, aucune log de prix traité
+
+### ✅ Corrections Appliquées (7 Avril 2026)
+| Problème | Fix | Fichier |
+|----------|-----|---------|
+| Paper Trading inexistant | `PaperTradingExecutor` créé avec SQLite | `paper_trading_fix.py` |
+| Orchestrator utilisait OrderExecutorAsync | Patch conditionnel selon `PAPER_TRADING` env | `orchestrator_async.py` |
+| Table trades manquante | Création auto DB SQLite avec indexes | `paper_trading_fix.py` |
+
+**Commit :** `68347003` — "FIX CRITIQUE: Paper Trading implémenté"
+
+### 📊 État Post-Correction (7 Avril 17:45 UTC)
+```
+✅ PaperTradingExecutor initialisé (capital: 1000.0€, fees: 0.16%)
+✅ MODE PAPER TRADING (capital: 1000€)
+✅ Container healthy, WebSocket connecté (XBT/EUR @ ~58,800€)
+✅ Grid active: 15 niveaux, ±4.0%, SmartRecentering V3
+```
+
+### 🔴 Problème MAJEUR Non Résolu — 22+ Modules "Code Mort"
+L'audit a identifié **22+ modules développés mais NON BRANCHÉS** dans l'orchestrator (jamais importés/instanciés) :
+
+| Module | Type | Impact |
+|--------|------|--------|
+| ShadowTradingManager | Gestion | Paper trading instances parallèles |
+| DailyReporter | Reporting | Rapports quotidiens |
+| MeanReversionStrategy | Stratégie | Bollinger Bands mean reversion |
+| TriangularArbitrage | Stratégie | Arbitrage triangulaire |
+| SentimentNLP | Analyse | Sentiment réseaux sociaux |
+| XGBoostPredictor | ML | Prédiction prix XGBoost |
+| PairsTrading | Stratégie | Trading de paires statistique |
+| DCAHybrid | Exécution | Dollar Cost Averaging hybride |
+| MicroGrid | Exécution | Micro-grid haute fréquence |
+| LiquidationHeatmap | Analyse | Heatmap liquidations |
+| BlackSwan | Protection | Détection événements extremes |
+| MomentumScoring | Analyse | Scoring momentum multi-facteur |
+| MultiIndicatorVote | Analyse | Vote multi-indicateurs |
+| VWAP/TWAP | Exécution | Algorithmes d'exécution |
+| VolatilityWeighter | Gestion | Ajustement taille selon vol |
+| PyramidingManager | Gestion | Pyramiding positions gagnantes |
+| TrailingStopATR | Protection | Stop-loss dynamique ATR |
+| StrategyEnsemble | Agrégation | Vote ensemble de stratégies |
+| RebalanceManager | Gestion | Rééquilibrage portfolio |
+| AutoEvolution | Optimisation | Auto-optimisation paramètres |
+| MarketAnalyzer | Analyse | Analyse multi-marchés |
+| MultiGridOrchestrator | Orchestration | Multi-grids concurrents |
+
+**Statut :** Ces modules ont été codés + testés (400+ tests) mais le wiring dans l'orchestrator n'a jamais été fait. Ils sont inutilisables en l'état.
+
+### 📋 Prochaines Étapes (Prioritaires)
+1. **Wiring modules critiques** — Brancher ShadowTrading, DailyReporter, TrailingStopATR
+2. **Stratégies dormantes** — MeanReversion, Arbitrage avec conditions d'activation
+3. **ML modules** — XGBoost, Sentiment avec cycle d'entraînement/inference
+4. **Monitoring** — Vérifier que des trades paper s'exécutent quand prix bouge
+
+---
+
 ## Critical Achievements (March 11, 2026)
 
 ### Phases Completed
