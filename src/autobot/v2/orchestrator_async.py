@@ -131,7 +131,7 @@ class OrchestratorAsync:
         # Config
         self.config = {
             "max_instances": 2000,  # Target: 2000+ instances
-            "spin_off_threshold": 2000.0,
+            "spin_off_threshold": float(os.getenv("SPIN_OFF_THRESHOLD", "1800.0")),
             "leverage_threshold": 1000.0,
             "check_interval": 30,  # minutes
             "max_drawdown_global": 0.30,
@@ -282,7 +282,7 @@ class OrchestratorAsync:
 
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
         capital = parent.get_current_capital()
-        spin_off_amount = 500.0
+        spin_off_amount = min(500.0, capital * 0.3)
         context = {
             "capital": capital,
             "threshold": self.config["spin_off_threshold"],
@@ -560,6 +560,16 @@ class OrchestratorAsync:
             logger.info("Analysis feed ready: %s", self.analysis_feed.stats)
         except Exception as exc:
             logger.warning("Analysis feed init failed (non-fatal): %s", exc)
+
+        # PF 3.8: Bootstrap MarketAnalyzer from Kraken OHLC
+        try:
+            from .market_analyzer import get_market_analyzer
+            ma = get_market_analyzer()
+            trading_pairs = os.getenv("TRADING_PAIRS", "XXBTZEUR").split(",")
+            await ma.bootstrap_from_kraken_ohlc(trading_pairs)
+            logger.info("MarketAnalyzer OHLC bootstrap complete")
+        except Exception as exc:
+            logger.warning("MarketAnalyzer OHLC bootstrap failed (non-fatal): %s", exc)
 
         # Start P3 async dispatcher (starts per-pair dispatch tasks)
         await self.async_dispatcher.start()

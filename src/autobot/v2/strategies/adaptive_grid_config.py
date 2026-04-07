@@ -73,12 +73,12 @@ _DEFAULT_PROFILES: Dict[str, PairProfile] = {
     # --- BTC ---
     "XXBTZEUR": PairProfile(
         symbol="XXBTZEUR",
-        base_range_pct=2.0,
-        min_range_pct=0.8,
-        max_range_pct=5.0,
-        base_num_levels=15,
-        min_levels=8,
-        max_levels=25,
+        base_range_pct=4.5,       # PF3.8: +-4-5%
+        min_range_pct=3.0,
+        max_range_pct=6.0,
+        base_num_levels=14,       # PF3.8: 14 levels
+        min_levels=10,
+        max_levels=20,
         max_capital_per_level=100.0,
         capital_weight=1.5,
         atr_multiplier=1.5,
@@ -88,12 +88,12 @@ _DEFAULT_PROFILES: Dict[str, PairProfile] = {
     ),
     "XXBTZUSD": PairProfile(
         symbol="XXBTZUSD",
-        base_range_pct=2.0,
-        min_range_pct=0.8,
-        max_range_pct=5.0,
-        base_num_levels=15,
-        min_levels=8,
-        max_levels=25,
+        base_range_pct=4.5,
+        min_range_pct=3.0,
+        max_range_pct=6.0,
+        base_num_levels=14,
+        min_levels=10,
+        max_levels=20,
         max_capital_per_level=100.0,
         capital_weight=1.5,
         atr_multiplier=1.5,

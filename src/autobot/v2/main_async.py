@@ -130,8 +130,8 @@ def _build_grid_config(symbol: str) -> dict:
     if _pair_registry is not None and _pair_registry.has(symbol):
         profile = _pair_registry.get(symbol)
         return {
-            "range_percent": profile.base_range_pct,
-            "num_levels": profile.base_num_levels,
+            "range_percent": _parse_float_env("GRID_RANGE_PERCENT", profile.base_range_pct, 1.0, 20.0),
+            "num_levels": _parse_int_env("GRID_NUM_LEVELS", profile.base_num_levels, 3, 50),
             "max_capital_per_level": profile.max_capital_per_level,
             "pair_profile": profile,
             # SmartRecentering V3 defaults (can be overridden via env)
@@ -141,7 +141,7 @@ def _build_grid_config(symbol: str) -> dict:
         }
     else:
         # Legacy: 7% range, 15 levels (unchanged from V2)
-        return {"range_percent": 2.0, "num_levels": 20}
+        return {"range_percent": _parse_float_env("GRID_RANGE_PERCENT", 4.5, 1.0, 20.0), "num_levels": _parse_int_env("GRID_NUM_LEVELS", 14, 3, 50)}
 
 
 class AutoBotV2Async:

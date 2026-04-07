@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+import os
 import threading
 
 from .markets import MarketConfig, MarketType, get_market_config
@@ -250,9 +251,11 @@ class MarketAnalyzer:
             elif vol_24h < 0.1 or vol_24h > 2.0:
                 score -= 2
         else:
-            if 1.0 <= vol_24h <= 3.0:
+            _mv1 = float(os.getenv("MARKET_ANALYZER_MIN_VOL", "3.0"))
+            _mv2 = float(os.getenv("MARKET_ANALYZER_MAX_VOL", "8.0"))
+            if _mv1 <= vol_24h <= _mv2:
                 score += 2
-            elif vol_24h < 0.5 or vol_24h > 10.0:
+            elif vol_24h < 1.0 or vol_24h > 12.0:
                 score -= 2
         
         # Trend fort = mieux pour grid
@@ -284,7 +287,7 @@ class MarketAnalyzer:
         score = 50.0  # Base
         
         # Volatilité (30% du score)
-        vol_score = 100 - abs(vol - 2.0) * 20  # Optimal = 2%
+        vol_score = 100 - abs(vol - 5.0) * 15  # PF3.8: center of 3-8%
         score += vol_score * 0.3
         
         # Tendance (20% du score)
@@ -315,6 +318,44 @@ class MarketAnalyzer:
             return "grid", 0.10       # 10% capital, prudent
         else:
             return "none", 0.0        # Ne pas trader
+
+
+    async def bootstrap_from_kraken_ohlc(self, symbols=None):
+        """PF 3.8: Bootstrap from Kraken OHLC at startup."""
+        import asyncio
+        if symbols is None:
+            symbols = ["XXBTZEUR"]
+        _map = {"BTC/EUR":"XXBTZEUR","ETH/EUR":"XETHZEUR","SOL/EUR":"SOLEUR","ADA/EUR":"ADAEUR","DOT/EUR":"DOTEUR","XRP/EUR":"XXRPZEUR"}
+        try:
+            import krakenex
+        except ImportError:
+            logger.warning("krakenex unavailable for OHLC bootstrap"); return
+        k = krakenex.API()
+        k.session = __import__("requests").Session()
+        k.session.timeout = 15
+        done = 0
+        for sym in symbols:
+            ksym = _map.get(sym, sym)
+            try:
+                resp = k.query_public("OHLC", {"pair": ksym, "interval": 60})
+                if "result" not in resp: continue
+                pk = next((x for x in resp["result"] if x != "last"), None)
+                if not pk: continue
+                candles = resp["result"][pk]
+                friendly = sym if "/" in sym else ksym
+                with self._lock:
+                    if friendly not in self._price_history:
+                        self._price_history[friendly] = []
+                    for cn in candles:
+                        ts = datetime.fromtimestamp(int(cn[0]), tz=timezone.utc)
+                        self._price_history[friendly].append((ts, float(cn[4])))
+                    self._price_history[friendly].sort(key=lambda x: x[0])
+                done += 1
+                logger.info(f"OHLC bootstrap: {friendly} - {len(candles)} candles")
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                logger.warning(f"OHLC bootstrap fail {ksym}: {e}")
+        logger.info(f"OHLC bootstrap: {done}/{len(symbols)}")
 
 
 # Singleton

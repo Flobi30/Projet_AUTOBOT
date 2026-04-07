@@ -176,32 +176,30 @@ class PositionSizing:
 def calculate_grid_levels(
     center_price: float,
     range_percent: float,
-    num_levels: int
+    num_levels: int,
+    spacing_mode: str = None,
 ) -> List[float]:
     """
     Calcule les niveaux d'une grille symétrique.
-    
-    Args:
-        center_price: Prix central
-        range_percent: Range total en % (ex: 7 pour +/- 7%)
-        num_levels: Nombre de niveaux (impair recommandé)
-    
-    Returns:
-        Liste des prix des niveaux, triée du plus bas au plus haut
+    PF 3.8: supports geometric spacing mode.
     """
-    # CORRECTION: Guard contre division par zéro
+    import os as _os, math
+    if spacing_mode is None:
+        spacing_mode = _os.getenv("GRID_SPACING_MODE", "linear")
     if num_levels < 2:
         return [center_price]
-    
     half_range = range_percent / 2
-    step = range_percent / (num_levels - 1)
-    
-    levels = []
-    for i in range(num_levels):
-        offset = -half_range + (i * step)
-        level_price = center_price * (1 + offset / 100)
-        levels.append(level_price)
-    
+    low = center_price * (1 - half_range / 100)
+    high = center_price * (1 + half_range / 100)
+    if spacing_mode == "geometric" and high > low > 0:
+        ratio = (high / low) ** (1.0 / (num_levels - 1))
+        levels = [low * (ratio ** i) for i in range(num_levels)]
+    else:
+        step = range_percent / (num_levels - 1)
+        levels = []
+        for i in range(num_levels):
+            offset = -half_range + (i * step)
+            levels.append(center_price * (1 + offset / 100))
     return sorted(levels)
 
 

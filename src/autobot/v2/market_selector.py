@@ -4,6 +4,7 @@ Décide quel marché utiliser pour une nouvelle instance
 """
 
 import logging
+import os
 import random
 import threading
 from typing import List, Optional, Dict, TYPE_CHECKING
@@ -60,7 +61,7 @@ class MarketSelector:
         self.analyzer = get_market_analyzer()
         
         # Configuration
-        self.min_quality_score = MarketQualityScore.ACCEPTABLE
+        self.min_quality_score = MarketQualityScore.POOR  # PF 3.8
         self.max_same_market_instances = 2  # Max 2 instances par symbole
         self.min_diversification = 3  # Min 3 marchés différents si possible
         
@@ -183,7 +184,7 @@ class MarketSelector:
                 continue
             
             # Vérifier score composite minimum
-            if market.composite_score < 25:  # Lowered from 40 for bootstrap data
+            if market.composite_score < float(os.getenv("MARKET_SELECTOR_MIN_SCORE", "30")):  # PF 3.8
                 continue
             
             candidates.append(market)

@@ -28,6 +28,11 @@ class ModuleManager:
             "strategy_ensemble": _env_bool("MODULE_STRATEGY_ENSEMBLE", True),
             "trailing_stop_atr":     _env_bool("MODULE_TRAILING_STOP_ATR", True),
             "volatility_weighter":   _env_bool("MODULE_VOLATILITY_WEIGHTER", True),
+            "regime_detector":       _env_bool("MODULE_REGIME_DETECTOR", True),
+            "atr_filter":            _env_bool("MODULE_ATR_FILTER", True),
+            "kelly_criterion":       _env_bool("MODULE_KELLY_CRITERION", True),
+            "fee_optimizer":         _env_bool("MODULE_FEE_OPTIMIZER", True),
+            "rate_limit_optimizer":  _env_bool("MODULE_RATE_LIMIT_OPTIMIZER", True),
             "pyramiding_manager":    _env_bool("MODULE_PYRAMIDING_MANAGER", False),
             "xgboost_predictor":     _env_bool("MODULE_XGBOOST_PREDICTOR", False),
             "pairs_trading":         _env_bool("MODULE_PAIRS_TRADING", False),
@@ -128,6 +133,36 @@ class ModuleManager:
                 from .modules.volatility_weighter import VolatilityWeighter
                 return VolatilityWeighter()
             self._try_init("volatility_weighter", f)
+
+        if c["regime_detector"]:
+            def f():
+                from .modules.regime_detector import RegimeDetector
+                return RegimeDetector()
+            self._try_init("regime_detector", f)
+
+        if c["atr_filter"]:
+            def f():
+                from .modules.atr_filter import ATRFilter
+                return ATRFilter()
+            self._try_init("atr_filter", f)
+
+        if c["kelly_criterion"]:
+            def f():
+                from .modules.kelly_criterion import KellyCriterion
+                return KellyCriterion()
+            self._try_init("kelly_criterion", f)
+
+        if c["fee_optimizer"]:
+            def f():
+                from .modules.fee_optimizer import FeeOptimizer
+                return FeeOptimizer()
+            self._try_init("fee_optimizer", f)
+
+        if c["rate_limit_optimizer"]:
+            def f():
+                from .modules.rate_limit_optimizer import RateLimitOptimizer
+                return RateLimitOptimizer()
+            self._try_init("rate_limit_optimizer", f)
 
         if c["pyramiding_manager"]:
             def f():
