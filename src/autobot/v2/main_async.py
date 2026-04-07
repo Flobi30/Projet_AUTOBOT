@@ -49,6 +49,23 @@ logger = logging.getLogger(__name__)
 
 
 # V3: Import adaptive grid config (optional — graceful degradation)
+
+
+def _parse_float_env(name: str, default: float, min_val: float, max_val: float) -> float:
+    try:
+        val = float(os.getenv(name, str(default)))
+        return max(min_val, min(max_val, val))
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid {name}, using default {default}")
+        return default
+
+def _parse_int_env(name: str, default: int, min_val: int, max_val: int) -> int:
+    try:
+        val = int(os.getenv(name, str(default)))
+        return max(min_val, min(max_val, val))
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid {name}, using default {default}")
+        return default
 _pair_registry = None
 try:
     from autobot.v2.strategies.adaptive_grid_config import get_default_registry
@@ -104,9 +121,9 @@ def _build_grid_config(symbol: str) -> dict:
             "max_capital_per_level": profile.max_capital_per_level,
             "pair_profile": profile,
             # SmartRecentering V3 defaults (can be overridden via env)
-            "dgt_drift_threshold_pct": float(os.getenv("DGT_DRIFT_PCT", "5.0")),
-            "dgt_cooldown_minutes": int(os.getenv("DGT_COOLDOWN_MIN", "45")),
-            "dgt_max_recenters_per_day": int(os.getenv("DGT_MAX_RECENTERS", "4")),
+            "dgt_drift_threshold_pct": _parse_float_env("DGT_DRIFT_PCT", 5.0, 1.0, 20.0),
+            "dgt_cooldown_minutes": _parse_int_env("DGT_COOLDOWN_MIN", 45, 5, 1440),
+            "dgt_max_recenters_per_day": _parse_int_env("DGT_MAX_RECENTERS", 4, 1, 100),
         }
     else:
         # Legacy: 7% range, 15 levels (unchanged from V2)

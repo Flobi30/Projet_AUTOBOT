@@ -21,6 +21,7 @@ import asyncio
 import logging
 import math
 from dataclasses import dataclass, field
+from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 from collections import deque
@@ -97,7 +98,7 @@ class SmartRecentering:
         self._last_recenter: Optional[datetime] = None
         self._recenters_today: int = 0
         self._today_date: Optional[object] = None
-        self._recenter_history: List[SmartRecenterResult] = []
+        self._recenter_history: deque = deque(maxlen=100)
 
         # Velocity tracking (recent prices)
         self._recent_prices: deque = deque(maxlen=velocity_window)

@@ -208,9 +208,9 @@ class AdaptiveRangeCalculator:
 
         mean_lr = sum_lr / count
         variance = (sum_lr_sq / count) - (mean_lr * mean_lr)
-        if variance < 0:
+        if variance < -1e-10:
+            logger.warning("HV variance negative: %f, clamping to 0", variance)
             variance = 0.0
-
         # Return as percentage (not annualised — we compare ratios)
         return math.sqrt(variance) * 100.0
 
