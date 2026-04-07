@@ -340,6 +340,130 @@ class OrchestratorAsync:
         )
 
     # ------------------------------------------------------------------
+    # Instance lifecycle culling (P1 BUG FIX)
+    # ------------------------------------------------------------------
+
+    async def _cull_underperforming_instances(self) -> None:
+        """
+        Remove underperforming instances and reallocate freed capital.
+
+        Criteria (evaluated in order):
+        1. Negative P&L AND market quality below ACCEPTABLE -> remove
+        2. Idle for >4 hours (no trades) -> remove
+        3. If instance count > 3 after (1) and (2), keep only top 3 by P&L
+
+        Freed capital is reallocated to the best performer.
+        """
+        # ACCEPTABLE = 3 in MarketQualityScore enum
+        QUALITY_THRESHOLD = 3  # MarketQualityScore.ACCEPTABLE.value
+        IDLE_HOURS = 4
+        MAX_INSTANCES_KEEP = 3
+
+        now = datetime.now(timezone.utc)
+        instances = list(self._instances.values())
+
+        if not instances:
+            return
+
+        to_remove: List[str] = []
+        freed_capital = 0.0
+
+        # -- Pass 1: Remove negative-P&L + bad-quality instances --
+        for inst in instances:
+            if not inst.is_running():
+                continue
+            pnl = inst.get_profit()
+            quality = inst.get_market_quality()
+
+            if pnl < 0 and quality is not None and quality < QUALITY_THRESHOLD:
+                logger.info(
+                    f"🗑️ Culling {inst.id} ({inst.config.name}): "
+                    f"P&L={pnl:.2f}, quality={quality} (< {QUALITY_THRESHOLD})"
+                )
+                to_remove.append(inst.id)
+                freed_capital += inst.get_current_capital()
+
+        # -- Pass 2: Remove idle instances (no trade for >4h) --
+        for inst in instances:
+            if inst.id in to_remove or not inst.is_running():
+                continue
+            last_trade = inst.get_last_trade_time()
+            idle_hours = (now - last_trade).total_seconds() / 3600.0
+
+            if idle_hours > IDLE_HOURS:
+                logger.info(
+                    f"🗑️ Culling idle {inst.id} ({inst.config.name}): "
+                    f"no trades for {idle_hours:.1f}h (threshold: {IDLE_HOURS}h)"
+                )
+                to_remove.append(inst.id)
+                freed_capital += inst.get_current_capital()
+
+        # -- Pass 3: Cap at MAX_INSTANCES_KEEP (keep top 3 by P&L) --
+        remaining = [
+            inst for inst in instances
+            if inst.id not in to_remove and inst.is_running()
+        ]
+        if len(remaining) > MAX_INSTANCES_KEEP:
+            # Sort by P&L descending — keep the best
+            remaining.sort(key=lambda i: i.get_profit(), reverse=True)
+            excess = remaining[MAX_INSTANCES_KEEP:]
+            for inst in excess:
+                logger.info(
+                    f"🗑️ Culling excess {inst.id} ({inst.config.name}): "
+                    f"P&L={inst.get_profit():.2f} — only keeping top {MAX_INSTANCES_KEEP}"
+                )
+                to_remove.append(inst.id)
+                freed_capital += inst.get_current_capital()
+
+        # -- Execute removals --
+        removed_count = 0
+        for instance_id in to_remove:
+            try:
+                ok = await self.remove_instance(instance_id)
+                if ok:
+                    removed_count += 1
+            except Exception as exc:
+                logger.error(f"❌ Failed to remove instance {instance_id}: {exc}")
+
+        if removed_count > 0:
+            logger.info(
+                f"🧹 Culled {removed_count} instance(s), freed {freed_capital:.2f} capital"
+            )
+            # Reallocate freed capital to best performer
+            await self._reallocate_freed_capital(freed_capital)
+
+    async def _reallocate_freed_capital(self, freed_capital: float) -> None:
+        """
+        Reallocate freed capital to the best-performing running instance.
+
+        Increases the instance's current_capital so it can open larger/more
+        positions on subsequent ticks.
+        """
+        if freed_capital <= 0:
+            return
+
+        running = [
+            inst for inst in self._instances.values() if inst.is_running()
+        ]
+        if not running:
+            logger.warning(
+                f"⚠️ No running instances to reallocate {freed_capital:.2f} to"
+            )
+            return
+
+        # Pick the best performer by P&L
+        best = max(running, key=lambda i: i.get_profit())
+        best._current_capital += freed_capital
+        if best._current_capital > best._peak_capital:
+            best._peak_capital = best._current_capital
+        await best.save_state()
+
+        logger.info(
+            f"💰 Reallocated {freed_capital:.2f} -> {best.id} ({best.config.name}), "
+            f"new capital: {best._current_capital:.2f}"
+        )
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -347,6 +471,9 @@ class OrchestratorAsync:
         logger.info("🚀 OrchestratorAsync main loop démarré")
         while self.running:
             try:
+                # -- Instance lifecycle culling (runs before spin-off) --
+                await self._cull_underperforming_instances()
+
                 instances = list(self._instances.values())
                 for inst in instances:
                     if not inst.is_running():

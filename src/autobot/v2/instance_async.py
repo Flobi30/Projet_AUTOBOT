@@ -316,6 +316,7 @@ class TradingInstanceAsync:
         if self.status == InstanceStatus.RUNNING:
             return
         self.status = InstanceStatus.RUNNING
+        self._start_time = datetime.now(timezone.utc)
         await self.recover_state()
         await self.save_state()
         self._init_strategy()
@@ -833,3 +834,37 @@ class TradingInstanceAsync:
         if abs(self._allocated_capital - calculated) > 0.01:
             self._allocated_capital = calculated
         return self._allocated_capital
+
+    def get_last_trade_time(self) -> datetime:
+        """
+        Return the time of the most recent closed position, or instance start time.
+
+        Used by the orchestrator to detect idle instances (no trades for >N hours).
+        Falls back to _start_time (set when status becomes RUNNING).
+        """
+        last = None
+        for pos in self._positions.values():
+            if pos.close_time is not None:
+                if last is None or pos.close_time > last:
+                    last = pos.close_time
+        if last is not None:
+            return last
+        # No closed positions: use the time the instance started
+        return getattr(self, '_start_time', None) or datetime.now(timezone.utc)
+
+    def get_market_quality(self) -> Optional[int]:
+        """
+        Return the market quality score for this instance's symbol.
+
+        Returns the MarketQualityScore.value (int 1-5) or None if analysis
+        unavailable.  Used by the orchestrator for culling decisions.
+        """
+        try:
+            from .market_analyzer import get_market_analyzer
+            analyzer = get_market_analyzer()
+            metrics = analyzer.analyze_market(self.config.symbol)
+            if metrics:
+                return metrics.market_quality.value
+        except Exception:
+            pass
+        return None

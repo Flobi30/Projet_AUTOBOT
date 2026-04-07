@@ -28,6 +28,14 @@ from .os_tuning import get_os_tuner
 
 
 from .market_analyzer import get_market_analyzer
+
+# Map WS pair names to friendly names used by MarketSelector
+_WS_TO_FRIENDLY_NAME = {
+    "XBT/EUR": "BTC/EUR",
+    "XBT/USD": "BTC/USD",
+    # Most WS names already match MarketSelector (ETH/EUR, SOL/EUR, etc.)
+}
+
 logger = logging.getLogger(__name__)
 
 # Type alias for async callbacks
@@ -262,6 +270,11 @@ class KrakenWebSocketAsync:
         try:
             analyzer = get_market_analyzer()
             analyzer.add_price(pair, price)
+            # Also store under friendly name (XBT/EUR -> BTC/EUR)
+            # so MarketSelector can find it by its friendly name
+            _friendly = _WS_TO_FRIENDLY_NAME.get(pair)
+            if _friendly:
+                analyzer.add_price(_friendly, price)
         except Exception:
             pass  # Non-critical — don't break WS flow
 
