@@ -37,6 +37,15 @@ TARGET_VOLATILITY = float(os.getenv("TARGET_VOLATILITY", "0.02"))
 # Nombre de flux websocket désirés (contrainte runtime).
 WEBSOCKET_STREAMS = int(os.getenv("WEBSOCKET_STREAMS", "1"))
 
+# Safety
+SAFETY_DSR_TIMEOUT_MS = float(os.getenv("SAFETY_DSR_TIMEOUT_MS", "50"))
+SAFETY_DSR_CACHE_S = int(os.getenv("SAFETY_DSR_CACHE_S", "300"))
+SAFETY_WF_LEARNING_DAYS = int(os.getenv("SAFETY_WF_LEARNING_DAYS", "7"))
+SAFETY_WF_MIN_TRADES_LEARNING = int(os.getenv("SAFETY_WF_MIN_TRADES_LEARNING", "10"))
+SAFETY_MAX_BLOCK_RATIO = float(os.getenv("SAFETY_MAX_BLOCK_RATIO", "0.8"))
+SAFETY_EMERGENCY_CYCLE_MS = float(os.getenv("SAFETY_EMERGENCY_CYCLE_MS", "100"))
+SAFETY_EMERGENCY_CONSECUTIVE = int(os.getenv("SAFETY_EMERGENCY_CONSECUTIVE", "3"))
+
 
 if not 0 <= HEALTH_SCORE_THRESHOLD <= 100:
     raise ValueError("HEALTH_SCORE_THRESHOLD must be in [0, 100]")
@@ -64,3 +73,24 @@ if TARGET_VOLATILITY <= 0:
 
 if WEBSOCKET_STREAMS < 1:
     raise ValueError("WEBSOCKET_STREAMS must be >= 1")
+
+if SAFETY_DSR_TIMEOUT_MS <= 0:
+    raise ValueError("SAFETY_DSR_TIMEOUT_MS must be > 0")
+
+if SAFETY_DSR_CACHE_S < 1:
+    raise ValueError("SAFETY_DSR_CACHE_S must be >= 1")
+
+if SAFETY_WF_LEARNING_DAYS < 0:
+    raise ValueError("SAFETY_WF_LEARNING_DAYS must be >= 0")
+
+if SAFETY_WF_MIN_TRADES_LEARNING < 1:
+    raise ValueError("SAFETY_WF_MIN_TRADES_LEARNING must be >= 1")
+
+if not 0.0 <= SAFETY_MAX_BLOCK_RATIO <= 1.0:
+    raise ValueError("SAFETY_MAX_BLOCK_RATIO must be in [0, 1]")
+
+if SAFETY_EMERGENCY_CYCLE_MS <= 0:
+    raise ValueError("SAFETY_EMERGENCY_CYCLE_MS must be > 0")
+
+if SAFETY_EMERGENCY_CONSECUTIVE < 1:
+    raise ValueError("SAFETY_EMERGENCY_CONSECUTIVE must be >= 1")
