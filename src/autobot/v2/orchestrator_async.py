@@ -18,10 +18,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Coroutine, Dict, List, Optional
+from urllib.request import Request, urlopen
 
 from .ring_buffer_dispatcher import RingBufferDispatcher
 from .async_dispatcher import AsyncDispatcher
@@ -222,12 +225,16 @@ class OrchestratorAsync:
             "enable_mean_reversion": _env_bool("ENABLE_MEAN_REVERSION", False),
             "enable_sentiment": _env_bool("ENABLE_SENTIMENT", False),
             "enable_ml": _env_bool("ENABLE_ML", False),
+            "enable_xgboost": _env_bool("ENABLE_XGBOOST", _env_bool("ENABLE_ML", False)),
+            "enable_onchain": _env_bool("ENABLE_ONCHAIN", False),
             "enable_trading_health_score": _env_bool("ENABLE_TRADING_HEALTH_SCORE", False),
             "enable_shadow_promotion": _env_bool("ENABLE_SHADOW_PROMOTION", True),
+            "enable_shadow_trading": _env_bool("ENABLE_SHADOW_TRADING", True),
             "enable_rebalance": _env_bool("ENABLE_REBALANCE", True),
             "enable_auto_evolution": _env_bool("ENABLE_AUTO_EVOLUTION", True),
             "log_conflicts": _env_bool("ENABLE_CONFLICT_LOGGING", True),
         }
+        self._dependency_report: Dict[str, List[str]] = {"enabled": [], "disabled": []}
         self._config_validation_notes: List[str] = []
 
         # Validator
@@ -297,6 +304,15 @@ class OrchestratorAsync:
                 self.hardening_flags["enable_ml"]
                 and self.module_manager.config.get("xgboost_predictor", False)
             )
+            self.hardening_flags["enable_xgboost"] = (
+                self.hardening_flags["enable_xgboost"]
+                and self.module_manager.config.get("xgboost_predictor", False)
+            )
+            self.hardening_flags["enable_onchain"] = (
+                self.hardening_flags["enable_onchain"]
+                and self.module_manager.config.get("onchain_data", False)
+            )
+        self._validate_dependencies()
         logger.info("🛡️ Hardening flags: %s", self.hardening_flags)
         logger.info(
             "🤖 Autonomous mode=%s decision_policy=%s",
@@ -305,6 +321,11 @@ class OrchestratorAsync:
         )
         logger.info("⚙️ Runtime constraints=%s", self.runtime_constraints)
         self._validate_runtime_configuration()
+        logger.info(
+            "🧪 Modules activés: %s, désactivés: %s",
+            len(self._dependency_report["enabled"]),
+            len(self._dependency_report["disabled"]),
+        )
 
         logger.info("🎛️ OrchestratorAsync initialisé (target: 2000+ instances)")
 
@@ -365,8 +386,109 @@ class OrchestratorAsync:
         if notes:
             logger.warning("⚙️ Runtime config normalized: %s", "; ".join(notes))
 
+    def _quick_ping(self, url: str, timeout: float = 1.5) -> bool:
+        """Best-effort HTTP reachability check with short timeout."""
+        try:
+            req = Request(url, method="HEAD")
+            with urlopen(req, timeout=timeout) as resp:
+                return int(getattr(resp, "status", 200)) < 500
+        except Exception:
+            return False
+
+    def _validate_dependencies(self) -> None:
+        """
+        Validate optional module dependencies at startup and disable unavailable modules.
+        Logs each check and keeps startup non-blocking except explicit shadow-trading critical errors.
+        """
+        enabled: List[str] = []
+        disabled: List[str] = []
+
+        # 1) Sentiment
+        if self.hardening_flags.get("enable_sentiment", False):
+            sentiment_api_key = os.getenv("SENTIMENT_API_KEY", "").strip()
+            twitter_ok = self._quick_ping("https://api.twitter.com")
+            reddit_ok = self._quick_ping("https://www.reddit.com")
+            if not sentiment_api_key or not twitter_ok or not reddit_ok:
+                logger.warning("SentimentNLP désactivé - clé API manquante")
+                self.hardening_flags["enable_sentiment"] = False
+                disabled.append("sentiment")
+            else:
+                logger.info("✅ SentimentNLP dépendances OK")
+                enabled.append("sentiment")
+        else:
+            logger.info("ℹ️ SentimentNLP non activé")
+            disabled.append("sentiment")
+
+        # 2) XGBoost
+        xgb_requested = (
+            self.hardening_flags.get("enable_xgboost", False)
+            or self.hardening_flags.get("enable_ml", False)
+        )
+        if xgb_requested:
+            model_path = Path(os.getenv("XGBOOST_MODEL_PATH", "models/xgboost.pkl"))
+            features_path = Path(os.getenv("HISTORICAL_DATA_PATH", "data/historical"))
+            features_available = (
+                features_path.exists()
+                and features_path.is_dir()
+                and any(features_path.iterdir())
+            )
+            if not model_path.exists() or not features_available:
+                logger.warning("XGBoost désactivé - modèle non entraîné")
+                self.hardening_flags["enable_xgboost"] = False
+                self.hardening_flags["enable_ml"] = False
+                disabled.append("xgboost")
+            else:
+                logger.info("✅ XGBoost dépendances OK")
+                self.hardening_flags["enable_xgboost"] = True
+                self.hardening_flags["enable_ml"] = True
+                enabled.append("xgboost")
+        else:
+            logger.info("ℹ️ XGBoost non activé")
+            disabled.append("xgboost")
+
+        # 3) On-chain
+        if self.hardening_flags.get("enable_onchain", False):
+            onchain_api_key = os.getenv("ONCHAIN_API_KEY", "").strip()
+            node_url = os.getenv("ONCHAIN_NODE_URL", "https://api.blockchain.info")
+            if not onchain_api_key or not self._quick_ping(node_url):
+                logger.warning("OnChain désactivé")
+                self.hardening_flags["enable_onchain"] = False
+                disabled.append("onchain")
+            else:
+                logger.info("✅ OnChain dépendances OK")
+                enabled.append("onchain")
+        else:
+            logger.info("ℹ️ OnChain non activé")
+            disabled.append("onchain")
+
+        # 4) Shadow trading
+        if self.hardening_flags.get("enable_shadow_trading", False):
+            db_path = Path(os.getenv("SHADOW_TRADING_DB_PATH", "data/shadow_trading.db"))
+            parent = db_path.parent
+            db_accessible = parent.exists() and os.access(parent, os.W_OK)
+            free_bytes = 0
+            try:
+                free_bytes = shutil.disk_usage(parent if parent.exists() else Path(".")).free
+            except Exception:
+                free_bytes = 0
+            if not db_accessible or free_bytes < 50 * 1024 * 1024:
+                logger.error("Shadow trading impossible")
+                self.hardening_flags["enable_shadow_trading"] = False
+                disabled.append("shadow_trading")
+                raise RuntimeError("Shadow trading impossible")
+            logger.info("✅ Shadow trading dépendances OK")
+            enabled.append("shadow_trading")
+        else:
+            logger.info("ℹ️ Shadow trading non activé")
+            disabled.append("shadow_trading")
+
+        self._dependency_report = {"enabled": enabled, "disabled": disabled}
+
     def _init_shadow_manager(self) -> Optional[ShadowTradingManager]:
         """Initialize or reuse shadow manager with strict paper safeguards."""
+        if not self.hardening_flags.get("enable_shadow_trading", True):
+            logger.info("🕶️ ShadowTradingManager désactivé par dépendances/runtime flags")
+            return None
         manager = self.module_manager.get("shadow_trading")
         if manager and isinstance(manager, ShadowTradingManager):
             if not hasattr(manager, "update_prices"):
@@ -992,7 +1114,7 @@ class OrchestratorAsync:
                     self._module_record_failure("sentiment")
 
             # On-chain feature (best effort)
-            if self._module_can_run("onchain"):
+            if self.hardening_flags.get("enable_onchain", False) and self._module_can_run("onchain"):
                 try:
                     self.onchain_data.update_metrics()
                     onchain_signal = self.onchain_data.get_signal()
