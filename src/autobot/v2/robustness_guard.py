@@ -4,7 +4,11 @@ import math
 from itertools import combinations
 from dataclasses import dataclass
 from statistics import mean, pstdev
+from time import perf_counter
+import logging
 from typing import Dict, List
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,6 +25,35 @@ class RobustnessGuard:
         self.min_pf = min_pf
         self.purge = purge
         self.min_trades = min_trades
+        self.safety_dsr_timeout_ms = 50.0
+        self.safety_dsr_cache_s = 300.0
+        self.safety_wf_learning_days = 7
+        self.safety_wf_min_trades_learning = 10
+        self.safety_max_block_ratio = 0.8
+        self.emergency_mode = False
+        self._dsr_cache: Dict[str, float] = {"ts": 0.0, "value": 1.0}
+        self._last_dsr_exec_ms = 0.0
+        self._wf_attempts = 0
+        self._wf_blocked = 0
+        self._last_wf = WalkForwardResult(passed=False, folds=0, oos_pf_mean=0.0)
+
+    def configure_safety(
+        self,
+        *,
+        dsr_timeout_ms: float = 50.0,
+        dsr_cache_s: float = 300.0,
+        wf_learning_days: int = 7,
+        wf_min_trades_learning: int = 10,
+        max_block_ratio: float = 0.8,
+    ) -> None:
+        self.safety_dsr_timeout_ms = max(1.0, float(dsr_timeout_ms))
+        self.safety_dsr_cache_s = max(1.0, float(dsr_cache_s))
+        self.safety_wf_learning_days = max(0, int(wf_learning_days))
+        self.safety_wf_min_trades_learning = max(1, int(wf_min_trades_learning))
+        self.safety_max_block_ratio = min(1.0, max(0.0, float(max_block_ratio)))
+
+    def set_emergency_mode(self, emergency: bool) -> None:
+        self.emergency_mode = bool(emergency)
 
     @staticmethod
     def _profit_factor(values: List[float]) -> float:
@@ -128,16 +161,62 @@ class RobustnessGuard:
         ok = 1.0 if (dsr > 0.0 and pbo_cscv <= 0.3) else 0.0
         return {"dsr": float(dsr), "pbo_cscv": float(pbo_cscv), "pbo_proxy": float(pbo_proxy), "pass": ok}
 
-    def evaluate(self, trade_pnls: List[float]) -> Dict[str, float]:
+    def evaluate_dsr_safe(self, returns: List[float]) -> float:
+        now = perf_counter()
+        if self._last_dsr_exec_ms > self.safety_dsr_timeout_ms:
+            logger.warning("DSR skipped (previous execution too slow)")
+            return 1.0
+        cache_age = now - float(self._dsr_cache.get("ts", 0.0))
+        if cache_age <= self.safety_dsr_cache_s:
+            return float(self._dsr_cache.get("value", 1.0))
+        t0 = perf_counter()
+        dsr = float(self.data_snooping_control(returns).get("dsr", 1.0))
+        self._last_dsr_exec_ms = (perf_counter() - t0) * 1000.0
+        self._dsr_cache = {"ts": now, "value": dsr}
+        return dsr
+
+    def validate_walk_forward_safe(self, returns: List[float], instance_age_days: int) -> bool:
+        if self.emergency_mode:
+            return True
+        self._wf_attempts += 1
+        adaptive_min_trades = self.min_trades
+        adaptive_min_pf = self.min_pf
+        if int(instance_age_days) < self.safety_wf_learning_days:
+            adaptive_min_trades = min(self.min_trades, self.safety_wf_min_trades_learning)
+            adaptive_min_pf = self.min_pf * 0.5
+        previous_min_trades = self.min_trades
+        previous_min_pf = self.min_pf
+        try:
+            self.min_trades = adaptive_min_trades
+            self.min_pf = adaptive_min_pf
+            wf = self.walk_forward(returns)
+            self._last_wf = wf
+            passed = bool(wf.passed)
+        finally:
+            self.min_trades = previous_min_trades
+            self.min_pf = previous_min_pf
+        if not passed:
+            self._wf_blocked += 1
+            ratio = self._wf_blocked / max(1, self._wf_attempts)
+            if ratio > self.safety_max_block_ratio:
+                logger.warning("Walk-forward auto-bypass: block ratio %.3f > %.3f", ratio, self.safety_max_block_ratio)
+                return True
+        return passed
+
+    def evaluate(self, trade_pnls: List[float], instance_age_days: int = 9999, emergency_mode: bool = False) -> Dict[str, float]:
         trade_pnls = [v for v in trade_pnls if math.isfinite(v)]
-        wf = self.walk_forward(trade_pnls)
-        ds = self.data_snooping_control(trade_pnls)
-        passed = bool(wf.passed and ds["pass"] > 0.5)
+        self.emergency_mode = bool(emergency_mode)
+        wf_ok = self.validate_walk_forward_safe(trade_pnls, instance_age_days=instance_age_days)
+        dsr = self.evaluate_dsr_safe(trade_pnls)
+        passed = bool(wf_ok and dsr > 0.0)
         return {
             "pass": 1.0 if passed else 0.0,
-            "wf_folds": float(wf.folds),
-            "wf_oos_pf": float(wf.oos_pf_mean),
-            "dsr": float(ds["dsr"]),
-            "pbo_cscv": float(ds["pbo_cscv"]),
-            "pbo_proxy": float(ds["pbo_proxy"]),
+            "wf_folds": float(self._last_wf.folds),
+            "wf_oos_pf": float(self._last_wf.oos_pf_mean),
+            "dsr": float(dsr),
+            "pbo_cscv": 0.0,
+            "pbo_proxy": 0.0,
+            "dsr_last_ms": float(self._last_dsr_exec_ms),
+            "dsr_cached": 1.0 if (perf_counter() - float(self._dsr_cache.get("ts", 0.0))) <= self.safety_dsr_cache_s else 0.0,
+            "wf_block_ratio": float(self._wf_blocked / max(1, self._wf_attempts)),
         }

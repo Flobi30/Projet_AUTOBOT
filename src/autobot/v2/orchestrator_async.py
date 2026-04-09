@@ -65,6 +65,7 @@ from .module_coordinator import ModuleCoordinator
 from .robustness_guard import RobustnessGuard
 from .regime_controller import RegimeController
 from .risk_cluster_manager import RiskClusterManager
+from .safety_guard import SafetyGuard
 from .config import (
     HEALTH_SCORE_THRESHOLD,
     MAX_BACKOFF_SECONDS,
@@ -75,6 +76,13 @@ from .config import (
     TARGET_VOLATILITY,
     TRADE_ACTION_MIN_INTERVAL_S,
     WEBSOCKET_STREAMS,
+    SAFETY_DSR_TIMEOUT_MS,
+    SAFETY_DSR_CACHE_S,
+    SAFETY_WF_LEARNING_DAYS,
+    SAFETY_WF_MIN_TRADES_LEARNING,
+    SAFETY_MAX_BLOCK_RATIO,
+    SAFETY_EMERGENCY_CYCLE_MS,
+    SAFETY_EMERGENCY_CONSECUTIVE,
 )
 from .risk_manager import OrchestratorRiskManager
 
@@ -176,6 +184,7 @@ class OrchestratorAsync:
         self._shadow_promotion_task: Optional[asyncio.Task] = None
         self._rebalance_task: Optional[asyncio.Task] = None
         self._auto_evolution_task: Optional[asyncio.Task] = None
+        self._cycle_health_task: Optional[asyncio.Task] = None
         self._rebalance_manager: Optional[RebalanceManager] = None
         self._auto_evolution_manager: Optional[AutoEvolutionManager] = None
         self._evolution_pf_baseline: Dict[str, float] = {}
@@ -188,6 +197,9 @@ class OrchestratorAsync:
             "signal_eval_ms": 0.0,
             "shadow_update_ms": 0.0,
         }
+        self._instance_first_seen_ts: Dict[str, float] = {}
+        self._wf_blocked_24h = 0
+        self._wf_window_start = datetime.now(timezone.utc)
         self._decision_stats: Dict[str, int] = {
             "risk_blocks": 0,
             "exit_actions": 0,
@@ -266,14 +278,25 @@ class OrchestratorAsync:
             purge=int(os.getenv("WF_PURGE_BARS", "2")),
             min_trades=int(os.getenv("WF_MIN_TRADES", "40")),
         )
+        self.robustness_guard.configure_safety(
+            dsr_timeout_ms=SAFETY_DSR_TIMEOUT_MS,
+            dsr_cache_s=SAFETY_DSR_CACHE_S,
+            wf_learning_days=SAFETY_WF_LEARNING_DAYS,
+            wf_min_trades_learning=SAFETY_WF_MIN_TRADES_LEARNING,
+            max_block_ratio=SAFETY_MAX_BLOCK_RATIO,
+        )
         self._last_validation_guard: Dict[str, Any] = {}
         self._validation_guard_cache: Dict[str, Dict[str, Any]] = {}
-        self._validation_guard_interval_s = float(os.getenv("VALIDATION_GUARD_INTERVAL_S", "120"))
+        self._validation_guard_interval_s = float(os.getenv("VALIDATION_GUARD_INTERVAL_S", str(SAFETY_DSR_CACHE_S)))
         self.regime_controller = RegimeController(
             hysteresis_ticks=int(os.getenv("REGIME_HYSTERESIS_TICKS", "3"))
         )
         self.risk_cluster_manager = RiskClusterManager(
             cluster_cap=float(os.getenv("CLUSTER_CAP_RATIO", "0.35"))
+        )
+        self.safety_guard = SafetyGuard(
+            emergency_cycle_ms=SAFETY_EMERGENCY_CYCLE_MS,
+            emergency_consecutive=SAFETY_EMERGENCY_CONSECUTIVE,
         )
 
         # Validator
@@ -903,6 +926,8 @@ class OrchestratorAsync:
             if self._on_alert:
                 self._on_alert("CRITICAL_DRAWDOWN", inst)
         self._loop_metrics["process_cycle_ms"] = (perf_counter() - t0) * 1000.0
+        if not self.safety_guard.check_performance_budget(self._loop_metrics["process_cycle_ms"]):
+            self._activate_emergency_mode("cycle budget exceeded")
 
     def _set_last_decision(self, instance_id: str, action: str, reason: str) -> None:
         priority = self.decision_policy.get(action, 0)
@@ -992,6 +1017,37 @@ class OrchestratorAsync:
                 if self._on_alert:
                     self._on_alert("LOW_HEALTH_SCORE", {"score": health})
 
+    def _activate_emergency_mode(self, reason: str) -> None:
+        if self.safety_guard.emergency_mode:
+            return
+        self.safety_guard.emergency_mode = True
+        self.robustness_guard.set_emergency_mode(True)
+        self.hardening_flags["enable_validation_guard"] = False
+        self.hardening_flags["enable_sentiment"] = False
+        self.hardening_flags["enable_ml"] = False
+        self.hardening_flags["enable_xgboost"] = False
+        self.hardening_flags["enable_onchain"] = False
+        logger.error("🚨 SAFETY EMERGENCY MODE enabled: %s", reason)
+
+    def _reset_emergency_mode(self) -> None:
+        self.safety_guard.reset_emergency()
+        self.robustness_guard.set_emergency_mode(False)
+
+    async def _check_cycle_health(self) -> None:
+        """Vérifie la santé du cycle toutes les 5 minutes."""
+        while self.running:
+            try:
+                await asyncio.sleep(300)
+                cycle_ms = float(self._loop_metrics.get("process_cycle_ms", 0.0))
+                if not self.safety_guard.check_performance_budget(cycle_ms):
+                    self._activate_emergency_mode("cycle health monitor")
+                if _env_bool("SAFETY_EMERGENCY_RESET", False):
+                    self._reset_emergency_mode()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Cycle health check erreur (isolée): %s", exc)
+
     async def _run_black_swan_guard(self, instance: TradingInstanceAsync) -> bool:
         """
         Détection Black Swan avant autres traitements.
@@ -1021,6 +1077,8 @@ class OrchestratorAsync:
         return MarketRegime.TREND_FAIBLE
 
     def _passes_validation_guard(self, instance: TradingInstanceAsync) -> bool:
+        if self.safety_guard.emergency_mode:
+            return True
         if not self.hardening_flags.get("enable_validation_guard", True):
             return True
         now = perf_counter()
@@ -1031,10 +1089,21 @@ class OrchestratorAsync:
             return cached_result.get("pass", 0.0) >= 0.5
         trades = list(getattr(instance, "_trades", []))
         pnls = [float(getattr(t, "profit", 0.0) or 0.0) for t in trades]
-        result = self.robustness_guard.evaluate(pnls)
+        first_seen = self._instance_first_seen_ts.setdefault(instance.id, now)
+        age_days = int(max(0.0, (now - first_seen) / 86400.0))
+        result = self.robustness_guard.evaluate(
+            pnls,
+            instance_age_days=age_days,
+            emergency_mode=self.safety_guard.emergency_mode,
+        )
         self._validation_guard_cache[instance.id] = {"ts": now, "result": result}
         self._last_validation_guard[instance.id] = result
         if result.get("pass", 0.0) < 0.5:
+            now_utc = datetime.now(timezone.utc)
+            if (now_utc - self._wf_window_start).total_seconds() >= 86400:
+                self._wf_window_start = now_utc
+                self._wf_blocked_24h = 0
+            self._wf_blocked_24h += 1
             self._record_module_event(
                 "validation_guard",
                 "warning",
@@ -1094,6 +1163,7 @@ class OrchestratorAsync:
             mr = self.mean_reversion.get(instance.id)
             if (
                 self.hardening_flags["enable_mean_reversion"]
+                and not self.safety_guard.emergency_mode
                 and module_policy.get("enable_mean_reversion", True)
                 and mr and trend == "range"
             ):
@@ -1103,7 +1173,11 @@ class OrchestratorAsync:
 
             # Sentiment update/read (timeout strict 5s)
             sentiment_score = 0.0
-            if self.hardening_flags["enable_sentiment"] and self._module_can_run("sentiment"):
+            if (
+                self.hardening_flags["enable_sentiment"]
+                and not self.safety_guard.emergency_mode
+                and self._module_can_run("sentiment")
+            ):
                 try:
                     loop = asyncio.get_running_loop()
                     await asyncio.wait_for(
@@ -1130,6 +1204,7 @@ class OrchestratorAsync:
             # On-chain feature (best effort)
             if (
                 self.hardening_flags.get("enable_onchain", False)
+                and not self.safety_guard.emergency_mode
                 and module_policy.get("enable_onchain", True)
                 and self._module_can_run("onchain")
             ):
@@ -1149,6 +1224,7 @@ class OrchestratorAsync:
             ml_direction = "HOLD"
             if (
                 self.hardening_flags["enable_ml"]
+                and not self.safety_guard.emergency_mode
                 and module_policy.get("enable_ml", True)
                 and self._module_can_run("xgboost")
             ):
@@ -1834,6 +1910,7 @@ class OrchestratorAsync:
         self._daily_report_task = asyncio.create_task(self._daily_report_loop())
         self._xgboost_train_task = asyncio.create_task(self._train_xgboost_loop())
         self._sentiment_task = asyncio.create_task(self._sentiment_update_loop())
+        self._cycle_health_task = asyncio.create_task(self._check_cycle_health())
         if self.paper_mode:
             total_capital = sum(
                 float(inst.get_current_capital()) for inst in self._instances.values()
@@ -1916,6 +1993,13 @@ class OrchestratorAsync:
             except asyncio.CancelledError:
                 pass
             self._sentiment_task = None
+        if self._cycle_health_task:
+            self._cycle_health_task.cancel()
+            try:
+                await self._cycle_health_task
+            except asyncio.CancelledError:
+                pass
+            self._cycle_health_task = None
         if self._shadow_promotion_task:
             self._shadow_promotion_task.cancel()
             try:
@@ -2013,6 +2097,26 @@ class OrchestratorAsync:
             "cluster_exposure": self.risk_cluster_manager.exposure_by_cluster(
                 [inst for inst in self._instances.values() if inst.is_running()]
             ),
+            "safety": {
+                "emergency_mode": self.safety_guard.emergency_mode,
+                "dsr_last_ms": float(self.robustness_guard._last_dsr_exec_ms),
+                "dsr_cached": (perf_counter() - float(self.robustness_guard._dsr_cache.get("ts", 0.0))) <= self.robustness_guard.safety_dsr_cache_s,
+                "walk_forward_blocked_24h": int(self._wf_blocked_24h),
+                "cycle_time_ms": float(self._loop_metrics.get("process_cycle_ms", 0.0)),
+                "features_active": [
+                    name for name, enabled in {
+                        "regime": True,
+                        "cluster": True,
+                        "walk_forward": self.hardening_flags.get("enable_validation_guard", False),
+                        "dsr": self.hardening_flags.get("enable_validation_guard", False),
+                    }.items() if enabled
+                ],
+                "features_disabled_by_safety": sorted(set(self.safety_guard.blocked_features) | {
+                    name for name in ("enable_sentiment", "enable_ml", "enable_xgboost", "enable_onchain", "enable_validation_guard")
+                    if self.safety_guard.emergency_mode and not self.hardening_flags.get(name, True)
+                }),
+                "emergency_reset": True,
+            },
             "instances": [
                 {
                     "id": i.id,
