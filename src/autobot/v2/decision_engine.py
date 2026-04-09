@@ -10,7 +10,11 @@ class DecisionEngine:
         self._o = orchestrator
 
     async def evaluate_signal(self, instance: object) -> bool:
-        return await self._o._evaluate_signal(instance)
+        try:
+            return await self._o._evaluate_signal(instance)
+        except Exception as exc:
+            self._o._record_module_event("decision_engine", "error", str(exc))
+            raise
 
     def select_instances_for_cycle(self) -> List[object]:
         return self._o._select_instances_for_cycle()

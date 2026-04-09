@@ -46,6 +46,7 @@ class ModuleCoordinator:
             return
         self._o._module_backoff[name]["failures"] = 0.0
         self._o._module_backoff[name]["next_retry_ts"] = 0.0
+        self._o._record_module_event(name, "ok")
 
     def module_record_failure(self, name: str) -> None:
         if name not in self._o._module_backoff:
@@ -54,6 +55,7 @@ class ModuleCoordinator:
         delay = min(2 ** min(int(failures), 8), MAX_BACKOFF_SECONDS)
         self._o._module_backoff[name]["failures"] = failures
         self._o._module_backoff[name]["next_retry_ts"] = perf_counter() + delay
+        self._o._record_module_event(name, "error", f"backoff_delay={delay}s failures={failures}")
 
     def validate_dependencies(self) -> Dict[str, List[str]]:
         enabled: List[str] = []
@@ -66,9 +68,11 @@ class ModuleCoordinator:
             if not sentiment_api_key or not twitter_ok or not reddit_ok:
                 logger.warning("SentimentNLP désactivé - clé API manquante")
                 self._o.hardening_flags["enable_sentiment"] = False
+                self._o._record_module_event("sentiment", "warning", "missing_api_or_unreachable")
                 disabled.append("sentiment")
             else:
                 logger.info("✅ SentimentNLP dépendances OK")
+                self._o._record_module_event("sentiment", "ok")
                 enabled.append("sentiment")
         else:
             logger.info("ℹ️ SentimentNLP non activé")
@@ -86,11 +90,13 @@ class ModuleCoordinator:
                 logger.warning("XGBoost désactivé - modèle non entraîné")
                 self._o.hardening_flags["enable_xgboost"] = False
                 self._o.hardening_flags["enable_ml"] = False
+                self._o._record_module_event("xgboost", "warning", "model_or_features_missing")
                 disabled.append("xgboost")
             else:
                 logger.info("✅ XGBoost dépendances OK")
                 self._o.hardening_flags["enable_xgboost"] = True
                 self._o.hardening_flags["enable_ml"] = True
+                self._o._record_module_event("xgboost", "ok")
                 enabled.append("xgboost")
         else:
             logger.info("ℹ️ XGBoost non activé")
@@ -102,9 +108,11 @@ class ModuleCoordinator:
             if not onchain_api_key or not self._quick_ping(node_url):
                 logger.warning("OnChain désactivé")
                 self._o.hardening_flags["enable_onchain"] = False
+                self._o._record_module_event("onchain", "warning", "missing_api_or_node_unreachable")
                 disabled.append("onchain")
             else:
                 logger.info("✅ OnChain dépendances OK")
+                self._o._record_module_event("onchain", "ok")
                 enabled.append("onchain")
         else:
             logger.info("ℹ️ OnChain non activé")
@@ -121,9 +129,11 @@ class ModuleCoordinator:
             if not db_accessible or free_bytes < 50 * 1024 * 1024:
                 logger.error("Shadow trading impossible")
                 self._o.hardening_flags["enable_shadow_trading"] = False
+                self._o._record_module_event("shadow_trading", "error", "db_unreachable_or_low_disk")
                 disabled.append("shadow_trading")
                 raise RuntimeError("Shadow trading impossible")
             logger.info("✅ Shadow trading dépendances OK")
+            self._o._record_module_event("shadow_trading", "ok")
             enabled.append("shadow_trading")
         else:
             logger.info("ℹ️ Shadow trading non activé")

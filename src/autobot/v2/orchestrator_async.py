@@ -62,6 +62,9 @@ from .rebalance_manager import RebalanceManager
 from .auto_evolution import AutoEvolutionManager
 from .decision_engine import DecisionEngine
 from .module_coordinator import ModuleCoordinator
+from .robustness_guard import RobustnessGuard
+from .regime_controller import RegimeController
+from .risk_cluster_manager import RiskClusterManager
 from .config import (
     HEALTH_SCORE_THRESHOLD,
     MAX_BACKOFF_SECONDS,
@@ -222,23 +225,56 @@ class OrchestratorAsync:
         self._pair_risk_state: Dict[str, Dict[str, float]] = {}
         self.hardening_flags = {
             "safe_mode": _env_bool("AUTOBOT_SAFE_MODE", True),
-            "enable_mean_reversion": _env_bool("ENABLE_MEAN_REVERSION", False),
-            "enable_sentiment": _env_bool("ENABLE_SENTIMENT", False),
-            "enable_ml": _env_bool("ENABLE_ML", False),
-            "enable_xgboost": _env_bool("ENABLE_XGBOOST", _env_bool("ENABLE_ML", False)),
-            "enable_onchain": _env_bool("ENABLE_ONCHAIN", False),
-            "enable_trading_health_score": _env_bool("ENABLE_TRADING_HEALTH_SCORE", False),
+            "enable_mean_reversion": _env_bool("ENABLE_MEAN_REVERSION", True),
+            "enable_sentiment": _env_bool("ENABLE_SENTIMENT", True),
+            "enable_ml": _env_bool("ENABLE_ML", True),
+            "enable_xgboost": _env_bool("ENABLE_XGBOOST", _env_bool("ENABLE_ML", True)),
+            "enable_onchain": _env_bool("ENABLE_ONCHAIN", True),
+            "enable_trading_health_score": _env_bool("ENABLE_TRADING_HEALTH_SCORE", True),
             "enable_shadow_promotion": _env_bool("ENABLE_SHADOW_PROMOTION", True),
             "enable_shadow_trading": _env_bool("ENABLE_SHADOW_TRADING", True),
             "enable_rebalance": _env_bool("ENABLE_REBALANCE", True),
             "enable_auto_evolution": _env_bool("ENABLE_AUTO_EVOLUTION", True),
+            "enable_validation_guard": _env_bool("ENABLE_VALIDATION_GUARD", True),
+            "enable_correlation_killswitch": _env_bool("ENABLE_CORRELATION_KILLSWITCH", True),
             "log_conflicts": _env_bool("ENABLE_CONFLICT_LOGGING", True),
         }
+        self._module_diagnostics: Dict[str, Dict[str, Any]] = {}
+        if _env_bool("AUTOBOT_FORCE_ENABLE_ALL", True):
+            for flag in (
+                "enable_mean_reversion",
+                "enable_sentiment",
+                "enable_ml",
+                "enable_xgboost",
+                "enable_onchain",
+                "enable_trading_health_score",
+                "enable_shadow_promotion",
+                "enable_shadow_trading",
+                "enable_rebalance",
+                "enable_auto_evolution",
+                "enable_validation_guard",
+                "enable_correlation_killswitch",
+            ):
+                self.hardening_flags[flag] = True
         self._dependency_report: Dict[str, List[str]] = {"enabled": [], "disabled": []}
         self._config_validation_notes: List[str] = []
         self.decision = DecisionEngine(self)
         self.risk = OrchestratorRiskManager(self)
         self.module_coordinator = ModuleCoordinator(self)
+        self.robustness_guard = RobustnessGuard(
+            min_pf=float(os.getenv("WF_MIN_OOS_PF", "1.05")),
+            purge=int(os.getenv("WF_PURGE_BARS", "2")),
+            min_trades=int(os.getenv("WF_MIN_TRADES", "40")),
+        )
+        self._last_validation_guard: Dict[str, Any] = {}
+        self._validation_guard_cache: Dict[str, Dict[str, Any]] = {}
+        self._validation_guard_interval_s = float(os.getenv("VALIDATION_GUARD_INTERVAL_S", "120"))
+        self.regime_controller = RegimeController(
+            hysteresis_ticks=int(os.getenv("REGIME_HYSTERESIS_TICKS", "3"))
+        )
+        self.risk_cluster_manager = RiskClusterManager(
+            cluster_cap=float(os.getenv("CLUSTER_CAP_RATIO", "0.35"))
+        )
 
         # Validator
         self.validator = ValidatorEngine()
@@ -390,6 +426,17 @@ class OrchestratorAsync:
 
     def _validate_dependencies(self) -> None:
         self._dependency_report = self.module_coordinator.validate_dependencies()
+
+    def _record_module_event(self, module: str, status: str, error: Optional[str] = None) -> None:
+        info = self._module_diagnostics.setdefault(
+            module,
+            {"ok": 0, "warning": 0, "error": 0, "last_status": None, "last_error": None, "last_ts": None},
+        )
+        if status in ("ok", "warning", "error"):
+            info[status] = int(info.get(status, 0)) + 1
+        info["last_status"] = status
+        info["last_error"] = error
+        info["last_ts"] = datetime.now(timezone.utc).isoformat()
 
     def _init_shadow_manager(self) -> Optional[ShadowTradingManager]:
         """Initialize or reuse shadow manager with strict paper safeguards."""
@@ -895,11 +942,35 @@ class OrchestratorAsync:
         dd = float(instance.get_drawdown())
         state = self._pair_risk_state.setdefault(
             symbol,
-            {"pf_ema": pf, "dd_ema": dd},
+            {"pf_ema": pf, "dd_ema": dd, "returns": [], "last_price": None, "corr_risk_peers": 0},
         )
         alpha = 0.2
         state["pf_ema"] = (alpha * pf) + ((1 - alpha) * float(state["pf_ema"]))
         state["dd_ema"] = (alpha * dd) + ((1 - alpha) * float(state["dd_ema"]))
+        price = float(instance.get_status().get("last_price") or 0.0)
+        last_price = float(state.get("last_price") or 0.0)
+        if price > 0 and last_price > 0:
+            ret = (price - last_price) / last_price
+            if abs(ret) < 5.0:
+                returns = list(state.get("returns", []))
+                returns.append(float(ret))
+                state["returns"] = returns[-240:]
+        state["last_price"] = price if price > 0 else last_price
+        peers = 0
+        threshold = float(os.getenv("CORR_KILL_THRESHOLD", "0.85"))
+        min_returns = int(os.getenv("CORR_MIN_RETURNS", "30"))
+        my_returns = list(state.get("returns", []))
+        if len(my_returns) >= min_returns:
+            for other_symbol, other in self._pair_risk_state.items():
+                if other_symbol == symbol:
+                    continue
+                other_returns = list(other.get("returns", []))
+                if len(other_returns) < min_returns:
+                    continue
+                corr = abs(self._pearson_corr(my_returns, other_returns))
+                if corr >= threshold:
+                    peers += 1
+        state["corr_risk_peers"] = peers
 
     async def _check_global_health(self) -> None:
         if not self.ws_client.is_connected():
@@ -949,6 +1020,46 @@ class OrchestratorAsync:
             return MarketRegime.TREND_FORTE
         return MarketRegime.TREND_FAIBLE
 
+    def _passes_validation_guard(self, instance: TradingInstanceAsync) -> bool:
+        if not self.hardening_flags.get("enable_validation_guard", True):
+            return True
+        now = perf_counter()
+        cached = self._validation_guard_cache.get(instance.id)
+        if cached and (now - float(cached.get("ts", 0.0))) < self._validation_guard_interval_s:
+            cached_result = dict(cached.get("result", {}))
+            self._last_validation_guard[instance.id] = cached_result
+            return cached_result.get("pass", 0.0) >= 0.5
+        trades = list(getattr(instance, "_trades", []))
+        pnls = [float(getattr(t, "profit", 0.0) or 0.0) for t in trades]
+        result = self.robustness_guard.evaluate(pnls)
+        self._validation_guard_cache[instance.id] = {"ts": now, "result": result}
+        self._last_validation_guard[instance.id] = result
+        if result.get("pass", 0.0) < 0.5:
+            self._record_module_event(
+                "validation_guard",
+                "warning",
+                f"blocked wf_pf={result.get('wf_oos_pf', 0.0):.3f} dsr={result.get('dsr', 0.0):.3f} pbo={result.get('pbo_proxy', 1.0):.3f}",
+            )
+            return False
+        self._record_module_event("validation_guard", "ok")
+        return True
+
+    @staticmethod
+    def _pearson_corr(x: List[float], y: List[float]) -> float:
+        n = min(len(x), len(y))
+        if n < 10:
+            return 0.0
+        xs = x[-n:]
+        ys = y[-n:]
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        num = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+        denx = sum((a - mx) ** 2 for a in xs) ** 0.5
+        deny = sum((b - my) ** 2 for b in ys) ** 0.5
+        if denx <= 1e-12 or deny <= 1e-12:
+            return 0.0
+        return float(num / (denx * deny))
+
     async def _evaluate_signal(self, instance: TradingInstanceAsync) -> bool:
         """
         Combine grid + mean reversion via StrategyEnsemble.
@@ -961,6 +1072,13 @@ class OrchestratorAsync:
                 return False
             price = float(price)
             trend = instance.detect_trend()
+            regime_state = self.regime_controller.update(
+                symbol=str(instance.config.symbol),
+                trend=trend,
+                volatility=float(instance.get_volatility()),
+                drawdown=float(instance.get_drawdown()),
+            )
+            module_policy = self.regime_controller.module_policy(regime_state.regime)
             regime = self._map_regime(trend)
             volume = 0.0
             positions = instance.get_positions_snapshot()
@@ -974,7 +1092,11 @@ class OrchestratorAsync:
             # MeanReversion : activée uniquement en range
             mr_signal = "HOLD"
             mr = self.mean_reversion.get(instance.id)
-            if self.hardening_flags["enable_mean_reversion"] and mr and trend == "range":
+            if (
+                self.hardening_flags["enable_mean_reversion"]
+                and module_policy.get("enable_mean_reversion", True)
+                and mr and trend == "range"
+            ):
                 mr.update(price)
                 mr_signal = "BUY" if mr.should_enter() else "HOLD"
             logger.info("MeanReversion signal: %s", mr_signal)
@@ -1006,7 +1128,11 @@ class OrchestratorAsync:
                     self._module_record_failure("sentiment")
 
             # On-chain feature (best effort)
-            if self.hardening_flags.get("enable_onchain", False) and self._module_can_run("onchain"):
+            if (
+                self.hardening_flags.get("enable_onchain", False)
+                and module_policy.get("enable_onchain", True)
+                and self._module_can_run("onchain")
+            ):
                 try:
                     self.onchain_data.update_metrics()
                     onchain_signal = self.onchain_data.get_signal()
@@ -1021,7 +1147,11 @@ class OrchestratorAsync:
             # ML prediction: XGBoost puis fallback Heuristic
             ml_confidence = 0.0
             ml_direction = "HOLD"
-            if self.hardening_flags["enable_ml"] and self._module_can_run("xgboost"):
+            if (
+                self.hardening_flags["enable_ml"]
+                and module_policy.get("enable_ml", True)
+                and self._module_can_run("xgboost")
+            ):
                 try:
                     features = self.xgboost.extract_features(price=price, volume=volume)
                     if features is not None:
@@ -1104,6 +1234,19 @@ class OrchestratorAsync:
                     self.trade_action_min_interval_s,
                 )
                 return False
+            if not self._passes_validation_guard(instance):
+                logger.warning("🧪 Validation guard blocked entry for %s", instance.id)
+                return False
+            if self.hardening_flags.get("enable_correlation_killswitch", True):
+                corr_state = self._pair_risk_state.get(str(instance.config.symbol), {})
+                if int(corr_state.get("corr_risk_peers", 0)) >= int(os.getenv("CORR_KILL_MAX_PEERS", "2")):
+                    self._record_module_event(
+                        "correlation_killswitch",
+                        "warning",
+                        f"blocked peers={int(corr_state.get('corr_risk_peers', 0))}",
+                    )
+                    logger.warning("🧯 Correlation kill-switch blocked entry for %s", instance.id)
+                    return False
 
             base_size = max(instance.get_current_capital() * 0.02, 1.0)
             sized = self._calculate_position_size(
@@ -1404,6 +1547,22 @@ class OrchestratorAsync:
             final_size = max(min(combined, max_size), min_size)
             risk_multiplier = self._compute_risk_multiplier(instance)
             final_size *= risk_multiplier
+            active_instances = [inst for inst in self._instances.values() if inst.is_running()]
+            exposures = self.risk_cluster_manager.exposure_by_cluster(active_instances)
+            total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances) or capital
+            cluster_mult = self.risk_cluster_manager.allowed_multiplier(
+                symbol=str(instance.config.symbol),
+                add_size=float(final_size),
+                total_capital=float(total_capital),
+                exposures=exposures,
+            )
+            final_size *= cluster_mult
+            if cluster_mult < 1.0:
+                self._record_module_event(
+                    "cluster_risk_cap",
+                    "warning",
+                    f"symbol={instance.config.symbol} cluster_mult={cluster_mult:.3f}",
+                )
             logger.info("Risk multiplier applied: %.2f", risk_multiplier)
             return float(final_size)
         except Exception as exc:
@@ -1442,6 +1601,17 @@ class OrchestratorAsync:
                 multiplier *= 1.05
             if pair_dd > 0.15:
                 multiplier *= 0.8
+            corr_peers = int(pair_state.get("corr_risk_peers", 0))
+            if self.hardening_flags.get("enable_correlation_killswitch", True) and corr_peers > 0:
+                corr_mult = float(os.getenv("CORR_KILL_MULTIPLIER", "0.5"))
+                step_mult = max(0.1, min(corr_mult, 1.0))
+                severity = min(corr_peers, 4)
+                multiplier *= step_mult ** severity
+                self._record_module_event(
+                    "correlation_killswitch",
+                    "warning",
+                    f"multiplied peers={corr_peers} multiplier={step_mult} severity={severity}",
+                )
             return min(max(multiplier, 0.25), 1.25)
         except Exception:
             return 1.0
@@ -1812,7 +1982,7 @@ class OrchestratorAsync:
     # ------------------------------------------------------------------
 
     def get_status(self) -> Dict:
-        return {
+        status = {
             "running": self.running,
             "start_time": self._start_time,
             "uptime": datetime.now(timezone.utc) - self._start_time if self._start_time else None,
@@ -1837,6 +2007,12 @@ class OrchestratorAsync:
             "loop_metrics_ms": dict(self._loop_metrics),
             "decision_stats": dict(self._decision_stats),
             "last_decision": dict(self._last_decision),
+            "module_diagnostics": dict(self._module_diagnostics),
+            "validation_guard": dict(self._last_validation_guard),
+            "regime_state": self.regime_controller.snapshot(),
+            "cluster_exposure": self.risk_cluster_manager.exposure_by_cluster(
+                [inst for inst in self._instances.values() if inst.is_running()]
+            ),
             "instances": [
                 {
                     "id": i.id,

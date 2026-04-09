@@ -334,13 +334,25 @@ class OrchestratorRiskManager:
         self._o = orchestrator
 
     def calculate_position_size(self, instance, base_size_eur: float, current_volatility: float) -> float:
-        return self._o._calculate_position_size(instance, base_size_eur, current_volatility)
+        try:
+            return self._o._calculate_position_size(instance, base_size_eur, current_volatility)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
 
     async def check_exit_conditions(self, instance) -> int:
-        return await self._o._check_exit_conditions(instance)
+        try:
+            return await self._o._check_exit_conditions(instance)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
 
     async def evaluate_add_position(self, instance) -> int:
-        return await self._o._evaluate_add_position(instance)
+        try:
+            return await self._o._evaluate_add_position(instance)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
 
     def compute_health_score(self) -> float:
         return self._o._compute_health_score()
