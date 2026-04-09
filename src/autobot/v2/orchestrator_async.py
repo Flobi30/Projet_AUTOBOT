@@ -60,6 +60,17 @@ from .strategies.adaptive_grid_config import get_default_registry
 from .strategies.multi_grid_orchestrator import MultiGridOrchestrator
 from .rebalance_manager import RebalanceManager
 from .auto_evolution import AutoEvolutionManager
+from .config import (
+    HEALTH_SCORE_THRESHOLD,
+    MAX_BACKOFF_SECONDS,
+    MAX_INSTANCES_PER_CYCLE,
+    MAX_REPEATED_AUTO_ACTIONS,
+    MIN_PF_FOR_SPINOFF,
+    SPIN_OFF_THRESHOLD,
+    TARGET_VOLATILITY,
+    TRADE_ACTION_MIN_INTERVAL_S,
+    WEBSOCKET_STREAMS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,11 +204,11 @@ class OrchestratorAsync:
             "timestamp": None,
         }
         self.runtime_constraints: Dict[str, int] = {
-            "max_instances_per_cycle": int(os.getenv("MAX_INSTANCES_PER_CYCLE", "45")),
-            "websocket_streams": int(os.getenv("WEBSOCKET_STREAMS", "1")),
+            "max_instances_per_cycle": MAX_INSTANCES_PER_CYCLE,
+            "websocket_streams": WEBSOCKET_STREAMS,
         }
-        self.trade_action_min_interval_s = float(os.getenv("TRADE_ACTION_MIN_INTERVAL_S", "1.5"))
-        self.max_repeated_auto_actions = int(os.getenv("MAX_REPEATED_AUTO_ACTIONS", "3"))
+        self.trade_action_min_interval_s = TRADE_ACTION_MIN_INTERVAL_S
+        self.max_repeated_auto_actions = MAX_REPEATED_AUTO_ACTIONS
         self._last_trade_action_ts: Dict[str, float] = {}
         self._repeated_auto_actions: Dict[str, int] = {}
         self._module_backoff: Dict[str, Dict[str, float]] = {
@@ -239,7 +250,7 @@ class OrchestratorAsync:
         # Config
         self.config = {
             "max_instances": 2000,  # Target: 2000+ instances
-            "spin_off_threshold": 1800.0,
+            "spin_off_threshold": float(SPIN_OFF_THRESHOLD),
             "leverage_threshold": 1000.0,
             "check_interval": 30,  # minutes
             "max_drawdown_global": 0.30,
@@ -322,7 +333,7 @@ class OrchestratorAsync:
     def _validate_runtime_configuration(self) -> None:
         """Validate and normalize env-driven runtime configuration values."""
         notes: List[str] = []
-        max_cycle = int(self.runtime_constraints.get("max_instances_per_cycle", 45))
+        max_cycle = int(self.runtime_constraints.get("max_instances_per_cycle", MAX_INSTANCES_PER_CYCLE))
         if max_cycle < 1:
             self.runtime_constraints["max_instances_per_cycle"] = 1
             notes.append("max_instances_per_cycle<1 => forced to 1")
@@ -580,7 +591,7 @@ class OrchestratorAsync:
             return None
 
         # Gate P0: PF minimum
-        min_pf_for_spinoff = 1.2
+        min_pf_for_spinoff = MIN_PF_FOR_SPINOFF
         if pf_30d < min_pf_for_spinoff:
             logger.info(
                 "⏳ Spin-off bloqué pour %s: PF30 %.2f < %.2f",
@@ -852,12 +863,12 @@ class OrchestratorAsync:
     def _module_record_failure(self, name: str) -> None:
         """
         Exponential backoff for unstable modules:
-        1s, 2s, 4s ... capped at 300s.
+        1s, 2s, 4s ... capped at MAX_BACKOFF_SECONDS.
         """
         if name not in self._module_backoff:
             return
         failures = float(self._module_backoff[name].get("failures", 0.0)) + 1.0
-        delay = min(2 ** min(int(failures), 8), 300)
+        delay = min(2 ** min(int(failures), 8), MAX_BACKOFF_SECONDS)
         self._module_backoff[name]["failures"] = failures
         self._module_backoff[name]["next_retry_ts"] = perf_counter() + delay
 
@@ -891,7 +902,7 @@ class OrchestratorAsync:
             await rm.check_global_risk(active)
         if self.hardening_flags.get("enable_trading_health_score", False):
             health = self._compute_health_score()
-            if health < 60:
+            if health < HEALTH_SCORE_THRESHOLD:
                 logger.warning("🩺 Trading health score faible: %.1f/100", health)
                 if self._on_alert:
                     self._on_alert("LOW_HEALTH_SCORE", {"score": health})
@@ -1344,7 +1355,7 @@ class OrchestratorAsync:
                 return 0.0
 
             # 1) Ajustement volatilité (target 2%)
-            target_volatility = 0.02
+            target_volatility = TARGET_VOLATILITY
             vol_adj = 1.0
             if current_volatility > 0:
                 vol_adj = min(max(target_volatility / current_volatility, 0.5), 2.0)
