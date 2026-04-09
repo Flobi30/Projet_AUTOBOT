@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from itertools import combinations
 from dataclasses import dataclass
 from statistics import mean, pstdev
 from typing import Dict, List
@@ -61,28 +62,71 @@ class RobustnessGuard:
         oos_mean = float(mean(oos_pfs))
         return WalkForwardResult(passed=oos_mean >= self.min_pf, folds=len(oos_pfs), oos_pf_mean=oos_mean)
 
+    @staticmethod
+    def _moments(values: List[float]) -> Dict[str, float]:
+        n = len(values)
+        if n < 3:
+            return {"skew": 0.0, "kurt": 3.0}
+        mu = mean(values)
+        sigma = pstdev(values) or 1e-9
+        centered = [(v - mu) / sigma for v in values]
+        skew = sum(v ** 3 for v in centered) / n
+        kurt = sum(v ** 4 for v in centered) / n
+        return {"skew": float(skew), "kurt": float(kurt)}
+
+    def _pbo_cscv(self, trade_pnls: List[float], slices: int = 8) -> float:
+        """CSCV-like PBO estimate on contiguous slices.
+
+        We mark an overfit when train PF > 1 and test PF < 1 over a split.
+        """
+        n = len(trade_pnls)
+        if n < max(40, slices * 6):
+            return 1.0
+        slices = max(4, min(12, slices))
+        chunk = n // slices
+        if chunk < 5:
+            return 1.0
+        blocks = [trade_pnls[i * chunk:(i + 1) * chunk] for i in range(slices)]
+        half = slices // 2
+
+        overfit = 0
+        checks = 0
+        for idxs in combinations(range(slices), half):
+            train = [v for i in idxs for v in blocks[i]]
+            test = [v for i in range(slices) if i not in idxs for v in blocks[i]]
+            if len(train) < 20 or len(test) < 20:
+                continue
+            tr_pf = self._profit_factor(train)
+            te_pf = self._profit_factor(test)
+            checks += 1
+            if tr_pf > 1.0 and te_pf < 1.0:
+                overfit += 1
+        if checks == 0:
+            return 1.0
+        return float(overfit / checks)
+
     def data_snooping_control(self, trade_pnls: List[float], trials: int = 20) -> Dict[str, float]:
         trade_pnls = [v for v in trade_pnls if math.isfinite(v)]
         if len(trade_pnls) < 20:
-            return {"dsr": -1.0, "pbo_proxy": 1.0, "pass": 0.0}
+            return {"dsr": -1.0, "pbo_cscv": 1.0, "pbo_proxy": 1.0, "pass": 0.0}
 
+        n = len(trade_pnls)
         mu = mean(trade_pnls)
         sigma = pstdev(trade_pnls) or 1e-9
-        sharpe = (mu / sigma) * math.sqrt(len(trade_pnls))
+        sharpe = (mu / sigma) * math.sqrt(n)
+        moments = self._moments(trade_pnls)
+        skew = moments["skew"]
+        kurt = moments["kurt"]
+        denom = max(1e-9, 1.0 - skew * sharpe + ((kurt - 1.0) / 4.0) * (sharpe ** 2))
+        adjusted = sharpe / math.sqrt(denom)
         penalty = math.sqrt(2.0 * math.log(max(2, trials)))
-        dsr = max(-10.0, min(10.0, sharpe - penalty))
+        dsr = max(-10.0, min(10.0, adjusted - penalty))
 
-        # PBO proxy: % of tail windows with negative PF
-        tail = max(10, len(trade_pnls) // 4)
-        negatives = 0
-        checks = 0
-        for i in range(0, len(trade_pnls) - tail + 1, max(1, tail // 3)):
-            checks += 1
-            if self._profit_factor(trade_pnls[i:i + tail]) < 1.0:
-                negatives += 1
-        pbo_proxy = (negatives / checks) if checks else 1.0
-        ok = 1.0 if (dsr > 0.0 and pbo_proxy <= 0.5) else 0.0
-        return {"dsr": float(dsr), "pbo_proxy": float(pbo_proxy), "pass": ok}
+        pbo_cscv = self._pbo_cscv(trade_pnls, slices=8)
+        # Backward-compat alias for callers/tests using historic field name.
+        pbo_proxy = pbo_cscv
+        ok = 1.0 if (dsr > 0.0 and pbo_cscv <= 0.3) else 0.0
+        return {"dsr": float(dsr), "pbo_cscv": float(pbo_cscv), "pbo_proxy": float(pbo_proxy), "pass": ok}
 
     def evaluate(self, trade_pnls: List[float]) -> Dict[str, float]:
         trade_pnls = [v for v in trade_pnls if math.isfinite(v)]
@@ -94,5 +138,6 @@ class RobustnessGuard:
             "wf_folds": float(wf.folds),
             "wf_oos_pf": float(wf.oos_pf_mean),
             "dsr": float(ds["dsr"]),
+            "pbo_cscv": float(ds["pbo_cscv"]),
             "pbo_proxy": float(ds["pbo_proxy"]),
         }
