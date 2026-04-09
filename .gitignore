@@ -12,3 +12,10 @@ logs/
 certs/
 audit_final_opus.md
 MEMORY.md
+
+# Agent-only working notes/artifacts (do not ship to repo)
+memory/*.md
+plans/HARDENING_PERF_STABILITY_PLAN.md
+reports/AUDIT_BATCH_RECONCILIATION_*.md
+reports/REPO_FULL_AUDIT_*.md
+scripts/repo_audit.py

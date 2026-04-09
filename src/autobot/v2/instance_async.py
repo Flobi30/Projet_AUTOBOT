@@ -741,6 +741,10 @@ class TradingInstanceAsync:
         variance = sum((p - mean) ** 2 for p in recent) / len(recent)
         return (variance ** 0.5) / mean if mean > 0 else 0.0
 
+    def get_profit_factor_days(self, days: int = 30) -> float:
+        """Expose le Profit Factor sur fenêtre glissante."""
+        return self._compute_profit_factor_days(days)
+
     def detect_trend(self) -> str:
         if len(self._price_history) < 20:
             return "unknown"

@@ -107,16 +107,19 @@ class MultiGridOrchestrator:
                 total_share,
             )
             # Normalise
+            normalized: List[SubGridConfig] = []
             for sg in self._sub_grids:
                 # Copy before mutation to avoid modifying module constants
-            new_sg = SubGridConfig(
-                name=sg.name,
-                range_multiplier=sg.range_multiplier,
-                level_multiplier=sg.level_multiplier,
-                capital_share=sg.capital_share / total_share,
-                max_positions=sg.max_positions
-            )
-            self._sub_grids[i] = new_sg
+                normalized.append(
+                    SubGridConfig(
+                        name=sg.name,
+                        range_multiplier=sg.range_multiplier,
+                        level_multiplier=sg.level_multiplier,
+                        capital_share=sg.capital_share / total_share,
+                        max_positions=sg.max_positions,
+                    )
+                )
+            self._sub_grids = normalized
 
         self._strategies: Dict[str, Any] = {}  # name -> GridStrategyAsync
         self._signal_callback: Optional[Callable] = None
