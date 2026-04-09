@@ -63,6 +63,8 @@ from .auto_evolution import AutoEvolutionManager
 from .decision_engine import DecisionEngine
 from .module_coordinator import ModuleCoordinator
 from .robustness_guard import RobustnessGuard
+from .regime_controller import RegimeController
+from .risk_cluster_manager import RiskClusterManager
 from .config import (
     HEALTH_SCORE_THRESHOLD,
     MAX_BACKOFF_SECONDS,
@@ -267,6 +269,12 @@ class OrchestratorAsync:
         self._last_validation_guard: Dict[str, Any] = {}
         self._validation_guard_cache: Dict[str, Dict[str, Any]] = {}
         self._validation_guard_interval_s = float(os.getenv("VALIDATION_GUARD_INTERVAL_S", "120"))
+        self.regime_controller = RegimeController(
+            hysteresis_ticks=int(os.getenv("REGIME_HYSTERESIS_TICKS", "3"))
+        )
+        self.risk_cluster_manager = RiskClusterManager(
+            cluster_cap=float(os.getenv("CLUSTER_CAP_RATIO", "0.35"))
+        )
 
         # Validator
         self.validator = ValidatorEngine()
@@ -1064,6 +1072,13 @@ class OrchestratorAsync:
                 return False
             price = float(price)
             trend = instance.detect_trend()
+            regime_state = self.regime_controller.update(
+                symbol=str(instance.config.symbol),
+                trend=trend,
+                volatility=float(instance.get_volatility()),
+                drawdown=float(instance.get_drawdown()),
+            )
+            module_policy = self.regime_controller.module_policy(regime_state.regime)
             regime = self._map_regime(trend)
             volume = 0.0
             positions = instance.get_positions_snapshot()
@@ -1077,7 +1092,11 @@ class OrchestratorAsync:
             # MeanReversion : activée uniquement en range
             mr_signal = "HOLD"
             mr = self.mean_reversion.get(instance.id)
-            if self.hardening_flags["enable_mean_reversion"] and mr and trend == "range":
+            if (
+                self.hardening_flags["enable_mean_reversion"]
+                and module_policy.get("enable_mean_reversion", True)
+                and mr and trend == "range"
+            ):
                 mr.update(price)
                 mr_signal = "BUY" if mr.should_enter() else "HOLD"
             logger.info("MeanReversion signal: %s", mr_signal)
@@ -1109,7 +1128,11 @@ class OrchestratorAsync:
                     self._module_record_failure("sentiment")
 
             # On-chain feature (best effort)
-            if self.hardening_flags.get("enable_onchain", False) and self._module_can_run("onchain"):
+            if (
+                self.hardening_flags.get("enable_onchain", False)
+                and module_policy.get("enable_onchain", True)
+                and self._module_can_run("onchain")
+            ):
                 try:
                     self.onchain_data.update_metrics()
                     onchain_signal = self.onchain_data.get_signal()
@@ -1124,7 +1147,11 @@ class OrchestratorAsync:
             # ML prediction: XGBoost puis fallback Heuristic
             ml_confidence = 0.0
             ml_direction = "HOLD"
-            if self.hardening_flags["enable_ml"] and self._module_can_run("xgboost"):
+            if (
+                self.hardening_flags["enable_ml"]
+                and module_policy.get("enable_ml", True)
+                and self._module_can_run("xgboost")
+            ):
                 try:
                     features = self.xgboost.extract_features(price=price, volume=volume)
                     if features is not None:
@@ -1520,6 +1547,22 @@ class OrchestratorAsync:
             final_size = max(min(combined, max_size), min_size)
             risk_multiplier = self._compute_risk_multiplier(instance)
             final_size *= risk_multiplier
+            active_instances = [inst for inst in self._instances.values() if inst.is_running()]
+            exposures = self.risk_cluster_manager.exposure_by_cluster(active_instances)
+            total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances) or capital
+            cluster_mult = self.risk_cluster_manager.allowed_multiplier(
+                symbol=str(instance.config.symbol),
+                add_size=float(final_size),
+                total_capital=float(total_capital),
+                exposures=exposures,
+            )
+            final_size *= cluster_mult
+            if cluster_mult < 1.0:
+                self._record_module_event(
+                    "cluster_risk_cap",
+                    "warning",
+                    f"symbol={instance.config.symbol} cluster_mult={cluster_mult:.3f}",
+                )
             logger.info("Risk multiplier applied: %.2f", risk_multiplier)
             return float(final_size)
         except Exception as exc:
@@ -1966,6 +2009,10 @@ class OrchestratorAsync:
             "last_decision": dict(self._last_decision),
             "module_diagnostics": dict(self._module_diagnostics),
             "validation_guard": dict(self._last_validation_guard),
+            "regime_state": self.regime_controller.snapshot(),
+            "cluster_exposure": self.risk_cluster_manager.exposure_by_cluster(
+                [inst for inst in self._instances.values() if inst.is_running()]
+            ),
             "instances": [
                 {
                     "id": i.id,
