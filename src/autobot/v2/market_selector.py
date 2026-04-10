@@ -4,6 +4,7 @@ Décide quel marché utiliser pour une nouvelle instance
 """
 
 import logging
+import os
 import random
 import threading
 from typing import List, Optional, Dict, TYPE_CHECKING
@@ -63,6 +64,10 @@ class MarketSelector:
         self.min_quality_score = MarketQualityScore.ACCEPTABLE
         self.max_same_market_instances = 2  # Max 2 instances par symbole
         self.min_diversification = 3  # Min 3 marchés différents si possible
+        self.allow_forex_for_spinoff = os.getenv(
+            "ALLOW_FOREX_SPINOFF",
+            "false",
+        ).lower() in ("1", "true", "yes", "on")
         
     def select_market_for_spinoff(self, parent_instance_id: str) -> Optional[MarketSelection]:
         """
@@ -169,6 +174,13 @@ class MarketSelector:
         candidates = []
         
         for market in markets:
+            # P0: ne pas ouvrir de nouvelles instances FOREX par défaut
+            if (
+                market.market_type == MarketType.FOREX
+                and not self.allow_forex_for_spinoff
+            ):
+                continue
+
             # Vérifier si marché ouvert
             if not is_market_open(market.symbol):
                 continue

@@ -325,3 +325,40 @@ def get_risk_manager() -> RiskManager:
         if _risk_manager_instance is None:
             _risk_manager_instance = RiskManager()
         return _risk_manager_instance
+
+
+class OrchestratorRiskManager:
+    """Facade extracting orchestrator runtime risk methods without changing behavior."""
+
+    def __init__(self, orchestrator: object):
+        self._o = orchestrator
+
+    def calculate_position_size(self, instance, base_size_eur: float, current_volatility: float) -> float:
+        try:
+            return self._o._calculate_position_size(instance, base_size_eur, current_volatility)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
+
+    async def check_exit_conditions(self, instance) -> int:
+        try:
+            return await self._o._check_exit_conditions(instance)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
+
+    async def evaluate_add_position(self, instance) -> int:
+        try:
+            return await self._o._evaluate_add_position(instance)
+        except Exception as exc:
+            self._o._record_module_event("risk_manager", "error", str(exc))
+            raise
+
+    def compute_health_score(self) -> float:
+        return self._o._compute_health_score()
+
+    def compute_risk_multiplier(self, instance) -> float:
+        return self._o._compute_risk_multiplier(instance)
+
+    def can_emit_trade_action(self, instance_id: str) -> bool:
+        return self._o._can_emit_trade_action(instance_id)
