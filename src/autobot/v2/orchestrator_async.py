@@ -248,7 +248,6 @@ class OrchestratorAsync:
             "enable_rebalance": _env_bool("ENABLE_REBALANCE", True),
             "enable_auto_evolution": _env_bool("ENABLE_AUTO_EVOLUTION", True),
             "enable_validation_guard": _env_bool("ENABLE_VALIDATION_GUARD", True),
-            "enable_correlation_killswitch": _env_bool("ENABLE_CORRELATION_KILLSWITCH", True),
             "log_conflicts": _env_bool("ENABLE_CONFLICT_LOGGING", True),
         }
         self._module_diagnostics: Dict[str, Dict[str, Any]] = {}
@@ -265,7 +264,6 @@ class OrchestratorAsync:
                 "enable_rebalance",
                 "enable_auto_evolution",
                 "enable_validation_guard",
-                "enable_correlation_killswitch",
             ):
                 self.hardening_flags[flag] = True
         self._dependency_report: Dict[str, List[str]] = {"enabled": [], "disabled": []}
@@ -967,7 +965,7 @@ class OrchestratorAsync:
         dd = float(instance.get_drawdown())
         state = self._pair_risk_state.setdefault(
             symbol,
-            {"pf_ema": pf, "dd_ema": dd, "returns": [], "last_price": None, "corr_risk_peers": 0},
+            {"pf_ema": pf, "dd_ema": dd, "last_price": None},
         )
         alpha = 0.2
         state["pf_ema"] = (alpha * pf) + ((1 - alpha) * float(state["pf_ema"]))
@@ -976,26 +974,9 @@ class OrchestratorAsync:
         last_price = float(state.get("last_price") or 0.0)
         if price > 0 and last_price > 0:
             ret = (price - last_price) / last_price
-            if abs(ret) < 5.0:
-                returns = list(state.get("returns", []))
-                returns.append(float(ret))
-                state["returns"] = returns[-240:]
+            if abs(ret) >= 5.0:
+                logger.debug("return outlier skipped for %s", symbol)
         state["last_price"] = price if price > 0 else last_price
-        peers = 0
-        threshold = float(os.getenv("CORR_KILL_THRESHOLD", "0.85"))
-        min_returns = int(os.getenv("CORR_MIN_RETURNS", "30"))
-        my_returns = list(state.get("returns", []))
-        if len(my_returns) >= min_returns:
-            for other_symbol, other in self._pair_risk_state.items():
-                if other_symbol == symbol:
-                    continue
-                other_returns = list(other.get("returns", []))
-                if len(other_returns) < min_returns:
-                    continue
-                corr = abs(self._pearson_corr(my_returns, other_returns))
-                if corr >= threshold:
-                    peers += 1
-        state["corr_risk_peers"] = peers
 
     async def _check_global_health(self) -> None:
         if not self.ws_client.is_connected():
@@ -1107,27 +1088,11 @@ class OrchestratorAsync:
             self._record_module_event(
                 "validation_guard",
                 "warning",
-                f"blocked wf_pf={result.get('wf_oos_pf', 0.0):.3f} dsr={result.get('dsr', 0.0):.3f} pbo={result.get('pbo_proxy', 1.0):.3f}",
+                f"blocked wf_pf={result.get('wf_oos_pf', 0.0):.3f} dsr={result.get('dsr', 0.0):.3f}",
             )
             return False
         self._record_module_event("validation_guard", "ok")
         return True
-
-    @staticmethod
-    def _pearson_corr(x: List[float], y: List[float]) -> float:
-        n = min(len(x), len(y))
-        if n < 10:
-            return 0.0
-        xs = x[-n:]
-        ys = y[-n:]
-        mx = sum(xs) / n
-        my = sum(ys) / n
-        num = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
-        denx = sum((a - mx) ** 2 for a in xs) ** 0.5
-        deny = sum((b - my) ** 2 for b in ys) ** 0.5
-        if denx <= 1e-12 or deny <= 1e-12:
-            return 0.0
-        return float(num / (denx * deny))
 
     async def _evaluate_signal(self, instance: TradingInstanceAsync) -> bool:
         """
@@ -1313,17 +1278,6 @@ class OrchestratorAsync:
             if not self._passes_validation_guard(instance):
                 logger.warning("🧪 Validation guard blocked entry for %s", instance.id)
                 return False
-            if self.hardening_flags.get("enable_correlation_killswitch", True):
-                corr_state = self._pair_risk_state.get(str(instance.config.symbol), {})
-                if int(corr_state.get("corr_risk_peers", 0)) >= int(os.getenv("CORR_KILL_MAX_PEERS", "2")):
-                    self._record_module_event(
-                        "correlation_killswitch",
-                        "warning",
-                        f"blocked peers={int(corr_state.get('corr_risk_peers', 0))}",
-                    )
-                    logger.warning("🧯 Correlation kill-switch blocked entry for %s", instance.id)
-                    return False
-
             base_size = max(instance.get_current_capital() * 0.02, 1.0)
             sized = self._calculate_position_size(
                 instance=instance,
@@ -1677,17 +1631,6 @@ class OrchestratorAsync:
                 multiplier *= 1.05
             if pair_dd > 0.15:
                 multiplier *= 0.8
-            corr_peers = int(pair_state.get("corr_risk_peers", 0))
-            if self.hardening_flags.get("enable_correlation_killswitch", True) and corr_peers > 0:
-                corr_mult = float(os.getenv("CORR_KILL_MULTIPLIER", "0.5"))
-                step_mult = max(0.1, min(corr_mult, 1.0))
-                severity = min(corr_peers, 4)
-                multiplier *= step_mult ** severity
-                self._record_module_event(
-                    "correlation_killswitch",
-                    "warning",
-                    f"multiplied peers={corr_peers} multiplier={step_mult} severity={severity}",
-                )
             return min(max(multiplier, 0.25), 1.25)
         except Exception:
             return 1.0
