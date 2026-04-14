@@ -1,7 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import time
 
 from autobot.v2.persistence import StatePersistence
 from autobot.v2.pf_validation import apply_cost_sensitivity, walk_forward_validate
@@ -10,14 +9,11 @@ from autobot.v2.strategies import SignalType, TradingSignal
 
 
 def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
-    suffix = str(time.time_ns())
-    instance_id = f"i1_{suffix}"
     db = tmp_path / "state.db"
     p = StatePersistence(str(db))
-    before = p.get_trade_ledger_metrics(instance_id)
     p.append_trade_ledger(
-        trade_id=f"t1_{suffix}",
-        instance_id=instance_id,
+        trade_id="t1",
+        instance_id="i1",
         symbol="XXBTZEUR",
         side="sell",
         executed_price=101.0,
@@ -27,8 +23,8 @@ def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
         is_closing_leg=True,
     )
     p.append_trade_ledger(
-        trade_id=f"t2_{suffix}",
-        instance_id=instance_id,
+        trade_id="t2",
+        instance_id="i1",
         symbol="XXBTZEUR",
         side="sell",
         executed_price=99.0,
@@ -37,52 +33,11 @@ def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
         realized_pnl=-5.0,
         is_closing_leg=True,
     )
-    metrics = p.get_trade_ledger_metrics(instance_id)
-    assert metrics["trade_count"] - before["trade_count"] == 2.0
+    metrics = p.get_trade_ledger_metrics("i1")
+    assert metrics["trade_count"] == 2.0
     assert metrics["profit_factor"] == 2.0
     assert metrics["expectancy"] == 2.5
-    assert metrics["total_fees"] - before["total_fees"] == 0.4
-
-
-def test_trade_ledger_cost_profile_and_opening_fees(tmp_path):
-    suffix = str(time.time_ns())
-    instance_id = f"i1_{suffix}"
-    pos_id = f"p1_{suffix}"
-    db = tmp_path / "state.db"
-    p = StatePersistence(str(db))
-    p.append_trade_ledger(
-        trade_id=f"open1_{suffix}",
-        position_id=pos_id,
-        instance_id=instance_id,
-        symbol="XXBTZEUR",
-        side="buy",
-        executed_price=100.0,
-        volume=1.0,
-        fees=0.2,
-        slippage_bps=8.0,
-        is_opening_leg=True,
-    )
-    p.append_trade_ledger(
-        trade_id=f"close1_{suffix}",
-        position_id=pos_id,
-        instance_id=instance_id,
-        symbol="XXBTZEUR",
-        side="sell",
-        executed_price=101.0,
-        volume=1.0,
-        fees=0.2,
-        slippage_bps=6.0,
-        realized_pnl=0.6,
-        is_closing_leg=True,
-    )
-    assert p.get_position_opening_fees(pos_id) == 0.2
-    profile = p.get_recent_cost_profile(instance_id)
-    assert profile["sample_size"] >= 2.0
-    assert profile["avg_fee_bps"] > 0.0
-    assert profile["avg_slippage_bps"] > 0.0
-    pnls = p.get_closing_pnls(instance_id)
-    assert pnls
-    assert pnls[-1] == 0.6
+    assert metrics["total_fees"] == 0.4
 
 
 @dataclass

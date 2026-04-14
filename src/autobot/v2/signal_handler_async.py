@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 import hashlib
@@ -22,7 +21,6 @@ from .validator import ValidatorEngine, ValidationStatus, create_default_validat
 from .order_state_machine import PersistedOrderStateMachine
 from .kill_switch import KillSwitch
 from .reconciliation_strict import StrictReconciliation
-from .pf_validation import apply_cost_sensitivity, walk_forward_validate
 
 logger = logging.getLogger(__name__)
 
@@ -43,17 +41,6 @@ class SignalHandlerAsync:
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
         self._reconciler = StrictReconciliation()
-        self._atr_period = int(os.getenv("PF_ATR_PERIOD", "20"))
-        self._atr_sl_mult = float(os.getenv("PF_ATR_SL_MULT", "2.0"))
-        self._tp_rr = float(os.getenv("PF_TP_RR", "1.8"))
-        self._risk_per_trade_pct = float(os.getenv("PF_RISK_PER_TRADE_PCT", "1.0"))
-        self._max_position_capital_pct = float(os.getenv("PF_MAX_POSITION_CAPITAL_PCT", "12.0"))
-        self._min_edge_bps = float(os.getenv("PF_MIN_EDGE_BPS", "18"))
-        self._max_spread_bps = float(os.getenv("PF_MAX_SPREAD_BPS", "35"))
-        self._fallback_atr_pct = float(os.getenv("PF_FALLBACK_ATR_PCT", "0.006"))
-        self._wf_enabled = os.getenv("PF_WF_GATE_ENABLED", "true").lower() == "true"
-        self._wf_min_oos_pf = float(os.getenv("WF_MIN_OOS_PF", "1.05"))
-        self._wf_min_trades = int(os.getenv("WF_MIN_TRADES", "40"))
         self._setup_signal_callback()
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
@@ -136,9 +123,6 @@ class SignalHandlerAsync:
         if not self._passes_cost_guard(signal, atr_pct):
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
-        if not self._passes_pf_validation_gate():
-            logger.info("⛔ Signal BUY ignoré: gate PF OOS défavorable")
-            return
 
         symbol = self._convert_symbol(signal.symbol)
         decision_id = f"dec_{uuid.uuid4().hex}"
@@ -219,48 +203,24 @@ class SignalHandlerAsync:
             config_hash = hashlib.sha256(
                 str(vars(self.instance.config)).encode("utf-8")
             ).hexdigest()
-            persistence = getattr(self.instance, "_persistence", None)
-            if persistence:
-                persistence.append_audit_event(
-                    event_id=f"evt_{uuid.uuid4().hex}",
-                    event_type="ORDER_BUY_FILLED",
-                    decision_id=decision_id,
-                    signal_id=signal_id,
-                    client_order_id=rec.client_order_id,
-                    exchange_order_id=result.txid,
-                    instance_id=self.instance.id,
-                    config_hash=config_hash,
-                    risk_snapshot={
-                        "available_capital": available,
-                        "max_positions": getattr(self.instance.config, "max_positions", 10),
-                        "atr_pct": atr_pct,
-                        "risk_budget": risk_budget,
-                        "take_profit": take_profit,
-                        "trailing_activation": trailing_activation,
-                        "trailing_gap": trailing_gap,
-                    },
-                    fees=result.fees,
-                    slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
-                    order_from_status="SENT",
-                    order_to_status="FILLED",
-                    exchange_raw_normalized=result.raw_response or {},
-                )
-                persistence.append_trade_ledger(
-                    trade_id=f"leg_{uuid.uuid4().hex}",
-                    position_id=position.id,
-                    instance_id=self.instance.id,
-                    symbol=symbol,
-                    side="buy",
-                    expected_price=signal.price,
-                    executed_price=executed_price,
-                    volume=executed_volume,
-                    fees=float(result.fees or 0.0),
-                    slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
-                    exchange_order_id=result.txid,
-                    decision_id=decision_id,
-                    signal_id=signal_id,
-                    is_opening_leg=True,
-                )
+            self.instance._persistence.append_audit_event(
+                event_id=f"evt_{uuid.uuid4().hex}",
+                event_type="ORDER_BUY_FILLED",
+                decision_id=decision_id,
+                signal_id=signal_id,
+                client_order_id=rec.client_order_id,
+                exchange_order_id=result.txid,
+                instance_id=self.instance.id,
+                config_hash=config_hash,
+                risk_snapshot={
+                    "available_capital": available,
+                    "max_positions": getattr(self.instance.config, "max_positions", 10),
+                },
+                fees=result.fees,
+                order_from_status="SENT",
+                order_to_status="FILLED",
+                exchange_raw_normalized=result.raw_response or {},
+            )
             await self._post_trade_reconcile()
 
     async def _execute_sell(self, signal: TradingSignal) -> None:
@@ -287,38 +247,12 @@ class SignalHandlerAsync:
             symbol = self._convert_symbol(pos.get("symbol") or signal.symbol)
 
             sl_txid = pos.get("stop_loss_txid")
-            buy_price = float(pos.get("buy_price", signal.price))
             result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol)
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
                 if sl_txid:
                     await self.order_executor.cancel_order(sl_txid)
-                sell_fees = float(result.fees or 0.0)
-                persistence = getattr(self.instance, "_persistence", None)
-                buy_fees = 0.0
-                if persistence:
-                    buy_fees = float(persistence.get_position_opening_fees(pos_id))
-                if buy_fees <= 0.0:
-                    buy_fees = buy_price * vol * 0.0025
-                realized = ((price - buy_price) * vol) - buy_fees - sell_fees
-                if persistence:
-                    persistence.append_trade_ledger(
-                        trade_id=f"leg_{uuid.uuid4().hex}",
-                        position_id=pos_id,
-                        instance_id=self.instance.id,
-                        symbol=symbol,
-                        side="sell",
-                        expected_price=signal.price,
-                        executed_price=price,
-                        volume=vol,
-                        fees=sell_fees,
-                        slippage_bps=self._slippage_bps(signal.price, price, "sell"),
-                        realized_pnl=realized,
-                        exchange_order_id=result.txid,
-                        signal_id=f"sig_{uuid.uuid4().hex}",
-                        is_closing_leg=True,
-                    )
                 await self._post_trade_reconcile()
             else:
                 logger.error(f"❌ Échec vente: {result.error}")
@@ -336,20 +270,15 @@ class SignalHandlerAsync:
         divergences = self._reconciler.compare_balances(local_total, exchange_total)
         # Deeper parity: fees / realized / unrealized PnL aggregates
         tb = await self.order_executor.get_trade_balance("EUR")
-        fee_estimate = await self._estimate_exchange_fees_24h()
         exchange_metrics = {
             "realized_pnl": float(tb.get("n", 0.0) if isinstance(tb.get("n"), (int, float)) else 0.0),
             "unrealized_pnl": float(tb.get("u", 0.0) if isinstance(tb.get("u"), (int, float)) else 0.0),
-            "fees": fee_estimate,
+            "fees": float(tb.get("c", 0.0) if isinstance(tb.get("c"), (int, float)) else 0.0),
         }
-        persistence = getattr(self.instance, "_persistence", None)
-        persisted_fees = 0.0
-        if persistence:
-            persisted_fees = float(persistence.get_trade_ledger_metrics(self.instance.id).get("total_fees", 0.0))
         local_metrics = {
             "realized_pnl": float(self.instance.get_profit()),
-            "unrealized_pnl": float(self._compute_unrealized_pnl()),
-            "fees": persisted_fees,
+            "unrealized_pnl": 0.0,  # TODO: derive mark-to-market from open positions
+            "fees": 0.0,  # TODO: persist/aggregate actual exchange fees in dedicated table
         }
         divergences.extend(self._reconciler.compare_fills_fees_pnl(local_metrics, exchange_metrics))
         if self._reconciler.should_kill_switch(divergences):
@@ -403,9 +332,8 @@ class SignalHandlerAsync:
     def _compute_exit_levels(self, entry_price: float) -> tuple[float, float, float, float]:
         atr_pct = self._estimate_atr_pct(entry_price)
         sl_pct = max(0.004, atr_pct * self._atr_sl_mult)
-        min_tp_from_edge = max(self._dynamic_min_edge_bps(), self._min_edge_bps) / 10000.0
         stop_price = entry_price * (1.0 - sl_pct)
-        tp_pct = max(sl_pct * self._tp_rr, sl_pct * 1.2, min_tp_from_edge)
+        tp_pct = max(sl_pct * self._tp_rr, sl_pct * 1.2)
         take_profit = entry_price * (1.0 + tp_pct)
         trailing_activation = entry_price * (1.0 + sl_pct * 0.8)
         trailing_gap = sl_pct * 0.7
@@ -423,59 +351,10 @@ class SignalHandlerAsync:
             logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
             return False
         expected_move_bps = float(signal.metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
-        profile = self._recent_cost_profile()
-        empirical_fee_bps = profile.get("avg_fee_bps", 0.0)
-        empirical_slippage_bps = profile.get("avg_slippage_bps", 0.0)
-        fee_bps = float(signal.metadata.get("fee_bps", empirical_fee_bps if empirical_fee_bps > 0 else 40.0))
-        slippage_floor = max(6.0, spread_bps * 0.35)
-        slippage_bps = float(
-            signal.metadata.get(
-                "slippage_bps",
-                max(slippage_floor, empirical_slippage_bps if empirical_slippage_bps > 0 else 0.0),
-            )
-        )
+        fee_bps = float(signal.metadata.get("fee_bps", 40.0))
+        slippage_bps = float(signal.metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
         total_cost_bps = fee_bps + slippage_bps + spread_bps
-        return (expected_move_bps - total_cost_bps) >= self._dynamic_min_edge_bps()
-
-    def _recent_cost_profile(self) -> dict[str, float]:
-        persistence = getattr(self.instance, "_persistence", None)
-        if not persistence:
-            return {"avg_fee_bps": 0.0, "avg_slippage_bps": 0.0, "sample_size": 0.0}
-        try:
-            return persistence.get_recent_cost_profile(self.instance.id)
-        except Exception:
-            return {"avg_fee_bps": 0.0, "avg_slippage_bps": 0.0, "sample_size": 0.0}
-
-    def _dynamic_min_edge_bps(self) -> float:
-        profile = self._recent_cost_profile()
-        sample = int(profile.get("sample_size", 0))
-        if sample < 12:
-            return self._min_edge_bps
-        fee_bps = profile.get("avg_fee_bps", 0.0)
-        slip_bps = profile.get("avg_slippage_bps", 0.0)
-        return max(self._min_edge_bps, float(fee_bps + slip_bps + 8.0))
-
-    def _passes_pf_validation_gate(self) -> bool:
-        if not self._wf_enabled:
-            return True
-        persistence = getattr(self.instance, "_persistence", None)
-        if not persistence:
-            return True
-        pnls = persistence.get_closing_pnls(self.instance.id, limit=320)
-        if len(pnls) < self._wf_min_trades:
-            return True
-        penalty = max(0.0, self._dynamic_min_edge_bps() / 10000.0)
-        stressed = apply_cost_sensitivity(pnls, fee_slippage_penalty_per_trade=penalty)
-        slices = walk_forward_validate(
-            stressed,
-            train_size=80,
-            test_size=40,
-            step=40,
-            min_test_trades=20,
-        )
-        if not slices:
-            return True
-        return all(s.profit_factor >= self._wf_min_oos_pf and s.expectancy >= 0.0 for s in slices[-3:])
+        return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
 
     def _compute_unrealized_pnl(self) -> float:
         last_price = getattr(self.instance, "_last_price", None)

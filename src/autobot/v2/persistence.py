@@ -98,29 +98,6 @@ class StatePersistence:
                 )
             """)
 
-            # Canonical immutable trade ledger for PF/expectancy analytics
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS trade_ledger (
-                    trade_id TEXT PRIMARY KEY,
-                    position_id TEXT,
-                    instance_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    side TEXT NOT NULL,  -- 'buy' | 'sell'
-                    expected_price REAL,
-                    executed_price REAL NOT NULL,
-                    volume REAL NOT NULL,
-                    fees REAL NOT NULL DEFAULT 0,
-                    slippage_bps REAL,
-                    realized_pnl REAL,
-                    is_opening_leg INTEGER NOT NULL DEFAULT 0,
-                    is_closing_leg INTEGER NOT NULL DEFAULT 0,
-                    exchange_order_id TEXT,
-                    decision_id TEXT,
-                    signal_id TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
-
             # Persisted order lifecycle state machine
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
@@ -219,10 +196,6 @@ class StatePersistence:
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_instance ON trade_ledger(instance_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_symbol ON trade_ledger(symbol)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_created_at ON trade_ledger(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_close_leg ON trade_ledger(is_closing_leg)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
@@ -715,90 +688,6 @@ class StatePersistence:
                 "total_fees": 0.0,
                 "net_pnl": 0.0,
             }
-
-    def get_position_opening_fees(self, position_id: str) -> float:
-        """Sum persisted opening-leg fees for a position."""
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                row = conn.execute(
-                    """
-                    SELECT COALESCE(SUM(fees), 0.0)
-                    FROM trade_ledger
-                    WHERE position_id = ? AND is_opening_leg = 1
-                    """,
-                    (position_id,),
-                ).fetchone()
-            return float(row[0] or 0.0) if row else 0.0
-        except Exception as e:
-            logger.exception(f"❌ Erreur get_position_opening_fees {position_id}: {e}")
-            return 0.0
-
-    def get_recent_cost_profile(self, instance_id: str, limit: int = 120) -> Dict[str, float]:
-        """
-        Estimate recent execution costs from persisted legs.
-        Returns avg_fee_bps / avg_slippage_bps and sample size.
-        """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    """
-                    SELECT executed_price, volume, fees, slippage_bps
-                    FROM trade_ledger
-                    WHERE instance_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (instance_id, max(1, int(limit))),
-                ).fetchall()
-            if not rows:
-                return {"avg_fee_bps": 0.0, "avg_slippage_bps": 0.0, "sample_size": 0.0}
-            fee_bps_vals: List[float] = []
-            slip_vals: List[float] = []
-            for r in rows:
-                px = float(r["executed_price"] or 0.0)
-                vol = float(r["volume"] or 0.0)
-                fees = float(r["fees"] or 0.0)
-                if px > 0 and vol > 0:
-                    fee_bps_vals.append((fees / (px * vol)) * 10000.0)
-                slip = r["slippage_bps"]
-                if slip is not None:
-                    slip_vals.append(abs(float(slip)))
-            n = max(len(fee_bps_vals), len(slip_vals), 0)
-            avg_fee = sum(fee_bps_vals) / len(fee_bps_vals) if fee_bps_vals else 0.0
-            avg_slip = sum(slip_vals) / len(slip_vals) if slip_vals else 0.0
-            return {
-                "avg_fee_bps": float(avg_fee),
-                "avg_slippage_bps": float(avg_slip),
-                "sample_size": float(n),
-            }
-        except Exception as e:
-            logger.exception(f"❌ Erreur get_recent_cost_profile {instance_id}: {e}")
-            return {"avg_fee_bps": 0.0, "avg_slippage_bps": 0.0, "sample_size": 0.0}
-
-    def get_closing_pnls(self, instance_id: str, limit: int = 240) -> List[float]:
-        """Return most recent realized PnL sequence from closing legs (oldest->newest)."""
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                rows = conn.execute(
-                    """
-                    SELECT realized_pnl
-                    FROM trade_ledger
-                    WHERE instance_id = ? AND is_closing_leg = 1 AND realized_pnl IS NOT NULL
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (instance_id, max(1, int(limit))),
-                ).fetchall()
-            vals = [float(r[0]) for r in rows if r[0] is not None]
-            vals.reverse()
-            return vals
-        except Exception as e:
-            logger.exception(f"❌ Erreur get_closing_pnls {instance_id}: {e}")
-            return []
     
     def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
         """

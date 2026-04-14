@@ -60,10 +60,6 @@ class KillSwitch:
     def is_globally_tripped(self) -> bool:
         return self._global_store.get().tripped
 
-    def get_global_state(self):
-        """Expose persisted global kill-switch state for startup checks."""
-        return self._global_store.get()
-
     async def record_api_failure(self, error_message: str) -> None:
         if self._tripped:
             return

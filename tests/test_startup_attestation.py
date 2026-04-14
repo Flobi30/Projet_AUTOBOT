@@ -1,7 +1,6 @@
 import asyncio
 
 from autobot.v2.kill_switch import KillSwitch
-from autobot.v2.global_kill_switch import GlobalKillSwitchStore
 from autobot.v2.nonce_manager import NonceManager
 from autobot.v2.startup_attestation import StartupAttestation
 
@@ -48,15 +47,11 @@ def _patch_network_checks(monkeypatch, gate, exchange=True, clock=True, recon=Tr
     monkeypatch.setattr(gate, "_check_orders_endpoint", lambda: _v(orders))
 
 
-def _kill_switch(tmp_path):
-    return KillSwitch(global_store=GlobalKillSwitchStore(str(tmp_path / "gks.db")))
-
-
 def test_startup_blocked_invalid_app_env(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
         monkeypatch.setenv("APP_ENV", "prodx")
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate)
         res = await gate.run()
         assert res.ok is False
@@ -68,7 +63,7 @@ def test_startup_blocked_live_confirmation_missing(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
         monkeypatch.setenv("LIVE_TRADING_CONFIRMATION", "false")
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate)
         res = await gate.run()
         assert res.ok is False
@@ -80,7 +75,7 @@ def test_startup_blocked_auth_token_missing(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
         monkeypatch.delenv("DASHBOARD_API_TOKEN", raising=False)
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate)
         res = await gate.run()
         assert res.ok is False
@@ -91,7 +86,7 @@ def test_startup_blocked_auth_token_missing(monkeypatch, tmp_path):
 def test_startup_blocked_clock_drift(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate, clock=False)
         res = await gate.run()
         assert res.ok is False
@@ -102,7 +97,7 @@ def test_startup_blocked_clock_drift(monkeypatch, tmp_path):
 def test_startup_blocked_exchange_health_check(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate, exchange=False)
         res = await gate.run()
         assert res.ok is False
@@ -113,7 +108,7 @@ def test_startup_blocked_exchange_health_check(monkeypatch, tmp_path):
 def test_startup_blocked_reconciliation_baseline(monkeypatch, tmp_path):
     async def _run():
         _base_env(monkeypatch)
-        gate = StartupAttestation(DummyExecutor(tmp_path), _kill_switch(tmp_path))
+        gate = StartupAttestation(DummyExecutor(tmp_path), KillSwitch())
         _patch_network_checks(monkeypatch, gate, recon=False)
         res = await gate.run()
         assert res.ok is False

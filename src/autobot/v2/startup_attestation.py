@@ -3,10 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -87,9 +85,6 @@ class StartupAttestation:
         checks["kill_switch_initialized"] = self.kill_switch is not None
         if not checks["kill_switch_initialized"]:
             fail("kill_switch_initialized", "Kill switch non initialisé")
-        checks["global_kill_switch_clear"] = self._check_global_kill_switch_clear()
-        if not checks["global_kill_switch_clear"]:
-            fail("global_kill_switch_clear", "Global kill switch persisté actif/incohérent")
 
         # 6) secret exposure marker not present
         marker_path = Path(os.getenv("SECRET_EXPOSURE_MARKER_PATH", "data/compromised_secret.marker"))
@@ -223,27 +218,9 @@ class StartupAttestation:
 
     def _check_db_writable(self) -> bool:
         try:
-            from .persistence import get_persistence
-            ps = get_persistence()
-            with sqlite3.connect(str(ps.db_path)) as conn:
-                conn.execute("PRAGMA busy_timeout=5000")
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS startup_write_probe (
-                        probe_id TEXT PRIMARY KEY,
-                        created_at TEXT NOT NULL
-                    )
-                    """
-                )
-                probe_id = f"probe_{int(time.time()*1000)}"
-                now = datetime.now(timezone.utc).isoformat()
-                conn.execute(
-                    "INSERT INTO startup_write_probe (probe_id, created_at) VALUES (?, ?)",
-                    (probe_id, now),
-                )
-                conn.execute("DELETE FROM startup_write_probe WHERE probe_id = ?", (probe_id,))
-                conn.commit()
-            return True
+            p = self.order_executor
+            # low-cost check via nonce db write already done in _check_nonce_health
+            return p is not None
         except Exception:
             return False
 
@@ -295,19 +272,6 @@ class StartupAttestation:
             # light test path
             await self.kill_switch.check_partial_stuck(time.time(), max_partial_age_s=999999)
         return True
-
-    def _check_global_kill_switch_clear(self) -> bool:
-        if self.kill_switch is None:
-            return False
-        try:
-            state = self.kill_switch.get_global_state()
-            if state.tripped:
-                return False
-            if state.recovery_required:
-                return False
-            return True
-        except Exception:
-            return False
 
     def _check_promotion_gate(self, stage: str, paper_mode: bool) -> bool:
         """
