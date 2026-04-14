@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
+pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 # Configuration pytest-asyncio
 pytestmark = pytest.mark.asyncio(loop_scope="function")

@@ -25,6 +25,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
 import aiohttp
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
+from .nonce_manager import NonceManager
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class OrderExecutorAsync:
         self,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
+        nonce_manager: Optional[NonceManager] = None,
     ) -> None:
         # SEC-03: clés privées, fallback sur variables d'env
         import os as _os
@@ -70,8 +72,8 @@ class OrderExecutorAsync:
         self._lock = asyncio.Lock()
         self._session: Optional[aiohttp.ClientSession] = None
 
-        # SEC-03: monotone nonce counter (thread-safe via self._lock)
-        self._nonce_counter: int = 0
+        # Centralized nonce manager (cross-worker/process monotonicity)
+        self._nonce_manager: NonceManager = nonce_manager or NonceManager()
 
         # Rate limiting
         self._last_call_time: float = 0
@@ -80,6 +82,8 @@ class OrderExecutorAsync:
         # Circuit breaker
         self._consecutive_errors: int = 0
         self._max_consecutive_errors: int = 10
+        self._invalid_nonce_errors: int = 0
+        self._max_invalid_nonce_errors: int = 3
         self._circuit_breaker_callback: Optional[
             Callable[[], Coroutine[Any, Any, None]]
         ] = None
@@ -122,12 +126,10 @@ class OrderExecutorAsync:
         urlpath = f"/0/private/{method}"
         url = f"{self.KRAKEN_API_URL}{urlpath}"
 
-        # SEC-03: monotone nonce — always > previous nonce even if clock goes back
-        time_ms = int(time.time() * 1000)
-        async with self._lock:
-            self._nonce_counter = max(self._nonce_counter + 1, time_ms)
-            nonce = self._nonce_counter
-        params["nonce"] = str(nonce)
+        # Centralized monotonic nonce generation per API key fingerprint
+        api_key_id = hashlib.sha256((self._api_key or "none").encode("utf-8")).hexdigest()[:16]
+        nonce = self._nonce_manager.next_nonce(api_key_id)
+        params["nonce"] = str(int(nonce))
         sig = _kraken_signature(urlpath, params, self._api_secret)
 
         headers = {
@@ -225,6 +227,13 @@ class OrderExecutorAsync:
                         continue
 
                     logger.error(f"❌ Erreur API Kraken: {error_msg}")
+                    if "invalid nonce" in error_msg.lower():
+                        self._invalid_nonce_errors += 1
+                        if self._invalid_nonce_errors >= self._max_invalid_nonce_errors:
+                            await self._increment_error_count()
+                            if self._circuit_breaker_callback:
+                                await self._circuit_breaker_callback()
+                            return False, response
                     if attempt < max_retries - 1:
                         await asyncio.sleep(2 ** attempt)
                         continue
@@ -232,6 +241,7 @@ class OrderExecutorAsync:
                     return False, response
 
                 self._reset_error_count()
+                self._invalid_nonce_errors = 0
                 return True, response
 
             except Exception as exc:
@@ -477,6 +487,12 @@ class OrderExecutorAsync:
                 if i.get("descr", {}).get("pair", "").replace("/", "") == sym_clean
             }
         return closed
+
+    async def get_open_orders(self) -> Dict[str, dict]:
+        success, response = await self._safe_api_call("OpenOrders")
+        if not success or "result" not in response or "open" not in response["result"]:
+            return {}
+        return response["result"]["open"]
 
     async def get_balance(self) -> Dict[str, float]:
         success, response = await self._safe_api_call("Balance")

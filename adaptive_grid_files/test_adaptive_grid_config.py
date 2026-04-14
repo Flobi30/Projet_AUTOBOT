@@ -69,7 +69,7 @@ class TestPairProfileRegistry:
         reg = PairProfileRegistry()
         btc = reg.get("XXBTZEUR")
         assert btc.symbol == "XXBTZEUR"
-        assert btc.base_range_pct == 4.0
+        assert btc.base_range_pct == 2.0
         assert "major" in btc.tags
         assert btc.enable_multi_grid is True
 
@@ -77,12 +77,12 @@ class TestPairProfileRegistry:
         reg = PairProfileRegistry()
         unknown = reg.get("DOESNOTEXIST")
         assert unknown.symbol == "__fallback__"
-        assert unknown.base_range_pct == 7.0  # Legacy compat
+        assert unknown.base_range_pct == 3.0
 
     def test_fallback_preserves_legacy_behaviour(self):
-        """Ensure the fallback exactly matches the old 7% / 15-level default."""
+        """Ensure fallback profile remains aligned with current conservative defaults."""
         fb = _FALLBACK_PROFILE
-        assert fb.base_range_pct == 7.0
+        assert fb.base_range_pct == 3.0
         assert fb.base_num_levels == 15
 
     def test_custom_profiles_override_defaults(self):

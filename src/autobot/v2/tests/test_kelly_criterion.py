@@ -28,6 +28,7 @@ from modules.kelly_criterion import KellyCriterion
 
 class TestRunner:
     """Mini framework de tests intégré."""
+    __test__ = False
 
     def __init__(self):
         self.passed = 0

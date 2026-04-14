@@ -39,12 +39,6 @@ sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
 from autobot.v2.instance_queue import InstanceQueue, DEFAULT_QUEUE_SIZE
 
-# ---------------------------------------------------------------------------
-# pytestmark
-# ---------------------------------------------------------------------------
-pytestmark = pytest.mark.asyncio(loop_scope="function")
-
-
 # ===========================================================================
 # Construction
 # ===========================================================================

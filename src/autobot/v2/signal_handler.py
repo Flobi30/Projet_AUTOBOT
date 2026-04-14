@@ -128,116 +128,115 @@ class SignalHandler:
             logger.warning(f"WAL: ordre {order_key} deja en cours -- ignore (anti-double achat)")
             return
         self._wal_add(order_key)
+        try:
+            # CORRECTION: Validation via ValidatorEngine (était contournée !)
+            available = self.instance.get_available_capital()
+            open_pos_count = len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open'])
+            order_value = signal.volume * signal.price if signal.volume > 0 else 0.0
+            context = {
+                # CQ-04: clés alignées sur open_position_validator
+                'balance': available,
+                'order_value': order_value,
+                'open_positions': open_pos_count,
+                'max_positions': getattr(self.instance.config, 'max_positions', 10),
+                'price': signal.price,
+                # Extra context (non utilisé par le validateur mais utile pour le log)
+                'instance_status': self.instance.status.value,
+            }
+            
+            validation = self.validator.validate('open_position', context)
+            if validation.status == ValidationStatus.RED:
+                logger.error(f"❌ Signal BUY rejeté par validateur: {validation.message}")
+                return
+            elif validation.status == ValidationStatus.YELLOW:
+                logger.warning(f"⚠️ Signal BUY avec avertissement: {validation.message}")
+        
+            # Vérification OrderExecutor
+            if self.order_executor is None:
+                logger.error("❌ OrderExecutor non configuré - impossible de passer ordre réel")
+                return
 
-        # CORRECTION: Validation via ValidatorEngine (était contournée !)
-        available = self.instance.get_available_capital()
-        open_pos_count = len([p for p in self.instance.get_positions_snapshot() if p.get('status') == 'open'])
-        order_value = signal.volume * signal.price if signal.volume > 0 else 0.0
-        context = {
-            # CQ-04: clés alignées sur open_position_validator
-            'balance': available,
-            'order_value': order_value,
-            'open_positions': open_pos_count,
-            'max_positions': getattr(self.instance.config, 'max_positions', 10),
-            'price': signal.price,
-            # Extra context (non utilisé par le validateur mais utile pour le log)
-            'instance_status': self.instance.status.value,
-        }
-        
-        validation = self.validator.validate('open_position', context)
-        if validation.status == ValidationStatus.RED:
-            logger.error(f"❌ Signal BUY rejeté par validateur: {validation.message}")
-            return
-        elif validation.status == ValidationStatus.YELLOW:
-            logger.warning(f"⚠️ Signal BUY avec avertissement: {validation.message}")
-        
-        # Vérification OrderExecutor
-        if self.order_executor is None:
-            logger.error("❌ OrderExecutor non configuré - impossible de passer ordre réel")
-            self._wal_remove(order_key)
-            return
+            # Calcul volume
+            if signal.volume > 0:
+                volume = signal.volume
+            else:
+                volume = (available * 0.10) / signal.price
+            
+            volume = round(volume, 6)
 
-        # Calcul volume
-        if signal.volume > 0:
-            volume = signal.volume
-        else:
-            volume = (available * 0.10) / signal.price
-        
-        volume = round(volume, 6)
+            if volume <= 0:
+                logger.error(f"❌ Volume calculé invalide: {volume}")
+                return
+            
+            # CORRECTION: Exécution RÉELLE sur Kraken
+            symbol = self._convert_symbol(signal.symbol)  # ex: BTC/EUR → XXBTZEUR
+            
+            logger.info(f"   Envoi ordre MARKET BUY {volume:.6f} {symbol}...")
+            
+            result = self.order_executor.execute_market_order(
+                symbol=symbol,
+                side=OrderSide.BUY,
+                volume=volume
+            )
+            
+            if not result.success:
+                logger.error(f"❌ Échec ordre Kraken: {result.error}")
+                return
+            
+            # Récupération prix d'exécution RÉEL
+            executed_price = result.executed_price or signal.price
+            executed_volume = result.executed_volume or volume
+            fees = result.fees or 0.0
+            
+            logger.info(f"✅ Ordre exécuté sur Kraken: {executed_volume:.6f} @ {executed_price:.2f}€ (frais: {fees:.4f}€)")
+            
+            # CORRECTION: Poser stop-loss RÉEL sur Kraken AVANT création position
+            stop_price = executed_price * 0.95  # -5%
+            sl_result = self.order_executor.execute_stop_loss_order(
+                symbol=symbol,
+                side=OrderSide.SELL,
+                volume=executed_volume,
+                stop_price=stop_price
+            )
+            
+            stop_loss_txid = None
+            if sl_result.success:
+                stop_loss_txid = sl_result.txid
+                logger.info(f"🛡️ Stop-loss posé sur Kraken @ {stop_price:.2f}€ (txid: {stop_loss_txid[:8]}...)")
+            else:
+                logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
+                # Continue quand même - la position sera sans protection
 
-        if volume <= 0:
-            logger.error(f"❌ Volume calculé invalide: {volume}")
-            self._wal_remove(order_key)
-            return
-        
-        # CORRECTION: Exécution RÉELLE sur Kraken
-        symbol = self._convert_symbol(signal.symbol)  # ex: BTC/EUR → XXBTZEUR
-        
-        logger.info(f"   Envoi ordre MARKET BUY {volume:.6f} {symbol}...")
-        
-        result = self.order_executor.execute_market_order(
-            symbol=symbol,
-            side=OrderSide.BUY,
-            volume=volume
-        )
-        
-        if not result.success:
-            logger.error(f"❌ Échec ordre Kraken: {result.error}")
-            self._wal_remove(order_key)
-            return
-        
-        # Récupération prix d'exécution RÉEL
-        executed_price = result.executed_price or signal.price
-        executed_volume = result.executed_volume or volume
-        fees = result.fees or 0.0
-        
-        logger.info(f"✅ Ordre exécuté sur Kraken: {executed_volume:.6f} @ {executed_price:.2f}€ (frais: {fees:.4f}€)")
-        
-        # CORRECTION: Poser stop-loss RÉEL sur Kraken AVANT création position
-        stop_price = executed_price * 0.95  # -5%
-        sl_result = self.order_executor.execute_stop_loss_order(
-            symbol=symbol,
-            side=OrderSide.SELL,
-            volume=executed_volume,
-            stop_price=stop_price
-        )
-        
-        stop_loss_txid = None
-        if sl_result.success:
-            stop_loss_txid = sl_result.txid
-            logger.info(f"🛡️ Stop-loss posé sur Kraken @ {stop_price:.2f}€ (txid: {stop_loss_txid[:8]}...)")
-        else:
-            logger.error(f"❌ Échec stop-loss Kraken: {sl_result.error}")
-            # Continue quand même - la position sera sans protection
+            # CORRECTION: Créer position avec prix d'exécution réel ET txids
+            position = self.instance.open_position(
+                price=executed_price,
+                volume=executed_volume,
+                stop_loss=stop_price,
+                stop_loss_txid=stop_loss_txid,
+                buy_txid=result.txid  # CORRECTION Phase 3: TXID de l'achat
+            )
 
-        # CORRECTION: Créer position avec prix d'exécution réel ET txids
-        position = self.instance.open_position(
-            price=executed_price,
-            volume=executed_volume,
-            stop_loss=stop_price,
-            stop_loss_txid=stop_loss_txid,
-            buy_txid=result.txid  # CORRECTION Phase 3: TXID de l'achat
-        )
-
-        # CORRECTION CRITIQUE: Enregistre le stop-loss dans StopLossManager pour surveillance
-        if position and stop_loss_txid:
-            sl_manager = get_stop_loss_manager()
-            sl_manager.register_stop_loss(stop_loss_txid, position.id)
-            logger.info(f"🛡️ Stop-loss enregistré pour surveillance: {position.id}")
-
-        if position:
-            logger.info(f"✅ Position créée: {position.id}")
-        else:
-            logger.error(f"❌ Échec création position locale")
-            # ROB-02: cancel orphaned stop-loss when position creation fails
-            if stop_loss_txid:
-                logger.warning(f"Annulation stop-loss orphelin: {stop_loss_txid[:8]}...")
-                self.order_executor.cancel_order(stop_loss_txid)
+            # CORRECTION CRITIQUE: Enregistre le stop-loss dans StopLossManager pour surveillance
+            if position and stop_loss_txid:
                 sl_manager = get_stop_loss_manager()
-                sl_manager.unregister_stop_loss(stop_loss_txid)
+                sl_manager.register_stop_loss(stop_loss_txid, position.id)
+                logger.info(f"🛡️ Stop-loss enregistré pour surveillance: {position.id}")
+
+            if position:
+                logger.info(f"✅ Position créée: {position.id}")
+            else:
+                logger.error(f"❌ Échec création position locale")
+                # ROB-02: cancel orphaned stop-loss when position creation fails
+                if stop_loss_txid:
+                    logger.warning(f"Annulation stop-loss orphelin: {stop_loss_txid[:8]}...")
+                    self.order_executor.cancel_order(stop_loss_txid)
+                    sl_manager = get_stop_loss_manager()
+                    sl_manager.unregister_stop_loss(stop_loss_txid)
 
         # ROB-01: order is complete (success or failure) — remove from WAL
-        self._wal_remove(order_key)
+        finally:
+            # GARANTIE: clé WAL toujours nettoyée, même sur validation RED/exception
+            self._wal_remove(order_key)
     
     def _execute_sell(self, signal: TradingSignal):
         """
