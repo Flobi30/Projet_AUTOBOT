@@ -98,29 +98,6 @@ class StatePersistence:
                 )
             """)
 
-            # Canonical immutable trade ledger for PF/expectancy analytics
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS trade_ledger (
-                    trade_id TEXT PRIMARY KEY,
-                    position_id TEXT,
-                    instance_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    side TEXT NOT NULL,  -- 'buy' | 'sell'
-                    expected_price REAL,
-                    executed_price REAL NOT NULL,
-                    volume REAL NOT NULL,
-                    fees REAL NOT NULL DEFAULT 0,
-                    slippage_bps REAL,
-                    realized_pnl REAL,
-                    is_opening_leg INTEGER NOT NULL DEFAULT 0,
-                    is_closing_leg INTEGER NOT NULL DEFAULT 0,
-                    exchange_order_id TEXT,
-                    decision_id TEXT,
-                    signal_id TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
-
             # Persisted order lifecycle state machine
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
@@ -219,10 +196,6 @@ class StatePersistence:
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_instance ON trade_ledger(instance_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_symbol ON trade_ledger(symbol)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_created_at ON trade_ledger(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_close_leg ON trade_ledger(is_closing_leg)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             

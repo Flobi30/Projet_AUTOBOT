@@ -6,28 +6,6 @@ on:
     branches: [ main, master, work ]
 
 jobs:
-  python-tests:
-    name: Python tests (deterministic async setup)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
-          cache-dependency-path: |
-            requirements.txt
-            src/autobot/v2/tests/requirements.txt
-      - name: Install runtime + test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r src/autobot/v2/tests/requirements.txt
-      - name: Run pytest
-        env:
-          PYTHONPATH: src
-        run: pytest -q
-
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

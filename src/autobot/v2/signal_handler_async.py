@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 import hashlib
@@ -42,14 +41,6 @@ class SignalHandlerAsync:
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
         self._reconciler = StrictReconciliation()
-        self._atr_period = int(os.getenv("PF_ATR_PERIOD", "20"))
-        self._atr_sl_mult = float(os.getenv("PF_ATR_SL_MULT", "2.0"))
-        self._tp_rr = float(os.getenv("PF_TP_RR", "1.8"))
-        self._risk_per_trade_pct = float(os.getenv("PF_RISK_PER_TRADE_PCT", "1.0"))
-        self._max_position_capital_pct = float(os.getenv("PF_MAX_POSITION_CAPITAL_PCT", "12.0"))
-        self._min_edge_bps = float(os.getenv("PF_MIN_EDGE_BPS", "18"))
-        self._max_spread_bps = float(os.getenv("PF_MAX_SPREAD_BPS", "35"))
-        self._fallback_atr_pct = float(os.getenv("PF_FALLBACK_ATR_PCT", "0.006"))
         self._setup_signal_callback()
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
@@ -212,48 +203,24 @@ class SignalHandlerAsync:
             config_hash = hashlib.sha256(
                 str(vars(self.instance.config)).encode("utf-8")
             ).hexdigest()
-            persistence = getattr(self.instance, "_persistence", None)
-            if persistence:
-                persistence.append_audit_event(
-                    event_id=f"evt_{uuid.uuid4().hex}",
-                    event_type="ORDER_BUY_FILLED",
-                    decision_id=decision_id,
-                    signal_id=signal_id,
-                    client_order_id=rec.client_order_id,
-                    exchange_order_id=result.txid,
-                    instance_id=self.instance.id,
-                    config_hash=config_hash,
-                    risk_snapshot={
-                        "available_capital": available,
-                        "max_positions": getattr(self.instance.config, "max_positions", 10),
-                        "atr_pct": atr_pct,
-                        "risk_budget": risk_budget,
-                        "take_profit": take_profit,
-                        "trailing_activation": trailing_activation,
-                        "trailing_gap": trailing_gap,
-                    },
-                    fees=result.fees,
-                    slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
-                    order_from_status="SENT",
-                    order_to_status="FILLED",
-                    exchange_raw_normalized=result.raw_response or {},
-                )
-                persistence.append_trade_ledger(
-                    trade_id=f"leg_{uuid.uuid4().hex}",
-                    position_id=position.id,
-                    instance_id=self.instance.id,
-                    symbol=symbol,
-                    side="buy",
-                    expected_price=signal.price,
-                    executed_price=executed_price,
-                    volume=executed_volume,
-                    fees=float(result.fees or 0.0),
-                    slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
-                    exchange_order_id=result.txid,
-                    decision_id=decision_id,
-                    signal_id=signal_id,
-                    is_opening_leg=True,
-                )
+            self.instance._persistence.append_audit_event(
+                event_id=f"evt_{uuid.uuid4().hex}",
+                event_type="ORDER_BUY_FILLED",
+                decision_id=decision_id,
+                signal_id=signal_id,
+                client_order_id=rec.client_order_id,
+                exchange_order_id=result.txid,
+                instance_id=self.instance.id,
+                config_hash=config_hash,
+                risk_snapshot={
+                    "available_capital": available,
+                    "max_positions": getattr(self.instance.config, "max_positions", 10),
+                },
+                fees=result.fees,
+                order_from_status="SENT",
+                order_to_status="FILLED",
+                exchange_raw_normalized=result.raw_response or {},
+            )
             await self._post_trade_reconcile()
 
     async def _execute_sell(self, signal: TradingSignal) -> None:
@@ -280,34 +247,12 @@ class SignalHandlerAsync:
             symbol = self._convert_symbol(pos.get("symbol") or signal.symbol)
 
             sl_txid = pos.get("stop_loss_txid")
-            buy_price = float(pos.get("buy_price", signal.price))
             result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol)
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
                 if sl_txid:
                     await self.order_executor.cancel_order(sl_txid)
-                sell_fees = float(result.fees or 0.0)
-                buy_fees_est = buy_price * vol * 0.0025
-                realized = ((price - buy_price) * vol) - buy_fees_est - sell_fees
-                persistence = getattr(self.instance, "_persistence", None)
-                if persistence:
-                    persistence.append_trade_ledger(
-                        trade_id=f"leg_{uuid.uuid4().hex}",
-                        position_id=pos_id,
-                        instance_id=self.instance.id,
-                        symbol=symbol,
-                        side="sell",
-                        expected_price=signal.price,
-                        executed_price=price,
-                        volume=vol,
-                        fees=sell_fees,
-                        slippage_bps=self._slippage_bps(signal.price, price, "sell"),
-                        realized_pnl=realized,
-                        exchange_order_id=result.txid,
-                        signal_id=f"sig_{uuid.uuid4().hex}",
-                        is_closing_leg=True,
-                    )
                 await self._post_trade_reconcile()
             else:
                 logger.error(f"❌ Échec vente: {result.error}")
@@ -325,20 +270,15 @@ class SignalHandlerAsync:
         divergences = self._reconciler.compare_balances(local_total, exchange_total)
         # Deeper parity: fees / realized / unrealized PnL aggregates
         tb = await self.order_executor.get_trade_balance("EUR")
-        fee_estimate = await self._estimate_exchange_fees_24h()
         exchange_metrics = {
             "realized_pnl": float(tb.get("n", 0.0) if isinstance(tb.get("n"), (int, float)) else 0.0),
             "unrealized_pnl": float(tb.get("u", 0.0) if isinstance(tb.get("u"), (int, float)) else 0.0),
-            "fees": fee_estimate,
+            "fees": float(tb.get("c", 0.0) if isinstance(tb.get("c"), (int, float)) else 0.0),
         }
-        persistence = getattr(self.instance, "_persistence", None)
-        persisted_fees = 0.0
-        if persistence:
-            persisted_fees = float(persistence.get_trade_ledger_metrics(self.instance.id).get("total_fees", 0.0))
         local_metrics = {
             "realized_pnl": float(self.instance.get_profit()),
-            "unrealized_pnl": float(self._compute_unrealized_pnl()),
-            "fees": persisted_fees,
+            "unrealized_pnl": 0.0,  # TODO: derive mark-to-market from open positions
+            "fees": 0.0,  # TODO: persist/aggregate actual exchange fees in dedicated table
         }
         divergences.extend(self._reconciler.compare_fills_fees_pnl(local_metrics, exchange_metrics))
         if self._reconciler.should_kill_switch(divergences):
