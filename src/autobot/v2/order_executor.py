@@ -13,6 +13,11 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+try:
+    import krakenex  # type: ignore
+except Exception:  # pragma: no cover - optional in some test environments
+    krakenex = None
+
 
 class OrderSide(Enum):
     BUY = "buy"
@@ -35,6 +40,10 @@ class OrderResult:
     fees: float = 0.0
     error: Optional[str] = None
     raw_response: Optional[Dict] = None
+
+    @property
+    def total_cost(self) -> float:
+        return (self.executed_price * self.executed_volume) + self.fees
 
 
 @dataclass
@@ -128,9 +137,10 @@ class OrderExecutor:
     def _get_client(self):
         """Retourne client Krakenex (lazy init)"""
         if self._client is None:
-            import krakenex
             if not self.api_key or not self.api_secret:
                 raise ValueError("Clés API Kraken non configurées")
+            if krakenex is None:
+                raise RuntimeError("krakenex n'est pas disponible")
             self._client = krakenex.API(key=self.api_key, secret=self.api_secret)
             self._client.session.timeout = 30
         return self._client
@@ -367,7 +377,7 @@ class OrderExecutor:
             if status == 'closed':
                 volume = float(order_info.get('vol', 0))
                 volume_exec = float(order_info.get('vol_exec', 0))
-                avg_price = float(order_info.get('price', 0)) or float(order_info.get('avg_price', 0))
+                avg_price = float(order_info.get('avg_price', 0)) or float(order_info.get('price', 0))
                 fee = float(order_info.get('fee', 0))
                 
                 logger.info(f"✅ Ordre exécuté: {volume_exec:.6f} @ {avg_price:.2f}€ (frais: {fee:.4f}€)")

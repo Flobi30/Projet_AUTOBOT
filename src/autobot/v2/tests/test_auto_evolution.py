@@ -161,7 +161,10 @@ class TestAutoEvolutionManager(unittest.TestCase):
         # Forcer une date ancienne pour passer l'hystérésis
         self.manager._phase_start_date = datetime.now(timezone.utc) - timedelta(days=10)
         
-        result = self.manager.request_phase_transition(user_approved=True)
+        result = self.manager.request_phase_transition(
+            user_approved=True,
+            confirmation_text="CONFIRMER_PHASE_2",
+        )
         
         if result['success']:
             self.assertEqual(
@@ -174,11 +177,14 @@ class TestAutoEvolutionManager(unittest.TestCase):
         # Forcer date récente (moins de 7j)
         self.manager._phase_start_date = datetime.now(timezone.utc) - timedelta(days=3)
         
-        result = self.manager.request_phase_transition(user_approved=True)
+        result = self.manager.request_phase_transition(
+            user_approved=True,
+            confirmation_text="CONFIRMER_PHASE_2",
+        )
         
         # Devrait échouer à cause de l'hystérésis
         self.assertFalse(result['success'])
-        self.assertIn('Hystérésis', result.get('error', ''))
+        self.assertIn('hystérésis', result.get('error', '').lower())
     
     def test_cannot_go_beyond_phase_2(self):
         """Test qu'on ne peut pas aller au-delà de Phase 2"""
@@ -217,7 +223,7 @@ class TestEvolutionDashboard(unittest.TestCase):
         
         self.assertIn("AUTOBOT", rendered)
         self.assertIn("Phase 1", rendered)
-        self.assertIn("Sécurité", rendered)
+        self.assertIn("SÉCURITÉ", rendered)
     
     def test_progress_bar(self):
         """Test le rendu de la barre de progression"""
