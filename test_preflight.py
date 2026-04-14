@@ -74,7 +74,7 @@ def check_imports():
         print(f"❌ Erreur import: {e}")
         return False
 
-def test_instance_creation():
+def check_instance_creation():
     """Test création instance minimale"""
     print("\n🔍 Test création instance...")
     
@@ -117,7 +117,7 @@ def main():
     results.append(("Environnement", check_environment()))
     results.append(("Dépendances", check_dependencies()))
     results.append(("Imports", check_imports()))
-    results.append(("Création instance", test_instance_creation()))
+    results.append(("Création instance", check_instance_creation()))
     
     print("\n" + "="*60)
     print("📊 RÉSULTATS")

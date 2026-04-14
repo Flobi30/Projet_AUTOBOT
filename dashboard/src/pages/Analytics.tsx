@@ -4,7 +4,7 @@ import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3, Loader } from 'lucide-react';
 
 const API_BASE_URL = '';
-const API_TOKEN = 'autobot_token_12345';
+const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 const Analytics: React.FC = () => {
   const [performanceData, setPerformanceData] = useState<any[]>([]);
