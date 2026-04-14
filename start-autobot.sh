@@ -6,7 +6,7 @@ echo "======================================="
 echo ""
 
 # Vérifie si on est dans le bon répertoire
-if [ ! -f "src/autobot/v2/main.py" ]; then
+if [ ! -f "src/autobot/v2/main_async.py" ]; then
     echo "❌ Erreur: Vous devez être à la racine du projet"
     exit 1
 fi
@@ -29,9 +29,9 @@ echo "  - Bot API: http://localhost:8080"
 echo "  - Dashboard: http://localhost:5173 (développement)"
 echo ""
 
-# Lance le bot Python en arrière-plan
+# Lance le bot Python ASYNC officiel en arrière-plan
 echo "🤖 Démarrage du bot..."
-python3 src/autobot/v2/main.py &
+python3 src/autobot/v2/main_async.py &
 BOT_PID=$!
 
 # Attend que l'API soit prête

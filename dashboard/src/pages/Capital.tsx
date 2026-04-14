@@ -4,7 +4,7 @@ import MetricCard from '../components/ui/MetricCard';
 import { useAppStore } from '../store/useAppStore';
 
 const API_BASE_URL = '';
-const API_TOKEN = 'autobot_token_12345';
+const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 interface CapitalData {
   total_capital: number;

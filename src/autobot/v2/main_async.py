@@ -58,6 +58,9 @@ from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.orchestrator import InstanceConfig
 from autobot.v2.os_tuning import OSTuner
 from autobot.v2.api.dashboard import DashboardServer
+from autobot.v2.order_executor_async import OrderExecutorAsync
+from autobot.v2.kill_switch import KillSwitch
+from autobot.v2.startup_attestation import StartupAttestation, StartupAttestationError
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +164,7 @@ class AutoBotV2Async:
         self.dashboard_port = dashboard_port
         self.api_key = api_key or os.getenv("KRAKEN_API_KEY")
         self.api_secret = api_secret or os.getenv("KRAKEN_API_SECRET")
+        self.startup_kill_switch = KillSwitch()
 
     def _create_all_instance_configs(self) -> list:
         """Create instance configs for all TRADING_PAIRS (multi-pair support).
@@ -227,6 +231,22 @@ class AutoBotV2Async:
         self.running = True
 
         try:
+            # 0. Startup attestation hard-block gate
+            preflight_only = os.getenv("PREFLIGHT_ONLY", "false").lower() == "true"
+            attestation_executor = OrderExecutorAsync(self.api_key, self.api_secret)
+            try:
+                attestation = StartupAttestation(
+                    order_executor=attestation_executor,
+                    kill_switch=self.startup_kill_switch,
+                )
+                await attestation.enforce(preflight_only=preflight_only)
+                if preflight_only:
+                    logger.info("✅ PREFLIGHT_ONLY=true: checks passed, trading not started.")
+                    self.running = False
+                    return
+            finally:
+                await attestation_executor.close()
+
             # 1. Create orchestrator
             logger.info("Initialisation OrchestratorAsync...")
             self.orchestrator = OrchestratorAsync(
@@ -311,6 +331,9 @@ class AutoBotV2Async:
                         status['websocket_connected'],
                     )
 
+        except StartupAttestationError as exc:
+            logger.error(f"Startup blocked by attestation gate: {exc}")
+            self.running = False
         except Exception as exc:
             logger.exception(f"Erreur fatale: {exc}")
             await self.stop()

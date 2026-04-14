@@ -12,6 +12,12 @@ logs/
 certs/
 audit_final_opus.md
 MEMORY.md
+*.pem
+*.key
+*id_rsa*
+*id_ed25519*
+autobot_ed25519
+.secrets.baseline
 
 # Agent-only working notes/artifacts (do not ship to repo)
 memory/*.md

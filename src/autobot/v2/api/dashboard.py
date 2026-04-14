@@ -30,8 +30,9 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
     app_env = os.getenv('APP_ENV', 'production').lower()
     expected_token = os.getenv('DASHBOARD_API_TOKEN')
 
-    # Mode development sans token configuré : accès libre
-    if app_env == 'development' and not expected_token:
+    # Mode development uniquement si explicitement autorisé
+    allow_insecure_dev = os.getenv('ALLOW_INSECURE_DEV_AUTH', 'false').lower() == 'true'
+    if app_env == 'development' and not expected_token and allow_insecure_dev:
         return True
 
     # Hors development OU token configuré : authentification obligatoire
@@ -45,7 +46,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
         )
 
     if credentials.credentials.strip() != expected_token.strip():
-        logger.warning(f"Token mismatch. Received: {repr(credentials.credentials[:20])}... Expected: {repr(expected_token[:20])}...")
+        logger.warning("Token mismatch from client")
         raise HTTPException(status_code=403, detail="Token invalide")
 
     return True
@@ -334,6 +335,23 @@ async def get_performance(request: Request, authorized: bool = Depends(verify_to
         }
     except Exception:
         logger.exception("Erreur récupération performance")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/performance/persisted")
+async def get_performance_persisted(authorized: bool = Depends(verify_token)):
+    """Persisted PF/expectancy based on immutable trade ledger."""
+    try:
+        from ..persistence import get_persistence
+
+        metrics = get_persistence().get_trade_ledger_metrics()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "trade_ledger",
+            "metrics": metrics,
+        }
+    except Exception:
+        logger.exception("Erreur récupération performance persistée")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

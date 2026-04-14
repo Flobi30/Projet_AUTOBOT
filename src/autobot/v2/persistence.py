@@ -7,6 +7,7 @@ import logging
 import sqlite3
 import threading as _threading
 import orjson
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 from pathlib import Path
@@ -96,13 +97,338 @@ class StatePersistence:
                     FOREIGN KEY (position_id) REFERENCES positions(id)
                 )
             """)
+
+            # Canonical immutable trade ledger for PF/expectancy analytics
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS trade_ledger (
+                    trade_id TEXT PRIMARY KEY,
+                    position_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,  -- 'buy' | 'sell'
+                    expected_price REAL,
+                    executed_price REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    fees REAL NOT NULL DEFAULT 0,
+                    slippage_bps REAL,
+                    realized_pnl REAL,
+                    is_opening_leg INTEGER NOT NULL DEFAULT 0,
+                    is_closing_leg INTEGER NOT NULL DEFAULT 0,
+                    exchange_order_id TEXT,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+            # Persisted order lifecycle state machine
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    client_order_id TEXT PRIMARY KEY,
+                    exchange_order_id TEXT,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    order_type TEXT NOT NULL,
+                    requested_qty REAL NOT NULL,
+                    filled_qty REAL NOT NULL DEFAULT 0,
+                    avg_fill_price REAL,
+                    status TEXT NOT NULL,
+                    retries INTEGER NOT NULL DEFAULT 0,
+                    last_error_code TEXT,
+                    last_error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    ack_at TEXT,
+                    terminal_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS order_state_transitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_order_id TEXT NOT NULL,
+                    from_status TEXT,
+                    to_status TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    payload_hash TEXT,
+                    occurred_at TEXT NOT NULL
+                )
+            """)
+
+            # Immutable audit log (append-only by trigger)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    client_order_id TEXT,
+                    exchange_order_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    config_hash TEXT NOT NULL,
+                    risk_snapshot TEXT NOT NULL,
+                    balance_before TEXT,
+                    balance_after TEXT,
+                    fees REAL,
+                    slippage_bps REAL,
+                    order_from_status TEXT,
+                    order_to_status TEXT,
+                    exchange_raw_normalized TEXT,
+                    prev_event_hash TEXT,
+                    event_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+                BEFORE UPDATE ON audit_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_events is immutable');
+                END;
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+                BEFORE DELETE ON audit_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_events is immutable');
+                END;
+            """)
             
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_instance ON trade_ledger(instance_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_symbol ON trade_ledger(symbol)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_created_at ON trade_ledger(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
             conn.commit()
             logger.debug("📁 Tables SQLite initialisées")
+
+    def upsert_order(
+        self,
+        client_order_id: str,
+        instance_id: str,
+        symbol: str,
+        side: str,
+        order_type: str,
+        requested_qty: float,
+        status: str = "NEW",
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+    ) -> bool:
+        """Create or update an order lifecycle record."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute(
+                    """
+                    INSERT INTO orders
+                    (client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                     requested_qty, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(client_order_id) DO UPDATE SET
+                        decision_id=excluded.decision_id,
+                        signal_id=excluded.signal_id,
+                        instance_id=excluded.instance_id,
+                        symbol=excluded.symbol,
+                        side=excluded.side,
+                        order_type=excluded.order_type,
+                        requested_qty=excluded.requested_qty,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                        requested_qty, status, now, now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur upsert_order {client_order_id}: {e}")
+            return False
+
+    def transition_order_state(
+        self,
+        client_order_id: str,
+        to_status: str,
+        reason: str,
+        source: str,
+        exchange_order_id: Optional[str] = None,
+        filled_qty: Optional[float] = None,
+        avg_fill_price: Optional[float] = None,
+        retries_delta: int = 0,
+        last_error_code: Optional[str] = None,
+        last_error_message: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Persist a state transition for the order state machine."""
+        now = datetime.now(timezone.utc).isoformat()
+        terminal = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT status, retries, sent_at, ack_at FROM orders WHERE client_order_id = ?",
+                    (client_order_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                from_status = row["status"]
+                payload_hash = hashlib.sha256(
+                    orjson.dumps(payload or {}, option=orjson.OPT_SORT_KEYS)
+                ).hexdigest()
+                conn.execute(
+                    """
+                    INSERT INTO order_state_transitions
+                    (client_order_id, from_status, to_status, reason, source, payload_hash, occurred_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (client_order_id, from_status, to_status, reason, source, payload_hash, now),
+                )
+                sent_at = row["sent_at"] or (now if to_status == "SENT" else None)
+                ack_at = row["ack_at"] or (now if to_status == "ACK" else None)
+                terminal_at = now if to_status in terminal else None
+                conn.execute(
+                    """
+                    UPDATE orders SET
+                        exchange_order_id = COALESCE(?, exchange_order_id),
+                        filled_qty = COALESCE(?, filled_qty),
+                        avg_fill_price = COALESCE(?, avg_fill_price),
+                        status = ?,
+                        retries = retries + ?,
+                        last_error_code = COALESCE(?, last_error_code),
+                        last_error_message = COALESCE(?, last_error_message),
+                        sent_at = COALESCE(?, sent_at),
+                        ack_at = COALESCE(?, ack_at),
+                        terminal_at = COALESCE(?, terminal_at),
+                        updated_at = ?
+                    WHERE client_order_id = ?
+                    """,
+                    (
+                        exchange_order_id, filled_qty, avg_fill_price, to_status, retries_delta,
+                        last_error_code, last_error_message, sent_at, ack_at, terminal_at, now, client_order_id,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur transition_order_state {client_order_id}: {e}")
+            return False
+
+    def get_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT * FROM orders WHERE client_order_id = ?",
+                    (client_order_id,),
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_order {client_order_id}: {e}")
+            return None
+
+    def get_non_terminal_orders(self) -> List[Dict[str, Any]]:
+        """Used for crash recovery/replay."""
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM orders WHERE status IN ('NEW','SENT','ACK','PARTIAL')"
+                ).fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_non_terminal_orders: {e}")
+            return []
+
+    def append_audit_event(
+        self,
+        event_id: str,
+        event_type: str,
+        instance_id: str,
+        config_hash: str,
+        risk_snapshot: Dict[str, Any],
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        exchange_order_id: Optional[str] = None,
+        balance_before: Optional[Dict[str, Any]] = None,
+        balance_after: Optional[Dict[str, Any]] = None,
+        fees: Optional[float] = None,
+        slippage_bps: Optional[float] = None,
+        order_from_status: Optional[str] = None,
+        order_to_status: Optional[str] = None,
+        exchange_raw_normalized: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Append immutable audit event with hash-chain."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                prev = conn.execute(
+                    "SELECT event_hash FROM audit_events ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = prev["event_hash"] if prev else None
+                normalized = {
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "decision_id": decision_id,
+                    "signal_id": signal_id,
+                    "client_order_id": client_order_id,
+                    "exchange_order_id": exchange_order_id,
+                    "instance_id": instance_id,
+                    "config_hash": config_hash,
+                    "risk_snapshot": risk_snapshot,
+                    "balance_before": balance_before,
+                    "balance_after": balance_after,
+                    "fees": fees,
+                    "slippage_bps": slippage_bps,
+                    "order_from_status": order_from_status,
+                    "order_to_status": order_to_status,
+                    "exchange_raw_normalized": exchange_raw_normalized,
+                    "prev_event_hash": prev_hash,
+                    "created_at": now,
+                }
+                event_hash = hashlib.sha256(
+                    orjson.dumps(normalized, option=orjson.OPT_SORT_KEYS)
+                ).hexdigest()
+                conn.execute(
+                    """
+                    INSERT INTO audit_events
+                    (event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                     instance_id, config_hash, risk_snapshot, balance_before, balance_after, fees, slippage_bps,
+                     order_from_status, order_to_status, exchange_raw_normalized, prev_event_hash, event_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                        instance_id, config_hash,
+                        orjson.dumps(risk_snapshot).decode("utf-8"),
+                        orjson.dumps(balance_before).decode("utf-8") if balance_before is not None else None,
+                        orjson.dumps(balance_after).decode("utf-8") if balance_after is not None else None,
+                        fees, slippage_bps, order_from_status, order_to_status,
+                        orjson.dumps(exchange_raw_normalized).decode("utf-8") if exchange_raw_normalized is not None else None,
+                        prev_hash, event_hash, now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur append_audit_event {event_id}: {e}")
+            return False
     
     def save_position(self, position_id: str, instance_id: str, 
                       buy_price: float, volume: float,
@@ -242,6 +568,136 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"❌ Erreur enregistrement trade: {e}")
             return False
+
+    def append_trade_ledger(
+        self,
+        trade_id: str,
+        instance_id: str,
+        symbol: str,
+        side: str,
+        executed_price: float,
+        volume: float,
+        fees: float = 0.0,
+        expected_price: Optional[float] = None,
+        slippage_bps: Optional[float] = None,
+        realized_pnl: Optional[float] = None,
+        position_id: Optional[str] = None,
+        exchange_order_id: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        is_opening_leg: bool = False,
+        is_closing_leg: bool = False,
+    ) -> bool:
+        """Append one immutable trade leg to canonical ledger."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute(
+                    """
+                    INSERT INTO trade_ledger
+                    (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+                     volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+                     exchange_order_id, decision_id, signal_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        trade_id,
+                        position_id,
+                        instance_id,
+                        symbol,
+                        side,
+                        expected_price,
+                        executed_price,
+                        volume,
+                        fees,
+                        slippage_bps,
+                        realized_pnl,
+                        int(is_opening_leg),
+                        int(is_closing_leg),
+                        exchange_order_id,
+                        decision_id,
+                        signal_id,
+                        now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur append_trade_ledger {trade_id}: {e}")
+            return False
+
+    def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:
+        """
+        Compute persisted PF/expectancy metrics from trade_ledger sell legs.
+        PF uses gross winning pnl / gross losing pnl (abs).
+        """
+        where = ""
+        args: tuple[Any, ...] = ()
+        if instance_id:
+            where = "WHERE instance_id = ?"
+            args = (instance_id,)
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    f"""
+                    SELECT realized_pnl, fees
+                    FROM trade_ledger
+                    {where}
+                    AND is_closing_leg = 1
+                    """ if where else """
+                    SELECT realized_pnl, fees
+                    FROM trade_ledger
+                    WHERE is_closing_leg = 1
+                    """,
+                    args,
+                ).fetchall()
+            pnls: List[float] = []
+            total_fees = 0.0
+            for row in rows:
+                pnl = row["realized_pnl"]
+                if pnl is None:
+                    continue
+                pnls.append(float(pnl))
+                total_fees += float(row["fees"] or 0.0)
+
+            gross_profit = sum(p for p in pnls if p > 0)
+            gross_loss = abs(sum(p for p in pnls if p < 0))
+            trade_count = len(pnls)
+            wins = sum(1 for p in pnls if p > 0)
+            losses = sum(1 for p in pnls if p < 0)
+            avg_win = (gross_profit / wins) if wins else 0.0
+            avg_loss = (gross_loss / losses) if losses else 0.0
+            expectancy = (sum(pnls) / trade_count) if trade_count else 0.0
+            pf = gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+            return {
+                "trade_count": float(trade_count),
+                "gross_profit": float(gross_profit),
+                "gross_loss": float(gross_loss),
+                "profit_factor": float(pf),
+                "expectancy": float(expectancy),
+                "win_rate": float((wins / trade_count) if trade_count else 0.0),
+                "avg_win": float(avg_win),
+                "avg_loss": float(avg_loss),
+                "total_fees": float(total_fees),
+                "net_pnl": float(sum(pnls)),
+            }
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_trade_ledger_metrics: {e}")
+            return {
+                "trade_count": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "profit_factor": 0.0,
+                "expectancy": 0.0,
+                "win_rate": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "total_fees": 0.0,
+                "net_pnl": 0.0,
+            }
     
     def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
         """
