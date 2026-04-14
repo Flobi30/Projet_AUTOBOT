@@ -48,12 +48,6 @@ from autobot.v2.ring_buffer import RingBuffer, RingBufferReader
 from autobot.v2.instance_queue import InstanceQueue, DEFAULT_QUEUE_SIZE
 from autobot.v2.async_dispatcher import AsyncDispatcher
 
-# ---------------------------------------------------------------------------
-# pytestmark
-# ---------------------------------------------------------------------------
-pytestmark = pytest.mark.asyncio(loop_scope="function")
-
-
 # ===========================================================================
 # Helpers / stubs
 # ===========================================================================

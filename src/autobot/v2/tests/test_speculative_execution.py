@@ -54,7 +54,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
+pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
@@ -403,6 +403,7 @@ class TestOrderRouterSpeculative:
             side="buy",
             level_index=0,
             live_price=45_000.0,
+            fallback_capital=CAPITAL,
         )
         assert len(submitted_orders) == 1
 
@@ -419,6 +420,10 @@ def _make_grid_instance(symbol: str = SYMBOL, capital: float = 1000.0) -> Any:
     instance = MagicMock()
     instance.config = cfg
     instance.get_available_capital.return_value = capital
+    instance.get_current_price.return_value = 47_000.0
+    atr_filter = MagicMock()
+    atr_filter.get_current_atr.return_value = 0.02
+    instance._atr_filter = atr_filter
     return instance
 
 
@@ -427,7 +432,7 @@ class TestGridStrategySpeculative:
         from autobot.v2.strategies.grid_async import GridStrategyAsync
 
         instance = _make_grid_instance()
-        strategy = GridStrategyAsync(instance, {"num_levels": 5})
+        strategy = GridStrategyAsync(instance, {"num_levels": 5, "center_price": 47_000.0})
         cache = SpeculativeOrderCache()
         strategy.attach_speculative_cache(cache)
 
@@ -443,7 +448,7 @@ class TestGridStrategySpeculative:
         from autobot.v2.strategies.grid_async import GridStrategyAsync
 
         instance = _make_grid_instance()
-        strategy = GridStrategyAsync(instance, {"num_levels": 5})
+        strategy = GridStrategyAsync(instance, {"num_levels": 5, "center_price": 47_000.0})
         cache = SpeculativeOrderCache()
         strategy.attach_speculative_cache(cache)
 
@@ -465,7 +470,7 @@ class TestGridStrategySpeculative:
         from autobot.v2.strategies.grid_async import GridStrategyAsync
 
         instance = _make_grid_instance()
-        strategy = GridStrategyAsync(instance, {"num_levels": 5})
+        strategy = GridStrategyAsync(instance, {"num_levels": 5, "center_price": 47_000.0})
         cache = SpeculativeOrderCache()
         strategy.attach_speculative_cache(cache)
 
@@ -485,7 +490,7 @@ class TestGridStrategySpeculative:
         from autobot.v2.strategies.grid_async import GridStrategyAsync
 
         instance = _make_grid_instance()
-        strategy = GridStrategyAsync(instance, {"num_levels": 5})
+        strategy = GridStrategyAsync(instance, {"num_levels": 5, "center_price": 47_000.0})
 
         pos = MagicMock()
         pos.buy_price = strategy.grid_levels[1]

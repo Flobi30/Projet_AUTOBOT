@@ -267,7 +267,8 @@ class KrakenWebSocketAsync:
 
         # Dispatch to async callbacks
         callbacks = list(self._ticker_callbacks.get(pair, []))
-        if not callbacks and self._msg_count % 60 == 1:
+        msg_count = getattr(self, "_msg_count", 0)
+        if not callbacks and msg_count % 60 == 1:
             # Log periodically if no callbacks registered for this pair
             registered_keys = list(self._ticker_callbacks.keys())
             logger.warning(

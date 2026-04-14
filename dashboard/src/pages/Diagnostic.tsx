@@ -18,7 +18,7 @@ import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
 const API_BASE_URL = '';
-const API_TOKEN = 'autobot_token_12345';
+const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 interface SystemMetrics {
   cpu: {

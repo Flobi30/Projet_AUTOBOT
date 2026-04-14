@@ -14,7 +14,8 @@ services:
     # Environnement
     environment:
       - TZ=Europe/Paris
-      - ENV=${ENV:-production}
+      - APP_ENV=${APP_ENV:-production}
+      - DEPLOYMENT_STAGE=${DEPLOYMENT_STAGE:-paper}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - KRAKEN_API_KEY=${KRAKEN_API_KEY}
       - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
@@ -26,6 +27,15 @@ services:
       - INITIAL_CAPITAL=${INITIAL_CAPITAL:-100}
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
       - PAPER_TRADING=${PAPER_TRADING:-true}
+      - LIVE_TRADING_CONFIRMATION=${LIVE_TRADING_CONFIRMATION:-false}
+      - API_KEY_ASSIGNMENT_MODE=${API_KEY_ASSIGNMENT_MODE:-dedicated}
+      - ALLOW_SHARED_API_KEY=${ALLOW_SHARED_API_KEY:-false}
+      - UNIQUE_BOT_ID=${UNIQUE_BOT_ID:-}
+      - API_KEY_ASSIGNED_BOT_ID=${API_KEY_ASSIGNED_BOT_ID:-}
+      - LEAKED_SSH_KEY_ROTATED_ACK=${LEAKED_SSH_KEY_ROTATED_ACK:-false}
+      - MAX_DRAWDOWN_PCT=${MAX_DRAWDOWN_PCT:-10}
+      - RISK_PER_TRADE_PCT=${RISK_PER_TRADE_PCT:-1}
+      - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-20}
     
     # Ports exposés
     ports:

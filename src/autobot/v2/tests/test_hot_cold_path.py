@@ -36,7 +36,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
+pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 from ..hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from ..cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
@@ -259,8 +259,11 @@ class TestColdPathSchedulerOneShot:
     async def test_schedule_increments_counter(self):
         scheduler = ColdPathScheduler()
         await scheduler.start()
+        loop = asyncio.get_running_loop()
         for _ in range(5):
-            scheduler.schedule(asyncio.sleep(0))
+            fut = loop.create_future()
+            fut.set_result(None)
+            scheduler.schedule(fut)
         assert scheduler._scheduled == 5
         await scheduler.stop()
 
@@ -271,13 +274,18 @@ class TestColdPathSchedulerOneShot:
         scheduler = ColdPathScheduler()
         await scheduler.start()
         n = _ONESHOT_PRUNE_THRESHOLD + 10
+        loop = asyncio.get_running_loop()
         for _ in range(n):
-            scheduler.schedule(asyncio.sleep(0))
+            fut = loop.create_future()
+            fut.set_result(None)
+            scheduler.schedule(fut)
         # Yield several times so all asyncio.sleep(0) tasks actually complete
         for _ in range(10):
             await asyncio.sleep(0)
         # Trigger pruning by adding one more task — now all prior tasks are done
-        scheduler.schedule(asyncio.sleep(0))
+        fut = loop.create_future()
+        fut.set_result(None)
+        scheduler.schedule(fut)
         # After pruning, list is small (≤ n_still_running + 1)
         assert len(scheduler._oneshot_tasks) <= _ONESHOT_PRUNE_THRESHOLD
         await scheduler.stop()

@@ -351,6 +351,8 @@ class OrderRouter:
         # Task de processing
         self._processor_task: Optional[asyncio.Task] = None
         self._running = False
+        self._inflight_by_client_id: Dict[str, asyncio.Future] = {}
+        self._inflight_lock = asyncio.Lock()
         
         # Stats
         self._stats = RouterStats()
@@ -439,7 +441,8 @@ class OrderRouter:
             raise RuntimeError("OrderRouter n'est pas démarré")
         
         order_type = order.get("type", "unknown")
-        
+        client_order_id = order.get("client_order_id")
+
         # Créer la requête
         request = OrderRequest.create(
             order_type=order_type,
@@ -447,6 +450,16 @@ class OrderRouter:
             priority=priority,
             instance_id=instance_id,
         )
+
+        if client_order_id:
+            async with self._inflight_lock:
+                existing = self._inflight_by_client_id.get(client_order_id)
+                if existing is not None:
+                    try:
+                        return await existing
+                    except asyncio.CancelledError:
+                        return OrderResult(success=False, error="Ordre annulé")
+                self._inflight_by_client_id[client_order_id] = request.future
         
         # Mettre à jour les stats
         async with self._stats_lock:
@@ -475,6 +488,9 @@ class OrderRouter:
         except asyncio.CancelledError:
             logger.warning(f"🚫 Ordre annulé: {order_type}")
             return OrderResult(success=False, error="Ordre annulé")
+        finally:
+            if client_order_id:
+                self._inflight_by_client_id.pop(client_order_id, None)
     
     async def submit_speculative(
         self,
