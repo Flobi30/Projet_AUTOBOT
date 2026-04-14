@@ -569,6 +569,16 @@ class TradingInstanceAsync:
 
             position_copy = position
             profit_copy = net_profit
+            self._trades.append(
+                Trade(
+                    id=position_id,
+                    side="sell",
+                    price=sell_price,
+                    volume=position.volume,
+                    timestamp=datetime.now(timezone.utc),
+                    profit=profit_copy,
+                )
+            )
 
         logger.info(
             f"📉 Position fermée {self.id}/{position_id}: Profit {net_profit:.2f}€"

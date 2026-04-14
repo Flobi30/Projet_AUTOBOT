@@ -302,7 +302,7 @@ class TradingInstance:
         with self._lock:
             # Vérifications
             available = self._current_capital - self._allocated_capital
-            max_positions = 10
+            max_positions = getattr(self.config, "max_positions", 10)
 
             if not (
                 self.status == InstanceStatus.RUNNING and
@@ -426,6 +426,17 @@ class TradingInstance:
             # CORRECTION: Garder référence pour callback hors lock
             position_copy = position
             profit_copy = net_profit
+            # Keep in-memory trade history in sync for PF/risk controls
+            self._trades.append(
+                Trade(
+                    id=position_id,
+                    side="sell",
+                    price=sell_price,
+                    volume=position.volume,
+                    timestamp=datetime.now(timezone.utc),
+                    profit=profit_copy,
+                )
+            )
         
         # Point #4: Ferme position ET enregistre trade de manière atomique
         self._persistence.close_position_and_record_trade(
