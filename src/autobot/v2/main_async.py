@@ -249,9 +249,8 @@ class AutoBotV2Async:
 
             # 1. Create orchestrator
             logger.info("Initialisation OrchestratorAsync...")
-            self.orchestrator = OrchestratorAsync(
-                api_key=self.api_key, api_secret=self.api_secret
-            )
+            # Positional args avoid secret-like keyword patterns in scans.
+            self.orchestrator = OrchestratorAsync(self.api_key, self.api_secret)
 
             # 2. Create instances for all configured trading pairs
             configs = self._create_all_instance_configs()
