@@ -1,0 +1,57 @@
+name: Security and Dependency Audit
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master, work ]
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  python-audit:
+    name: Python dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pip-audit (PyPA action)
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: requirements.txt
+
+  npm-audit:
+    name: Dashboard npm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run npm audit (high+)
+        run: npm audit --audit-level=high
+
+  leaked-secret-promotion-guard:
+    name: Unsafe promotion guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block promotion if compromise marker exists
+        run: |
+          if [ -f data/compromised_secret.marker ]; then
+            echo "Compromise marker exists. Promotion blocked."
+            exit 1
+          fi
