@@ -199,6 +199,22 @@ class StatePersistence:
                     SELECT RAISE(ABORT, 'audit_events is immutable');
                 END;
             """)
+
+            # Keep trade_ledger append-only as well
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trade_ledger_no_update
+                BEFORE UPDATE ON trade_ledger
+                BEGIN
+                    SELECT RAISE(ABORT, 'trade_ledger is immutable');
+                END;
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trade_ledger_no_delete
+                BEFORE DELETE ON trade_ledger
+                BEGIN
+                    SELECT RAISE(ABORT, 'trade_ledger is immutable');
+                END;
+            """)
             
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
@@ -206,6 +222,7 @@ class StatePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_instance ON trade_ledger(instance_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_symbol ON trade_ledger(symbol)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_created_at ON trade_ledger(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_close_leg ON trade_ledger(is_closing_leg)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
