@@ -45,8 +45,9 @@ class SignalHandlerAsync:
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
     def _setup_signal_callback(self) -> None:
-        if self.instance._strategy:
-            self.instance._strategy.set_signal_callback(self._on_signal_sync)
+        strategy = getattr(self.instance, "_strategy", None)
+        if strategy:
+            strategy.set_signal_callback(self._on_signal_sync)
 
     def _on_signal_sync(self, signal: TradingSignal) -> None:
         """Sync bridge: strategies emit signals synchronously, we schedule async work."""
@@ -107,9 +108,20 @@ class SignalHandlerAsync:
             logger.error("❌ OrderExecutor non configuré")
             return
 
-        volume = signal.volume if signal.volume > 0 else (available * 0.10) / signal.price
+        atr_pct = self._estimate_atr_pct(signal.price)
+        stop_distance = max(signal.price * atr_pct * self._atr_sl_mult, signal.price * 0.002)
+        risk_budget = max(0.0, available * (self._risk_per_trade_pct / 100.0))
+        max_order_value = available * (self._max_position_capital_pct / 100.0)
+        volume_risk = (risk_budget / stop_distance) if stop_distance > 0 else 0.0
+        volume_cap = (max_order_value / signal.price) if signal.price > 0 else 0.0
+        volume_default = (available * 0.10) / signal.price if signal.price > 0 else 0.0
+        volume = signal.volume if signal.volume > 0 else min(volume_default, volume_risk or volume_default, volume_cap or volume_default)
         volume = round(volume, 6)
         if volume <= 0:
+            return
+
+        if not self._passes_cost_guard(signal, atr_pct):
+            logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
         symbol = self._convert_symbol(signal.symbol)
@@ -170,8 +182,7 @@ class SignalHandlerAsync:
         executed_price = result.executed_price or signal.price
         executed_volume = result.executed_volume or volume
 
-        # Stop-loss
-        stop_price = executed_price * 0.95
+        stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(executed_price)
         sl_result = await self.order_executor.execute_stop_loss_order(
             symbol, OrderSide.SELL, executed_volume, stop_price
         )
@@ -181,6 +192,7 @@ class SignalHandlerAsync:
             price=executed_price,
             volume=executed_volume,
             stop_loss=stop_price,
+            take_profit=take_profit,
             stop_loss_txid=sl_txid,
             buy_txid=result.txid,
         )
@@ -223,15 +235,16 @@ class SignalHandlerAsync:
         if not open_positions:
             return
 
-        close_all = signal.volume == -1 or signal.metadata.get("close_all", False)
+        metadata = signal.metadata or {}
+        close_all = signal.volume == -1 or metadata.get("close_all", False)
         to_close = open_positions if close_all else [open_positions[-1]]
 
-        symbol = self._convert_symbol(signal.symbol)
         for pos in to_close:
             pos_id = pos.get("id")
             vol = pos.get("volume", 0)
             if not pos_id or vol <= 0:
                 continue
+            symbol = self._convert_symbol(pos.get("symbol") or signal.symbol)
 
             sl_txid = pos.get("stop_loss_txid")
             result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol)
@@ -280,8 +293,79 @@ class SignalHandlerAsync:
     def _convert_symbol(symbol: str) -> str:
         mapping = {
             "BTC/EUR": "XXBTZEUR",
+            "XBT/EUR": "XXBTZEUR",
             "ETH/EUR": "XETHZEUR",
             "BTC/USD": "XXBTZUSD",
             "ETH/USD": "XETHZUSD",
         }
         return mapping.get(symbol, symbol.replace("/", ""))
+
+    def _estimate_atr_pct(self, fallback_price: float) -> float:
+        """Lightweight ATR proxy from recent close-to-close moves."""
+        history = list(getattr(self.instance, "_price_history", []))
+        if len(history) < 3:
+            return max(0.001, min(0.08, self._fallback_atr_pct))
+        prices = [float(x[1]) for x in history[-(self._atr_period + 1):]]
+        moves = [abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]
+        atr_abs = sum(moves) / len(moves) if moves else max(fallback_price * 0.01, 1e-8)
+        ref = prices[-1] if prices else fallback_price
+        return max(0.001, min(0.08, atr_abs / max(ref, 1e-8)))
+
+    async def _estimate_exchange_fees_24h(self) -> float:
+        """Best-effort fee estimate from closed orders in last 24h."""
+        if self.order_executor is None:
+            return 0.0
+        try:
+            now = int(time.time())
+            closed = await self.order_executor.get_closed_orders(start_time=now - 86400, end_time=now)
+            total = 0.0
+            for order in closed.values():
+                fee = order.get("fee", 0.0)
+                try:
+                    total += float(fee)
+                except (TypeError, ValueError):
+                    continue
+            return total
+        except Exception:
+            return 0.0
+
+    def _compute_exit_levels(self, entry_price: float) -> tuple[float, float, float, float]:
+        atr_pct = self._estimate_atr_pct(entry_price)
+        sl_pct = max(0.004, atr_pct * self._atr_sl_mult)
+        stop_price = entry_price * (1.0 - sl_pct)
+        tp_pct = max(sl_pct * self._tp_rr, sl_pct * 1.2)
+        take_profit = entry_price * (1.0 + tp_pct)
+        trailing_activation = entry_price * (1.0 + sl_pct * 0.8)
+        trailing_gap = sl_pct * 0.7
+        return stop_price, take_profit, trailing_activation, trailing_gap
+
+    def _slippage_bps(self, expected_price: float, executed_price: float, side: str) -> float:
+        if expected_price <= 0:
+            return 0.0
+        raw = ((executed_price - expected_price) / expected_price) * 10000
+        return float(raw if side == "buy" else -raw)
+
+    def _passes_cost_guard(self, signal: TradingSignal, atr_pct: float) -> bool:
+        spread_bps = float(signal.metadata.get("spread_bps", 0.0))
+        if spread_bps > self._max_spread_bps:
+            logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
+            return False
+        expected_move_bps = float(signal.metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
+        fee_bps = float(signal.metadata.get("fee_bps", 40.0))
+        slippage_bps = float(signal.metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        total_cost_bps = fee_bps + slippage_bps + spread_bps
+        return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
+
+    def _compute_unrealized_pnl(self) -> float:
+        last_price = getattr(self.instance, "_last_price", None)
+        if last_price is None:
+            return 0.0
+        unrealized = 0.0
+        for pos in self.instance.get_positions_snapshot():
+            if pos.get("status") != "open":
+                continue
+            buy_price = float(pos.get("buy_price", 0.0))
+            volume = float(pos.get("volume", 0.0))
+            if buy_price > 0 and volume > 0:
+                unrealized += (float(last_price) - buy_price) * volume
+        return unrealized

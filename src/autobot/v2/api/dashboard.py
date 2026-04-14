@@ -338,6 +338,23 @@ async def get_performance(request: Request, authorized: bool = Depends(verify_to
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/performance/persisted")
+async def get_performance_persisted(authorized: bool = Depends(verify_token)):
+    """Persisted PF/expectancy based on immutable trade ledger."""
+    try:
+        from ..persistence import get_persistence
+
+        metrics = get_persistence().get_trade_ledger_metrics()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "trade_ledger",
+            "metrics": metrics,
+        }
+    except Exception:
+        logger.exception("Erreur récupération performance persistée")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/drawdown")
 async def get_drawdown(request: Request, authorized: bool = Depends(verify_token)):
     """Max drawdown et current drawdown par instance et global"""

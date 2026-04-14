@@ -176,6 +176,22 @@ class StatePersistence:
                     SELECT RAISE(ABORT, 'audit_events is immutable');
                 END;
             """)
+
+            # Keep trade_ledger append-only as well
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trade_ledger_no_update
+                BEFORE UPDATE ON trade_ledger
+                BEGIN
+                    SELECT RAISE(ABORT, 'trade_ledger is immutable');
+                END;
+            """)
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS trade_ledger_no_delete
+                BEFORE DELETE ON trade_ledger
+                BEGIN
+                    SELECT RAISE(ABORT, 'trade_ledger is immutable');
+                END;
+            """)
             
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
@@ -542,6 +558,136 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"❌ Erreur enregistrement trade: {e}")
             return False
+
+    def append_trade_ledger(
+        self,
+        trade_id: str,
+        instance_id: str,
+        symbol: str,
+        side: str,
+        executed_price: float,
+        volume: float,
+        fees: float = 0.0,
+        expected_price: Optional[float] = None,
+        slippage_bps: Optional[float] = None,
+        realized_pnl: Optional[float] = None,
+        position_id: Optional[str] = None,
+        exchange_order_id: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        is_opening_leg: bool = False,
+        is_closing_leg: bool = False,
+    ) -> bool:
+        """Append one immutable trade leg to canonical ledger."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute(
+                    """
+                    INSERT INTO trade_ledger
+                    (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+                     volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+                     exchange_order_id, decision_id, signal_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        trade_id,
+                        position_id,
+                        instance_id,
+                        symbol,
+                        side,
+                        expected_price,
+                        executed_price,
+                        volume,
+                        fees,
+                        slippage_bps,
+                        realized_pnl,
+                        int(is_opening_leg),
+                        int(is_closing_leg),
+                        exchange_order_id,
+                        decision_id,
+                        signal_id,
+                        now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur append_trade_ledger {trade_id}: {e}")
+            return False
+
+    def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:
+        """
+        Compute persisted PF/expectancy metrics from trade_ledger sell legs.
+        PF uses gross winning pnl / gross losing pnl (abs).
+        """
+        where = ""
+        args: tuple[Any, ...] = ()
+        if instance_id:
+            where = "WHERE instance_id = ?"
+            args = (instance_id,)
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    f"""
+                    SELECT realized_pnl, fees
+                    FROM trade_ledger
+                    {where}
+                    AND is_closing_leg = 1
+                    """ if where else """
+                    SELECT realized_pnl, fees
+                    FROM trade_ledger
+                    WHERE is_closing_leg = 1
+                    """,
+                    args,
+                ).fetchall()
+            pnls: List[float] = []
+            total_fees = 0.0
+            for row in rows:
+                pnl = row["realized_pnl"]
+                if pnl is None:
+                    continue
+                pnls.append(float(pnl))
+                total_fees += float(row["fees"] or 0.0)
+
+            gross_profit = sum(p for p in pnls if p > 0)
+            gross_loss = abs(sum(p for p in pnls if p < 0))
+            trade_count = len(pnls)
+            wins = sum(1 for p in pnls if p > 0)
+            losses = sum(1 for p in pnls if p < 0)
+            avg_win = (gross_profit / wins) if wins else 0.0
+            avg_loss = (gross_loss / losses) if losses else 0.0
+            expectancy = (sum(pnls) / trade_count) if trade_count else 0.0
+            pf = gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+            return {
+                "trade_count": float(trade_count),
+                "gross_profit": float(gross_profit),
+                "gross_loss": float(gross_loss),
+                "profit_factor": float(pf),
+                "expectancy": float(expectancy),
+                "win_rate": float((wins / trade_count) if trade_count else 0.0),
+                "avg_win": float(avg_win),
+                "avg_loss": float(avg_loss),
+                "total_fees": float(total_fees),
+                "net_pnl": float(sum(pnls)),
+            }
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_trade_ledger_metrics: {e}")
+            return {
+                "trade_count": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "profit_factor": 0.0,
+                "expectancy": 0.0,
+                "win_rate": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "total_fees": 0.0,
+                "net_pnl": 0.0,
+            }
     
     def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
         """
