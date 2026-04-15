@@ -1,13 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
-import { PieChart, Target, TrendingUp, Shield, BarChart3, Loader } from 'lucide-react';
+import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
 
 const API_BASE_URL = '';
 const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
+
+interface ScalingStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  guard: { state: string; reasons: string[] };
+  activation: { action: string; target_instances: number; target_tier: number; reason: string };
+}
+
+interface UniverseStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  counts: { supported: number; eligible: number; ranked: number; websocket_active: number; actively_traded: number; };
+}
+
+interface OpportunitiesResponse {
+  enabled: boolean;
+  message?: string | null;
+  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+}
+
+interface PortfolioAllocationResponse {
+  enabled: boolean;
+  message?: string | null;
+  allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
+}
+
 const Analytics: React.FC = () => {
-  const [performanceData, setPerformanceData] = useState<any[]>([]);
+  type PerfPoint = { date: string; portfolio: number };
+
+  const [performanceData, setPerformanceData] = useState<PerfPoint[]>([]);
   const [metrics, setMetrics] = useState({
     rendement: '—',
     sharpe: '—',
@@ -16,6 +44,10 @@ const Analytics: React.FC = () => {
     maxDrawdown: '—'
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [scalingStatus, setScalingStatus] = useState<ScalingStatusResponse | null>(null);
+  const [universeStatus, setUniverseStatus] = useState<UniverseStatusResponse | null>(null);
+  const [opportunities, setOpportunities] = useState<OpportunitiesResponse | null>(null);
+  const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocationResponse | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,15 +69,27 @@ const Analytics: React.FC = () => {
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (historyData.history && historyData.history.length > 0) {
-            setPerformanceData(historyData.history.map((item: any) => ({
+            setPerformanceData(historyData.history.map((item: { timestamp: string; value: number }) => ({
               date: new Date(item.timestamp).toLocaleDateString('fr-FR'),
               portfolio: item.value,
             })));
           }
         }
 
+
+        const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/scaling/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/universe/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/opportunities/top?limit=6`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/portfolio/allocation`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+        ]);
+        if (scalingRes.ok) setScalingStatus(await scalingRes.json());
+        if (universeRes.ok) setUniverseStatus(await universeRes.json());
+        if (opportunitiesRes.ok) setOpportunities(await opportunitiesRes.json());
+        if (allocationRes.ok) setPortfolioAllocation(await allocationRes.json());
+
         setIsLoading(false);
-      } catch (err) {
+      } catch {
         setIsLoading(false);
       }
     };
@@ -108,6 +152,58 @@ const Analytics: React.FC = () => {
           <div className="text-gray-500 text-center py-8">
             Pas encore d historique. Les donnees apparaitront apres quelques heures de trading.
           </div>
+        )}
+      </div>
+
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <div className="bg-gray-800 rounded-2xl p-6">
+          <h3 className="text-xl font-bold text-emerald-400 mb-4">Scaling & Guard</h3>
+          {scalingStatus?.enabled ? (
+            <div className="space-y-2 text-sm">
+              <div className="text-gray-300">Tier: <span className="text-white">{scalingStatus.activation.target_tier}</span></div>
+              <div className="text-gray-300">Action: <span className="text-emerald-400">{scalingStatus.activation.action}</span></div>
+              <div className="text-gray-300">Guard: <span className="text-yellow-400">{scalingStatus.guard.state}</span></div>
+              <div className="text-gray-400">Raisons: {(scalingStatus.guard.reasons || []).join(', ') || '—'}</div>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+
+        <div className="bg-gray-800 rounded-2xl p-6">
+          <h3 className="text-xl font-bold text-emerald-400 mb-4">Universe & Allocation</h3>
+          {universeStatus?.enabled ? (
+            <div className="space-y-2 text-sm">
+              <div className="text-gray-300">Supported / Eligible / Ranked: <span className="text-white">{universeStatus.counts.supported} / {universeStatus.counts.eligible} / {universeStatus.counts.ranked}</span></div>
+              <div className="text-gray-300">WS active / traded: <span className="text-white">{universeStatus.counts.websocket_active} / {universeStatus.counts.actively_traded}</span></div>
+              {portfolioAllocation?.enabled && portfolioAllocation.allocation ? (
+                <>
+                  <div className="text-gray-300">Allocated: <span className="text-white">{portfolioAllocation.allocation.total_allocated.toFixed(2)}€</span></div>
+                  <div className="text-gray-300">Reserve cash: <span className="text-white">{portfolioAllocation.allocation.reserve_cash.toFixed(2)}€</span></div>
+                </>
+              ) : <div className="text-gray-500">Feature disabled by configuration</div>}
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-2xl p-6 mb-8">
+        <h3 className="text-xl font-bold text-emerald-400 mb-4">Top Opportunities</h3>
+        {opportunities?.enabled ? (
+          <div className="space-y-2 text-sm">
+            {opportunities.opportunities.map((op, idx) => (
+              <div key={`${op.symbol}-${idx}`} className="flex justify-between border-b border-gray-700 pb-2">
+                <span className="text-white">{op.symbol}</span>
+                <span className="text-emerald-400 font-semibold">{op.score.toFixed(2)}</span>
+              </div>
+            ))}
+            {opportunities.opportunities.length === 0 && <div className="text-gray-500">Aucune opportunité classée.</div>}
+          </div>
+        ) : (
+          <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
         )}
       </div>
 
