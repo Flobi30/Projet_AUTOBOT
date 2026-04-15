@@ -203,7 +203,19 @@ async def get_global_status(
     try:
         # CORRECTION: Utilise méthode thread-safe
         status = orchestrator.get_status()
-        total_capital, total_profit = _compute_global_totals(orchestrator, status)
+        instances = status.get('instances', [])
+        total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
+
+        total_profit = None
+        if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
+            total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
+        elif hasattr(orchestrator, 'get_instances_snapshot'):
+            snapshot = orchestrator.get_instances_snapshot()
+            if isinstance(snapshot, list):
+                total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
+
+        if total_profit is None:
+            raise HTTPException(status_code=500, detail="Erreur interne")
 
         return GlobalStatus(
             running=status['running'],
@@ -483,7 +495,19 @@ async def emergency_stop(
     
     try:
         logger.warning("🚨 ARRÊT D'URGENCE demandé via Dashboard!")
-        await _stop_orchestrator_safely(orchestrator)
+        stop_result = orchestrator.stop()
+        if inspect.isawaitable(stop_result):
+            await stop_result
+
+        try:
+            post_status = orchestrator.get_status()
+            if post_status.get("running", True):
+                raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+        except HTTPException:
+            raise
+        except Exception:
+            # If status is unavailable after stop handling, preserve safety-first semantics.
+            raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
 
         return {
             "message": "Arrêt d'urgence exécuté",
