@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import threading
+import inspect
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -166,11 +167,25 @@ async def get_global_status(
     try:
         # CORRECTION: Utilise méthode thread-safe
         status = orchestrator.get_status()
+        instances = status.get('instances', [])
+        total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
+
+        total_profit = None
+        if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
+            total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
+        elif hasattr(orchestrator, 'get_instances_snapshot'):
+            snapshot = orchestrator.get_instances_snapshot()
+            if isinstance(snapshot, list):
+                total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
+
+        if total_profit is None:
+            raise HTTPException(status_code=500, detail="Erreur interne")
+
         return GlobalStatus(
             running=status['running'],
             instance_count=status['instance_count'],
-            total_capital=sum(inst['capital'] for inst in status['instances']),
-            total_profit=sum(inst.get('profit', 0) for inst in status['instances']),
+            total_capital=total_capital,
+            total_profit=total_profit,
             websocket_connected=status['websocket_connected'],
             uptime_seconds=(datetime.now(timezone.utc) - status['start_time']).total_seconds() if status['start_time'] else None
         )
@@ -444,12 +459,27 @@ async def emergency_stop(
     
     try:
         logger.warning("🚨 ARRÊT D'URGENCE demandé via Dashboard!")
-        orchestrator.stop()
+        stop_result = orchestrator.stop()
+        if inspect.isawaitable(stop_result):
+            await stop_result
+
+        try:
+            post_status = orchestrator.get_status()
+            if post_status.get("running", True):
+                raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+        except HTTPException:
+            raise
+        except Exception:
+            # If status is unavailable after stop handling, preserve safety-first semantics.
+            raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+
         return {
-            "message": "Arrêt d'urgence exécuté", 
+            "message": "Arrêt d'urgence exécuté",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "stopped"
         }
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Erreur arrêt d'urgence")
         raise HTTPException(status_code=500, detail="Erreur interne")
