@@ -4,7 +4,36 @@ import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
 
 const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
+const API_TOKEN =
+  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
+  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
+  ''; // no hardcoded secret
+
+
+interface ScalingStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  guard: { state: string; reasons: string[] };
+  activation: { action: string; target_instances: number; target_tier: number; reason: string };
+}
+
+interface UniverseStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  counts: { supported: number; eligible: number; ranked: number; websocket_active: number; actively_traded: number; };
+}
+
+interface OpportunitiesResponse {
+  enabled: boolean;
+  message?: string | null;
+  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+}
+
+interface PortfolioAllocationResponse {
+  enabled: boolean;
+  message?: string | null;
+  allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
+}
 
 
 interface ScalingStatusResponse {

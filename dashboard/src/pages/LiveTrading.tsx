@@ -6,7 +6,10 @@ import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 
 const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
+const API_TOKEN =
+  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
+  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
+  ''; // no hardcoded secret
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {
@@ -124,7 +127,11 @@ const LiveTrading: React.FC = () => {
           if (positionsRes.ok) {
             const positionsData: PositionInfo[] = await positionsRes.json();
             setPositions(positionsData);
+          } else {
+            setPositions([]);
           }
+        } else {
+          setPositions([]);
         }
 
         const historyRes = await fetch(`${API_BASE_URL}/api/history?days=1`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
