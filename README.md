@@ -2,6 +2,8 @@
 
 Entrypoint officiel: `src/autobot/v2/main_async.py`.
 
+`src/autobot/v2/main.py` est conservé uniquement comme wrapper de compatibilité vers `main_async.py`.
+
 ## Quick start
 1. Copier `.env.example` vers `.env`.
 2. Remplir les variables obligatoires (token dashboard, limites de risque, etc.).

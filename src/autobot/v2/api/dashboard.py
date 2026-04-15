@@ -22,6 +22,42 @@ logger = logging.getLogger(__name__)
 # CORRECTION: Sécurité - Token Bearer pour auth
 security = HTTPBearer(auto_error=False)
 
+
+
+def _compute_global_totals(orchestrator: Any, status: Dict[str, Any]) -> tuple[float, float]:
+    """Derive total capital/profit with safe, non-fake fallbacks."""
+    instances = status.get('instances', [])
+    total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
+
+    total_profit = None
+    if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
+        total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
+    elif hasattr(orchestrator, 'get_instances_snapshot'):
+        snapshot = orchestrator.get_instances_snapshot()
+        if isinstance(snapshot, list):
+            total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
+
+    if total_profit is None:
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+    return total_capital, total_profit
+
+
+async def _stop_orchestrator_safely(orchestrator: Any) -> None:
+    """Execute stop path and confirm stop state before returning success."""
+    stop_result = orchestrator.stop()
+    if inspect.isawaitable(stop_result):
+        await stop_result
+
+    try:
+        post_status = orchestrator.get_status()
+        if post_status.get("running", True):
+            raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """Vérifie le token API.
 

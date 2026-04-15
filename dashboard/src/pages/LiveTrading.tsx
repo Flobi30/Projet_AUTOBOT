@@ -214,7 +214,7 @@ const LiveTrading: React.FC = () => {
             {error}
           </div>
           <p className="text-gray-500 mt-4 text-sm">
-            Vérifiez que le bot est démarré: <code className="bg-gray-800 px-2 py-1 rounded">python src/autobot/v2/main.py</code>
+            Vérifiez que le bot est démarré: <code className="bg-gray-800 px-2 py-1 rounded">python src/autobot/v2/main_async.py</code>
           </p>
         </div>
       </div>
