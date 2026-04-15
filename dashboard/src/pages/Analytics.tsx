@@ -35,6 +35,32 @@ interface PortfolioAllocationResponse {
   allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
 }
 
+
+interface ScalingStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  guard: { state: string; reasons: string[] };
+  activation: { action: string; target_instances: number; target_tier: number; reason: string };
+}
+
+interface UniverseStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  counts: { supported: number; eligible: number; ranked: number; websocket_active: number; actively_traded: number; };
+}
+
+interface OpportunitiesResponse {
+  enabled: boolean;
+  message?: string | null;
+  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+}
+
+interface PortfolioAllocationResponse {
+  enabled: boolean;
+  message?: string | null;
+  allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
+}
+
 const Analytics: React.FC = () => {
   type PerfPoint = { date: string; portfolio: number };
 

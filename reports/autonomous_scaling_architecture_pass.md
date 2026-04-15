@@ -111,17 +111,3 @@ Single-step rollback per subsystem by toggling feature flags to `false`:
 
 ## Completion statement
 The **autonomous scaling architecture pass is complete** for Lots 1–7 within scoped requirements.
-
-## Final validation run (2026-04-15)
-### Commands executed
-- `pytest -q src/autobot/v2/tests/test_scalability_guard.py src/autobot/v2/tests/test_universe_manager.py src/autobot/v2/tests/test_pair_ranking_engine.py src/autobot/v2/tests/test_instance_activation_manager.py src/autobot/v2/tests/test_portfolio_allocator.py src/autobot/v2/tests/test_market_selector_universe_flag.py src/autobot/v2/tests/test_dashboard_api_lot6.py src/autobot/v2/tests/test_dashboard_api_backward_compat_lot7.py src/autobot/v2/tests/test_feature_flag_matrix_lot7.py`
-- `npm --prefix dashboard run build`
-
-### Results
-- Lot-specific + impacted orchestrator/risk/api/dashboard tests: **26 passed**.
-- Dashboard frontend production build: **passed**.
-
-### Remaining warnings / known pre-existing issues
-- Project-wide frontend lint still contains pre-existing unrelated errors in pages/components outside the autonomous scaling scope.
-- Vite reports chunk-size warning on dashboard production build (non-blocking, pre-existing optimization topic).
-
