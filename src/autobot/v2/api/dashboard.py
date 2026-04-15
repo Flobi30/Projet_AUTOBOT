@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import threading
+import inspect
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -20,6 +21,42 @@ logger = logging.getLogger(__name__)
 
 # CORRECTION: Sécurité - Token Bearer pour auth
 security = HTTPBearer(auto_error=False)
+
+
+
+def _compute_global_totals(orchestrator: Any, status: Dict[str, Any]) -> tuple[float, float]:
+    """Derive total capital/profit with safe, non-fake fallbacks."""
+    instances = status.get('instances', [])
+    total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
+
+    total_profit = None
+    if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
+        total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
+    elif hasattr(orchestrator, 'get_instances_snapshot'):
+        snapshot = orchestrator.get_instances_snapshot()
+        if isinstance(snapshot, list):
+            total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
+
+    if total_profit is None:
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+    return total_capital, total_profit
+
+
+async def _stop_orchestrator_safely(orchestrator: Any) -> None:
+    """Execute stop path and confirm stop state before returning success."""
+    stop_result = orchestrator.stop()
+    if inspect.isawaitable(stop_result):
+        await stop_result
+
+    try:
+        post_status = orchestrator.get_status()
+        if post_status.get("running", True):
+            raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
 
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """Vérifie le token API.
@@ -166,17 +203,197 @@ async def get_global_status(
     try:
         # CORRECTION: Utilise méthode thread-safe
         status = orchestrator.get_status()
+        total_capital, total_profit = _compute_global_totals(orchestrator, status)
+
         return GlobalStatus(
             running=status['running'],
             instance_count=status['instance_count'],
-            total_capital=sum(inst['capital'] for inst in status['instances']),
-            total_profit=sum(inst.get('profit', 0) for inst in status['instances']),
+            total_capital=total_capital,
+            total_profit=total_profit,
             websocket_connected=status['websocket_connected'],
             uptime_seconds=(datetime.now(timezone.utc) - status['start_time']).total_seconds() if status['start_time'] else None
         )
     except Exception:
         logger.exception("Erreur récupération statut global")
         # CORRECTION: Ne pas exposer détails de l'erreur
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/scaling/status")
+async def get_scaling_status(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Scaling status (scalability guard + activation manager)."""
+    from ..config import ENABLE_SCALABILITY_GUARD, ENABLE_INSTANCE_ACTIVATION_MANAGER
+
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "enabled": bool(ENABLE_SCALABILITY_GUARD or ENABLE_INSTANCE_ACTIVATION_MANAGER),
+            "guard_enabled": bool(ENABLE_SCALABILITY_GUARD),
+            "activation_enabled": bool(ENABLE_INSTANCE_ACTIVATION_MANAGER),
+            "guard": status.get("scalability_guard") or {
+                "state": "DISABLED",
+                "reasons": ["Feature disabled by configuration"],
+                "signals": {},
+            },
+            "activation": status.get("activation") or {
+                "action": "hold",
+                "target_instances": status.get("instance_count", 0),
+                "target_tier": 1,
+                "selected_symbols": [],
+                "reason": "Feature disabled by configuration",
+            },
+            "explanation": {
+                "decision": (status.get("activation") or {}).get("action", "hold"),
+                "reason": (status.get("activation") or {}).get("reason", "Feature disabled by configuration"),
+                "guard_state": (status.get("scalability_guard") or {}).get("state", "DISABLED"),
+                "guard_reasons": (status.get("scalability_guard") or {}).get("reasons", ["Feature disabled by configuration"]),
+            },
+            "message": None if (ENABLE_SCALABILITY_GUARD or ENABLE_INSTANCE_ACTIVATION_MANAGER) else "Feature disabled by configuration",
+        }
+    except Exception:
+        logger.exception("Erreur récupération scaling status")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/universe/status")
+async def get_universe_status(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Universe/ranking runtime status."""
+    from ..config import ENABLE_UNIVERSE_MANAGER, ENABLE_PAIR_RANKING_ENGINE
+
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        manager = getattr(orchestrator, "universe_manager", None)
+        if not ENABLE_UNIVERSE_MANAGER or manager is None:
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "enabled": False,
+                "message": "Feature disabled by configuration",
+                "counts": {
+                    "supported": 0,
+                    "eligible": 0,
+                    "ranked": 0,
+                    "websocket_active": 0,
+                    "actively_traded": 0,
+                },
+                "ranking_enabled": bool(ENABLE_PAIR_RANKING_ENGINE),
+            }
+
+        snap = manager.snapshot()
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "enabled": True,
+            "ranking_enabled": bool(ENABLE_PAIR_RANKING_ENGINE),
+            "counts": {
+                "supported": len(snap.supported),
+                "eligible": len(snap.eligible),
+                "ranked": len(snap.ranked),
+                "websocket_active": len(snap.websocket_active),
+                "actively_traded": len(snap.actively_traded),
+            },
+            "top_ranked": list(snap.ranked[:10]),
+        }
+    except Exception:
+        logger.exception("Erreur récupération universe status")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/opportunities/top")
+async def get_top_opportunities(
+    request: Request,
+    limit: int = 10,
+    authorized: bool = Depends(verify_token)
+):
+    """Top ranked opportunities with score/explain payload."""
+    from ..config import ENABLE_PAIR_RANKING_ENGINE
+
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        if not ENABLE_PAIR_RANKING_ENGINE:
+            return {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "enabled": False,
+                "message": "Feature disabled by configuration",
+                "opportunities": [],
+            }
+
+        ranking_engine = getattr(orchestrator, "pair_ranking_engine", None)
+        universe_manager = getattr(orchestrator, "universe_manager", None)
+
+        opportunities = []
+        if ranking_engine is not None:
+            ranked = ranking_engine.get_ranked_pairs()
+            opportunities = [
+                {
+                    "symbol": p.symbol,
+                    "score": p.score,
+                    "explain": p.explain,
+                }
+                for p in ranked[: max(1, min(limit, 50))]
+            ]
+        elif universe_manager is not None:
+            scored = universe_manager.get_scored_universe()
+            ranked = universe_manager.get_ranked_universe()
+            for sym in ranked[: max(1, min(limit, 50))]:
+                opportunities.append({
+                    "symbol": sym,
+                    "score": float(scored.get(sym, {}).get("score", 0.0)),
+                    "explain": dict(scored.get(sym, {})),
+                })
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "enabled": True,
+            "opportunities": opportunities,
+        }
+    except Exception:
+        logger.exception("Erreur récupération opportunities")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/portfolio/allocation")
+async def get_portfolio_allocation(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Current portfolio allocation plan/caps."""
+    from ..config import ENABLE_PORTFOLIO_ALLOCATOR
+
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        alloc = status.get("portfolio_allocator") or {"enabled": False, "plan": None}
+        if not ENABLE_PORTFOLIO_ALLOCATOR:
+            alloc = {"enabled": False, "plan": None}
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "enabled": bool(alloc.get("enabled", False)),
+            "message": None if bool(alloc.get("enabled", False)) else "Feature disabled by configuration",
+            "allocation": alloc.get("plan"),
+            "constraints": ((alloc.get("plan") or {}).get("explain") if alloc.get("plan") else None),
+        }
+    except Exception:
+        logger.exception("Erreur récupération portfolio allocation")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 @app.get("/api/instances", response_model=List[InstanceStatus])
@@ -266,12 +483,15 @@ async def emergency_stop(
     
     try:
         logger.warning("🚨 ARRÊT D'URGENCE demandé via Dashboard!")
-        orchestrator.stop()
+        await _stop_orchestrator_safely(orchestrator)
+
         return {
-            "message": "Arrêt d'urgence exécuté", 
+            "message": "Arrêt d'urgence exécuté",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "stopped"
         }
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Erreur arrêt d'urgence")
         raise HTTPException(status_code=500, detail="Erreur interne")

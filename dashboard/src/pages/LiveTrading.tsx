@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
 import LiveLog from '../components/ui/LiveLog';
-import { TrendingUp, DollarSign, Target, AlertTriangle, Activity } from 'lucide-react';
+import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import Skeleton from 'react-loading-skeleton';
-import 'react-loading-skeleton/dist/skeleton.css';
 
 const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
+const API_TOKEN =
+  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
+  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
+  ''; // no hardcoded secret
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {
@@ -40,13 +41,51 @@ interface PositionInfo {
   pnl_percent: number;
 }
 
-const SkeletonGrid = () => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
-    <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-    <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-    <Skeleton height={120} baseColor="#1a1a1a" highlightColor="#2a2a2a" />
-  </div>
-);
+
+interface ScalingStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  guard: { state: string; reasons: string[] };
+  activation: { action: string; target_instances: number; target_tier: number; reason: string };
+  explanation: { decision: string; reason: string; guard_state: string; guard_reasons: string[] };
+}
+
+interface UniverseStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  counts: {
+    supported: number;
+    eligible: number;
+    ranked: number;
+    websocket_active: number;
+    actively_traded: number;
+  };
+}
+
+interface OpportunitiesResponse {
+  enabled: boolean;
+  message?: string | null;
+  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+}
+
+interface HistoryPoint {
+  timestamp: string;
+  value: number;
+}
+
+interface PortfolioAllocationResponse {
+  enabled: boolean;
+  message?: string | null;
+  allocation: null | {
+    symbol_caps: Record<string, number>;
+    total_allocated: number;
+    reserve_cash: number;
+    risk_budget_remaining: number;
+    reasons: Record<string, string>;
+    explain: Record<string, number>;
+  };
+}
+
 
 const LiveTrading: React.FC = () => {
   const { capitalTotal, setCapitalTotal, botStatus, setBotStatus } = useAppStore();
@@ -55,14 +94,17 @@ const LiveTrading: React.FC = () => {
   
   // CORRECTION: États pour les données réelles de l'API
   const [globalStatus, setGlobalStatus] = useState<GlobalStatus | null>(null);
-  const [instances, setInstances] = useState<InstanceStatus[]>([]);
   const [positions, setPositions] = useState<PositionInfo[]>([]);
+  const [portfolioData, setPortfolioData] = useState<Array<{ time: string; value: number }>>([]);
+  const [scalingStatus, setScalingStatus] = useState<ScalingStatusResponse | null>(null);
+  const [universeStatus, setUniverseStatus] = useState<UniverseStatusResponse | null>(null);
+  const [opportunities, setOpportunities] = useState<OpportunitiesResponse | null>(null);
+  const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocationResponse | null>(null);
 
   // CORRECTION: Connexion au backend API
   useEffect(() => {
     const fetchData = async () => {
       try {
-        setIsLoading(true);
         setError(null);
 
         // Récupère le statut global
@@ -77,7 +119,6 @@ const LiveTrading: React.FC = () => {
         const instancesRes = await fetch(`${API_BASE_URL}/api/instances`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (!instancesRes.ok) throw new Error(`API Error: ${instancesRes.status}`);
         const instancesData: InstanceStatus[] = await instancesRes.json();
-        setInstances(instancesData);
 
         // Récupère les positions de la première instance (s'il y en a une)
         if (instancesData.length > 0) {
@@ -86,8 +127,40 @@ const LiveTrading: React.FC = () => {
           if (positionsRes.ok) {
             const positionsData: PositionInfo[] = await positionsRes.json();
             setPositions(positionsData);
+          } else {
+            setPositions([]);
           }
+        } else {
+          setPositions([]);
         }
+
+        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=1`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        if (historyRes.ok) {
+          const historyData = await historyRes.json();
+          const series: HistoryPoint[] = Array.isArray(historyData?.history) ? historyData.history : [];
+          if (series.length > 0) {
+            setPortfolioData(series.slice(-24).map((item) => ({
+              time: new Date(item.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+              value: item.value,
+            })));
+          } else {
+            setPortfolioData([{ time: 'Now', value: statusData.total_capital }]);
+          }
+        } else {
+          setPortfolioData([{ time: 'Now', value: statusData.total_capital }]);
+        }
+
+        const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/scaling/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/universe/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/opportunities/top?limit=8`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          fetch(`${API_BASE_URL}/api/portfolio/allocation`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+        ]);
+
+        if (scalingRes.ok) setScalingStatus(await scalingRes.json());
+        if (universeRes.ok) setUniverseStatus(await universeRes.json());
+        if (opportunitiesRes.ok) setOpportunities(await opportunitiesRes.json());
+        if (allocationRes.ok) setPortfolioAllocation(await allocationRes.json());
 
         setIsLoading(false);
       } catch (err) {
@@ -112,16 +185,7 @@ const LiveTrading: React.FC = () => {
     ? (totalPnl / globalStatus.total_capital) * 100 
     : 0;
 
-  // Données pour le graphique (mockées pour l'instant - à remplacer par historique réel)
-  const portfolioData = [
-    { time: '00:00', value: globalStatus ? globalStatus.total_capital * 0.95 : 5000 },
-    { time: '04:00', value: globalStatus ? globalStatus.total_capital * 0.98 : 5150 },
-    { time: '08:00', value: globalStatus ? globalStatus.total_capital * 1.02 : 5280 },
-    { time: '12:00', value: globalStatus ? globalStatus.total_capital * 0.99 : 5190 },
-    { time: '16:00', value: globalStatus ? globalStatus.total_capital : 1000 },
-    { time: '20:00', value: globalStatus ? globalStatus.total_capital * 0.97 : 5380 },
-  ];
-
+  
   if (isLoading) {
     return (
       <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">
@@ -150,7 +214,7 @@ const LiveTrading: React.FC = () => {
             {error}
           </div>
           <p className="text-gray-500 mt-4 text-sm">
-            Vérifiez que le bot est démarré: <code className="bg-gray-800 px-2 py-1 rounded">python src/autobot/v2/main.py</code>
+            Vérifiez que le bot est démarré: <code className="bg-gray-800 px-2 py-1 rounded">python src/autobot/v2/main_async.py</code>
           </p>
         </div>
       </div>
@@ -206,6 +270,73 @@ const LiveTrading: React.FC = () => {
         />
       </div>
       
+
+
+      {/* Control Plane Status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 lg:mb-8">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
+          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Scaling Status</h3>
+          {scalingStatus?.enabled ? (
+            <div className="space-y-2 text-sm">
+              <div className="text-gray-300">Tier cible: <span className="text-white font-semibold">{scalingStatus.activation.target_tier}</span></div>
+              <div className="text-gray-300">Décision: <span className="text-emerald-400 font-semibold">{scalingStatus.activation.action}</span></div>
+              <div className="text-gray-300">Guard: <span className="text-yellow-400 font-semibold">{scalingStatus.guard.state}</span></div>
+              <div className="text-gray-400">Raisons: {(scalingStatus.guard.reasons || []).join(', ') || '—'}</div>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
+          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Universe Status</h3>
+          {universeStatus?.enabled ? (
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="text-gray-300">Supported: <span className="text-white">{universeStatus.counts.supported}</span></div>
+              <div className="text-gray-300">Eligible: <span className="text-white">{universeStatus.counts.eligible}</span></div>
+              <div className="text-gray-300">Ranked: <span className="text-white">{universeStatus.counts.ranked}</span></div>
+              <div className="text-gray-300">WS Active: <span className="text-white">{universeStatus.counts.websocket_active}</span></div>
+              <div className="text-gray-300">Traded: <span className="text-white">{universeStatus.counts.actively_traded}</span></div>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6 lg:mb-8">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
+          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Ranked Opportunities</h3>
+          {opportunities?.enabled ? (
+            <div className="space-y-2 max-h-56 overflow-auto">
+              {opportunities.opportunities.map((row, idx) => (
+                <div key={`${row.symbol}-${idx}`} className="flex items-center justify-between text-sm border-b border-gray-700/40 pb-2">
+                  <span className="text-white font-medium">{row.symbol}</span>
+                  <span className="text-emerald-400 font-semibold">{row.score.toFixed(2)}</span>
+                </div>
+              ))}
+              {opportunities.opportunities.length === 0 && <div className="text-gray-500 text-sm">Aucune opportunité classée.</div>}
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
+          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Portfolio Allocation</h3>
+          {portfolioAllocation?.enabled && portfolioAllocation.allocation ? (
+            <div className="space-y-2 text-sm">
+              <div className="text-gray-300">Capital alloué: <span className="text-white">{portfolioAllocation.allocation.total_allocated.toFixed(2)}€</span></div>
+              <div className="text-gray-300">Réserve cash: <span className="text-white">{portfolioAllocation.allocation.reserve_cash.toFixed(2)}€</span></div>
+              <div className="text-gray-300">Risque restant: <span className="text-white">{portfolioAllocation.allocation.risk_budget_remaining.toFixed(2)}</span></div>
+              <div className="text-gray-400 text-xs">Why hold/expand/reduce: {(scalingStatus?.explanation?.reason) || '—'}</div>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          )}
+        </div>
+      </div>
+
       {/* Portfolio Evolution Chart */}
       <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 mb-6 lg:mb-8 shadow-2xl">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
