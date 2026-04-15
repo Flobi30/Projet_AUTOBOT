@@ -13,6 +13,15 @@ from datetime import datetime, timezone
 
 from .market_analyzer import MarketAnalyzer, get_market_analyzer, MarketQualityScore
 from .markets import MarketType, MarketConfig, get_market_config, is_market_open
+from .config import (
+    ENABLE_UNIVERSE_MANAGER,
+    UNIVERSE_ENABLE_FOREX,
+    UNIVERSE_MAX_ELIGIBLE,
+    UNIVERSE_MAX_SUPPORTED,
+    ENABLE_PAIR_RANKING_ENGINE,
+    RANKING_MIN_SCORE_ACTIVATE,
+)
+from .universe_manager import UniverseManager
 
 if TYPE_CHECKING:
     from .orchestrator import Orchestrator
@@ -68,6 +77,19 @@ class MarketSelector:
             "ALLOW_FOREX_SPINOFF",
             "false",
         ).lower() in ("1", "true", "yes", "on")
+        self.use_universe_manager = ENABLE_UNIVERSE_MANAGER
+        self.universe_manager: Optional[UniverseManager] = None
+        self.use_pair_ranking_engine = ENABLE_PAIR_RANKING_ENGINE
+        if self.use_universe_manager:
+            self.universe_manager = getattr(orchestrator, "universe_manager", None)
+            if self.universe_manager is None:
+                self.universe_manager = UniverseManager(
+                    max_supported=UNIVERSE_MAX_SUPPORTED,
+                    max_eligible=UNIVERSE_MAX_ELIGIBLE,
+                    enable_forex=UNIVERSE_ENABLE_FOREX,
+                )
+                self.universe_manager.initialize()
+                setattr(orchestrator, "universe_manager", self.universe_manager)
         
     def select_market_for_spinoff(self, parent_instance_id: str) -> Optional[MarketSelection]:
         """
@@ -118,62 +140,59 @@ class MarketSelector:
         return markets
     
     def _get_all_available_markets(self) -> List:
-        """Retourne tous les marchés disponibles avec leurs métriques
-        
-        50 Cryptos + 20 Forex = 70 paires au total
-        """
-        # 50 Cryptos
+        """Retourne tous les marchés disponibles avec leurs métriques."""
+        # Legacy baseline universe (50 crypto + 20 forex)
         CRYPTO_PAIRS = [
-            # Majors (10)
             "BTC/EUR", "ETH/EUR", "SOL/EUR", "ADA/EUR", "DOT/EUR",
             "LINK/EUR", "AVAX/EUR", "MATIC/EUR", "UNI/EUR", "AAVE/EUR",
-            # Altcoins majeurs (10)
             "XRP/EUR", "LTC/EUR", "BCH/EUR", "XLM/EUR", "ETC/EUR",
             "ALGO/EUR", "ATOM/EUR", "FIL/EUR", "XTZ/EUR", "EOS/EUR",
-            # DeFi (10)
             "MKR/EUR", "COMP/EUR", "YFI/EUR", "SNX/EUR", "CRV/EUR",
             "SUSHI/EUR", "1INCH/EUR", "LRC/EUR", "GRT/EUR", "BAT/EUR",
-            # Layer 1 & Metaverse (10)
             "NEAR/EUR", "FTM/EUR", "ONE/EUR", "EGLD/EUR", "ICP/EUR",
             "FLOW/EUR", "CHZ/EUR", "ENJ/EUR", "MANA/EUR", "SAND/EUR",
-            # Memes & Divers (10)
             "DOGE/EUR", "SHIB/EUR", "TRX/EUR", "XMR/EUR", "DASH/EUR",
-            "ZEC/EUR", "WAVES/EUR", "THETA/EUR", "VET/EUR", "HBAR/EUR"
+            "ZEC/EUR", "WAVES/EUR", "THETA/EUR", "VET/EUR", "HBAR/EUR",
         ]
-        
-        # 20 Forex
         FOREX_PAIRS = [
-            # Majors (4)
             "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF",
-            # Commodities (3)
             "AUD/USD", "USD/CAD", "NZD/USD",
-            # Euro crosses (3)
             "EUR/GBP", "EUR/JPY", "EUR/CHF",
-            # Other crosses (3)
             "GBP/JPY", "GBP/CHF", "CHF/JPY",
-            # Yen crosses (3)
             "AUD/JPY", "CAD/JPY", "NZD/JPY",
-            # Minor crosses (4)
-            "EUR/AUD", "EUR/CAD", "GBP/AUD", "AUD/CAD"
+            "EUR/AUD", "EUR/CAD", "GBP/AUD", "AUD/CAD",
         ]
-        
-        all_symbols = CRYPTO_PAIRS + FOREX_PAIRS
-        logger.info(f"📊 Analyse de {len(all_symbols)} paires (50 cryptos + 20 forex)")
-        
+
+        if self.use_universe_manager and self.universe_manager is not None:
+            preferred_symbols = CRYPTO_PAIRS + FOREX_PAIRS
+            self.universe_manager.initialize(preferred_symbols=preferred_symbols)
+            all_symbols = sorted(self.universe_manager.get_supported_universe())
+            logger.info(
+                "📊 Analyse univers manager: %s paires supportées",
+                len(all_symbols),
+            )
+        else:
+            all_symbols = CRYPTO_PAIRS + FOREX_PAIRS
+            logger.info(f"📊 Analyse de {len(all_symbols)} paires (50 cryptos + 20 forex)")
+
         markets = []
         for symbol in all_symbols:
             metrics = self.analyzer.analyze_market(symbol)
             if metrics:
                 markets.append(metrics)
-        
+
         logger.info(f"✅ {len(markets)} marchés disponibles après analyse")
         return markets
-    
+
     def _filter_candidates(self, markets: List, current_markets: Dict[str, int]) -> List:
         """Filtre les marchés candidats selon critères"""
         candidates = []
         
         for market in markets:
+            if self.use_universe_manager and self.universe_manager is not None:
+                eligible = self.universe_manager.get_eligible_universe()
+                if eligible and market.symbol not in eligible:
+                    continue
             # P0: ne pas ouvrir de nouvelles instances FOREX par défaut
             if (
                 market.market_type == MarketType.FOREX
@@ -202,7 +221,19 @@ class MarketSelector:
         
         # Trier par score composite
         candidates.sort(key=lambda m: m.composite_score, reverse=True)
-        
+        if self.use_universe_manager and self.universe_manager is not None:
+            if self.use_pair_ranking_engine:
+                scored = self.universe_manager.get_scored_universe()
+                candidates = [
+                    m for m in candidates
+                    if float(scored.get(m.symbol, {}).get("score", 0.0)) >= RANKING_MIN_SCORE_ACTIVATE
+                ]
+                ranked_symbols = self.universe_manager.get_ranked_universe()
+                rank_idx = {s: i for i, s in enumerate(ranked_symbols)}
+                candidates.sort(key=lambda m: rank_idx.get(m.symbol, 10**9))
+            else:
+                self.universe_manager.update_ranked_universe([m.symbol for m in candidates])
+
         return candidates
     
     def _select_from_candidates(self, candidates: List, current_markets: Dict) -> Optional[MarketSelection]:

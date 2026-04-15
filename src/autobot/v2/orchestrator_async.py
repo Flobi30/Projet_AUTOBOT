@@ -83,8 +83,56 @@ from .config import (
     SAFETY_MAX_BLOCK_RATIO,
     SAFETY_EMERGENCY_CYCLE_MS,
     SAFETY_EMERGENCY_CONSECUTIVE,
+    ENABLE_UNIVERSE_MANAGER,
+    UNIVERSE_ENABLE_FOREX,
+    UNIVERSE_MAX_ELIGIBLE,
+    UNIVERSE_MAX_SUPPORTED,
+    ENABLE_PAIR_RANKING_ENGINE,
+    RANKING_MIN_SCORE_ACTIVATE,
+    RANKING_UPDATE_SECONDS,
+    ENABLE_SCALABILITY_GUARD,
+    SCALING_GUARD_CPU_PCT_MAX,
+    SCALING_GUARD_MEMORY_PCT_MAX,
+    SCALING_GUARD_WS_STALE_SECONDS_MAX,
+    SCALING_GUARD_WS_LAG_MAX,
+    SCALING_GUARD_EXEC_FAILURE_RATE_MAX,
+    SCALING_GUARD_RECON_MISMATCH_MAX,
+    SCALING_GUARD_PF_MIN,
+    SCALING_GUARD_VALIDATION_FAIL_MAX,
+    ENABLE_INSTANCE_ACTIVATION_MANAGER,
+    ACTIVATION_DEFAULT_TIER,
+    ACTIVATION_PROMOTE_SCORE_MIN,
+    ACTIVATION_DEMOTE_SCORE_MAX,
+    ACTIVATION_PROMOTE_HEALTH_MIN,
+    ACTIVATION_DEMOTE_HEALTH_MAX,
+    ACTIVATION_HYSTERESIS_CYCLES,
+    ACTIVATION_COOLDOWN_SECONDS,
+    ENABLE_PORTFOLIO_ALLOCATOR,
+    PORTFOLIO_MAX_CAPITAL_PER_INSTANCE_RATIO,
+    PORTFOLIO_MAX_CAPITAL_PER_CLUSTER_RATIO,
+    PORTFOLIO_RESERVE_CASH_RATIO,
+    PORTFOLIO_MAX_TOTAL_ACTIVE_RISK_RATIO,
+    PORTFOLIO_RISK_PER_CAPITAL_RATIO,
 )
 from .risk_manager import OrchestratorRiskManager
+from .universe_manager import UniverseManager
+from .pair_ranking_engine import PairRankingEngine
+from .scalability_guard import (
+    GuardInput,
+    GuardThresholds,
+    ScalabilityGuard,
+    ScalingState,
+)
+from .global_kill_switch import GlobalKillSwitchStore
+from .instance_activation_manager import (
+    ActivationInput,
+    InstanceActivationManager,
+)
+from .portfolio_allocator import (
+    AllocationConstraints,
+    AllocationPlan,
+    PortfolioAllocator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +370,8 @@ class OrchestratorAsync:
             "check_interval": 30,  # minutes
             "max_drawdown_global": 0.30,
         }
+        if self.instance_activation_manager is None:
+            self._activation_target_instances = self.config["max_instances"]
 
         # State
         self.running = False
@@ -335,6 +385,86 @@ class OrchestratorAsync:
 
         # Circuit breaker
         self._setup_circuit_breaker()
+
+        # Universe manager (Lot 1) - disabled by default for safe rollout
+        self.universe_manager: Optional[UniverseManager] = None
+        self.pair_ranking_engine: Optional[PairRankingEngine] = None
+        if ENABLE_UNIVERSE_MANAGER:
+            self.universe_manager = UniverseManager(
+                max_supported=UNIVERSE_MAX_SUPPORTED,
+                max_eligible=UNIVERSE_MAX_ELIGIBLE,
+                enable_forex=UNIVERSE_ENABLE_FOREX,
+            )
+            self.universe_manager.initialize()
+            if ENABLE_PAIR_RANKING_ENGINE:
+                self.pair_ranking_engine = PairRankingEngine(
+                    universe_manager=self.universe_manager,
+                    update_seconds=RANKING_UPDATE_SECONDS,
+                    min_score_activate=RANKING_MIN_SCORE_ACTIVATE,
+                )
+
+        self.scalability_guard: Optional[ScalabilityGuard] = None
+        self.scalability_guard_state = ScalingState.ALLOW_SCALE_UP
+        self._scalability_guard_last: Dict[str, Any] = {
+            "state": self.scalability_guard_state.value,
+            "reasons": [],
+            "signals": {},
+        }
+        self._global_kill_store: Optional[GlobalKillSwitchStore] = None
+        if ENABLE_SCALABILITY_GUARD:
+            self.scalability_guard = ScalabilityGuard(
+                GuardThresholds(
+                    cpu_pct_max=SCALING_GUARD_CPU_PCT_MAX,
+                    memory_pct_max=SCALING_GUARD_MEMORY_PCT_MAX,
+                    ws_stale_seconds_max=SCALING_GUARD_WS_STALE_SECONDS_MAX,
+                    ws_lag_max=SCALING_GUARD_WS_LAG_MAX,
+                    execution_failure_rate_max=SCALING_GUARD_EXEC_FAILURE_RATE_MAX,
+                    reconciliation_mismatch_max=SCALING_GUARD_RECON_MISMATCH_MAX,
+                )
+            )
+            try:
+                self._global_kill_store = GlobalKillSwitchStore()
+            except Exception:
+                self._global_kill_store = None
+
+        self.instance_activation_manager: Optional[InstanceActivationManager] = None
+        self._activation_target_instances = self.config["max_instances"] if hasattr(self, "config") else 2000
+        self._activation_last: Dict[str, Any] = {
+            "action": "hold",
+            "target_instances": 1,
+            "target_tier": 1,
+            "selected_symbols": [],
+            "reason": "disabled",
+        }
+        if ENABLE_INSTANCE_ACTIVATION_MANAGER:
+            self.instance_activation_manager = InstanceActivationManager(
+                default_tier=ACTIVATION_DEFAULT_TIER,
+                promote_score_min=ACTIVATION_PROMOTE_SCORE_MIN,
+                demote_score_max=ACTIVATION_DEMOTE_SCORE_MAX,
+                promote_health_min=ACTIVATION_PROMOTE_HEALTH_MIN,
+                demote_health_max=ACTIVATION_DEMOTE_HEALTH_MAX,
+                hysteresis_cycles=ACTIVATION_HYSTERESIS_CYCLES,
+                cooldown_seconds=ACTIVATION_COOLDOWN_SECONDS,
+            )
+            self._activation_target_instances = self.instance_activation_manager.current_tier
+            self._activation_last.update({
+                "target_instances": self._activation_target_instances,
+                "target_tier": self._activation_target_instances,
+                "reason": "enabled_default",
+            })
+
+        self.portfolio_allocator: Optional[PortfolioAllocator] = None
+        self._portfolio_plan: Optional[AllocationPlan] = None
+        if ENABLE_PORTFOLIO_ALLOCATOR:
+            self.portfolio_allocator = PortfolioAllocator(
+                AllocationConstraints(
+                    max_capital_per_instance_ratio=PORTFOLIO_MAX_CAPITAL_PER_INSTANCE_RATIO,
+                    max_capital_per_cluster_ratio=PORTFOLIO_MAX_CAPITAL_PER_CLUSTER_RATIO,
+                    reserve_cash_ratio=PORTFOLIO_RESERVE_CASH_RATIO,
+                    max_total_active_risk_ratio=PORTFOLIO_MAX_TOTAL_ACTIVE_RISK_RATIO,
+                    risk_per_capital_ratio=PORTFOLIO_RISK_PER_CAPITAL_RATIO,
+                )
+            )
 
         # Market selector (reuse sync version)
         try:
@@ -534,8 +664,11 @@ class OrchestratorAsync:
         except ImportError:
             pass  # psutil optionnel
 
-        if len(self._instances) >= self.config["max_instances"]:
-            logger.warning(f"⚠️ Limite instances: {self.config['max_instances']}")
+        max_instances_cap = self.config["max_instances"]
+        if self.instance_activation_manager is not None:
+            max_instances_cap = max(1, int(self._activation_target_instances))
+        if len(self._instances) >= max_instances_cap:
+            logger.warning(f"⚠️ Limite instances: {max_instances_cap}")
             return None
 
         instance_id = str(uuid.uuid4())[:8]
@@ -675,6 +808,10 @@ class OrchestratorAsync:
     # ------------------------------------------------------------------
 
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
+        if self.scalability_guard is not None and self.scalability_guard_state != ScalingState.ALLOW_SCALE_UP:
+            logger.info("⏳ Spin-off bloqué par ScalabilityGuard: %s", self.scalability_guard_state.value)
+            return None
+
         capital = parent.get_current_capital()
         pf_30d = parent.get_profit_factor_days(30)
         # Une seule instance enfant active max par parent
@@ -802,6 +939,196 @@ class OrchestratorAsync:
             None, _get_available_capital_real, self.api_key, self.api_secret
         )
 
+    async def _evaluate_scalability_guard(self) -> None:
+        if self.scalability_guard is None:
+            return
+
+        cpu_pct = 0.0
+        memory_pct = 0.0
+        try:
+            import psutil
+
+            cpu_pct = float(psutil.cpu_percent(interval=0.0))
+            memory_pct = float(psutil.virtual_memory().percent)
+        except Exception:
+            pass
+
+        ws_connected = bool(self.ws_client.is_connected())
+        ws_stale_seconds = 0.0
+        ws_lag = 0
+        try:
+            fresh = bool(self.ring_dispatcher.is_data_fresh(SCALING_GUARD_WS_STALE_SECONDS_MAX))
+            ws_stale_seconds = 0.0 if fresh else float(SCALING_GUARD_WS_STALE_SECONDS_MAX + 1.0)
+            ws_lag = int(getattr(self.ring_dispatcher, "stats", {}).get("total_lag", 0))
+        except Exception:
+            pass
+
+        failures = sum(float(v.get("failures", 0.0)) for v in self._module_backoff.values())
+        total_actions = max(
+            1.0,
+            float(self._decision_stats.get("entry_actions", 0)
+            + self._decision_stats.get("add_actions", 0)
+            + self._decision_stats.get("exit_actions", 0)),
+        )
+        execution_failure_rate = min(1.0, failures / total_actions)
+
+        reconciliation_mismatch_ratio = 0.0
+        try:
+            rec_stats = self.reconciliation_manager.get_stats() if self.reconciliation_manager else {}
+            if rec_stats and not rec_stats.get("is_running", True):
+                reconciliation_mismatch_ratio = 1.0
+        except Exception:
+            pass
+
+        kill_switch_tripped = bool(self.safety_guard.emergency_mode)
+        if not kill_switch_tripped and self._global_kill_store is not None:
+            try:
+                kill_switch_tripped = bool(self._global_kill_store.get().tripped)
+            except Exception:
+                kill_switch_tripped = False
+
+        running_instances = [inst for inst in self._instances.values() if inst.is_running()]
+        pf_degraded = False
+        if running_instances:
+            avg_pf = sum(float(inst.get_profit_factor_days(30)) for inst in running_instances) / len(running_instances)
+            pf_degraded = avg_pf < SCALING_GUARD_PF_MIN
+
+        validation_degraded = False
+        if self._last_validation_guard:
+            fails = sum(1 for v in self._last_validation_guard.values() if not bool(v.get("passed", True)))
+            validation_degraded = (fails / max(1, len(self._last_validation_guard))) > SCALING_GUARD_VALIDATION_FAIL_MAX
+
+        decision = self.scalability_guard.evaluate(
+            GuardInput(
+                cpu_pct=cpu_pct,
+                memory_pct=memory_pct,
+                ws_connected=ws_connected,
+                ws_stale_seconds=ws_stale_seconds,
+                ws_total_lag=ws_lag,
+                execution_failure_rate=execution_failure_rate,
+                reconciliation_mismatch_ratio=reconciliation_mismatch_ratio,
+                kill_switch_tripped=kill_switch_tripped,
+                pf_degraded=pf_degraded,
+                validation_degraded=validation_degraded,
+            )
+        )
+        self.scalability_guard_state = decision.state
+        self._scalability_guard_last = {
+            "state": decision.state.value,
+            "reasons": list(decision.reasons),
+            "signals": dict(decision.signals),
+        }
+
+    async def _apply_instance_activation_policy(self) -> None:
+        if self.instance_activation_manager is None:
+            return
+
+        ranked_symbols: List[str] = []
+        scored_map: Dict[str, Dict[str, Any]] = {}
+        if self.pair_ranking_engine is not None:
+            ranked_symbols = list(self.pair_ranking_engine.get_active_symbols())
+            scored_map = self.universe_manager.get_scored_universe() if self.universe_manager else {}
+        elif self.universe_manager is not None:
+            ranked_symbols = list(self.universe_manager.get_ranked_universe())
+            scored_map = self.universe_manager.get_scored_universe()
+
+        if not ranked_symbols:
+            ranked_symbols = sorted({inst.config.symbol for inst in self._instances.values()})
+
+        score_values = [
+            float(scored_map.get(sym, {}).get("score", 0.0))
+            for sym in ranked_symbols
+            if sym in scored_map
+        ]
+        avg_rank_score = (sum(score_values) / len(score_values)) if score_values else 0.0
+
+        decision = self.instance_activation_manager.decide(
+            ActivationInput(
+                ranked_symbols=ranked_symbols,
+                avg_rank_score=avg_rank_score,
+                guard_state=self.scalability_guard_state,
+                health_score=self._compute_health_score(),
+                running_instances=len([i for i in self._instances.values() if i.is_running()]),
+                now_ts=perf_counter(),
+            )
+        )
+        self._activation_target_instances = max(1, int(decision.target_instances))
+        self._activation_last = {
+            "action": decision.action,
+            "target_instances": self._activation_target_instances,
+            "target_tier": int(decision.target_tier),
+            "selected_symbols": list(decision.selected_symbols),
+            "reason": decision.reason,
+        }
+
+        # Demote path: reduce non-parent instances to target cap (conservative).
+        running = [inst for inst in self._instances.values() if inst.is_running() and inst.id != self.parent_instance_id]
+        excess = max(0, len(self._instances) - self._activation_target_instances)
+        if excess > 0:
+            victims = sorted(
+                running,
+                key=lambda inst: float(getattr(inst, "get_profit_factor_days", lambda _d: 1.0)(30)),
+            )[:excess]
+            for victim in victims:
+                await self.remove_instance(victim.id)
+
+    def _refresh_portfolio_allocation_plan(self) -> None:
+        if self.portfolio_allocator is None:
+            self._portfolio_plan = None
+            return
+
+        active_instances = [inst for inst in self._instances.values() if inst.is_running()]
+        ranked_symbols: List[str] = []
+        if isinstance(self._activation_last.get("selected_symbols"), list):
+            ranked_symbols = [str(s) for s in self._activation_last.get("selected_symbols", [])]
+        if not ranked_symbols and self.pair_ranking_engine is not None:
+            ranked_symbols = list(self.pair_ranking_engine.get_active_symbols())
+        if not ranked_symbols:
+            ranked_symbols = sorted({inst.config.symbol for inst in active_instances})
+
+        symbol_exposure: Dict[str, float] = {}
+        for inst in active_instances:
+            symbol = str(inst.config.symbol)
+            symbol_exposure[symbol] = symbol_exposure.get(symbol, 0.0) + max(0.0, float(inst.get_current_capital()))
+
+        cluster_exposure = self.risk_cluster_manager.exposure_by_cluster(active_instances)
+        total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances)
+        if total_capital <= 0.0:
+            total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in self._instances.values())
+
+        # Lightweight active-risk proxy based on current exposures.
+        current_active_risk = 0.0
+        if self.portfolio_allocator is not None:
+            current_active_risk = total_capital * self.portfolio_allocator.constraints.risk_per_capital_ratio
+
+        symbol_to_cluster = {
+            sym: self.risk_cluster_manager.cluster_for_symbol(sym)
+            for sym in ranked_symbols
+        }
+
+        self._portfolio_plan = self.portfolio_allocator.build_plan(
+            ranked_candidates=ranked_symbols,
+            total_capital=total_capital,
+            current_symbol_exposure=symbol_exposure,
+            current_cluster_exposure=dict(cluster_exposure),
+            current_active_risk=current_active_risk,
+            symbol_to_cluster=symbol_to_cluster,
+        )
+
+    async def _apply_force_reduce_once(self) -> None:
+        """Conservative scale-down when guard is in FORCE_REDUCE state."""
+        removable = [
+            inst for iid, inst in self._instances.items()
+            if iid != self.parent_instance_id and inst.is_running()
+        ]
+        if not removable:
+            return
+        worst = min(
+            removable,
+            key=lambda inst: float(getattr(inst, "get_profit_factor_days", lambda _d: 1.0)(30)),
+        )
+        await self.remove_instance(worst.id)
+
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
@@ -810,6 +1137,13 @@ class OrchestratorAsync:
         logger.info("🚀 OrchestratorAsync main loop démarré")
         while self.running:
             try:
+                if self.pair_ranking_engine is not None:
+                    self.pair_ranking_engine.refresh_if_due()
+                await self._evaluate_scalability_guard()
+                await self._apply_instance_activation_policy()
+                self._refresh_portfolio_allocation_plan()
+                if self.scalability_guard_state == ScalingState.FORCE_REDUCE:
+                    await self._apply_force_reduce_once()
                 instances = self.decision.select_instances_for_cycle()
                 for inst in instances:
                     if not inst.is_running():
@@ -1593,6 +1927,13 @@ class OrchestratorAsync:
                     "warning",
                     f"symbol={instance.config.symbol} cluster_mult={cluster_mult:.3f}",
                 )
+            if self._portfolio_plan is not None:
+                symbol = str(instance.config.symbol)
+                envelope = float(self._portfolio_plan.symbol_caps.get(symbol, 0.0))
+                if envelope > 0.0:
+                    final_size = min(final_size, envelope)
+                else:
+                    final_size = 0.0
             logger.info("Risk multiplier applied: %.2f", risk_multiplier)
             return float(final_size)
         except Exception as exc:
@@ -2040,6 +2381,19 @@ class OrchestratorAsync:
             "cluster_exposure": self.risk_cluster_manager.exposure_by_cluster(
                 [inst for inst in self._instances.values() if inst.is_running()]
             ),
+            "scalability_guard": dict(self._scalability_guard_last),
+            "activation": dict(self._activation_last),
+            "portfolio_allocator": {
+                "enabled": self.portfolio_allocator is not None,
+                "plan": {
+                    "symbol_caps": dict(self._portfolio_plan.symbol_caps),
+                    "total_allocated": float(self._portfolio_plan.total_allocated),
+                    "reserve_cash": float(self._portfolio_plan.reserve_cash),
+                    "risk_budget_remaining": float(self._portfolio_plan.risk_budget_remaining),
+                    "reasons": dict(self._portfolio_plan.reasons),
+                    "explain": dict(self._portfolio_plan.explain),
+                } if self._portfolio_plan else None,
+            },
             "safety": {
                 "emergency_mode": self.safety_guard.emergency_mode,
                 "dsr_last_ms": float(self.robustness_guard._last_dsr_exec_ms),
