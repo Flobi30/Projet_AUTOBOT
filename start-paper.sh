@@ -27,6 +27,15 @@ fi
 # Créer répertoires
 mkdir -p data logs
 
+# Validation pré-lancement (helper opérateur)
+if [ -f tools/paper_ops.py ]; then
+    echo "🧪 Validation pre-launch (.env)..."
+    python tools/paper_ops.py validate --env-file .env || {
+        echo "❌ Validation paper échouée. Corrigez .env puis relancez."
+        exit 1
+    }
+fi
+
 # Lancer
 echo "📦 Démarrage des conteneurs..."
 docker-compose up --build -d
