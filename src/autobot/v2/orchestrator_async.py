@@ -113,6 +113,8 @@ from .config import (
     PORTFOLIO_RESERVE_CASH_RATIO,
     PORTFOLIO_MAX_TOTAL_ACTIVE_RISK_RATIO,
     PORTFOLIO_RISK_PER_CAPITAL_RATIO,
+    ENABLE_DECISION_JOURNAL,
+    DECISION_JOURNAL_MAX_SYMBOLS,
 )
 from .risk_manager import OrchestratorRiskManager
 from .universe_manager import UniverseManager
@@ -132,6 +134,17 @@ from .portfolio_allocator import (
     AllocationConstraints,
     AllocationPlan,
     PortfolioAllocator,
+)
+from .decision_journal import (
+    DecisionJournal,
+    journal_from_env,
+    REJECTION_REASON_ALLOCATION_ENVELOPE_BLOCKED,
+    REJECTION_REASON_BLACK_SWAN_EMERGENCY_BLOCK,
+    REJECTION_REASON_RANKING_BELOW_THRESHOLD,
+    REJECTION_REASON_REPEATED_AUTO_ACTION_BLOCK,
+    REJECTION_REASON_SCALABILITY_GUARD_BLOCK,
+    REJECTION_REASON_SYMBOL_NOT_SELECTED,
+    REJECTION_REASON_VALIDATION_GUARD_BLOCK,
 )
 
 logger = logging.getLogger(__name__)
@@ -269,6 +282,13 @@ class OrchestratorAsync:
             "reason": "startup",
             "timestamp": None,
         }
+        self.decision_journal: DecisionJournal = journal_from_env()
+        self._decision_journal_enabled = bool(ENABLE_DECISION_JOURNAL)
+        self._journal_last_ranking_fp: Optional[str] = None
+        self._journal_last_guard_state: str = ScalingState.ALLOW_SCALE_UP.value
+        self._journal_last_guard_fp: Optional[str] = None
+        self._journal_last_allocation_fp: Optional[str] = None
+        self._journal_last_rejected_ranking_fp: Optional[str] = None
         self.runtime_constraints: Dict[str, int] = {
             "max_instances_per_cycle": MAX_INSTANCES_PER_CYCLE,
             "websocket_streams": WEBSOCKET_STREAMS,
@@ -810,6 +830,15 @@ class OrchestratorAsync:
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
         if self.scalability_guard is not None and self.scalability_guard_state != ScalingState.ALLOW_SCALE_UP:
             logger.info("⏳ Spin-off bloqué par ScalabilityGuard: %s", self.scalability_guard_state.value)
+            self._journal_rejected_opportunity(
+                reason=REJECTION_REASON_SCALABILITY_GUARD_BLOCK,
+                source="check_spin_off",
+                symbol=str(parent.config.symbol),
+                context={
+                    "parent_instance_id": parent.id,
+                    "guard_state": self.scalability_guard_state.value,
+                },
+            )
             return None
 
         capital = parent.get_current_capital()
@@ -1018,6 +1047,27 @@ class OrchestratorAsync:
             "reasons": list(decision.reasons),
             "signals": dict(decision.signals),
         }
+        guard_fp = self._fingerprint(
+            {
+                "state": decision.state.value,
+                "reasons": list(decision.reasons),
+            }
+        )
+        if (
+            decision.state.value != self._journal_last_guard_state
+            or guard_fp != self._journal_last_guard_fp
+        ):
+            self._journal_last_guard_state = decision.state.value
+            self._journal_last_guard_fp = guard_fp
+            self._journal_major_decision(
+                decision_type="guard_decision",
+                source="scalability_guard",
+                reasons=list(decision.reasons),
+                context={
+                    "state": decision.state.value,
+                    "signals": dict(decision.signals),
+                },
+            )
 
     async def _apply_instance_activation_policy(self) -> None:
         if self.instance_activation_manager is None:
@@ -1041,6 +1091,30 @@ class OrchestratorAsync:
             if sym in scored_map
         ]
         avg_rank_score = (sum(score_values) / len(score_values)) if score_values else 0.0
+        below_threshold_symbols = [
+            sym
+            for sym in ranked_symbols
+            if sym in scored_map and float(scored_map.get(sym, {}).get("score", 0.0)) < float(RANKING_MIN_SCORE_ACTIVATE)
+        ]
+        if below_threshold_symbols:
+            low_fp = self._fingerprint(
+                {
+                    "symbols": below_threshold_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))],
+                    "threshold": float(RANKING_MIN_SCORE_ACTIVATE),
+                }
+            )
+            if low_fp != self._journal_last_rejected_ranking_fp:
+                self._journal_last_rejected_ranking_fp = low_fp
+                for sym in below_threshold_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]:
+                    self._journal_rejected_opportunity(
+                        reason=REJECTION_REASON_RANKING_BELOW_THRESHOLD,
+                        source="instance_activation_policy",
+                        symbol=sym,
+                        context={
+                            "score": float(scored_map.get(sym, {}).get("score", 0.0)),
+                            "min_score_activate": float(RANKING_MIN_SCORE_ACTIVATE),
+                        },
+                    )
 
         decision = self.instance_activation_manager.decide(
             ActivationInput(
@@ -1060,6 +1134,37 @@ class OrchestratorAsync:
             "selected_symbols": list(decision.selected_symbols),
             "reason": decision.reason,
         }
+        if decision.action in {"promote", "demote", "freeze"}:
+            self._journal_major_decision(
+                decision_type="activation_decision",
+                source="instance_activation_manager",
+                symbols=list(decision.selected_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]),
+                reasons=[decision.reason],
+                context={
+                    "action": decision.action,
+                    "target_instances": int(self._activation_target_instances),
+                    "target_tier": int(decision.target_tier),
+                    "avg_rank_score": float(avg_rank_score),
+                    "guard_state": self.scalability_guard_state.value,
+                    "running_instances": len([i for i in self._instances.values() if i.is_running()]),
+                },
+            )
+        if decision.action in {"promote", "demote", "freeze"}:
+            selected_set = set(str(s) for s in decision.selected_symbols)
+            not_selected = [
+                sym for sym in ranked_symbols
+                if str(sym) not in selected_set
+            ]
+            for sym in not_selected[: max(0, int(DECISION_JOURNAL_MAX_SYMBOLS) - len(decision.selected_symbols))]:
+                self._journal_rejected_opportunity(
+                    reason=REJECTION_REASON_SYMBOL_NOT_SELECTED,
+                    source="instance_activation_policy",
+                    symbol=str(sym),
+                    context={
+                        "action": decision.action,
+                        "target_tier": int(decision.target_tier),
+                    },
+                )
 
         # Demote path: reduce non-parent instances to target cap (conservative).
         running = [inst for inst in self._instances.values() if inst.is_running() and inst.id != self.parent_instance_id]
@@ -1114,6 +1219,32 @@ class OrchestratorAsync:
             current_active_risk=current_active_risk,
             symbol_to_cluster=symbol_to_cluster,
         )
+        if self._portfolio_plan is not None:
+            top_symbols = list(self._portfolio_plan.symbol_caps.keys())[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]
+            fp = self._fingerprint(
+                {
+                    "symbol_caps": {k: round(float(v), 2) for k, v in self._portfolio_plan.symbol_caps.items()},
+                    "reasons": dict(self._portfolio_plan.reasons),
+                    "risk_budget_remaining": round(float(self._portfolio_plan.risk_budget_remaining), 6),
+                }
+            )
+            if fp != self._journal_last_allocation_fp:
+                self._journal_last_allocation_fp = fp
+                self._journal_major_decision(
+                    decision_type="allocation_decision",
+                    source="portfolio_allocator",
+                    symbols=top_symbols,
+                    reasons=list(self._portfolio_plan.reasons.values()),
+                    context={
+                        "total_allocated": float(self._portfolio_plan.total_allocated),
+                        "reserve_cash": float(self._portfolio_plan.reserve_cash),
+                        "risk_budget_remaining": float(self._portfolio_plan.risk_budget_remaining),
+                        "symbol_caps": {
+                            k: float(v)
+                            for k, v in list(self._portfolio_plan.symbol_caps.items())[: int(DECISION_JOURNAL_MAX_SYMBOLS)]
+                        },
+                    },
+                )
 
     async def _apply_force_reduce_once(self) -> None:
         """Conservative scale-down when guard is in FORCE_REDUCE state."""
@@ -1127,6 +1258,16 @@ class OrchestratorAsync:
             removable,
             key=lambda inst: float(getattr(inst, "get_profit_factor_days", lambda _d: 1.0)(30)),
         )
+        self._journal_major_decision(
+            decision_type="guard_force_reduce",
+            source="scalability_guard",
+            symbols=[str(worst.config.symbol)],
+            reasons=["force_reduce_remove_worst_pf"],
+            context={
+                "instance_id": worst.id,
+                "pf30": float(getattr(worst, "get_profit_factor_days", lambda _d: 1.0)(30)),
+            },
+        )
         await self.remove_instance(worst.id)
 
     # ------------------------------------------------------------------
@@ -1139,6 +1280,27 @@ class OrchestratorAsync:
             try:
                 if self.pair_ranking_engine is not None:
                     self.pair_ranking_engine.refresh_if_due()
+                    ranked_symbols = list(self.pair_ranking_engine.get_active_symbols())
+                    scored_map = self.universe_manager.get_scored_universe() if self.universe_manager else {}
+                    top_symbols = ranked_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]
+                    score_snapshot = {
+                        sym: float(scored_map.get(sym, {}).get("score", 0.0))
+                        for sym in top_symbols
+                    }
+                    fp = self._fingerprint({"top_symbols": top_symbols, "scores": score_snapshot})
+                    if fp != self._journal_last_ranking_fp:
+                        self._journal_last_ranking_fp = fp
+                        self._journal_major_decision(
+                            decision_type="ranking_decision",
+                            source="pair_ranking_engine",
+                            symbols=top_symbols,
+                            reasons=["ranking_refresh"],
+                            context={
+                                "top_symbols_count": len(top_symbols),
+                                "min_score_activate": float(RANKING_MIN_SCORE_ACTIVATE),
+                                "scores": score_snapshot,
+                            },
+                        )
                 await self._evaluate_scalability_guard()
                 await self._apply_instance_activation_policy()
                 self._refresh_portfolio_allocation_plan()
@@ -1261,6 +1423,50 @@ class OrchestratorAsync:
         if not self.safety_guard.check_performance_budget(self._loop_metrics["process_cycle_ms"]):
             self._activate_emergency_mode("cycle budget exceeded")
 
+    def _journal_major_decision(
+        self,
+        *,
+        decision_type: str,
+        source: str,
+        symbols: Optional[List[str]] = None,
+        reasons: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self._decision_journal_enabled:
+            return
+        self.decision_journal.log(
+            decision_type=decision_type,
+            source=source,
+            symbols=symbols or [],
+            reasons=reasons or [],
+            context=context or {},
+            session_id=os.getenv("DECISION_JOURNAL_SESSION_ID", "").strip() or None,
+        )
+
+    def _journal_rejected_opportunity(
+        self,
+        *,
+        reason: str,
+        source: str,
+        symbol: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        symbols = [str(symbol)] if symbol else []
+        self._journal_major_decision(
+            decision_type="rejected_opportunity",
+            source=source,
+            symbols=symbols,
+            reasons=[reason],
+            context=context or {},
+        )
+
+    def _fingerprint(self, payload: Any) -> str:
+        try:
+            import json
+            return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        except Exception:
+            return repr(payload)
+
     def _set_last_decision(self, instance_id: str, action: str, reason: str) -> None:
         priority = self.decision_policy.get(action, 0)
         self._last_decision = {
@@ -1378,6 +1584,19 @@ class OrchestratorAsync:
                     event.get("type", "unknown"),
                     instance.id,
                 )
+                self._journal_major_decision(
+                    decision_type="entry_block_decision",
+                    source="black_swan_guard",
+                    symbols=[str(instance.config.symbol)],
+                    reasons=[str(event.get("type", "unknown"))],
+                    context={"instance_id": instance.id, "event": dict(event)},
+                )
+                self._journal_rejected_opportunity(
+                    reason=REJECTION_REASON_BLACK_SWAN_EMERGENCY_BLOCK,
+                    source="black_swan_guard",
+                    symbol=str(instance.config.symbol),
+                    context={"instance_id": instance.id, "event": dict(event)},
+                )
                 await self._emergency_close_all()
                 return True
         except Exception as exc:
@@ -1423,6 +1642,29 @@ class OrchestratorAsync:
                 "validation_guard",
                 "warning",
                 f"blocked wf_pf={result.get('wf_oos_pf', 0.0):.3f} dsr={result.get('dsr', 0.0):.3f}",
+            )
+            self._journal_major_decision(
+                decision_type="entry_block_decision",
+                source="validation_guard",
+                symbols=[str(instance.config.symbol)],
+                reasons=["validation_guard_blocked"],
+                context={
+                    "instance_id": instance.id,
+                    "wf_oos_pf": float(result.get("wf_oos_pf", 0.0)),
+                    "dsr": float(result.get("dsr", 0.0)),
+                    "pass_score": float(result.get("pass", 0.0)),
+                    "blocked_24h": int(self._wf_blocked_24h),
+                },
+            )
+            self._journal_rejected_opportunity(
+                reason=REJECTION_REASON_VALIDATION_GUARD_BLOCK,
+                source="validation_guard",
+                symbol=str(instance.config.symbol),
+                context={
+                    "instance_id": instance.id,
+                    "wf_oos_pf": float(result.get("wf_oos_pf", 0.0)),
+                    "dsr": float(result.get("dsr", 0.0)),
+                },
             )
             return False
         self._record_module_event("validation_guard", "ok")
@@ -1600,6 +1842,27 @@ class OrchestratorAsync:
                     "⛔ Repeated auto-action limit hit: inst=%s count=%d",
                     instance.id,
                     repeated_actions,
+                )
+                self._journal_major_decision(
+                    decision_type="entry_block_decision",
+                    source="entry_rate_guard",
+                    symbols=[str(instance.config.symbol)],
+                    reasons=["repeated_auto_action_limit"],
+                    context={
+                        "instance_id": instance.id,
+                        "repeated_actions": int(repeated_actions),
+                        "max_repeated_auto_actions": int(self.max_repeated_auto_actions),
+                    },
+                )
+                self._journal_rejected_opportunity(
+                    reason=REJECTION_REASON_REPEATED_AUTO_ACTION_BLOCK,
+                    source="entry_rate_guard",
+                    symbol=str(instance.config.symbol),
+                    context={
+                        "instance_id": instance.id,
+                        "repeated_actions": int(repeated_actions),
+                        "max_repeated_auto_actions": int(self.max_repeated_auto_actions),
+                    },
                 )
                 return False
             if not self._can_emit_trade_action(instance.id):
@@ -1934,6 +2197,16 @@ class OrchestratorAsync:
                     final_size = min(final_size, envelope)
                 else:
                     final_size = 0.0
+                    self._journal_rejected_opportunity(
+                        reason=REJECTION_REASON_ALLOCATION_ENVELOPE_BLOCKED,
+                        source="position_sizing",
+                        symbol=symbol,
+                        context={
+                            "instance_id": instance.id,
+                            "envelope": float(envelope),
+                            "reason": str(self._portfolio_plan.reasons.get(symbol, "no_symbol_cap")),
+                        },
+                    )
             logger.info("Risk multiplier applied: %.2f", risk_multiplier)
             return float(final_size)
         except Exception as exc:
@@ -2320,6 +2593,7 @@ class OrchestratorAsync:
 
         # Stop optional modules
         await self.module_manager.stop()
+        self.decision_journal.close()
 
         await self.order_executor.close()
 
@@ -2371,6 +2645,10 @@ class OrchestratorAsync:
                 k: v for k, v in list(self._pair_risk_state.items())[:20]
             },
             "hardening_flags": dict(self.hardening_flags),
+            "decision_journal": {
+                "enabled": bool(self._decision_journal_enabled),
+                "path": str(getattr(self.decision_journal, "path", "")),
+            },
             "decision_policy": dict(self.decision_policy),
             "loop_metrics_ms": dict(self._loop_metrics),
             "decision_stats": dict(self._decision_stats),

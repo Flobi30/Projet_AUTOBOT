@@ -8,6 +8,7 @@ def _reload_config(monkeypatch, env: dict[str, str]):
         "ENABLE_SCALABILITY_GUARD",
         "ENABLE_INSTANCE_ACTIVATION_MANAGER",
         "ENABLE_PORTFOLIO_ALLOCATOR",
+        "ENABLE_DECISION_JOURNAL",
     ]
     for k in keys:
         monkeypatch.delenv(k, raising=False)
@@ -25,6 +26,7 @@ def test_flag_matrix_all_off_preserves_legacy_defaults(monkeypatch):
     assert c.ENABLE_SCALABILITY_GUARD is False
     assert c.ENABLE_INSTANCE_ACTIVATION_MANAGER is False
     assert c.ENABLE_PORTFOLIO_ALLOCATOR is False
+    assert c.ENABLE_DECISION_JOURNAL is False
 
 
 def test_flag_matrix_independent_enable(monkeypatch):
@@ -34,6 +36,7 @@ def test_flag_matrix_independent_enable(monkeypatch):
         "ENABLE_SCALABILITY_GUARD",
         "ENABLE_INSTANCE_ACTIVATION_MANAGER",
         "ENABLE_PORTFOLIO_ALLOCATOR",
+        "ENABLE_DECISION_JOURNAL",
     ]
     for flag in flags:
         c = _reload_config(monkeypatch, {flag: "true"})
@@ -52,6 +55,7 @@ def test_flag_matrix_combined_safe_path(monkeypatch):
             "ENABLE_SCALABILITY_GUARD": "true",
             "ENABLE_INSTANCE_ACTIVATION_MANAGER": "true",
             "ENABLE_PORTFOLIO_ALLOCATOR": "true",
+            "ENABLE_DECISION_JOURNAL": "true",
         },
     )
     assert c.ENABLE_UNIVERSE_MANAGER is True
@@ -59,3 +63,4 @@ def test_flag_matrix_combined_safe_path(monkeypatch):
     assert c.ENABLE_SCALABILITY_GUARD is True
     assert c.ENABLE_INSTANCE_ACTIVATION_MANAGER is True
     assert c.ENABLE_PORTFOLIO_ALLOCATOR is True
+    assert c.ENABLE_DECISION_JOURNAL is True
