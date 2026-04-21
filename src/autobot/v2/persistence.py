@@ -8,7 +8,7 @@ import sqlite3
 import threading as _threading
 import orjson
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 import threading
@@ -95,6 +95,30 @@ class StatePersistence:
                     profit REAL,
                     timestamp TEXT NOT NULL,
                     FOREIGN KEY (position_id) REFERENCES positions(id)
+                )
+            """)
+
+            # Canonical immutable trade ledger (decision/execution attribution)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS trade_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT NOT NULL,
+                    position_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    expected_price REAL,
+                    executed_price REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    fees REAL DEFAULT 0,
+                    slippage_bps REAL,
+                    realized_pnl REAL,
+                    is_opening_leg INTEGER DEFAULT 0,
+                    is_closing_leg INTEGER DEFAULT 0,
+                    exchange_order_id TEXT,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    created_at TEXT NOT NULL
                 )
             """)
 
@@ -196,6 +220,8 @@ class StatePersistence:
             # CORRECTION: Index pour performances
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_created_at ON trade_ledger(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
@@ -687,6 +713,154 @@ class StatePersistence:
                 "avg_loss": 0.0,
                 "total_fees": 0.0,
                 "net_pnl": 0.0,
+            }
+
+    def get_pair_attribution_report(
+        self,
+        *,
+        window_hours: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Compute pair-level realized attribution from immutable trade_ledger.
+
+        Uses closing legs with non-null realized_pnl.
+        """
+        now = datetime.now(timezone.utc)
+        cutoff_iso = None
+        if window_hours is not None and int(window_hours) > 0:
+            cutoff_iso = (now - timedelta(hours=int(window_hours))).isoformat()
+
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                if cutoff_iso:
+                    rows = conn.execute(
+                        """
+                        SELECT symbol, realized_pnl, fees, created_at
+                        FROM trade_ledger
+                        WHERE is_closing_leg = 1
+                          AND realized_pnl IS NOT NULL
+                          AND created_at >= ?
+                        ORDER BY created_at DESC
+                        """,
+                        (cutoff_iso,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT symbol, realized_pnl, fees, created_at
+                        FROM trade_ledger
+                        WHERE is_closing_leg = 1
+                          AND realized_pnl IS NOT NULL
+                        ORDER BY created_at DESC
+                        """
+                    ).fetchall()
+
+                last24_cutoff = (now - timedelta(hours=24)).isoformat()
+                recent_rows = conn.execute(
+                    """
+                    SELECT symbol, COUNT(*) AS c
+                    FROM trade_ledger
+                    WHERE is_closing_leg = 1
+                      AND realized_pnl IS NOT NULL
+                      AND created_at >= ?
+                    GROUP BY symbol
+                    """,
+                    (last24_cutoff,),
+                ).fetchall()
+
+            recent_24h_by_symbol = {str(r["symbol"]): int(r["c"]) for r in recent_rows}
+            agg: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                symbol = str(row["symbol"] or "UNKNOWN")
+                pnl = float(row["realized_pnl"] or 0.0)
+                fees = float(row["fees"] or 0.0)
+                created_at = str(row["created_at"])
+                item = agg.setdefault(
+                    symbol,
+                    {
+                        "symbol": symbol,
+                        "total_trades": 0,
+                        "wins": 0,
+                        "losses": 0,
+                        "total_realized_pnl": 0.0,
+                        "total_fees": 0.0,
+                        "gross_profit": 0.0,
+                        "gross_loss": 0.0,
+                        "last_trade_at": None,
+                        "recent_trades_24h": int(recent_24h_by_symbol.get(symbol, 0)),
+                    },
+                )
+                item["total_trades"] += 1
+                item["total_realized_pnl"] += pnl
+                item["total_fees"] += fees
+                if pnl > 0:
+                    item["wins"] += 1
+                    item["gross_profit"] += pnl
+                elif pnl < 0:
+                    item["losses"] += 1
+                    item["gross_loss"] += abs(pnl)
+                if item["last_trade_at"] is None or created_at > str(item["last_trade_at"]):
+                    item["last_trade_at"] = created_at
+
+            pairs: List[Dict[str, Any]] = []
+            for symbol, item in agg.items():
+                total = int(item["total_trades"])
+                wins = int(item["wins"])
+                losses = int(item["losses"])
+                gp = float(item["gross_profit"])
+                gl = float(item["gross_loss"])
+                pf = (gp / gl) if gl > 0 else (999.0 if gp > 0 else 0.0)
+                win_rate = (wins / total) if total else 0.0
+                expectancy = (float(item["total_realized_pnl"]) / total) if total else 0.0
+                pairs.append(
+                    {
+                        "symbol": symbol,
+                        "total_trades": total,
+                        "wins": wins,
+                        "losses": losses,
+                        "total_realized_pnl": float(item["total_realized_pnl"]),
+                        "total_fees": float(item["total_fees"]),
+                        "profit_factor": float(pf),
+                        "win_rate": float(win_rate),
+                        "expectancy": float(expectancy),
+                        "recent_trades_24h": int(item["recent_trades_24h"]),
+                        "last_trade_at": item["last_trade_at"],
+                    }
+                )
+
+            pairs.sort(key=lambda p: (p["total_realized_pnl"], p["profit_factor"]), reverse=True)
+            if limit is not None and int(limit) > 0:
+                pairs = pairs[: int(limit)]
+
+            total_trades = sum(int(p["total_trades"]) for p in pairs)
+            total_pnl = sum(float(p["total_realized_pnl"]) for p in pairs)
+            total_fees = sum(float(p["total_fees"]) for p in pairs)
+
+            return {
+                "generated_at": now.isoformat(),
+                "window_hours": int(window_hours) if window_hours is not None else None,
+                "pair_count": len(pairs),
+                "totals": {
+                    "total_trades": int(total_trades),
+                    "total_realized_pnl": float(total_pnl),
+                    "total_fees": float(total_fees),
+                },
+                "pairs": pairs,
+            }
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_pair_attribution_report: {e}")
+            return {
+                "generated_at": now.isoformat(),
+                "window_hours": int(window_hours) if window_hours is not None else None,
+                "pair_count": 0,
+                "totals": {
+                    "total_trades": 0,
+                    "total_realized_pnl": 0.0,
+                    "total_fees": 0.0,
+                },
+                "pairs": [],
             }
     
     def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
