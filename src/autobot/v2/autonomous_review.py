@@ -8,15 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .consolidated_review import build_consolidated_profitability_review
-from .decision_journal import (
-    REJECTION_REASON_ALLOCATION_ENVELOPE_BLOCKED,
-    REJECTION_REASON_BLACK_SWAN_EMERGENCY_BLOCK,
-    REJECTION_REASON_RANKING_BELOW_THRESHOLD,
-    REJECTION_REASON_REPEATED_AUTO_ACTION_BLOCK,
-    REJECTION_REASON_SCALABILITY_GUARD_BLOCK,
-    REJECTION_REASON_SYMBOL_NOT_SELECTED,
-    REJECTION_REASON_VALIDATION_GUARD_BLOCK,
-)
 
 
 def _read_journal_rows(journal_path: str, window_hours: Optional[int]) -> List[Dict[str, Any]]:
@@ -99,16 +90,13 @@ def build_autonomous_review(
     net_pnl = float(totals.get("total_realized_pnl", 0.0))
 
     top_pairs = [p for p in pairs if float(p.get("total_realized_pnl", 0.0)) > 0][:3]
-    bottom_pairs = sorted(
+    under_pairs = sorted(
         [p for p in pairs if float(p.get("total_realized_pnl", 0.0)) < 0],
         key=lambda p: float(p.get("total_realized_pnl", 0.0)),
     )[:3]
 
     rejected = consolidated.get("rejected_opportunity_analytics", {})
-    top_rejection_reasons = [
-        {"reason": reason, "count": count}
-        for reason, count in list(rejected.get("by_reason", {}).items())[:3]
-    ]
+    dominant_rejections = list(rejected.get("by_reason", {}).items())[:3]
 
     journal_rows = _read_journal_rows(journal_path, window_hours)
     guard_events = sum(
@@ -125,7 +113,7 @@ def build_autonomous_review(
 
     health = _health_level(total_trades, net_pnl, guard_events, int(rejected.get("total_rejections", 0)))
     winners = len(top_pairs)
-    losers = len(bottom_pairs)
+    losers = len(under_pairs)
     action = _recommended_action(total_trades, net_pnl, winners, losers, health)
 
     focus: List[str] = []
@@ -133,9 +121,8 @@ def build_autonomous_review(
         focus.append("No realized trades detected: inspect run activity, market connectivity, and entry gates.")
     if net_pnl < 0:
         focus.append("Net realized PnL is negative: inspect underperforming pairs and position sizing discipline.")
-    if top_rejection_reasons:
-        first = top_rejection_reasons[0]
-        focus.append(f"Dominant rejection reason: {first['reason']} ({first['count']}x).")
+    if dominant_rejections:
+        focus.append(f"Dominant rejection reason: {dominant_rejections[0][0]} ({dominant_rejections[0][1]}x).")
     if guard_events > 0:
         focus.append("Guard activity is non-zero: review scalability/kill-switch/reconciliation pressure.")
     if allocation_events > 0:
@@ -146,28 +133,19 @@ def build_autonomous_review(
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "window_hours": int(window_hours) if window_hours is not None else None,
-        "system_health": health,
-        "top_pairs": top_pairs,
-        "bottom_pairs": bottom_pairs,
-        "top_rejection_reasons": top_rejection_reasons,
-        "rejection_reason_taxonomy": [
-            REJECTION_REASON_RANKING_BELOW_THRESHOLD,
-            REJECTION_REASON_SCALABILITY_GUARD_BLOCK,
-            REJECTION_REASON_VALIDATION_GUARD_BLOCK,
-            REJECTION_REASON_REPEATED_AUTO_ACTION_BLOCK,
-            REJECTION_REASON_BLACK_SWAN_EMERGENCY_BLOCK,
-            REJECTION_REASON_ALLOCATION_ENVELOPE_BLOCKED,
-            REJECTION_REASON_SYMBOL_NOT_SELECTED,
-        ],
-        "scaling_summary": {
+        "global_system_health": health,
+        "top_performing_pairs": top_pairs,
+        "underperforming_pairs": under_pairs,
+        "dominant_rejection_reasons": [{"reason": k, "count": v} for k, v in dominant_rejections],
+        "scaling_guard_behavior_summary": {
             "guard_event_count": int(guard_events),
         },
-        "allocation_hints": {
+        "allocation_behavior_clues": {
             "allocation_related_event_count": int(allocation_events),
         },
         "recommended_action": action,
-        "focus_points": focus,
-        "confidence": _confidence(total_trades=total_trades, decision_records=len(journal_rows)),
+        "recommended_focus_points": focus,
+        "confidence_level": _confidence(total_trades=total_trades, decision_records=len(journal_rows)),
         "source_snapshot": {
             "decision_records": len(journal_rows),
             "realized_trades": total_trades,
