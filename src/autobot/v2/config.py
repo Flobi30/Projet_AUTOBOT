@@ -87,6 +87,13 @@ SAFETY_EMERGENCY_CYCLE_MS = float(os.getenv("SAFETY_EMERGENCY_CYCLE_MS", "100"))
 SAFETY_EMERGENCY_CONSECUTIVE = int(os.getenv("SAFETY_EMERGENCY_CONSECUTIVE", "3"))
 
 
+# Decision Journal (Lot 1 - analytics/observability)
+ENABLE_DECISION_JOURNAL = os.getenv("ENABLE_DECISION_JOURNAL", "false").lower() in ("1", "true", "yes", "on")
+DECISION_JOURNAL_PATH = os.getenv("DECISION_JOURNAL_PATH", "data/decision_journal.jsonl")
+DECISION_JOURNAL_FLUSH_EVERY = int(os.getenv("DECISION_JOURNAL_FLUSH_EVERY", "1"))
+DECISION_JOURNAL_MAX_SYMBOLS = int(os.getenv("DECISION_JOURNAL_MAX_SYMBOLS", "10"))
+
+
 if not 0 <= HEALTH_SCORE_THRESHOLD <= 100:
     raise ValueError("HEALTH_SCORE_THRESHOLD must be in [0, 100]")
 
@@ -197,6 +204,16 @@ if not 0.0 < PORTFOLIO_RISK_PER_CAPITAL_RATIO <= 1.0:
 
 if PORTFOLIO_MAX_CAPITAL_PER_INSTANCE_RATIO > PORTFOLIO_MAX_CAPITAL_PER_CLUSTER_RATIO:
     raise ValueError("PORTFOLIO_MAX_CAPITAL_PER_INSTANCE_RATIO must be <= PORTFOLIO_MAX_CAPITAL_PER_CLUSTER_RATIO")
+
+
+if not DECISION_JOURNAL_PATH.strip():
+    raise ValueError("DECISION_JOURNAL_PATH must not be empty")
+
+if DECISION_JOURNAL_FLUSH_EVERY < 1:
+    raise ValueError("DECISION_JOURNAL_FLUSH_EVERY must be >= 1")
+
+if DECISION_JOURNAL_MAX_SYMBOLS < 1:
+    raise ValueError("DECISION_JOURNAL_MAX_SYMBOLS must be >= 1")
 
 if SAFETY_DSR_TIMEOUT_MS <= 0:
     raise ValueError("SAFETY_DSR_TIMEOUT_MS must be > 0")
