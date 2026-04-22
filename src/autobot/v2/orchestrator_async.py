@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
@@ -140,8 +140,10 @@ from .orchestrator_services import (
     InstanceActivationService,
     InstanceLifecycleService,
     PortfolioAllocationService,
+    ReportingService,
     ScalabilityGuardService,
     ScalabilityMetrics,
+    SafetyService,
     journal_symbol_cap,
 )
 from .decision_journal import (
@@ -500,6 +502,7 @@ class OrchestratorAsync:
             )
         self.lifecycle_service = InstanceLifecycleService()
         self.background_tasks = BackgroundTasksService()
+        self.reporting_service = ReportingService(self.daily_reporter)
         self.decision_journal_service = DecisionJournalService(
             journal=self.decision_journal,
             enabled=self._decision_journal_enabled,
@@ -509,6 +512,12 @@ class OrchestratorAsync:
         self.portfolio_allocation_service = PortfolioAllocationService(
             self.portfolio_allocator,
             self.risk_cluster_manager,
+        )
+        self.safety_service = SafetyService(
+            safety_guard=self.safety_guard,
+            robustness_guard=self.robustness_guard,
+            hardening_flags=self.hardening_flags,
+            reset_flag_reader=lambda: _env_bool("SAFETY_EMERGENCY_RESET", False),
         )
 
         # Market selector (reuse sync version)
@@ -1533,35 +1542,18 @@ class OrchestratorAsync:
                     self._on_alert("LOW_HEALTH_SCORE", {"score": health})
 
     def _activate_emergency_mode(self, reason: str) -> None:
-        if self.safety_guard.emergency_mode:
-            return
-        self.safety_guard.emergency_mode = True
-        self.robustness_guard.set_emergency_mode(True)
-        self.hardening_flags["enable_validation_guard"] = False
-        self.hardening_flags["enable_sentiment"] = False
-        self.hardening_flags["enable_ml"] = False
-        self.hardening_flags["enable_xgboost"] = False
-        self.hardening_flags["enable_onchain"] = False
-        logger.error("🚨 SAFETY EMERGENCY MODE enabled: %s", reason)
+        self.safety_service.activate_emergency_mode(reason, logger)
 
     def _reset_emergency_mode(self) -> None:
-        self.safety_guard.reset_emergency()
-        self.robustness_guard.set_emergency_mode(False)
+        self.safety_service.reset_emergency_mode()
 
     async def _check_cycle_health(self) -> None:
-        """Vérifie la santé du cycle toutes les 5 minutes."""
-        while self.running:
-            try:
-                await asyncio.sleep(300)
-                cycle_ms = float(self._loop_metrics.get("process_cycle_ms", 0.0))
-                if not self.safety_guard.check_performance_budget(cycle_ms):
-                    self._activate_emergency_mode("cycle health monitor")
-                if _env_bool("SAFETY_EMERGENCY_RESET", False):
-                    self._reset_emergency_mode()
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning("Cycle health check erreur (isolée): %s", exc)
+        await self.safety_service.monitor_cycle_health(
+            running=lambda: self.running,
+            loop_metrics=self._loop_metrics,
+            on_activate=self._activate_emergency_mode,
+            logger=logger,
+        )
 
     async def _run_black_swan_guard(self, instance: TradingInstanceAsync) -> bool:
         """
@@ -2374,34 +2366,10 @@ class OrchestratorAsync:
         await self.emergency_stop_all()
 
     async def _daily_report_loop(self) -> None:
-        """
-        Génère un rapport quotidien à minuit UTC.
-        """
-        while self.running:
-            try:
-                now = datetime.now(timezone.utc)
-                next_day = (now + timedelta(days=1)).replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                )
-                wait_seconds = max((next_day - now).total_seconds(), 1.0)
-                await asyncio.sleep(wait_seconds)
-                try:
-                    report = self.daily_reporter.generate_report()
-                    logger.info(
-                        "🗓️ Daily report généré: date=%s trades=%s",
-                        report.get("date"),
-                        report.get("total_trades"),
-                    )
-                except Exception as exc:
-                    logger.warning("Daily report génération erreur (isolée): %s", exc)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning("Daily report loop erreur (isolée): %s", exc)
-                await asyncio.sleep(60)
+        await self.reporting_service.run_daily_report_loop(
+            running=lambda: self.running,
+            logger=logger,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
