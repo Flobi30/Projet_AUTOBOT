@@ -63,7 +63,7 @@ class ModuleCoordinator:
         url: str,
         module: str = "dependency",
         endpoint_name: str = "endpoint",
-    ) -> tuple[str, Set[str]] | None:
+    ) -> tuple[str, Set[str], str] | None:
         parsed = urlparse(url)
         if parsed.scheme.lower() != "https":
             self._reject_ping_url(module, endpoint_name, url, "non_https_scheme")
@@ -94,16 +94,20 @@ class ModuleCoordinator:
             return None
 
         allowed_ips: Set[str] = set()
+        selected_ip: str | None = None
         for addr in addr_info:
             resolved_ip = ip_address(addr[4][0])
             if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
                 self._reject_ping_url(module, endpoint_name, url, f"forbidden_resolved_ip:{resolved_ip}")
                 return None
-            allowed_ips.add(str(resolved_ip))
-        if not allowed_ips:
+            resolved_ip_str = str(resolved_ip)
+            allowed_ips.add(resolved_ip_str)
+            if selected_ip is None:
+                selected_ip = resolved_ip_str
+        if not allowed_ips or selected_ip is None:
             self._reject_ping_url(module, endpoint_name, url, "no_valid_resolved_ip")
             return None
-        return hostname, allowed_ips
+        return hostname, allowed_ips, selected_ip
 
     def _resolve_allowed_ping_ip(self, hostname: str) -> Optional[str]:
         try:
@@ -185,12 +189,19 @@ class ModuleCoordinator:
         request_path = parsed.path or "/"
         if parsed.query:
             request_path = f"{request_path}?{parsed.query}"
-        hostname, allowed_ips = resolved
-        target_ip = sorted(allowed_ips)[0]
+        hostname, allowed_ips, target_ip = resolved
         try:
             conn = _PinnedIPHTTPSConnection(host=hostname, target_ip=target_ip, timeout=timeout)
             conn.request("HEAD", request_path, headers={"Host": hostname})
             peer_ip = conn.sock.getpeername()[0] if conn.sock else ""
+            if peer_ip and peer_ip != target_ip:
+                logger.warning(
+                    "Divergence IP/hostname détectée pour _quick_ping (%s): host=%s expected_ip=%s actual_ip=%s",
+                    endpoint_name,
+                    hostname,
+                    target_ip,
+                    peer_ip,
+                )
             if peer_ip not in allowed_ips:
                 self._reject_ping_url(
                     module,
