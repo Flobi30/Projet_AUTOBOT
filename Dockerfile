@@ -43,6 +43,10 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV APP_ENV=production
 ENV DASHBOARD_STATIC_DIR=/app/dashboard/dist
+ENV HEALTHCHECK_MODE=tls
+ENV HEALTHCHECK_URL_TLS=https://localhost:8080/health
+ENV HEALTHCHECK_URL_LOCAL=http://127.0.0.1:8080/health
+ENV HEALTHCHECK_CA_CERT=/app/certs/server.crt
 
 # Permissions
 RUN chown -R appuser:appuser /app
