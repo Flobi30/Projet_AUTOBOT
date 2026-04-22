@@ -42,6 +42,48 @@ Valeurs par défaut recommandées: orientées **paper + preflight** (donc pas d'
 
 \* Optionnelles en préflight strict; recommandées pour valider la connectivité exchange.
 
+### Point de sécurité critique: `LEAKED_SSH_KEY_ROTATED_ACK`
+- Cette variable doit rester à `false` tant que la rotation des secrets compromis n'a **pas** été exécutée et vérifiée en conditions opérationnelles.
+- Ne la positionner à `true` qu'après validation explicite (rotation effective + confirmation que les anciens secrets sont invalides).
+
+## Configuration minimale paper qui passe l’attestation
+
+Exemple minimal avec les **valeurs exactes attendues** pour passer l'attestation sécurité en mode paper:
+
+```dotenv
+APP_ENV=production
+DEPLOYMENT_STAGE=paper
+PAPER_TRADING=true
+PREFLIGHT_ONLY=true
+LIVE_TRADING_CONFIRMATION=false
+
+DASHBOARD_API_TOKEN=change_me
+API_KEY_ASSIGNMENT_MODE=dedicated
+ALLOW_SHARED_API_KEY=false
+UNIQUE_BOT_ID=bot-paper-01
+API_KEY_ASSIGNED_BOT_ID=bot-paper-01
+MAX_LIVE_INSTANCES=1
+
+LEAKED_SSH_KEY_ROTATED_ACK=false
+SECRET_EXPOSURE_MARKER_PATH=data/compromised_secret.marker
+
+INITIAL_CAPITAL=1000.0
+MAX_DRAWDOWN_PCT=10
+RISK_PER_TRADE_PCT=1
+MAX_POSITION_SIZE_PCT=20
+
+KRAKEN_API_KEY=
+KRAKEN_API_SECRET=
+```
+
+> Important: `PREFLIGHT_ONLY=true` valide uniquement les garde-fous et checks de sécurité au démarrage. Cela **n'active pas** un trading paper continu.
+
+## Erreurs d’attestation fréquentes
+- `DASHBOARD_API_TOKEN`: absent, vide, ou laissé avec une valeur non conforme à la politique de déploiement.
+- `LEAKED_SSH_KEY_ROTATED_ACK`: mis à `true` sans preuve de rotation opérationnelle des secrets, ou incohérent avec l'état réel de sécurité.
+- Credentials Kraken (`KRAKEN_API_KEY`, `KRAKEN_API_SECRET`): manquants/invalides quand requis par le scénario de validation de connectivité exchange.
+- Rappel: avec `PREFLIGHT_ONLY=true`, l'attestation couvre les checks de sécurité et de configuration, pas l'exécution d'une session paper en continu.
+
 ## Paper-trading operations helpers
 - Validate paper launch config: `python tools/paper_ops.py validate --env-file .env`
 - Print start/run checklist: `python tools/paper_ops.py start-guide`
