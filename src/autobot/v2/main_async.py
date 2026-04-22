@@ -61,6 +61,7 @@ from autobot.v2.api.dashboard import DashboardServer
 from autobot.v2.order_executor_async import OrderExecutorAsync
 from autobot.v2.kill_switch import KillSwitch
 from autobot.v2.startup_attestation import StartupAttestation, StartupAttestationError
+from autobot.v2.portfolio_allocator import AllocationWeightProvider
 
 logger = logging.getLogger(__name__)
 
@@ -184,20 +185,12 @@ class AutoBotV2Async:
             logger.warning("INITIAL_CAPITAL <= 0 (%.2f), allocations forced to 0", total_capital)
             total_capital = 0.0
         
-        # Capital weighting: BTC and ETH get more (1.5x), alts get standard (1.0x)
-        weights = {}
-        for s in symbols:
-            if "XBT" in s or "BTC" in s:
-                weights[s] = 1.5
-            elif "ETH" in s:
-                weights[s] = 1.3
-            else:
-                weights[s] = 1.0
-        total_weight = sum(weights.values())
-        
+        weight_provider = AllocationWeightProvider()
+        capital_plan = weight_provider.build_weighted_capital_plan(symbols, total_capital)
+
         configs = []
         for symbol in symbols:
-            weighted_capital = total_capital * (weights[symbol] / total_weight)
+            weighted_capital = capital_plan.symbol_caps.get(symbol, 0.0)
             grid_config = _build_grid_config(symbol)
             
             # Friendly name mapping
@@ -219,7 +212,13 @@ class AutoBotV2Async:
                 grid_config=grid_config,
             ))
         
-        logger.info(f"Multi-pair: {len(configs)} pairs, total capital={total_capital}")
+        logger.info(
+            "Multi-pair: %d pairs, total capital=%.2f, reserve_cash=%.2f, investable=%.2f",
+            len(configs),
+            total_capital,
+            capital_plan.reserve_cash,
+            capital_plan.total_allocated,
+        )
         for cfg in configs:
             logger.info(f"  {cfg.symbol}: {cfg.initial_capital:.2f} EUR")
         
