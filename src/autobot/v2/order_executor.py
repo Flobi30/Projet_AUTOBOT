@@ -38,6 +38,7 @@ class OrderResult:
     executed_volume: float = 0.0
     executed_price: float = 0.0
     fees: float = 0.0
+    liquidity: str = "unknown"  # maker | taker | unknown
     error: Optional[str] = None
     raw_response: Optional[Dict] = None
 
