@@ -23,6 +23,20 @@ jobs:
           fi
           echo "No merge conflict markers found."
 
+  python-lockfiles:
+    name: Python lockfile integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate Python lockfiles
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-tools
+          python tools/check_dependency_locks.py
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -36,12 +50,19 @@ jobs:
   python-audit:
     name: Python dependency audit (pip-audit)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lockfile:
+          - requirements/runtime.txt
+          - requirements/api.txt
+          - requirements/tests.txt
     steps:
       - uses: actions/checkout@v4
-      - name: Run pip-audit (PyPA action)
+      - name: Run pip-audit for ${{ matrix.lockfile }}
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          inputs: requirements.txt
+          inputs: ${{ matrix.lockfile }}
 
   python-tests:
     # Source unique de vérité pour l'exécution des tests Python en CI.
@@ -61,11 +82,11 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements/tests.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements/tests.txt
       - name: Run pytest (${{ matrix.test_suite }})
         run: |
           mkdir -p artifacts/python-tests
@@ -167,6 +188,7 @@ jobs:
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
     needs:
       - conflict-marker-scan
+      - python-lockfiles
       - secret-scan
       - python-audit
       - python-tests

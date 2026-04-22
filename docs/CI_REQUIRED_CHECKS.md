@@ -7,6 +7,8 @@ For pull requests targeting critical branches (`main`, `master`, `work`), requir
 This gate depends on:
 
 - `Conflict marker scan` (job id: `conflict-marker-scan` in `.github/workflows/security-and-audit.yml`).
+- `Python lockfile integrity` (job id: `python-lockfiles`) to ensure `requirements.in -> requirements.txt` lock generation is reproducible and pinned.
+- `Python dependency audit (pip-audit)` (job id: `python-audit`) on lockfiles `requirements/runtime.txt`, `requirements/api.txt`, and `requirements/tests.txt`.
 - `Python tests (unit)` and `Python tests (integration)` from the `python-tests` matrix job.
 - `Dashboard build and lint` (job id: `dashboard-build-lint`).
 
@@ -26,10 +28,11 @@ To avoid drift between documentation and CI behavior:
 1. Treat `.github/workflows/security-and-audit.yml` as the authoritative source for required gate wiring.
 2. Keep `required-critical-gates.needs` synchronized with this document using exact job ids:
    - `conflict-marker-scan`
+   - `python-lockfiles`
+   - `python-audit`
    - `python-tests`
    - `dashboard-build-lint`
 3. Keep the human-readable job name `Required CI gates (critical branches)` listed as the required status check in branch protection.
 4. If a required job is moved to another workflow, create a dedicated aggregator in that target workflow and update this file in the same PR.
-
 
 Additionally, enforce the dedicated pre-merge routine described in `docs/PRE_MERGE_ROUTINE.md`.
