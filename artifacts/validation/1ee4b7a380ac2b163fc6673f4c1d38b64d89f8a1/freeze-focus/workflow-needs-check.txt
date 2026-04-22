@@ -1,0 +1,4 @@
+jobs: conflict-marker-scan, secret-scan, python-audit, python-tests, npm-audit, dashboard-build-lint, dashboard-build, required-critical-gates, leaked-secret-promotion-guard
+dashboard-build: dashboard-build-lint
+required-critical-gates: conflict-marker-scan, secret-scan, python-audit, python-tests, npm-audit, dashboard-build-lint, dashboard-build, leaked-secret-promotion-guard
+result: PASS

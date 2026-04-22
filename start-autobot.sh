@@ -60,7 +60,7 @@ if [ -d "dashboard" ]; then
     echo ""
     echo "📊 Dashboard: http://localhost:5173"
     echo "📈 API Bot:   http://localhost:8080/api/status"
-    echo "📝 Logs:      tail -f autobot_async.log"
+    echo "📝 Logs async: tail -f ./autobot_async.log"
     echo ""
     echo "🛑 Pour arrêter: Ctrl+C ou ./stop-autobot.sh"
     echo ""
@@ -74,6 +74,7 @@ else
     echo "======================================="
     echo ""
     echo "📈 API: http://localhost:8080/api/status"
+    echo "📝 Logs async: tail -f ./autobot_async.log"
     echo ""
     
     wait $BOT_PID
