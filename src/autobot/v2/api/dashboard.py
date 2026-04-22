@@ -9,6 +9,7 @@ import hmac
 import time
 import threading
 import inspect
+import heapq
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
@@ -964,32 +965,102 @@ async def get_trades(
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
-        trades = []
+        target_window = offset + limit
+        if target_window <= 0:
+            target_window = limit
 
-        for inst in instances_data:
-            inst_trades = inst.get('trades_history', [])
-            for trade in inst_trades:
-                trades.append({
-                    "id": trade.get('id', 'unknown'),
-                    "instance_id": inst['id'],
-                    "instance_name": inst.get('name', 'Unknown'),
-                    "pair": trade.get('pair', 'XBT/EUR'),
-                    "side": trade.get('side', 'BUY'),
-                    "amount": trade.get('amount', 0),
-                    "price": trade.get('price', 0),
-                    "pnl": trade.get('pnl', 0),
-                    "timestamp": trade.get('timestamp', datetime.now(timezone.utc).isoformat()),
-                    "strategy": inst.get('strategy', 'unknown')
-                })
+        # Preferred strategy when available: persistence-side paginated access.
+        persistence = getattr(orchestrator, "persistence", None)
+        if persistence is None:
+            try:
+                from ..persistence import get_persistence
+                persistence = get_persistence()
+            except Exception:
+                persistence = None
 
-        trades.sort(key=lambda x: x['timestamp'], reverse=True)
-        total = len(trades)
-        paginated_trades = trades[offset:offset + limit]
-        next_offset = offset + limit if (offset + limit) < total else None
+        if persistence and hasattr(persistence, "get_trades_paginated"):
+            persisted = persistence.get_trades_paginated(limit=limit, offset=offset)
+            total_count = int(persisted.get("total", 0))
+            paginated_trades = list(persisted.get("items", []))
+        else:
+            instances_data = orchestrator.get_instances_snapshot()
+            default_ts = datetime.now(timezone.utc).isoformat()
 
-        total_count = len(trades)
-        paginated_trades = trades[offset:offset + limit]
+            def _to_epoch(ts: Any) -> float:
+                if not ts:
+                    return 0.0
+                if isinstance(ts, datetime):
+                    dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+                else:
+                    ts_str = str(ts)
+                    if ts_str.endswith("Z"):
+                        ts_str = ts_str[:-1] + "+00:00"
+                    try:
+                        dt = datetime.fromisoformat(ts_str)
+                    except ValueError:
+                        return 0.0
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+
+            # 1) Collect at most `offset + limit` newest trades per instance.
+            per_instance_top: List[List[Dict[str, Any]]] = []
+            total_count = 0
+
+            for inst in instances_data:
+                inst_trades = inst.get("trades_history", [])
+                total_count += len(inst_trades)
+                if not inst_trades:
+                    continue
+
+                bounded_heap: List[tuple[float, int, Dict[str, Any]]] = []
+                seq = 0
+                for trade in inst_trades:
+                    ts_value = trade.get("timestamp", default_ts)
+                    ts_epoch = _to_epoch(ts_value)
+                    candidate = {
+                        "id": trade.get("id", "unknown"),
+                        "instance_id": inst["id"],
+                        "instance_name": inst.get("name", "Unknown"),
+                        "pair": trade.get("pair", "XBT/EUR"),
+                        "side": trade.get("side", "BUY"),
+                        "amount": trade.get("amount", 0),
+                        "price": trade.get("price", 0),
+                        "pnl": trade.get("pnl", 0),
+                        "timestamp": ts_value,
+                        "strategy": inst.get("strategy", "unknown"),
+                        "_ts_epoch": ts_epoch,
+                    }
+                    entry = (ts_epoch, seq, candidate)
+                    if len(bounded_heap) < target_window:
+                        heapq.heappush(bounded_heap, entry)
+                    elif entry > bounded_heap[0]:
+                        heapq.heapreplace(bounded_heap, entry)
+                    seq += 1
+
+                top_trades = [item[2] for item in sorted(bounded_heap, key=lambda x: (x[0], x[1]), reverse=True)]
+                per_instance_top.append(top_trades)
+
+            # 2) K-way partial merge (descending by timestamp), stop at offset+limit.
+            merge_heap: List[tuple[float, int, int]] = []
+            for idx, trades_list in enumerate(per_instance_top):
+                if trades_list:
+                    heapq.heappush(merge_heap, (-float(trades_list[0]["_ts_epoch"]), idx, 0))
+
+            merged: List[Dict[str, Any]] = []
+            while merge_heap and len(merged) < target_window:
+                _, list_idx, item_idx = heapq.heappop(merge_heap)
+                current = per_instance_top[list_idx][item_idx]
+                merged.append(current)
+
+                next_idx = item_idx + 1
+                if next_idx < len(per_instance_top[list_idx]):
+                    next_item = per_instance_top[list_idx][next_idx]
+                    heapq.heappush(merge_heap, (-float(next_item["_ts_epoch"]), list_idx, next_idx))
+
+            paginated_trades = merged[offset:offset + limit]
+            for trade in paginated_trades:
+                trade.pop("_ts_epoch", None)
 
         return {
             "count": total_count,
