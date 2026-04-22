@@ -44,6 +44,83 @@ jobs:
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
 
+  python-tests:
+    name: Python tests (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, integration]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest - unit
+        if: matrix.suite == 'unit'
+        run: |
+          pytest -q -m "not integration" --junitxml=pytest-unit.xml
+      - name: Run pytest - integration
+        if: matrix.suite == 'integration'
+        run: |
+          pytest -q -m "integration" --junitxml=pytest-integration.xml
+      - name: Upload pytest artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.suite }}-artifacts
+          path: |
+            pytest-*.xml
+            .pytest_cache
+          if-no-files-found: ignore
+
+  dashboard-build-lint:
+    name: Dashboard build and lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Upload dashboard artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-build-artifacts
+          path: |
+            dashboard/dist
+            dashboard/npm-debug.log*
+            dashboard/.npm/_logs
+          if-no-files-found: ignore
+
+  required-critical-gates:
+    name: Required CI gates (critical branches)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
+    needs:
+      - python-tests
+      - dashboard-build-lint
+    steps:
+      - name: Confirm required gates passed
+        run: echo "All required CI gates passed for critical branch PR."
+
   leaked-secret-promotion-guard:
     name: Unsafe promotion guard
     runs-on: ubuntu-latest
