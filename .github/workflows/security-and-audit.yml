@@ -7,6 +7,19 @@ on:
     branches: [ main, master, work ]
 
 jobs:
+  conflict-marker-scan:
+    name: Conflict marker scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if merge conflict markers are present
+        run: |
+          if rg -n --hidden --glob '!**/node_modules/**' '^(<<<<<<<|=======|>>>>>>>)' .; then
+            echo "Merge conflict markers detected. Resolve conflicts before merge."
+            exit 1
+          fi
+          echo "No merge conflict markers found."
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -153,6 +166,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
     needs:
+      - conflict-marker-scan
       - python-tests
       - dashboard-build-lint
     steps:
