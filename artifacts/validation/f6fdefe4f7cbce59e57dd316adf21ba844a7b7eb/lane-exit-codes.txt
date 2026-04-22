@@ -1,0 +1,5 @@
+unit=2
+integration=2
+dashboard_lint=1
+dashboard_test=0
+dashboard_build=0

@@ -1,0 +1,653 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="58" failures="0" skipped="0" tests="58" time="2.574" timestamp="2026-04-22T01:45:24.066686+00:00" hostname="e67b2cde9055"><testcase classname="" name="adaptive_grid_files.test_adaptive_grid_config" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/adaptive_grid_files/test_adaptive_grid_config.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+adaptive_grid_files/test_adaptive_grid_config.py:6: in &lt;module&gt;
+    from autobot.v2.strategies.adaptive_grid_config import (
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="adaptive_grid_files.test_range_calculator" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/adaptive_grid_files/test_range_calculator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+adaptive_grid_files/test_range_calculator.py:9: in &lt;module&gt;
+    from autobot.v2.strategies.adaptive_grid_config import PairProfile
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="adaptive_grid_files.test_smart_recentering" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/adaptive_grid_files/test_smart_recentering.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+adaptive_grid_files/test_smart_recentering.py:10: in &lt;module&gt;
+    from autobot.v2.strategies.smart_recentering import SmartRecentering, SmartRecenterResult
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_adaptive_grid_config" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_adaptive_grid_config.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_async_dispatcher" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_async_dispatcher.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_auto_evolution" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_auto_evolution.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_autonomous_review" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_autonomous_review.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_consolidated_profitability_review" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_consolidated_profitability_review.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_dashboard_api_backward_compat_lot7" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_dashboard_api_backward_compat_lot7.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_dashboard_api_blockers_postmerge" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_dashboard_api_blockers_postmerge.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_dashboard_api_lot6" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_dashboard_api_lot6.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_decision_journal" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_decision_journal.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_feature_flag_matrix_lot7" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_feature_flag_matrix_lot7.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_grid_recentering" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_grid_recentering.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_hot_cold_path" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_hot_cold_path.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_instance_activation_manager" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_instance_activation_manager.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_instance_queue" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_instance_queue.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_kelly_criterion" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_kelly_criterion.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_kelly_dynamic" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_kelly_dynamic.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_kraken_api" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_kraken_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_main_async_config" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_main_async_config.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_market_selector_universe_flag" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_market_selector_universe_flag.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_mean_reversion_double_push" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_mean_reversion_double_push.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_orchestrator_async_hardening_flags" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_orchestrator_async_hardening_flags.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_order_executor" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_order_executor.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_order_router" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_order_router.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_os_tuning" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_os_tuning.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_pair_attribution" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_pair_attribution.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_pair_ranking_engine" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_pair_ranking_engine.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_paper_ops_cli_commands" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_paper_ops_cli_commands.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_portfolio_allocator" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_portfolio_allocator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_price_validation" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_price_validation.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_pyramiding" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_pyramiding.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_range_calculator" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_range_calculator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_rejected_opportunity_analytics" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_rejected_opportunity_analytics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_reports" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_reports.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_ring_buffer" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_ring_buffer.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_scalability_guard" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_scalability_guard.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_smart_recentering" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_smart_recentering.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_speculative_execution" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_speculative_execution.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_strategy_ensemble" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_strategy_ensemble.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_trailing_stop_atr" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_trailing_stop_atr.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_universe_manager" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_universe_manager.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="src.autobot.v2.tests.test_volatility_weighter" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/src/autobot/v2/tests/test_volatility_weighter.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+src/autobot/v2/__init__.py:14: in &lt;module&gt;
+    from .signal_handler import SignalHandler
+src/autobot/v2/signal_handler.py:14: in &lt;module&gt;
+    from .strategies import TradingSignal, SignalType
+src/autobot/v2/strategies/__init__.py:380: in &lt;module&gt;
+    from .grid import GridStrategy
+src/autobot/v2/strategies/grid.py:13: in &lt;module&gt;
+    from autobot.v2.modules.regime_detector import RegimeDetector, MarketRegime
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_error_handler" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_error_handler.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_error_handler.py:5: in &lt;module&gt;
+    from autobot.error_handler import (
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_live_blockers" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_live_blockers.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_live_blockers.py:5: in &lt;module&gt;
+    from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_nonce_safety" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_nonce_safety.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_nonce_safety.py:6: in &lt;module&gt;
+    from autobot.v2.order_executor_async import OrderExecutorAsync
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_async_wiring" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_async_wiring.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_async_wiring.py:3: in &lt;module&gt;
+    from autobot.v2.orchestrator_async import OrchestratorAsync
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_services_activation" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_services_activation.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_services_activation.py:3: in &lt;module&gt;
+    from autobot.v2.instance_activation_manager import InstanceActivationManager
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_services_background_tasks" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_services_background_tasks.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_services_background_tasks.py:5: in &lt;module&gt;
+    from autobot.v2.orchestrator_services import BackgroundTasksService
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_services_decision_journal" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_services_decision_journal.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_services_decision_journal.py:3: in &lt;module&gt;
+    from autobot.v2.orchestrator_services import DecisionJournalService
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_services_portfolio_lifecycle" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_services_portfolio_lifecycle.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_services_portfolio_lifecycle.py:5: in &lt;module&gt;
+    from autobot.v2.orchestrator_services import InstanceLifecycleService, PortfolioAllocationService
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_orchestrator_services_scalability" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_orchestrator_services_scalability.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_orchestrator_services_scalability.py:3: in &lt;module&gt;
+    from autobot.v2.orchestrator_services import ScalabilityGuardService, ScalabilityMetrics
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_order_manager_cache_cleanup" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_order_manager_cache_cleanup.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_order_manager_cache_cleanup.py:5: in &lt;module&gt;
+    from autobot.order_manager import Order, OrderManager
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_p0_spin_off_and_market_selector" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_p0_spin_off_and_market_selector.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_p0_spin_off_and_market_selector.py:6: in &lt;module&gt;
+    from autobot.v2.market_analyzer import MarketQualityScore
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_pf_phase2" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_pf_phase2.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_pf_phase2.py:9: in &lt;module&gt;
+    from autobot.v2.persistence import StatePersistence
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_position_manager" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_position_manager.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_position_manager.py:3: in &lt;module&gt;
+    from autobot.order_manager import Order, OrderSide
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase><testcase classname="" name="tests.test_production_safety" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/Projet_AUTOBOT/tests/test_production_safety.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/root/.pyenv/versions/3.10.19/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_production_safety.py:6: in &lt;module&gt;
+    from autobot.v2.kill_switch import KillSwitch
+E   ModuleNotFoundError: No module named 'autobot'</error></testcase></testsuite></testsuites>

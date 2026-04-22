@@ -1,0 +1,44 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> vite-react-typescript-starter@0.0.0 lint
+> eslint .
+
+
+/workspace/Projet_AUTOBOT/dashboard/src/components/layout/Sidebar.tsx
+  3:10  error  'TrendingUp' is defined but never used    @typescript-eslint/no-unused-vars
+  3:22  error  'BarChart3' is defined but never used     @typescript-eslint/no-unused-vars
+  3:41  error  'PieChart' is defined but never used      @typescript-eslint/no-unused-vars
+  3:93  error  'ActivityIcon' is defined but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Projet_AUTOBOT/dashboard/src/components/ui/WithdrawalForm.tsx
+  3:8  error  'axios' is defined but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Projet_AUTOBOT/dashboard/src/pages/Backtest.tsx
+   2:86  error  'BarChart' is defined but never used                   @typescript-eslint/no-unused-vars
+   2:96  error  'Bar' is defined but never used                        @typescript-eslint/no-unused-vars
+   4:8   error  'Modal' is defined but never used                      @typescript-eslint/no-unused-vars
+   5:8   error  'StrategyDetailModal' is defined but never used        @typescript-eslint/no-unused-vars
+   6:21  error  'Brain' is defined but never used                      @typescript-eslint/no-unused-vars
+   6:53  error  'Calendar' is defined but never used                   @typescript-eslint/no-unused-vars
+   6:63  error  'Loader' is defined but never used                     @typescript-eslint/no-unused-vars
+  21:10  error  'selectedStrategy' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  28:52  error  Unexpected any. Specify a different type               @typescript-eslint/no-explicit-any
+  52:62  error  Unexpected any. Specify a different type               @typescript-eslint/no-explicit-any
+  61:16  error  'err' is defined but never used                        @typescript-eslint/no-unused-vars
+
+/workspace/Projet_AUTOBOT/dashboard/src/pages/Capital.tsx
+  84:15  error  Empty block statement  no-empty
+
+/workspace/Projet_AUTOBOT/dashboard/src/pages/Diagnostic.tsx
+   17:8   error  'Skeleton' is defined but never used              @typescript-eslint/no-unused-vars
+   43:11  error  'SystemStatus' is defined but never used          @typescript-eslint/no-unused-vars
+  167:7   error  'IssuesPanel' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/workspace/Projet_AUTOBOT/dashboard/src/pages/Performance.tsx
+  273:10  error  Unexpected constant truthiness on the left-hand side of a `&&` expression  no-constant-binary-expression
+
+/workspace/Projet_AUTOBOT/dashboard/src/pages/Settings.tsx
+  27:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 22 problems (22 errors, 0 warnings)
+
