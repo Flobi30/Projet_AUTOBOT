@@ -36,4 +36,5 @@ If a secret leak incident occurred:
 
 ## Push protection / CI guidance
 - Enable GitHub Secret Scanning and Push Protection at repository settings level.
-- Keep `security-and-audit.yml` mandatory in branch protection checks.
+- Keep `security-and-audit.yml` mandatory in branch protection checks for critical branches (`main`, `master`, `work`).
+- Mark these checks as required before merge: `Python tests (unit)`, `Python tests (integration)`, and `Dashboard build + lint`.
