@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -24,8 +25,30 @@ class StartupAttestationError(RuntimeError):
 @dataclass
 class StartupAttestationResult:
     ok: bool
+    status: str
     checks: Dict[str, bool]
     reasons: list[str]
+    diagnostics: Dict[str, dict]
+
+    def to_dict(self) -> dict:
+        return {
+            "ok": self.ok,
+            "status": self.status,
+            "checks": self.checks,
+            "reasons": self.reasons,
+            "diagnostics": self.diagnostics,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True)
+
+
+@dataclass
+class _CheckOutcome:
+    ok: bool
+    reason: str = "ok"
+    message: str = "check passed"
+    error_code: Optional[str] = None
 
 
 class StartupAttestation:
@@ -50,133 +73,149 @@ class StartupAttestation:
     async def run(self, preflight_only: bool = False) -> StartupAttestationResult:
         checks: Dict[str, bool] = {}
         reasons: list[str] = []
+        diagnostics: Dict[str, dict] = {}
 
-        def fail(name: str, reason: str) -> None:
-            checks[name] = False
-            reasons.append(reason)
+        def record(name: str, outcome: _CheckOutcome | bool) -> None:
+            if isinstance(outcome, bool):
+                outcome = _CheckOutcome(
+                    ok=outcome,
+                    reason="ok" if outcome else f"{name}_failed",
+                    message=f"{name} {'passed' if outcome else 'failed'}",
+                )
+            checks[name] = outcome.ok
+            diagnostics[name] = {
+                "status": "pass" if outcome.ok else "fail",
+                "reason": outcome.reason,
+                "message": outcome.message,
+                "error_code": outcome.error_code,
+            }
+            if not outcome.ok:
+                reasons.append(outcome.reason)
+
+        def pass_check(name: str, message: str = "check passed") -> None:
+            record(name, _CheckOutcome(ok=True, reason="ok", message=message))
+
+        def fail(name: str, reason: str, message: str, error_code: Optional[str] = None) -> None:
+            record(name, _CheckOutcome(ok=False, reason=reason, message=message, error_code=error_code))
 
         # 1) APP_ENV validity
-        checks["app_env_valid"] = self.app_env in self.VALID_ENVS
-        if not checks["app_env_valid"]:
-            fail("app_env_valid", f"APP_ENV invalide: {self.app_env}")
+        if self.app_env in self.VALID_ENVS:
+            pass_check("app_env_valid", "APP_ENV accepted")
+        else:
+            fail("app_env_valid", "invalid_app_env", f"APP_ENV invalide: {self.app_env}")
 
         paper_mode = os.getenv("PAPER_TRADING", "false").lower() == "true"
         stage = os.getenv("DEPLOYMENT_STAGE", "paper").strip().lower()
-        checks["deployment_stage_valid"] = stage in self.VALID_STAGES
-        if not checks["deployment_stage_valid"]:
-            fail("deployment_stage_valid", f"DEPLOYMENT_STAGE invalide: {stage}")
+        if stage in self.VALID_STAGES:
+            pass_check("deployment_stage_valid", "DEPLOYMENT_STAGE accepted")
+        else:
+            fail("deployment_stage_valid", "invalid_deployment_stage", f"DEPLOYMENT_STAGE invalide: {stage}")
         # 2) live confirmation gate
-        checks["live_confirmation"] = paper_mode or os.getenv("LIVE_TRADING_CONFIRMATION", "false").lower() == "true"
-        if not checks["live_confirmation"]:
-            fail("live_confirmation", "LIVE mode sans LIVE_TRADING_CONFIRMATION=true")
+        if paper_mode or os.getenv("LIVE_TRADING_CONFIRMATION", "false").lower() == "true":
+            pass_check("live_confirmation", "live confirmation gate satisfied")
+        else:
+            fail("live_confirmation", "live_confirmation_missing", "LIVE mode sans LIVE_TRADING_CONFIRMATION=true")
 
         # 3) auth token present
-        checks["dashboard_token"] = bool(os.getenv("DASHBOARD_API_TOKEN", "").strip())
-        if not checks["dashboard_token"]:
-            fail("dashboard_token", "DASHBOARD_API_TOKEN manquant")
+        if bool(os.getenv("DASHBOARD_API_TOKEN", "").strip()):
+            pass_check("dashboard_token", "dashboard token detected")
+        else:
+            fail("dashboard_token", "dashboard_token_missing", "DASHBOARD_API_TOKEN manquant", error_code="auth")
 
         # 4) required risk limits present
         risk_required = ["MAX_DRAWDOWN_PCT", "RISK_PER_TRADE_PCT", "MAX_POSITION_SIZE_PCT"]
-        checks["risk_limits"] = all(os.getenv(k) not in (None, "") for k in risk_required)
-        if not checks["risk_limits"]:
-            fail("risk_limits", f"Risk limits manquants: {[k for k in risk_required if os.getenv(k) in (None, '')]}")
+        if all(os.getenv(k) not in (None, "") for k in risk_required):
+            pass_check("risk_limits", "risk limits configured")
+        else:
+            fail(
+                "risk_limits",
+                "risk_limits_missing",
+                f"Risk limits manquants: {[k for k in risk_required if os.getenv(k) in (None, '')]}",
+            )
 
         # 5) kill switch initialized
-        checks["kill_switch_initialized"] = self.kill_switch is not None
-        if not checks["kill_switch_initialized"]:
-            fail("kill_switch_initialized", "Kill switch non initialisé")
+        if self.kill_switch is not None:
+            pass_check("kill_switch_initialized", "kill switch initialized")
+        else:
+            fail("kill_switch_initialized", "kill_switch_not_initialized", "Kill switch non initialisé")
 
         # 6) secret exposure marker not present
         marker_path = Path(os.getenv("SECRET_EXPOSURE_MARKER_PATH", "data/compromised_secret.marker"))
-        checks["secret_exposure_marker"] = not marker_path.exists()
-        if not checks["secret_exposure_marker"]:
-            fail("secret_exposure_marker", f"Marker de compromission détecté: {marker_path}")
+        if not marker_path.exists():
+            pass_check("secret_exposure_marker", "no secret exposure marker")
+        else:
+            fail("secret_exposure_marker", "secret_exposure_marker_found", f"Marker de compromission détecté: {marker_path}")
 
         # 7) leaked SSH key remediation acknowledged
-        checks["leaked_ssh_ack"] = os.getenv("LEAKED_SSH_KEY_ROTATED_ACK", "false").lower() == "true"
-        if not checks["leaked_ssh_ack"]:
-            fail("leaked_ssh_ack", "LEAKED_SSH_KEY_ROTATED_ACK != true")
+        if os.getenv("LEAKED_SSH_KEY_ROTATED_ACK", "false").lower() == "true":
+            pass_check("leaked_ssh_ack", "leaked ssh key remediation acknowledged")
+        else:
+            fail("leaked_ssh_ack", "leaked_ssh_ack_missing", "LEAKED_SSH_KEY_ROTATED_ACK != true")
 
         # 8) known compromised fingerprint not configured
         fp = os.getenv("KRAKEN_API_KEY_FINGERPRINT", "").strip()
-        checks["compromised_fingerprint"] = fp not in self.COMPROMISED_FINGERPRINTS
-        if not checks["compromised_fingerprint"]:
-            fail("compromised_fingerprint", f"Fingerprint compromis configuré: {fp}")
+        if fp not in self.COMPROMISED_FINGERPRINTS:
+            pass_check("compromised_fingerprint", "no known compromised fingerprint")
+        else:
+            fail("compromised_fingerprint", "compromised_fingerprint_configured", f"Fingerprint compromis configuré: {fp}")
 
         # 8-bis) Shared-key multi-bot guardrail (recommended strategy A: one key per bot/host)
         allow_shared = os.getenv("ALLOW_SHARED_API_KEY", "false").lower() == "true"
-        checks["shared_key_guard"] = True
+        pass_check("shared_key_guard", "shared key guard passed")
         if stage in {"micro_live", "small_live"}:
             assignment_mode = os.getenv("API_KEY_ASSIGNMENT_MODE", "").strip().lower()
             unique_bot_id = os.getenv("UNIQUE_BOT_ID", "").strip()
             assigned_bot_id = os.getenv("API_KEY_ASSIGNED_BOT_ID", "").strip()
             if allow_shared:
-                checks["shared_key_guard"] = False
-                fail("shared_key_guard", "ALLOW_SHARED_API_KEY=true interdit en LIVE")
+                fail("shared_key_guard", "shared_api_key_forbidden", "ALLOW_SHARED_API_KEY=true interdit en LIVE")
             if assignment_mode != "dedicated":
-                checks["shared_key_guard"] = False
-                fail("shared_key_guard", "API_KEY_ASSIGNMENT_MODE doit être 'dedicated' en LIVE")
+                fail("shared_key_guard", "api_key_assignment_not_dedicated", "API_KEY_ASSIGNMENT_MODE doit être 'dedicated' en LIVE")
             if not unique_bot_id or not assigned_bot_id or unique_bot_id != assigned_bot_id:
-                checks["shared_key_guard"] = False
-                fail("shared_key_guard", "UNIQUE_BOT_ID/API_KEY_ASSIGNED_BOT_ID invalides (clé non dédiée)")
+                fail("shared_key_guard", "api_key_bot_id_mismatch", "UNIQUE_BOT_ID/API_KEY_ASSIGNED_BOT_ID invalides (clé non dédiée)")
 
         # Promotion ladder requirements
-        checks["promotion_gate"] = self._check_promotion_gate(stage, paper_mode)
-        if not checks["promotion_gate"]:
-            fail("promotion_gate", f"Promotion gate failed for stage={stage}")
+        if self._check_promotion_gate(stage, paper_mode):
+            pass_check("promotion_gate", "promotion gate passed")
+        else:
+            fail("promotion_gate", "promotion_gate_failed", f"Promotion gate failed for stage={stage}")
 
         # 9) Exchange connectivity + preflight checks
         if self.order_executor is None:
-            fail("exchange_connectivity", "OrderExecutor absent")
-            checks["exchange_connectivity"] = False
-            checks["orders_endpoint"] = False
-            checks["api_auth"] = False
-            checks["nonce_health"] = False
-            checks["db_writable"] = False
-            checks["audit_writable"] = False
-            checks["reconciliation_baseline"] = False
-            checks["kill_switch_self_test"] = False
-            checks["clock_drift"] = False
-            return StartupAttestationResult(ok=False, checks=checks, reasons=reasons)
+            fail("exchange_connectivity", "order_executor_missing", "OrderExecutor absent")
+            fail("orders_endpoint", "order_executor_missing", "OrderExecutor absent")
+            fail("api_auth", "order_executor_missing", "OrderExecutor absent")
+            fail("nonce_health", "order_executor_missing", "OrderExecutor absent")
+            fail("db_writable", "order_executor_missing", "OrderExecutor absent")
+            fail("audit_writable", "order_executor_missing", "OrderExecutor absent")
+            fail("reconciliation_baseline", "order_executor_missing", "OrderExecutor absent")
+            fail("kill_switch_self_test", "order_executor_missing", "OrderExecutor absent")
+            fail("clock_drift", "order_executor_missing", "OrderExecutor absent")
+            return StartupAttestationResult(
+                ok=False,
+                status="fail",
+                checks=checks,
+                reasons=reasons,
+                diagnostics=diagnostics,
+            )
 
-        checks["exchange_connectivity"] = await self._check_exchange_connectivity()
-        if not checks["exchange_connectivity"]:
-            fail("exchange_connectivity", "Exchange connectivity check failed")
-
-        checks["api_auth"] = await self._check_api_auth()
-        if not checks["api_auth"]:
-            fail("api_auth", "API auth check failed")
-
-        checks["orders_endpoint"] = await self._check_orders_endpoint()
-        if not checks["orders_endpoint"]:
-            fail("orders_endpoint", "Orders endpoint unreachable")
-
-        checks["nonce_health"] = self._check_nonce_health()
-        if not checks["nonce_health"]:
-            fail("nonce_health", "Nonce generation unhealthy")
-
-        checks["db_writable"] = self._check_db_writable()
-        if not checks["db_writable"]:
-            fail("db_writable", "Database not writable")
-
-        checks["audit_writable"] = self._check_audit_writable()
-        if not checks["audit_writable"]:
-            fail("audit_writable", "Audit trail not writable")
-
-        checks["clock_drift"] = await self._check_clock_drift()
-        if not checks["clock_drift"]:
-            fail("clock_drift", "Clock drift above allowed threshold")
-
-        checks["reconciliation_baseline"] = await self._check_reconciliation_baseline()
-        if not checks["reconciliation_baseline"]:
-            fail("reconciliation_baseline", "Reconciliation baseline failed")
-
-        checks["kill_switch_self_test"] = await self._kill_switch_self_test(preflight_only)
-        if not checks["kill_switch_self_test"]:
-            fail("kill_switch_self_test", "Kill switch self-test failed")
+        record("exchange_connectivity", await self._check_exchange_connectivity())
+        record("api_auth", await self._check_api_auth())
+        record("orders_endpoint", await self._check_orders_endpoint())
+        record("nonce_health", self._check_nonce_health())
+        record("db_writable", self._check_db_writable())
+        record("audit_writable", self._check_audit_writable())
+        record("clock_drift", await self._check_clock_drift())
+        record("reconciliation_baseline", await self._check_reconciliation_baseline())
+        record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
 
         ok = all(checks.values())
-        return StartupAttestationResult(ok=ok, checks=checks, reasons=reasons)
+        return StartupAttestationResult(
+            ok=ok,
+            status="pass" if ok else "fail",
+            checks=checks,
+            reasons=reasons,
+            diagnostics=diagnostics,
+        )
 
     async def enforce(self, preflight_only: bool = False) -> None:
         result = await self.run(preflight_only=preflight_only)
@@ -186,59 +225,108 @@ class StartupAttestation:
             raise StartupAttestationError("Startup attestation failed")
         logger.info("✅ Startup attestation passed")
 
-    async def _check_exchange_connectivity(self) -> bool:
+    def _log_check_exception(self, check_name: str, error_code: str, exc: Exception) -> None:
+        logger.error(
+            "startup_attestation_check_failed",
+            extra={
+                "check": check_name,
+                "error_code": error_code,
+                "exception_type": type(exc).__name__,
+                "exception": str(exc),
+            },
+        )
+
+    async def _check_exchange_connectivity(self) -> _CheckOutcome:
         try:
             ok, _resp = await self.order_executor._safe_api_call("Ticker", pair="XXBTZEUR")
-            return bool(ok)
-        except Exception:
-            return False
+            if bool(ok):
+                return _CheckOutcome(ok=True, message="exchange ticker call succeeded")
+            return _CheckOutcome(ok=False, reason="exchange_connectivity_failed", message="Ticker endpoint returned not-ok", error_code="network")
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("exchange_connectivity", "timeout", exc)
+            return _CheckOutcome(ok=False, reason="exchange_connectivity_timeout", message="Exchange ticker timed out", error_code="timeout")
+        except aiohttp.ClientError as exc:
+            self._log_check_exception("exchange_connectivity", "network", exc)
+            return _CheckOutcome(ok=False, reason="exchange_connectivity_network_error", message="Exchange connectivity client error", error_code="network")
 
-    async def _check_api_auth(self) -> bool:
+    async def _check_api_auth(self) -> _CheckOutcome:
         try:
             balance = await self.order_executor.get_balance()
-            return isinstance(balance, dict)
-        except Exception:
-            return False
+            if isinstance(balance, dict):
+                return _CheckOutcome(ok=True, message="balance auth call succeeded")
+            return _CheckOutcome(ok=False, reason="api_auth_invalid_payload", message="Balance payload is not a dict", error_code="auth")
+        except PermissionError as exc:
+            self._log_check_exception("api_auth", "auth", exc)
+            return _CheckOutcome(ok=False, reason="api_auth_permission_denied", message="API auth permission denied", error_code="auth")
+        except ValueError as exc:
+            self._log_check_exception("api_auth", "auth", exc)
+            return _CheckOutcome(ok=False, reason="api_auth_invalid_response", message="API auth returned malformed data", error_code="auth")
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("api_auth", "timeout", exc)
+            return _CheckOutcome(ok=False, reason="api_auth_timeout", message="API auth request timed out", error_code="timeout")
+        except aiohttp.ClientError as exc:
+            self._log_check_exception("api_auth", "network", exc)
+            return _CheckOutcome(ok=False, reason="api_auth_network_error", message="API auth network error", error_code="network")
 
-    async def _check_orders_endpoint(self) -> bool:
+    async def _check_orders_endpoint(self) -> _CheckOutcome:
         try:
             # balance + open orders path to ensure private endpoints are reachable
             _ = await self.order_executor.get_open_orders()
-            return True
-        except Exception:
-            return False
+            return _CheckOutcome(ok=True, message="orders endpoint reachable")
+        except PermissionError as exc:
+            self._log_check_exception("orders_endpoint", "auth", exc)
+            return _CheckOutcome(ok=False, reason="orders_endpoint_auth_error", message="Orders endpoint auth error", error_code="auth")
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("orders_endpoint", "timeout", exc)
+            return _CheckOutcome(ok=False, reason="orders_endpoint_timeout", message="Orders endpoint timeout", error_code="timeout")
+        except aiohttp.ClientError as exc:
+            self._log_check_exception("orders_endpoint", "network", exc)
+            return _CheckOutcome(ok=False, reason="orders_endpoint_network_error", message="Orders endpoint unreachable", error_code="network")
 
-    def _check_nonce_health(self) -> bool:
+    def _check_nonce_health(self) -> _CheckOutcome:
         try:
             n1 = self.order_executor._nonce_manager.next_nonce("startup_attest")
             n2 = self.order_executor._nonce_manager.next_nonce("startup_attest")
-            return n2 > n1
-        except Exception:
-            return False
+            if n2 > n1:
+                return _CheckOutcome(ok=True, message="nonce progression healthy")
+            return _CheckOutcome(ok=False, reason="nonce_not_increasing", message="Nonce did not increase")
+        except OSError as exc:
+            self._log_check_exception("nonce_health", "io", exc)
+            return _CheckOutcome(ok=False, reason="nonce_io_error", message="Nonce store I/O error", error_code="io")
+        except AttributeError as exc:
+            self._log_check_exception("nonce_health", "io", exc)
+            return _CheckOutcome(ok=False, reason="nonce_manager_missing", message="Nonce manager missing", error_code="io")
 
-    def _check_db_writable(self) -> bool:
+    def _check_db_writable(self) -> _CheckOutcome:
         try:
             p = self.order_executor
             # low-cost check via nonce db write already done in _check_nonce_health
-            return p is not None
-        except Exception:
-            return False
+            if p is not None:
+                return _CheckOutcome(ok=True, message="executor db path available")
+            return _CheckOutcome(ok=False, reason="db_executor_missing", message="Database executor missing", error_code="io")
+        except OSError as exc:
+            self._log_check_exception("db_writable", "io", exc)
+            return _CheckOutcome(ok=False, reason="db_io_error", message="Database not writable", error_code="io")
 
-    def _check_audit_writable(self) -> bool:
+    def _check_audit_writable(self) -> _CheckOutcome:
         try:
             from .persistence import get_persistence
             ps = get_persistence()
-            return ps.append_audit_event(
+            ok = ps.append_audit_event(
                 event_id=f"startup_{int(time.time()*1000)}",
                 event_type="STARTUP_PREFLIGHT",
                 instance_id="system",
                 config_hash="startup",
                 risk_snapshot={"phase": "preflight"},
             )
-        except Exception:
-            return False
+            if ok:
+                return _CheckOutcome(ok=True, message="audit trail writable")
+            return _CheckOutcome(ok=False, reason="audit_write_failed", message="Audit trail not writable", error_code="io")
+        except OSError as exc:
+            self._log_check_exception("audit_writable", "io", exc)
+            return _CheckOutcome(ok=False, reason="audit_io_error", message="Audit trail I/O error", error_code="io")
 
-    async def _check_clock_drift(self) -> bool:
+    async def _check_clock_drift(self) -> _CheckOutcome:
         max_drift_s = float(os.getenv("MAX_CLOCK_DRIFT_SECONDS", "5"))
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
@@ -246,32 +334,47 @@ class StartupAttestation:
                     data = await resp.json()
                     exchange_unixtime = float(data.get("result", {}).get("unixtime", 0.0))
                     if exchange_unixtime <= 0:
-                        return False
+                        return _CheckOutcome(ok=False, reason="clock_drift_invalid_exchange_time", message="Exchange time invalid", error_code="network")
                     drift = abs(time.time() - exchange_unixtime)
-                    return drift <= max_drift_s
-        except Exception:
-            return False
+                    if drift <= max_drift_s:
+                        return _CheckOutcome(ok=True, message="clock drift in tolerance")
+                    return _CheckOutcome(ok=False, reason="clock_drift_exceeded", message="Clock drift above allowed threshold")
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("clock_drift", "timeout", exc)
+            return _CheckOutcome(ok=False, reason="clock_drift_timeout", message="Clock drift check timed out", error_code="timeout")
+        except aiohttp.ClientError as exc:
+            self._log_check_exception("clock_drift", "network", exc)
+            return _CheckOutcome(ok=False, reason="clock_drift_network_error", message="Clock drift network error", error_code="network")
 
-    async def _check_reconciliation_baseline(self) -> bool:
+    async def _check_reconciliation_baseline(self) -> _CheckOutcome:
         try:
             local = float(os.getenv("INITIAL_CAPITAL", "0") or 0.0)
             balance = await self.order_executor.get_balance()
             exchange = float(balance.get("ZEUR", 0.0))
             divs = self.reconciler.compare_balances(local_total=local, exchange_total=exchange)
-            return not self.reconciler.should_kill_switch(divs)
-        except Exception:
-            return False
+            if not self.reconciler.should_kill_switch(divs):
+                return _CheckOutcome(ok=True, message="reconciliation baseline accepted")
+            return _CheckOutcome(ok=False, reason="reconciliation_divergence", message="Reconciliation baseline failed")
+        except ValueError as exc:
+            self._log_check_exception("reconciliation_baseline", "io", exc)
+            return _CheckOutcome(ok=False, reason="reconciliation_invalid_balance", message="Invalid reconciliation balance payload", error_code="io")
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("reconciliation_baseline", "timeout", exc)
+            return _CheckOutcome(ok=False, reason="reconciliation_timeout", message="Reconciliation request timed out", error_code="timeout")
+        except aiohttp.ClientError as exc:
+            self._log_check_exception("reconciliation_baseline", "network", exc)
+            return _CheckOutcome(ok=False, reason="reconciliation_network_error", message="Reconciliation network failure", error_code="network")
 
-    async def _kill_switch_self_test(self, preflight_only: bool) -> bool:
+    async def _kill_switch_self_test(self, preflight_only: bool) -> _CheckOutcome:
         if self.kill_switch is None:
-            return False
+            return _CheckOutcome(ok=False, reason="kill_switch_not_initialized", message="Kill switch not initialized")
         # Ensure object responds and is not already tripped at boot
         if self.kill_switch.tripped:
-            return False
+            return _CheckOutcome(ok=False, reason="kill_switch_already_tripped", message="Kill switch already tripped")
         if preflight_only:
             # light test path
             await self.kill_switch.check_partial_stuck(time.time(), max_partial_age_s=999999)
-        return True
+        return _CheckOutcome(ok=True, message="kill switch self-test passed")
 
     def _check_promotion_gate(self, stage: str, paper_mode: bool) -> bool:
         """
