@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
+import { calculateRendementPercent } from './analyticsMetrics';
 
 const API_BASE_URL = '';
 const API_TOKEN =
@@ -84,9 +85,7 @@ const Analytics: React.FC = () => {
         const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
         if (capitalRes.ok) {
           const capitalData = await capitalRes.json();
-          const pnlPercent = capitalData.total_capital > 0 
-            ? (capitalData.total_profit / capitalData.total_invested * 100).toFixed(1)
-            : '0.0';
+          const pnlPercent = calculateRendementPercent(capitalData, '0.0');
           
           setMetrics(prev => ({
             ...prev,
