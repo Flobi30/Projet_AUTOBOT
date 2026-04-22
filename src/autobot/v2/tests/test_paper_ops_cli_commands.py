@@ -83,3 +83,26 @@ def test_validate_missing_env_file_exits_nonzero(tmp_path):
 
     assert proc.returncode != 0
     assert "env file not found" in proc.stderr
+
+
+def test_readiness_writes_artifact_and_returns_nonzero_when_not_ready(tmp_path):
+    repo_root = Path(__file__).resolve().parents[4]
+    artifact = tmp_path / "startup_attestation.json"
+
+    proc, payload = _run_json_cli(repo_root, ["readiness", "--artifact-file", str(artifact), "--format", "json"])
+
+    assert proc.returncode != 0
+    assert artifact.exists()
+    assert payload["status"] == "fail"
+    assert isinstance(payload["reasons"], list)
+    assert isinstance(payload["diagnostics"], dict)
+
+
+def test_readiness_json_contains_required_keys(tmp_path):
+    repo_root = Path(__file__).resolve().parents[4]
+    artifact = tmp_path / "attestation_keys.json"
+
+    proc, payload = _run_json_cli(repo_root, ["readiness", "--artifact-file", str(artifact), "--format", "json"])
+
+    assert proc.returncode != 0
+    assert set(["status", "reasons", "diagnostics"]).issubset(payload.keys())
