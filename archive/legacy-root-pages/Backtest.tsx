@@ -5,8 +5,8 @@ import Modal from '../components/ui/Modal';
 import StrategyDetailModal from '../components/ui/StrategyDetailModal';
 import { BarChart3, Brain, Cpu, Target, TrendingUp, Calendar, Loader } from 'lucide-react';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
-const API_TOKEN = 'autobot_token_12345';
+const API_BASE_URL = (import.meta as any).env?.VITE_DASHBOARD_API_BASE_URL || ''; // archived legacy
+const API_TOKEN = ''; // archived legacy
 const authHeaders = { 'Authorization': `Bearer ${API_TOKEN}` };
 
 export interface Strategy {

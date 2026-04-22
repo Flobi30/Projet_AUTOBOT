@@ -3,11 +3,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
 
-const API_BASE_URL = '';
-const API_TOKEN =
-  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
-  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
-  ''; // no hardcoded secret
+import { API_BASE_URL, API_TOKEN } from '../config/api';
 
 
 interface ScalingStatusResponse {

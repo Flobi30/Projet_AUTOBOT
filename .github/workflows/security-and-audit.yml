@@ -44,6 +44,24 @@ jobs:
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
 
+  frontend-no-hardcoded-secrets:
+    name: Frontend hardcoded secret policy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Enforce no hardcoded secrets/endpoints
+        run: npm run lint:secrets
+
   leaked-secret-promotion-guard:
     name: Unsafe promotion guard
     runs-on: ubuntu-latest

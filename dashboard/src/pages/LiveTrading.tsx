@@ -5,11 +5,7 @@ import LiveLog from '../components/ui/LiveLog';
 import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 
-const API_BASE_URL = '';
-const API_TOKEN =
-  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
-  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
-  ''; // no hardcoded secret
+import { API_BASE_URL, API_TOKEN } from '../config/api';
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {

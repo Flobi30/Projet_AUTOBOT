@@ -135,3 +135,26 @@ const getStatus = (value: number) => {
   return 'healthy';
 };
 ```
+
+## 🔐 Politique sécurité frontend: no hardcoded secrets/endpoints
+
+### Source de vérité UI
+- Les pages UI actives sont **uniquement** dans `dashboard/src/pages/*`.
+- Les anciens fichiers racine `Analytics.tsx`, `Backtest.tsx`, `Capital.tsx`, `Diagnostic.tsx` ont été archivés hors du frontend build pour éviter toute dérive.
+
+### Variables d'environnement Vite obligatoires
+- `VITE_DASHBOARD_API_BASE_URL` : URL de base API (laisser vide pour utiliser le même host/origin).
+- `VITE_DASHBOARD_API_TOKEN` : token Bearer (optionnel; vide par défaut).
+
+Fallback sécurisé appliqué:
+- Base URL vide (`''`) → appels relatifs au domaine courant.
+- Token vide (`''`) si absent/invalide (notamment préfixe legacy `autobot_token_`).
+
+### Interdictions dans le code frontend
+- Aucun token/API key hardcodé.
+- Aucun endpoint en IP brute (`http://x.x.x.x:8080`).
+- Aucun placeholder endpoint (`http://<ip>:8080`).
+
+### Contrôle CI
+- `npm run lint:secrets` exécute `dashboard/scripts/no-hardcoded-secrets.mjs`.
+- Le workflow GitHub `Security and Dependency Audit` bloque la PR si une règle est violée.

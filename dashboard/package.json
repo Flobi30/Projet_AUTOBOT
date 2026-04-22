@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint:secrets": "node ./scripts/no-hardcoded-secrets.mjs"
   },
   "dependencies": {
     "@stripe/stripe-js": "^7.8.0",

@@ -4,8 +4,7 @@ import MetricCard from '../components/ui/MetricCard';
 import Tabs, { Tab } from '../components/ui/Tabs';
 import { Activity, TrendingUp, BarChart3, Wallet, Target, Layers, GraduationCap, RefreshCw, AlertTriangle, CheckCircle, XCircle, Wifi, WifiOff, Clock } from 'lucide-react';
 
-const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
+import { API_BASE_URL, API_TOKEN } from '../config/api';
 
 interface GlobalPerf {
   capital_total: number; capital_initial: number; profit_total: number;
