@@ -124,9 +124,10 @@ class DiagnosticManager:
         ]
         
         for name, status in all_checks:
-            if status.get("status") == "error":
+            normalized_status = self._normalize_check_status(status.get("status"))
+            if normalized_status == "critical":
                 issues.append(f"{name}: {status.get('error', 'Erreur inconnue')}")
-            elif status.get("status") == "warning":
+            elif normalized_status == "warning":
                 issues.append(f"{name}: {status.get('warning', 'Attention')}")
         
         # Génération recommandations
@@ -136,12 +137,7 @@ class DiagnosticManager:
         )
         
         # Détermination statut global
-        if any(s.get("status") == "error" for _, s in all_checks):
-            overall = "critical"
-        elif any(s.get("status") == "warning" for _, s in all_checks):
-            overall = "warning"
-        else:
-            overall = "healthy"
+        overall = self._compute_overall_status([s for _, s in all_checks])
         
         return HealthStatus(
             timestamp=datetime.now(timezone.utc),
@@ -155,6 +151,29 @@ class DiagnosticManager:
             issues=issues,
             recommendations=recommendations
         )
+
+    @staticmethod
+    def _normalize_check_status(status: Optional[str]) -> str:
+        """
+        Harmonise les statuts des checks vers:
+        - "ok"
+        - "warning"
+        - "critical"
+        """
+        if status in {"error", "critical"}:
+            return "critical"
+        if status == "warning":
+            return "warning"
+        return "ok"
+
+    def _compute_overall_status(self, statuses: List[Dict[str, Any]]) -> str:
+        """Détermine le statut global en harmonisant les statuts des checks."""
+        normalized = [self._normalize_check_status(s.get("status")) for s in statuses]
+        if "critical" in normalized:
+            return "critical"
+        if "warning" in normalized:
+            return "warning"
+        return "healthy"
     
     async def _check_docker(self) -> Dict[str, Any]:
         """Vérifie l'état Docker."""
