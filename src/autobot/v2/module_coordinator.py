@@ -11,7 +11,7 @@ from typing import Dict, List
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from .config import *  # noqa: F401,F403
+from .config import MAX_BACKOFF_SECONDS
 
 logger = logging.getLogger(__name__)
 
