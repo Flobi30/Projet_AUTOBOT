@@ -100,6 +100,9 @@ class ErrorHandler:
     
     def _record_success(self):
         """Enregistre un succès (ferme le circuit si half-open)"""
+        if self._circuit_state == CircuitState.CLOSED:
+            self._failure_count = 0
+
         if self._circuit_state == CircuitState.HALF_OPEN:
             logger.info("✅ Circuit breaker: Récupération réussie, circuit FERMÉ")
             self._circuit_state = CircuitState.CLOSED
