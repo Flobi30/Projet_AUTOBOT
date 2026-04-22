@@ -8,9 +8,9 @@ Connects strategy signals to async order execution.
 from __future__ import annotations
 
 import asyncio
-import os
 import logging
 import os
+import sqlite3
 import time
 import uuid
 import hashlib
@@ -65,6 +65,19 @@ class SignalHandlerAsync:
             35.0,
         )
         self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
+        self._edge_percentile_target = self._load_float_in_range(
+            "edge_percentile_target",
+            "EDGE_PERCENTILE_TARGET",
+            0.70,
+            minimum=0.50,
+            maximum=0.99,
+        )
+        self._cost_obs_window = int(self._load_positive_float("cost_observation_window", "COST_OBSERVATION_WINDOW", 60.0))
+        self._volatility_edge_weight = self._load_positive_float(
+            "volatility_edge_weight",
+            "VOLATILITY_EDGE_WEIGHT",
+            0.20,
+        )
         self._validate_risk_parameters()
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
@@ -89,6 +102,20 @@ class SignalHandlerAsync:
             return default
         return value
 
+
+    def _load_float_in_range(
+        self,
+        config_key: str,
+        env_key: str,
+        default: float,
+        *,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        """Read config/env and clamp to [minimum, maximum]."""
+        value = self._load_positive_float(config_key, env_key, default)
+        return min(maximum, max(minimum, value))
+
     def _validate_risk_parameters(self) -> None:
         """Normalize parameters to safe bounds for risk/cost guards."""
         # Safety ranges
@@ -99,6 +126,9 @@ class SignalHandlerAsync:
         self._min_edge_bps = min(1000.0, max(1.0, self._min_edge_bps))
         self._risk_per_trade_pct = min(10.0, max(0.05, self._risk_per_trade_pct))
         self._max_position_capital_pct = min(100.0, max(1.0, self._max_position_capital_pct))
+        self._edge_percentile_target = min(0.99, max(0.50, self._edge_percentile_target))
+        self._cost_obs_window = int(min(500, max(10, self._cost_obs_window)))
+        self._volatility_edge_weight = min(2.0, max(0.05, self._volatility_edge_weight))
 
     def _setup_signal_callback(self) -> None:
         strategy = getattr(self.instance, "_strategy", None)
@@ -176,12 +206,13 @@ class SignalHandlerAsync:
         if volume <= 0:
             return
 
-        if not self._passes_cost_guard(signal, atr_pct):
+        edge_ctx = self._estimate_edge_context(signal, atr_pct)
+        if not self._passes_cost_guard(edge_ctx):
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
         symbol = self._convert_symbol(signal.symbol)
-        execution_plan = self._build_execution_plan(signal, volume)
+        execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
         signal_id = f"sig_{uuid.uuid4().hex}"
         rec = self._osm.new_order(
@@ -552,28 +583,116 @@ class SignalHandlerAsync:
         raw = ((executed_price - expected_price) / expected_price) * 10000
         return float(raw if side == "buy" else -raw)
 
-    def _passes_cost_guard(self, signal: TradingSignal, atr_pct: float) -> bool:
+    def _percentile(self, values: list[float], q: float) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        if len(ordered) == 1:
+            return ordered[0]
+        clamped_q = min(1.0, max(0.0, float(q)))
+        idx = (len(ordered) - 1) * clamped_q
+        lo = int(idx)
+        hi = min(lo + 1, len(ordered) - 1)
+        if lo == hi:
+            return ordered[lo]
+        frac = idx - lo
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
+
+    def _load_recent_execution_costs(self, symbol: str) -> list[dict[str, float]]:
+        persistence = getattr(self.instance, "_persistence", None)
+        if persistence is None or not hasattr(persistence, "_get_conn"):
+            return []
+        try:
+            with persistence._lock:
+                conn = persistence._get_conn()
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT executed_price, volume, fees, slippage_bps
+                    FROM trade_ledger
+                    WHERE instance_id = ?
+                      AND symbol = ?
+                      AND executed_price IS NOT NULL
+                      AND volume IS NOT NULL
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (self.instance.id, symbol, int(self._cost_obs_window)),
+                ).fetchall()
+            samples: list[dict[str, float]] = []
+            for row in rows:
+                px = self._to_optional_float(row["executed_price"])
+                vol = self._to_optional_float(row["volume"])
+                if px is None or vol is None or px <= 0 or vol <= 0:
+                    continue
+                amount = px * vol
+                fee = max(0.0, self._to_optional_float(row["fees"]) or 0.0)
+                fee_bps = (fee / amount) * 10000 if amount > 0 else 0.0
+                slip = abs(self._to_optional_float(row["slippage_bps"]) or 0.0)
+                samples.append({"fee_bps": fee_bps, "slippage_bps": slip, "total_cost_bps": fee_bps + slip})
+            return samples
+        except Exception:
+            logger.exception("❌ Impossible de charger les coûts observés pour %s", symbol)
+            return []
+
+    def _estimate_edge_context(self, signal: TradingSignal, atr_pct: float) -> dict[str, float]:
         metadata = signal.metadata or {}
+        symbol = self._convert_symbol(signal.symbol)
         spread_bps = float(metadata.get("spread_bps", 0.0))
+        observed = self._load_recent_execution_costs(symbol)
+        fee_samples = [s["fee_bps"] for s in observed]
+        slip_samples = [s["slippage_bps"] for s in observed]
+        cost_samples = [s["total_cost_bps"] for s in observed]
+        fallback_fee_bps = float(metadata.get("fee_bps", 40.0))
+        fallback_slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        estimated_fee_bps = self._percentile(fee_samples, self._edge_percentile_target) if fee_samples else fallback_fee_bps
+        estimated_slippage_bps = self._percentile(slip_samples, self._edge_percentile_target) if slip_samples else fallback_slippage_bps
+        observed_cost_pctl = self._percentile(cost_samples, self._edge_percentile_target) if cost_samples else (estimated_fee_bps + estimated_slippage_bps)
+        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
+        total_cost_bps = spread_bps + estimated_fee_bps + estimated_slippage_bps
+        net_edge_bps = expected_move_bps - total_cost_bps
+        volatility_component_bps = atr_pct * 10000 * self._volatility_edge_weight
+        adaptive_min_edge_bps = max(self._min_edge_bps, observed_cost_pctl + volatility_component_bps)
+        return {
+            "spread_bps": spread_bps,
+            "expected_move_bps": expected_move_bps,
+            "estimated_fee_bps": estimated_fee_bps,
+            "estimated_slippage_bps": estimated_slippage_bps,
+            "total_cost_bps": total_cost_bps,
+            "net_edge_bps": net_edge_bps,
+            "adaptive_min_edge_bps": adaptive_min_edge_bps,
+            "volatility_component_bps": volatility_component_bps,
+            "observed_samples": float(len(observed)),
+        }
+
+    def _passes_cost_guard(self, edge_ctx: dict[str, float]) -> bool:
+        spread_bps = float(edge_ctx.get("spread_bps", 0.0))
         if spread_bps > self._max_spread_bps:
             logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
             return False
-        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
-        fee_bps = float(metadata.get("fee_bps", 40.0))
-        slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
-        total_cost_bps = fee_bps + slippage_bps + spread_bps
-        return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
+        net_edge_bps = float(edge_ctx.get("net_edge_bps", 0.0))
+        adaptive_min_edge_bps = float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps))
+        if net_edge_bps < adaptive_min_edge_bps:
+            logger.info(
+                "Edge net %.2f bps < seuil adaptatif %.2f bps (pctl=%.2f, n=%d, coûts=%.2f)",
+                net_edge_bps,
+                adaptive_min_edge_bps,
+                self._edge_percentile_target,
+                int(edge_ctx.get("observed_samples", 0.0)),
+                float(edge_ctx.get("total_cost_bps", 0.0)),
+            )
+            return False
+        return True
 
-    def _build_execution_plan(self, signal: TradingSignal, volume: float) -> dict[str, Any]:
+    def _build_execution_plan(self, signal: TradingSignal, volume: float, edge_ctx: Optional[dict[str, float]] = None) -> dict[str, Any]:
         metadata = signal.metadata or {}
-        spread_bps = float(metadata.get("spread_bps", 0.0))
-        expected_move_bps = float(metadata.get("expected_move_bps", self._min_edge_bps + spread_bps + 40.0))
-        fee_bps = float(metadata.get("fee_bps", 40.0))
-        slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
-        edge_bps = expected_move_bps - (spread_bps + fee_bps + slippage_bps)
+        edge = edge_ctx or self._estimate_edge_context(signal, self._estimate_atr_pct(signal.price))
+        edge_bps = float(edge.get("net_edge_bps", 0.0))
+        adaptive_min_edge = float(edge.get("adaptive_min_edge_bps", self._min_edge_bps))
+        spread_bps = float(edge.get("spread_bps", metadata.get("spread_bps", 0.0)))
         urgency = max(0.0, min(1.0, float(metadata.get("urgency", 0.0))))
         low_urgency = urgency <= 0.35
-        has_edge = edge_bps >= self._min_edge_bps
+        has_edge = edge_bps >= adaptive_min_edge
 
         amount = max(signal.price * volume, 0.0)
         rec = (
