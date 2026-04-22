@@ -62,4 +62,7 @@ Workflow recommandé pour éviter toute divergence de versions:
 4. Vérifier qu'aucun fichier secondaire sous `src/autobot/v2/**/requirements.txt` n'introduit une version ad hoc (pas de `>=`, `~=` ou version libre).
 5. Committer ensemble: les `.in`, les `.txt` lockés, et la documentation impactée.
 
+Le contrôle CI `python tools/check_dependency_locks.py` échoue désormais si `src/autobot/v2/api/requirements.txt`
+ou `src/autobot/v2/tests/requirements.txt` contient autre chose qu'une référence `-r` vers le lockfile central attendu.
+
 Ce flux impose une stratégie **mono-lock** pour les dépendances secondaires V2: la résolution des versions est centralisée dans `requirements/*.txt` et consommée par référence, ce qui aligne dev, CI et production.
