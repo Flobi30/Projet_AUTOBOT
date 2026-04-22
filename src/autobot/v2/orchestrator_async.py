@@ -120,20 +120,29 @@ from .risk_manager import OrchestratorRiskManager
 from .universe_manager import UniverseManager
 from .pair_ranking_engine import PairRankingEngine
 from .scalability_guard import (
-    GuardInput,
     GuardThresholds,
     ScalabilityGuard,
     ScalingState,
 )
 from .global_kill_switch import GlobalKillSwitchStore
 from .instance_activation_manager import (
-    ActivationInput,
     InstanceActivationManager,
 )
 from .portfolio_allocator import (
     AllocationConstraints,
     AllocationPlan,
     PortfolioAllocator,
+)
+from .orchestrator_services import (
+    ActivationContext,
+    BackgroundTasksService,
+    DecisionJournalService,
+    InstanceActivationService,
+    InstanceLifecycleService,
+    PortfolioAllocationService,
+    ScalabilityGuardService,
+    ScalabilityMetrics,
+    journal_symbol_cap,
 )
 from .decision_journal import (
     DecisionJournal,
@@ -485,6 +494,18 @@ class OrchestratorAsync:
                     risk_per_capital_ratio=PORTFOLIO_RISK_PER_CAPITAL_RATIO,
                 )
             )
+        self.lifecycle_service = InstanceLifecycleService()
+        self.background_tasks = BackgroundTasksService()
+        self.decision_journal_service = DecisionJournalService(
+            journal=self.decision_journal,
+            enabled=self._decision_journal_enabled,
+        )
+        self.scalability_guard_service = ScalabilityGuardService(self.scalability_guard)
+        self.instance_activation_service = InstanceActivationService(self.instance_activation_manager)
+        self.portfolio_allocation_service = PortfolioAllocationService(
+            self.portfolio_allocator,
+            self.risk_cluster_manager,
+        )
 
         # Market selector (reuse sync version)
         try:
@@ -1027,8 +1048,8 @@ class OrchestratorAsync:
             fails = sum(1 for v in self._last_validation_guard.values() if not bool(v.get("passed", True)))
             validation_degraded = (fails / max(1, len(self._last_validation_guard))) > SCALING_GUARD_VALIDATION_FAIL_MAX
 
-        decision = self.scalability_guard.evaluate(
-            GuardInput(
+        decision = self.scalability_guard_service.evaluate(
+            ScalabilityMetrics(
                 cpu_pct=cpu_pct,
                 memory_pct=memory_pct,
                 ws_connected=ws_connected,
@@ -1041,6 +1062,8 @@ class OrchestratorAsync:
                 validation_degraded=validation_degraded,
             )
         )
+        if decision is None:
+            return
         self.scalability_guard_state = decision.state
         self._scalability_guard_last = {
             "state": decision.state.value,
@@ -1091,21 +1114,20 @@ class OrchestratorAsync:
             if sym in scored_map
         ]
         avg_rank_score = (sum(score_values) / len(score_values)) if score_values else 0.0
-        below_threshold_symbols = [
-            sym
-            for sym in ranked_symbols
-            if sym in scored_map and float(scored_map.get(sym, {}).get("score", 0.0)) < float(RANKING_MIN_SCORE_ACTIVATE)
-        ]
+        below_threshold_symbols = self.instance_activation_service.below_threshold_symbols(
+            ranked_symbols,
+            scored_map,
+        )
         if below_threshold_symbols:
             low_fp = self._fingerprint(
                 {
-                    "symbols": below_threshold_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))],
+                    "symbols": below_threshold_symbols[: journal_symbol_cap()],
                     "threshold": float(RANKING_MIN_SCORE_ACTIVATE),
                 }
             )
             if low_fp != self._journal_last_rejected_ranking_fp:
                 self._journal_last_rejected_ranking_fp = low_fp
-                for sym in below_threshold_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]:
+                for sym in below_threshold_symbols[: journal_symbol_cap()]:
                     self._journal_rejected_opportunity(
                         reason=REJECTION_REASON_RANKING_BELOW_THRESHOLD,
                         source="instance_activation_policy",
@@ -1116,69 +1138,67 @@ class OrchestratorAsync:
                         },
                     )
 
-        decision = self.instance_activation_manager.decide(
-            ActivationInput(
+        activation_result = self.instance_activation_service.apply(
+            ActivationContext(
                 ranked_symbols=ranked_symbols,
-                avg_rank_score=avg_rank_score,
+                scored_map=scored_map,
                 guard_state=self.scalability_guard_state,
                 health_score=self._compute_health_score(),
                 running_instances=len([i for i in self._instances.values() if i.is_running()]),
                 now_ts=perf_counter(),
             )
         )
-        self._activation_target_instances = max(1, int(decision.target_instances))
+        if activation_result is None:
+            return
+        decision = activation_result.payload
+        self._activation_target_instances = int(activation_result.target_instances)
         self._activation_last = {
-            "action": decision.action,
+            "action": decision["action"],
             "target_instances": self._activation_target_instances,
-            "target_tier": int(decision.target_tier),
-            "selected_symbols": list(decision.selected_symbols),
-            "reason": decision.reason,
+            "target_tier": int(decision["target_tier"]),
+            "selected_symbols": list(decision["selected_symbols"]),
+            "reason": decision["reason"],
         }
-        if decision.action in {"promote", "demote", "freeze"}:
+        if decision["action"] in {"promote", "demote", "freeze"}:
             self._journal_major_decision(
                 decision_type="activation_decision",
                 source="instance_activation_manager",
-                symbols=list(decision.selected_symbols[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]),
-                reasons=[decision.reason],
+                symbols=list(decision["selected_symbols"][: journal_symbol_cap()]),
+                reasons=[decision["reason"]],
                 context={
-                    "action": decision.action,
+                    "action": decision["action"],
                     "target_instances": int(self._activation_target_instances),
-                    "target_tier": int(decision.target_tier),
+                    "target_tier": int(decision["target_tier"]),
                     "avg_rank_score": float(avg_rank_score),
                     "guard_state": self.scalability_guard_state.value,
                     "running_instances": len([i for i in self._instances.values() if i.is_running()]),
                 },
             )
-        if decision.action in {"promote", "demote", "freeze"}:
-            selected_set = set(str(s) for s in decision.selected_symbols)
-            not_selected = [
-                sym for sym in ranked_symbols
-                if str(sym) not in selected_set
-            ]
-            for sym in not_selected[: max(0, int(DECISION_JOURNAL_MAX_SYMBOLS) - len(decision.selected_symbols))]:
+        if decision["action"] in {"promote", "demote", "freeze"}:
+            for sym in activation_result.rejected_symbols[: max(0, journal_symbol_cap() - len(decision["selected_symbols"]))]:
                 self._journal_rejected_opportunity(
                     reason=REJECTION_REASON_SYMBOL_NOT_SELECTED,
                     source="instance_activation_policy",
                     symbol=str(sym),
                     context={
-                        "action": decision.action,
-                        "target_tier": int(decision.target_tier),
+                        "action": decision["action"],
+                        "target_tier": int(decision["target_tier"]),
                     },
                 )
 
         # Demote path: reduce non-parent instances to target cap (conservative).
-        running = [inst for inst in self._instances.values() if inst.is_running() and inst.id != self.parent_instance_id]
+        running = [
+            inst for inst in self.lifecycle_service.running_instances(self._instances.values())
+            if inst.id != self.parent_instance_id
+        ]
         excess = max(0, len(self._instances) - self._activation_target_instances)
         if excess > 0:
-            victims = sorted(
-                running,
-                key=lambda inst: float(getattr(inst, "get_profit_factor_days", lambda _d: 1.0)(30)),
-            )[:excess]
+            victims = self.lifecycle_service.select_worst_by_pf(running, excess)
             for victim in victims:
                 await self.remove_instance(victim.id)
 
     def _refresh_portfolio_allocation_plan(self) -> None:
-        if self.portfolio_allocator is None:
+        if self.portfolio_allocation_service.allocator is None:
             self._portfolio_plan = None
             return
 
@@ -1191,36 +1211,13 @@ class OrchestratorAsync:
         if not ranked_symbols:
             ranked_symbols = sorted({inst.config.symbol for inst in active_instances})
 
-        symbol_exposure: Dict[str, float] = {}
-        for inst in active_instances:
-            symbol = str(inst.config.symbol)
-            symbol_exposure[symbol] = symbol_exposure.get(symbol, 0.0) + max(0.0, float(inst.get_current_capital()))
-
-        cluster_exposure = self.risk_cluster_manager.exposure_by_cluster(active_instances)
-        total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances)
-        if total_capital <= 0.0:
-            total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in self._instances.values())
-
-        # Lightweight active-risk proxy based on current exposures.
-        current_active_risk = 0.0
-        if self.portfolio_allocator is not None:
-            current_active_risk = total_capital * self.portfolio_allocator.constraints.risk_per_capital_ratio
-
-        symbol_to_cluster = {
-            sym: self.risk_cluster_manager.cluster_for_symbol(sym)
-            for sym in ranked_symbols
-        }
-
-        self._portfolio_plan = self.portfolio_allocator.build_plan(
-            ranked_candidates=ranked_symbols,
-            total_capital=total_capital,
-            current_symbol_exposure=symbol_exposure,
-            current_cluster_exposure=dict(cluster_exposure),
-            current_active_risk=current_active_risk,
-            symbol_to_cluster=symbol_to_cluster,
+        self._portfolio_plan = self.portfolio_allocation_service.refresh_plan(
+            instances=active_instances,
+            fallback_instances=self._instances.values(),
+            ranked_symbols=ranked_symbols,
         )
         if self._portfolio_plan is not None:
-            top_symbols = list(self._portfolio_plan.symbol_caps.keys())[: max(1, int(DECISION_JOURNAL_MAX_SYMBOLS))]
+            top_symbols = list(self._portfolio_plan.symbol_caps.keys())[: journal_symbol_cap()]
             fp = self._fingerprint(
                 {
                     "symbol_caps": {k: round(float(v), 2) for k, v in self._portfolio_plan.symbol_caps.items()},
@@ -1241,7 +1238,7 @@ class OrchestratorAsync:
                         "risk_budget_remaining": float(self._portfolio_plan.risk_budget_remaining),
                         "symbol_caps": {
                             k: float(v)
-                            for k, v in list(self._portfolio_plan.symbol_caps.items())[: int(DECISION_JOURNAL_MAX_SYMBOLS)]
+                            for k, v in list(self._portfolio_plan.symbol_caps.items())[: journal_symbol_cap()]
                         },
                     },
                 )
@@ -1254,10 +1251,10 @@ class OrchestratorAsync:
         ]
         if not removable:
             return
-        worst = min(
-            removable,
-            key=lambda inst: float(getattr(inst, "get_profit_factor_days", lambda _d: 1.0)(30)),
-        )
+        worst_candidates = self.lifecycle_service.select_worst_by_pf(removable, 1)
+        if not worst_candidates:
+            return
+        worst = worst_candidates[0]
         self._journal_major_decision(
             decision_type="guard_force_reduce",
             source="scalability_guard",
@@ -1432,15 +1429,12 @@ class OrchestratorAsync:
         reasons: Optional[List[str]] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if not self._decision_journal_enabled:
-            return
-        self.decision_journal.log(
+        self.decision_journal_service.major_decision(
             decision_type=decision_type,
             source=source,
             symbols=symbols or [],
             reasons=reasons or [],
             context=context or {},
-            session_id=os.getenv("DECISION_JOURNAL_SESSION_ID", "").strip() or None,
         )
 
     def _journal_rejected_opportunity(
@@ -1461,11 +1455,7 @@ class OrchestratorAsync:
         )
 
     def _fingerprint(self, payload: Any) -> str:
-        try:
-            import json
-            return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-        except Exception:
-            return repr(payload)
+        return self.decision_journal_service.fingerprint(payload)
 
     def _set_last_decision(self, instance_id: str, action: str, reason: str) -> None:
         priority = self.decision_policy.get(action, 0)
@@ -2464,10 +2454,18 @@ class OrchestratorAsync:
 
         # Start optional modules (DailyReporter, RebalanceManager, etc.)
         await self.module_manager.start()
-        self._daily_report_task = asyncio.create_task(self._daily_report_loop())
-        self._xgboost_train_task = asyncio.create_task(self._train_xgboost_loop())
-        self._sentiment_task = asyncio.create_task(self._sentiment_update_loop())
-        self._cycle_health_task = asyncio.create_task(self._check_cycle_health())
+        self.background_tasks.start(
+            {
+                "daily_report": self._daily_report_loop,
+                "xgboost_train": self._train_xgboost_loop,
+                "sentiment_update": self._sentiment_update_loop,
+                "cycle_health": self._check_cycle_health,
+            }
+        )
+        self._daily_report_task = self.background_tasks.tasks.get("daily_report")
+        self._xgboost_train_task = self.background_tasks.tasks.get("xgboost_train")
+        self._sentiment_task = self.background_tasks.tasks.get("sentiment_update")
+        self._cycle_health_task = self.background_tasks.tasks.get("cycle_health")
         if self.paper_mode:
             total_capital = sum(
                 float(inst.get_current_capital()) for inst in self._instances.values()
@@ -2477,9 +2475,16 @@ class OrchestratorAsync:
                     "🕶️ Capital total paper+shadow %.2f€ > 1000€ (limite demandée)",
                     total_capital,
                 )
-            self._shadow_promotion_task = asyncio.create_task(self._check_shadow_promotions())
-            self._rebalance_task = asyncio.create_task(self._rebalance_loop())
-            self._auto_evolution_task = asyncio.create_task(self._auto_evolution_loop())
+            self.background_tasks.start(
+                {
+                    "shadow_promotion": self._check_shadow_promotions,
+                    "rebalance": self._rebalance_loop,
+                    "auto_evolution": self._auto_evolution_loop,
+                }
+            )
+            self._shadow_promotion_task = self.background_tasks.tasks.get("shadow_promotion")
+            self._rebalance_task = self.background_tasks.tasks.get("rebalance")
+            self._auto_evolution_task = self.background_tasks.tasks.get("auto_evolution")
             logger.info("🧪 Advanced modules activés en PAPER_TRADING=true")
         else:
             logger.warning("🧪 Advanced modules désactivés (PAPER_TRADING=false)")
@@ -2529,55 +2534,14 @@ class OrchestratorAsync:
                 await self._main_task
             except asyncio.CancelledError:
                 pass
-        if self._daily_report_task:
-            self._daily_report_task.cancel()
-            try:
-                await self._daily_report_task
-            except asyncio.CancelledError:
-                pass
-            self._daily_report_task = None
-        if self._xgboost_train_task:
-            self._xgboost_train_task.cancel()
-            try:
-                await self._xgboost_train_task
-            except asyncio.CancelledError:
-                pass
-            self._xgboost_train_task = None
-        if self._sentiment_task:
-            self._sentiment_task.cancel()
-            try:
-                await self._sentiment_task
-            except asyncio.CancelledError:
-                pass
-            self._sentiment_task = None
-        if self._cycle_health_task:
-            self._cycle_health_task.cancel()
-            try:
-                await self._cycle_health_task
-            except asyncio.CancelledError:
-                pass
-            self._cycle_health_task = None
-        if self._shadow_promotion_task:
-            self._shadow_promotion_task.cancel()
-            try:
-                await self._shadow_promotion_task
-            except asyncio.CancelledError:
-                pass
-            self._shadow_promotion_task = None
-        if self._rebalance_task:
-            self._rebalance_task.cancel()
-            try:
-                await self._rebalance_task
-            except asyncio.CancelledError:
-                pass
-            self._rebalance_task = None
-        if self._auto_evolution_task:
-            self._auto_evolution_task.cancel()
-            try:
-                await self._auto_evolution_task
-            except asyncio.CancelledError:
-                pass
-            self._auto_evolution_task = None
+        await self.background_tasks.stop()
+        self._daily_report_task = None
+        self._xgboost_train_task = None
+        self._sentiment_task = None
+        self._cycle_health_task = None
+        self._shadow_promotion_task = None
+        self._rebalance_task = None
+        self._auto_evolution_task = None
 
         for inst in list(self._instances.values()):
             await inst.stop()  # Each instance drains its queue + cancels consumer task
