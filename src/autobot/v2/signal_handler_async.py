@@ -24,6 +24,7 @@ from .order_state_machine import PersistedOrderStateMachine
 from .kill_switch import KillSwitch
 from .reconciliation_strict import StrictReconciliation
 from .modules.fee_optimizer import FeeOptimizer
+from .market_analyzer import get_market_analyzer
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,16 @@ class SignalHandlerAsync:
             "MAX_SPREAD_BPS",
             35.0,
         )
+        self._max_signal_latency_ms = self._load_positive_float(
+            "max_signal_latency_ms",
+            "MAX_SIGNAL_LATENCY_MS",
+            2500.0,
+        )
+        self._max_expected_slippage_bps = self._load_positive_float(
+            "max_expected_slippage_bps",
+            "MAX_EXPECTED_SLIPPAGE_BPS",
+            22.0,
+        )
         self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
         self._base_min_edge_bps = self._min_edge_bps
         self._risk_regime_preset = str(
@@ -118,6 +129,8 @@ class SignalHandlerAsync:
         self._tp_rr = min(8.0, max(0.5, self._tp_rr))
         self._atr_sl_mult = min(6.0, max(0.5, self._atr_sl_mult))
         self._max_spread_bps = min(1000.0, max(1.0, self._max_spread_bps))
+        self._max_signal_latency_ms = min(60_000.0, max(5.0, self._max_signal_latency_ms))
+        self._max_expected_slippage_bps = min(1000.0, max(1.0, self._max_expected_slippage_bps))
         self._min_edge_bps = min(1000.0, max(1.0, self._min_edge_bps))
         self._risk_per_trade_pct = min(10.0, max(0.05, self._risk_per_trade_pct))
         self._max_position_capital_pct = min(100.0, max(1.0, self._max_position_capital_pct))
@@ -160,6 +173,8 @@ class SignalHandlerAsync:
 
         try:
             if signal.type == SignalType.BUY:
+                if not self._passes_microstructure_hard_filter(signal):
+                    return
                 await self._execute_buy(signal)
             elif signal.type in (SignalType.SELL, SignalType.CLOSE):
                 await self._execute_sell(signal)
@@ -656,6 +671,132 @@ class SignalHandlerAsync:
             if moves:
                 baseline = max(baseline, sum(moves) / len(moves))
         return max(0.25, min(4.0, atr_pct / max(baseline, 1e-8)))
+
+    def _passes_microstructure_hard_filter(self, signal: TradingSignal) -> bool:
+        """Hard gate before _execute_buy to reject poor microstructure setups."""
+        metadata = signal.metadata or {}
+        market_metrics = self._get_market_metrics(signal.symbol)
+
+        spread_bps = self._resolve_spread_bps(metadata, market_metrics)
+        latency_ms = self._resolve_signal_latency_ms(signal, metadata)
+        expected_slippage_bps = self._resolve_expected_slippage_bps(metadata, spread_bps, market_metrics)
+
+        rejection_reasons: list[str] = []
+        if spread_bps > self._max_spread_bps:
+            rejection_reasons.append(
+                f"spread_bps={spread_bps:.2f} > max_spread_bps={self._max_spread_bps:.2f}"
+            )
+        if latency_ms > self._max_signal_latency_ms:
+            rejection_reasons.append(
+                f"signal_latency_ms={latency_ms:.1f} > max_signal_latency_ms={self._max_signal_latency_ms:.1f}"
+            )
+        if expected_slippage_bps > self._max_expected_slippage_bps:
+            rejection_reasons.append(
+                "expected_slippage_bps="
+                f"{expected_slippage_bps:.2f} > max_expected_slippage_bps={self._max_expected_slippage_bps:.2f}"
+            )
+
+        if not rejection_reasons:
+            return True
+
+        context = {
+            "symbol": signal.symbol,
+            "reason": signal.reason,
+            "price": float(signal.price),
+            "spread_bps": spread_bps,
+            "signal_latency_ms": latency_ms,
+            "expected_slippage_bps": expected_slippage_bps,
+            "thresholds": {
+                "max_spread_bps": self._max_spread_bps,
+                "max_signal_latency_ms": self._max_signal_latency_ms,
+                "max_expected_slippage_bps": self._max_expected_slippage_bps,
+            },
+        }
+        if market_metrics is not None:
+            context["market_analyzer"] = {
+                "spread_avg_pct": market_metrics.spread_avg,
+                "volatility_24h_pct": market_metrics.volatility_24h,
+                "market_quality": market_metrics.market_quality.name,
+                "composite_score": market_metrics.composite_score,
+            }
+
+        logger.info("⛔ Hard microstructure reject %s: %s", signal.symbol, "; ".join(rejection_reasons))
+        self._journal_rejected_microstructure(signal.symbol, rejection_reasons, context)
+        return False
+
+    def _get_market_metrics(self, symbol: str) -> Optional[Any]:
+        try:
+            analyzer = get_market_analyzer()
+            return analyzer.analyze_market(symbol)
+        except Exception:
+            logger.debug("Market analyzer indisponible pour %s", symbol, exc_info=True)
+            return None
+
+    @staticmethod
+    def _safe_float(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _resolve_spread_bps(self, metadata: dict[str, Any], market_metrics: Optional[Any]) -> float:
+        spread_bps = self._safe_float(metadata.get("spread_bps"), -1.0)
+        if spread_bps >= 0:
+            return spread_bps
+        if market_metrics is not None:
+            return max(0.0, float(market_metrics.spread_avg) * 100.0)
+        return 0.0
+
+    def _resolve_signal_latency_ms(self, signal: TradingSignal, metadata: dict[str, Any]) -> float:
+        candidate_keys = (
+            "signal_latency_ms",
+            "latency_ms",
+            "ws_latency_ms",
+            "tick_age_ms",
+        )
+        for key in candidate_keys:
+            parsed = self._safe_float(metadata.get(key), -1.0)
+            if parsed >= 0:
+                return parsed
+        signal_ts = signal.timestamp
+        if signal_ts.tzinfo is None:
+            signal_ts = signal_ts.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - signal_ts).total_seconds() * 1000.0)
+
+    def _resolve_expected_slippage_bps(
+        self,
+        metadata: dict[str, Any],
+        spread_bps: float,
+        market_metrics: Optional[Any],
+    ) -> float:
+        expected_slippage = self._safe_float(metadata.get("expected_slippage_bps"), -1.0)
+        if expected_slippage >= 0:
+            return expected_slippage
+        explicit_slippage = self._safe_float(metadata.get("slippage_bps"), -1.0)
+        if explicit_slippage >= 0:
+            return explicit_slippage
+        if market_metrics is not None:
+            return max(4.0, spread_bps * 0.45, float(market_metrics.spread_avg) * 60.0)
+        return max(4.0, spread_bps * 0.35)
+
+    def _journal_rejected_microstructure(
+        self,
+        symbol: str,
+        reasons: list[str],
+        context: dict[str, Any],
+    ) -> None:
+        service = getattr(self.instance, "decision_journal_service", None)
+        if service is None or not hasattr(service, "rejected_opportunity"):
+            return
+        try:
+            service.rejected_opportunity(
+                reason="microstructure_hard_filter",
+                source="signal_handler_async",
+                symbol=symbol,
+                context={**context, "reasons": reasons},
+            )
+        except Exception:
+            logger.debug("Decision journal indisponible pour rejet microstructure", exc_info=True)
 
     def _build_execution_plan(self, signal: TradingSignal, volume: float) -> dict[str, Any]:
         metadata = signal.metadata or {}
