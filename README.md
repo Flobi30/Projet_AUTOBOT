@@ -26,3 +26,7 @@ Detailed guide: `docs/PAPER_TRADING_OPERATIONS.md`.
 
 ## Mode live
 Voir `docs/LIVE_PROMOTION_GATES.md`, `SECURITY.md`, `RUNBOOK.md`.
+
+## Contribution policy
+- Do not commit build outputs (`dashboard/dist/`) or dependencies (`dashboard/node_modules/`).
+- Frontend artifacts must be generated during CI/CD builds (GitHub Actions/Netlify), not versioned in Git.
