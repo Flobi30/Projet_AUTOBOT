@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -117,14 +118,15 @@ def build_rejected_opportunity_report(
     *,
     journal_path: str,
     window_hours: Optional[int] = None,
+    max_records: int = 200,
 ) -> Dict[str, Any]:
     """Aggregate rejected opportunity records by reason and symbol."""
     now = datetime.now(timezone.utc)
     cutoff = None
     if window_hours is not None and int(window_hours) > 0:
         cutoff = now.timestamp() - (int(window_hours) * 3600)
+    records_limit = max(0, int(max_records))
 
-    rows: List[Dict[str, Any]] = []
     path = Path(journal_path)
     if not path.exists():
         return {
@@ -137,46 +139,52 @@ def build_rejected_opportunity_report(
             "records": [],
         }
 
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        if rec.get("decision_type") != "rejected_opportunity":
-            continue
-        ts = str(rec.get("timestamp") or "")
-        include = True
-        if cutoff is not None and ts:
-            try:
-                dts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                include = dts.timestamp() >= cutoff
-            except Exception:
-                include = True
-        if include:
-            rows.append(rec)
-
     by_reason: Dict[str, int] = {}
     by_symbol: Dict[str, int] = {}
     reason_symbol: Dict[str, int] = {}
-    for rec in rows:
-        reasons = rec.get("reasons") or []
-        reason = str(reasons[0]) if reasons else "unknown"
-        symbols = rec.get("symbols") or []
-        symbol = str(symbols[0]) if symbols else "UNKNOWN"
-        by_reason[reason] = by_reason.get(reason, 0) + 1
-        by_symbol[symbol] = by_symbol.get(symbol, 0) + 1
-        key = f"{reason}::{symbol}"
-        reason_symbol[key] = reason_symbol.get(key, 0) + 1
+    total_rejections = 0
+    tail_records = deque(maxlen=records_limit if records_limit > 0 else None)
+
+    with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("decision_type") != "rejected_opportunity":
+                continue
+            ts = str(rec.get("timestamp") or "")
+            include = True
+            if cutoff is not None and ts:
+                try:
+                    dts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    include = dts.timestamp() >= cutoff
+                except Exception:
+                    include = True
+            if not include:
+                continue
+
+            total_rejections += 1
+            reasons = rec.get("reasons") or []
+            reason = str(reasons[0]) if reasons else "unknown"
+            symbols = rec.get("symbols") or []
+            symbol = str(symbols[0]) if symbols else "UNKNOWN"
+            by_reason[reason] = by_reason.get(reason, 0) + 1
+            by_symbol[symbol] = by_symbol.get(symbol, 0) + 1
+            key = f"{reason}::{symbol}"
+            reason_symbol[key] = reason_symbol.get(key, 0) + 1
+            if records_limit > 0:
+                tail_records.append(rec)
 
     return {
         "generated_at": now.isoformat(),
         "window_hours": int(window_hours) if window_hours is not None else None,
-        "total_rejections": len(rows),
+        "total_rejections": total_rejections,
         "by_reason": dict(sorted(by_reason.items(), key=lambda kv: kv[1], reverse=True)),
         "by_symbol": dict(sorted(by_symbol.items(), key=lambda kv: kv[1], reverse=True)),
         "reason_symbol": dict(sorted(reason_symbol.items(), key=lambda kv: kv[1], reverse=True)),
-        "records": rows[-200:],
+        "records": list(tail_records),
     }

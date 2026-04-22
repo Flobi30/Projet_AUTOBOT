@@ -88,3 +88,27 @@ def test_rejected_opportunity_report_safe_when_sparse_or_absent(tmp_path):
     assert report["by_reason"] == {}
     assert report["by_symbol"] == {}
     assert report["records"] == []
+
+
+def test_rejected_opportunity_report_records_limit_is_configurable(tmp_path):
+    out = tmp_path / "decision_journal.jsonl"
+    journal = DecisionJournal(enabled=True, journal_path=str(out), runtime_context={"paper_trading": True})
+    for idx in range(5):
+        journal.log(
+            decision_type="rejected_opportunity",
+            source="test",
+            symbols=["XXBTZEUR"],
+            reasons=[REJECTION_REASON_VALIDATION_GUARD_BLOCK],
+            context={"idx": idx},
+        )
+    journal.close()
+
+    report = build_rejected_opportunity_report(journal_path=str(out), max_records=2)
+    assert report["total_rejections"] == 5
+    assert len(report["records"]) == 2
+    assert report["records"][0]["context"]["idx"] == 3
+    assert report["records"][1]["context"]["idx"] == 4
+
+    no_record_report = build_rejected_opportunity_report(journal_path=str(out), max_records=0)
+    assert no_record_report["total_rejections"] == 5
+    assert no_record_report["records"] == []
