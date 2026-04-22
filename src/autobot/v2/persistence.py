@@ -248,6 +248,38 @@ class AuditRepository(_PersistenceRepositoryBase):
             logger.exception(f"❌ Erreur append_audit_event {event_id}: {e}")
             return False
 
+    def get_execution_fee(
+        self,
+        instance_id: str,
+        exchange_order_id: str,
+    ) -> Optional[float]:
+        """Best-effort fee lookup from immutable audit trail for one exchange order id."""
+        if not instance_id or not exchange_order_id:
+            return None
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT fees
+                    FROM audit_events
+                    WHERE instance_id = ?
+                      AND exchange_order_id = ?
+                      AND fees IS NOT NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (instance_id, exchange_order_id),
+                ).fetchone()
+            if row is None:
+                return None
+            fee = row["fees"]
+            return float(fee) if fee is not None else None
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_execution_fee {instance_id}/{exchange_order_id}: {e}")
+            return None
+
 
 class PositionRepository(_PersistenceRepositoryBase):
     """Open positions + trade history persistence."""
@@ -707,6 +739,41 @@ class StatePersistence:
             order_to_status=order_to_status,
             exchange_raw_normalized=exchange_raw_normalized,
         )
+
+    def get_execution_fee(
+        self,
+        instance_id: str,
+        exchange_order_id: Optional[str],
+    ) -> Optional[float]:
+        """Resolve a persisted execution fee (audit first, then trade ledger fallback)."""
+        if not instance_id or not exchange_order_id:
+            return None
+        fee = self.audit.get_execution_fee(instance_id, exchange_order_id)
+        if fee is not None:
+            return fee
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT fees
+                    FROM trade_ledger
+                    WHERE instance_id = ?
+                      AND exchange_order_id = ?
+                      AND fees IS NOT NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (instance_id, exchange_order_id),
+                ).fetchone()
+            if row is None:
+                return None
+            raw = row["fees"]
+            return float(raw) if raw is not None else None
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_execution_fee ledger fallback {instance_id}/{exchange_order_id}: {e}")
+            return None
     
     def save_position(self, position_id: str, instance_id: str, 
                       buy_price: float, volume: float,

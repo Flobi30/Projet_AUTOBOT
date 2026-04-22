@@ -280,6 +280,8 @@ class SignalHandlerAsync:
             take_profit=take_profit,
             stop_loss_txid=sl_txid,
             buy_txid=result.txid,
+            buy_fee=result.fees,
+            buy_fee_source="order_result" if result.fees is not None else None,
         )
 
         if position:
