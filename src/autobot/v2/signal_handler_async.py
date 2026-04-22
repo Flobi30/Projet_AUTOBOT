@@ -249,6 +249,8 @@ class SignalHandlerAsync:
             take_profit=take_profit,
             stop_loss_txid=sl_txid,
             buy_txid=result.txid,
+            buy_fee=result.fees,
+            buy_fee_source="order_result" if result.fees is not None else None,
         )
 
         if position:
@@ -304,7 +306,12 @@ class SignalHandlerAsync:
             result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol)
             if result.success:
                 price = result.executed_price or signal.price
-                await self.instance.close_position(pos_id, price, sell_txid=result.txid)
+                await self.instance.close_position(
+                    pos_id,
+                    price,
+                    sell_txid=result.txid,
+                    sell_fee=result.fees,
+                )
                 if sl_txid:
                     await self.order_executor.cancel_order(sl_txid)
                 await self._post_trade_reconcile()

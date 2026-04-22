@@ -94,6 +94,8 @@ class TradingInstanceAsync:
         self._max_trades_history = 1000
         self._trades: deque = deque(maxlen=self._max_trades_history)
         self._open_orders: Dict[str, Any] = {}
+        self._position_fee_hints: Dict[str, Dict[str, Any]] = {}
+        self._execution_fee_cache: Dict[str, Dict[str, Any]] = {}
 
         # Performance
         self._win_count: int = 0
@@ -101,6 +103,12 @@ class TradingInstanceAsync:
         self._win_streak: int = 0
         self._max_drawdown: float = 0.0
         self._peak_capital: float = config.initial_capital
+        self._pnl_quality_counts: Dict[str, int] = {
+            "exact": 0,
+            "mixed": 0,
+            "estimated": 0,
+        }
+        self._last_pnl_quality: str = "unknown"
 
         # Price
         self._last_price: Optional[float] = None
@@ -184,6 +192,19 @@ class TradingInstanceAsync:
                         )
                         self._positions[position.id] = position
                         self._allocated_capital += position.buy_price * position.volume
+                        buy_txid = metadata.get("buy_txid")
+                        buy_fee = self._to_optional_float(metadata.get("buy_fee"))
+                        if buy_fee is not None:
+                            self._position_fee_hints[position.id] = {
+                                "buy_fee": buy_fee,
+                                "buy_fee_source": metadata.get("buy_fee_source", "recovered_metadata"),
+                            }
+                            if buy_txid:
+                                self._cache_execution_fee(
+                                    buy_txid,
+                                    buy_fee,
+                                    source=metadata.get("buy_fee_source", "recovered_metadata"),
+                                )
 
             saved_state = await self._run_sync(
                 self._persistence.recover_instance_state, self.id
@@ -467,6 +488,8 @@ class TradingInstanceAsync:
         take_profit: Optional[float] = None,
         stop_loss_txid: Optional[str] = None,
         buy_txid: Optional[str] = None,
+        buy_fee: Optional[float] = None,
+        buy_fee_source: Optional[str] = None,
     ) -> Optional[Position]:
         """Open a position (atomic check+create under lock)."""
         order_value = price * volume
@@ -492,6 +515,14 @@ class TradingInstanceAsync:
             )
             self._positions[position_id] = position
             self._allocated_capital += order_value
+            if buy_fee is not None:
+                fee_source = buy_fee_source or "order_result"
+                self._position_fee_hints[position_id] = {
+                    "buy_fee": float(buy_fee),
+                    "buy_fee_source": fee_source,
+                }
+                if buy_txid:
+                    self._cache_execution_fee(buy_txid, float(buy_fee), source=fee_source)
 
         logger.info(
             f"📈 Position ouverte {self.id}/{position_id}: {volume} @ {price:.2f}€"
@@ -511,6 +542,8 @@ class TradingInstanceAsync:
                 "take_profit": take_profit,
                 "stop_loss_txid": stop_loss_txid,
                 "buy_txid": buy_txid,
+                "buy_fee": float(buy_fee) if buy_fee is not None else None,
+                "buy_fee_source": buy_fee_source or ("order_result" if buy_fee is not None else None),
             },
         )
 
@@ -525,25 +558,47 @@ class TradingInstanceAsync:
         position_id: str,
         sell_price: float,
         sell_txid: Optional[str] = None,
+        sell_fee: Optional[float] = None,
     ) -> Optional[float]:
         """Close a position and compute P&L."""
+        position_snapshot: Optional[Position] = None
+        buy_fee_hint = None
         async with self._lock:
             if position_id not in self._positions:
                 return None
             position = self._positions[position_id]
             if position.status not in ("open", "closing"):
                 return None
+            position_snapshot = position
+            buy_fee_hint = self._position_fee_hints.get(position_id, {}).get("buy_fee")
+
+        if position_snapshot is None:
+            return None
+
+        buy_fee_value, buy_fee_source, buy_fee_quality = await self._resolve_fee(
+            txid=position_snapshot.buy_txid,
+            explicit_fee=buy_fee_hint,
+            explicit_source=self._position_fee_hints.get(position_id, {}).get("buy_fee_source"),
+            notional=position_snapshot.buy_price * position_snapshot.volume,
+            assumed_leg="buy",
+        )
+        sell_fee_value, sell_fee_source, sell_fee_quality = await self._resolve_fee(
+            txid=sell_txid,
+            explicit_fee=sell_fee,
+            explicit_source="order_result" if sell_fee is not None else None,
+            notional=sell_price * position_snapshot.volume,
+            assumed_leg="sell",
+        )
+
+        pnl_quality = self._combine_pnl_quality(buy_fee_quality, sell_fee_quality)
+
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status not in ("open", "closing"):
+                return None
 
             gross_profit = (sell_price - position.buy_price) * position.volume
-
-            if self._fee_optimizer:
-                maker_pct, taker_pct = self._fee_optimizer.get_fees()
-            else:
-                maker_pct, taker_pct = 0.25, 0.40
-
-            buy_fee = position.buy_price * position.volume * (maker_pct / 100.0)
-            sell_fee = sell_price * position.volume * (taker_pct / 100.0)
-            net_profit = gross_profit - buy_fee - sell_fee
+            net_profit = gross_profit - buy_fee_value - sell_fee_value
 
             position.sell_price = sell_price
             position.status = "closed"
@@ -567,6 +622,8 @@ class TradingInstanceAsync:
                 dd = (self._peak_capital - self._current_capital) / self._peak_capital
                 self._max_drawdown = max(self._max_drawdown, dd)
 
+            self._last_pnl_quality = pnl_quality
+            self._pnl_quality_counts[pnl_quality] += 1
             position_copy = position
             profit_copy = net_profit
             self._trades.append(
@@ -580,8 +637,10 @@ class TradingInstanceAsync:
                 )
             )
 
+        self._position_fee_hints.pop(position_id, None)
         logger.info(
             f"📉 Position fermée {self.id}/{position_id}: Profit {net_profit:.2f}€"
+            f" (fees buy={buy_fee_value:.6f} [{buy_fee_source}], sell={sell_fee_value:.6f} [{sell_fee_source}], quality={pnl_quality})"
         )
 
         await self._run_sync(
@@ -804,6 +863,8 @@ class TradingInstanceAsync:
 
     def get_status(self) -> Dict[str, Any]:
         positions_copy = list(self._positions.values())
+        pnl_total = sum(self._pnl_quality_counts.values())
+        estimated_count = self._pnl_quality_counts["estimated"] + self._pnl_quality_counts["mixed"]
         return {
             "id": self.id,
             "name": self.config.name,
@@ -820,7 +881,90 @@ class TradingInstanceAsync:
             "leverage": self.config.leverage,
             "trend": self.detect_trend(),
             "last_price": self._last_price,
+            "pnl_quality": {
+                "last_close_quality": self._last_pnl_quality,
+                "counts": dict(self._pnl_quality_counts),
+                "has_uncertain_pnl": estimated_count > 0,
+                "uncertain_ratio": (estimated_count / pnl_total) if pnl_total else 0.0,
+            },
         }
+
+    async def register_reconciled_execution_fee(
+        self,
+        txid: str,
+        fee: Optional[float],
+        source: str = "reconciliation",
+    ) -> None:
+        """Store reconciled fee data so future PnL calculations can use real execution costs."""
+        normalized = self._to_optional_float(fee)
+        if not txid or normalized is None:
+            return
+        self._cache_execution_fee(txid, normalized, source=source)
+
+    def _cache_execution_fee(self, txid: str, fee: float, source: str) -> None:
+        if not txid:
+            return
+        self._execution_fee_cache[txid] = {"fee": float(fee), "source": source}
+
+    def _estimated_fee(self, notional: float, assumed_leg: str) -> float:
+        if self._fee_optimizer:
+            maker_pct, taker_pct = self._fee_optimizer.get_fees()
+        else:
+            maker_pct, taker_pct = 0.25, 0.40
+        pct = maker_pct if assumed_leg == "buy" else taker_pct
+        return max(0.0, notional * (pct / 100.0))
+
+    async def _resolve_fee(
+        self,
+        txid: Optional[str],
+        explicit_fee: Optional[float],
+        explicit_source: Optional[str],
+        notional: float,
+        assumed_leg: str,
+    ) -> tuple[float, str, str]:
+        fee = self._to_optional_float(explicit_fee)
+        if fee is not None:
+            if txid:
+                self._cache_execution_fee(txid, fee, explicit_source or "explicit")
+            return fee, explicit_source or "explicit", "exact"
+
+        if txid:
+            cached = self._execution_fee_cache.get(txid)
+            if cached and self._to_optional_float(cached.get("fee")) is not None:
+                return float(cached["fee"]), str(cached.get("source", "cache")), "exact"
+
+            persisted_fee = await self._run_sync(
+                self._persistence.get_execution_fee,
+                self.id,
+                txid,
+            )
+            persisted = self._to_optional_float(persisted_fee)
+            if persisted is not None:
+                self._cache_execution_fee(txid, persisted, source="persistence")
+                return persisted, "persistence", "exact"
+
+        est = self._estimated_fee(notional, assumed_leg)
+        return est, "estimate", "estimated"
+
+    @staticmethod
+    def _combine_pnl_quality(buy_quality: str, sell_quality: str) -> str:
+        if buy_quality == "exact" and sell_quality == "exact":
+            return "exact"
+        if buy_quality == "estimated" and sell_quality == "estimated":
+            return "estimated"
+        return "mixed"
+
+    @staticmethod
+    def _to_optional_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            val = float(value)
+            if math.isfinite(val):
+                return val
+            return None
+        except (TypeError, ValueError):
+            return None
 
     def _map_to_kraken_symbol(self, symbol: str) -> str:
         return self._KRAKEN_SYMBOL_MAP.get(symbol, symbol)
