@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import shutil
+from ipaddress import ip_address
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .config import *  # noqa: F401,F403
@@ -27,7 +30,64 @@ class ModuleCoordinator:
         self._o._rebalance_manager = self._o._init_rebalance_manager()
         self._o._auto_evolution_manager = self._o._init_auto_evolution_manager()
 
-    def _quick_ping(self, url: str, timeout: float = 1.5) -> bool:
+    def _get_allowed_ping_hosts(self) -> set[str]:
+        raw_allowlist = os.getenv(
+            "PING_HOST_ALLOWLIST",
+            "api.twitter.com,www.reddit.com,api.blockchain.info",
+        )
+        return {host.strip().lower() for host in raw_allowlist.split(",") if host.strip()}
+
+    def _reject_ping_url(self, module: str, endpoint_name: str, url: str, reason: str) -> bool:
+        logger.warning("URL rejetée pour _quick_ping (%s): %s [%s]", endpoint_name, url, reason)
+        if hasattr(self._o, "_record_module_event"):
+            self._o._record_module_event(module, "warning", f"url_rejected:{endpoint_name}:{reason}")
+        return False
+
+    def _validate_ping_url(
+        self,
+        url: str,
+        module: str = "dependency",
+        endpoint_name: str = "endpoint",
+    ) -> bool:
+        parsed = urlparse(url)
+        if parsed.scheme.lower() != "https":
+            return self._reject_ping_url(module, endpoint_name, url, "non_https_scheme")
+
+        hostname = (parsed.hostname or "").strip().lower()
+        if not hostname:
+            return self._reject_ping_url(module, endpoint_name, url, "missing_hostname")
+
+        allowlist = self._get_allowed_ping_hosts()
+        if hostname not in allowlist:
+            return self._reject_ping_url(module, endpoint_name, url, f"host_not_allowlisted:{hostname}")
+
+        try:
+            host_ip = ip_address(hostname)
+            if host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local:
+                return self._reject_ping_url(module, endpoint_name, url, "forbidden_ip_literal")
+        except ValueError:
+            pass
+
+        try:
+            addr_info = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+        except Exception:
+            return self._reject_ping_url(module, endpoint_name, url, "dns_resolution_failed")
+
+        for addr in addr_info:
+            resolved_ip = ip_address(addr[4][0])
+            if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
+                return self._reject_ping_url(module, endpoint_name, url, f"forbidden_resolved_ip:{resolved_ip}")
+        return True
+
+    def _quick_ping(
+        self,
+        url: str,
+        timeout: float = 1.5,
+        module: str = "dependency",
+        endpoint_name: str = "endpoint",
+    ) -> bool:
+        if not self._validate_ping_url(url, module=module, endpoint_name=endpoint_name):
+            return False
         try:
             req = Request(url, method="HEAD")
             with urlopen(req, timeout=timeout) as resp:
@@ -63,8 +123,16 @@ class ModuleCoordinator:
 
         if self._o.hardening_flags.get("enable_sentiment", False):
             sentiment_api_key = os.getenv("SENTIMENT_API_KEY", "").strip()
-            twitter_ok = self._quick_ping("https://api.twitter.com")
-            reddit_ok = self._quick_ping("https://www.reddit.com")
+            twitter_ok = self._quick_ping(
+                "https://api.twitter.com",
+                module="sentiment",
+                endpoint_name="twitter_api",
+            )
+            reddit_ok = self._quick_ping(
+                "https://www.reddit.com",
+                module="sentiment",
+                endpoint_name="reddit_api",
+            )
             if not sentiment_api_key or not twitter_ok or not reddit_ok:
                 logger.warning("SentimentNLP désactivé - clé API manquante")
                 self._o.hardening_flags["enable_sentiment"] = False
@@ -105,7 +173,11 @@ class ModuleCoordinator:
         if self._o.hardening_flags.get("enable_onchain", False):
             onchain_api_key = os.getenv("ONCHAIN_API_KEY", "").strip()
             node_url = os.getenv("ONCHAIN_NODE_URL", "https://api.blockchain.info")
-            if not onchain_api_key or not self._quick_ping(node_url):
+            if not onchain_api_key or not self._quick_ping(
+                node_url,
+                module="onchain",
+                endpoint_name="onchain_node_url",
+            ):
                 logger.warning("OnChain désactivé")
                 self._o.hardening_flags["enable_onchain"] = False
                 self._o._record_module_event("onchain", "warning", "missing_api_or_node_unreachable")
