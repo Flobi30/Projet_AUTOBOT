@@ -31,8 +31,20 @@ class NonceManager:
             conn.commit()
 
     def next_nonce(self, api_key_id: str) -> int:
+        low, _high = self.reserve_range(api_key_id, block_size=1)
+        return int(low)
+
+    def reserve_range(self, api_key_id: str, block_size: int = 64) -> tuple[int, int]:
+        """
+        Reserve a contiguous nonce range in a single durable write.
+
+        Returns:
+            (low, high) inclusive range.
+        """
         if not api_key_id:
             raise ValueError("api_key_id is required")
+        if block_size <= 0:
+            raise ValueError("block_size must be > 0")
         now_ms = int(time.time() * 1000)
         with self._lock, sqlite3.connect(str(self.db_path), timeout=5.0) as conn:
             conn.execute("PRAGMA busy_timeout=5000")
@@ -42,17 +54,18 @@ class NonceManager:
                 (api_key_id,),
             ).fetchone()
             if row:
-                next_value = max(int(row[0]) + 1, now_ms)
+                low = max(int(row[0]) + 1, now_ms)
+                high = low + block_size - 1
                 conn.execute(
                     "UPDATE nonce_state SET last_nonce = ?, updated_at = datetime('now') WHERE api_key_id = ?",
-                    (next_value, api_key_id),
+                    (high, api_key_id),
                 )
             else:
-                next_value = now_ms
+                low = now_ms
+                high = low + block_size - 1
                 conn.execute(
                     "INSERT INTO nonce_state (api_key_id, last_nonce) VALUES (?, ?)",
-                    (api_key_id, next_value),
+                    (api_key_id, high),
                 )
             conn.commit()
-            return int(next_value)
-
+            return int(low), int(high)
