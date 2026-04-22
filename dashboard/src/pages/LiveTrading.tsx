@@ -4,12 +4,8 @@ import MetricCard from '../components/ui/MetricCard';
 import LiveLog from '../components/ui/LiveLog';
 import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { apiFetch } from '../api/client';
 
-const API_BASE_URL = '';
-const API_TOKEN =
-  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
-  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
-  ''; // no hardcoded secret
 
 // CORRECTION: Types pour les données API
 interface InstanceStatus {
@@ -108,7 +104,7 @@ const LiveTrading: React.FC = () => {
         setError(null);
 
         // Récupère le statut global
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const statusRes = await apiFetch(`/api/status`);
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData: GlobalStatus = await statusRes.json();
         setGlobalStatus(statusData);
@@ -116,14 +112,14 @@ const LiveTrading: React.FC = () => {
         setBotStatus(statusData.running ? 'ACTIVE' : 'INACTIVE');
 
         // Récupère les instances
-        const instancesRes = await fetch(`${API_BASE_URL}/api/instances`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const instancesRes = await apiFetch(`/api/instances`);
         if (!instancesRes.ok) throw new Error(`API Error: ${instancesRes.status}`);
         const instancesData: InstanceStatus[] = await instancesRes.json();
 
         // Récupère les positions de la première instance (s'il y en a une)
         if (instancesData.length > 0) {
           const firstInstanceId = instancesData[0].id;
-          const positionsRes = await fetch(`${API_BASE_URL}/api/instances/${firstInstanceId}/positions`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+          const positionsRes = await apiFetch(`/api/instances/${firstInstanceId}/positions`);
           if (positionsRes.ok) {
             const positionsData: PositionInfo[] = await positionsRes.json();
             setPositions(positionsData);
@@ -134,7 +130,7 @@ const LiveTrading: React.FC = () => {
           setPositions([]);
         }
 
-        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=1`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const historyRes = await apiFetch(`/api/history?days=1`);
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           const series: HistoryPoint[] = Array.isArray(historyData?.history) ? historyData.history : [];
@@ -151,10 +147,10 @@ const LiveTrading: React.FC = () => {
         }
 
         const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/scaling/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/universe/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/opportunities/top?limit=8`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/portfolio/allocation`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          apiFetch(`/api/scaling/status`),
+          apiFetch(`/api/universe/status`),
+          apiFetch(`/api/opportunities/top?limit=8`),
+          apiFetch(`/api/portfolio/allocation`),
         ]);
 
         if (scalingRes.ok) setScalingStatus(await scalingRes.json());

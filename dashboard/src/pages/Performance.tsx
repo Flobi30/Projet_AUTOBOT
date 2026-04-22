@@ -3,9 +3,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import MetricCard from '../components/ui/MetricCard';
 import Tabs, { Tab } from '../components/ui/Tabs';
 import { Activity, TrendingUp, BarChart3, Wallet, Target, Layers, GraduationCap, RefreshCw, AlertTriangle, CheckCircle, XCircle, Wifi, WifiOff, Clock } from 'lucide-react';
+import { apiFetch } from '../api/client';
 
-const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 interface GlobalPerf {
   capital_total: number; capital_initial: number; profit_total: number;
@@ -45,11 +44,6 @@ const formatUptime = (seconds: number | null): string => {
   return `${h}h ${m}m`;
 };
 const fmt = (n: number, d=2) => n.toLocaleString('fr-FR', {minimumFractionDigits:d, maximumFractionDigits:d});
-interface BotStatus {
-  running: boolean; instance_count: number; total_capital: number;
-  total_profit: number; websocket_connected: boolean; uptime_seconds: number | null;
-  total_trades?: number;
-}
 const fmtEur = (n: number) => `${fmt(n)}€`;
 const pfColor = (pf: number) => pf>=2?'text-emerald-400':pf>=1.5?'text-green-400':pf>=1?'text-yellow-400':'text-red-400';
 const profitColor = (n: number) => n>=0?'text-emerald-400':'text-red-400';
@@ -58,11 +52,9 @@ const stratLabel = (s: string): string => {
   return m[s] || s;
 };
 
-async function apiFetch<T>(path: string): Promise<T|null> {
+async function apiFetchJson<T>(path: string): Promise<T|null> {
   try { 
-    const r = await fetch(`${API_BASE_URL}${path}`, { 
-      headers: { "Authorization": `Bearer ${API_TOKEN}` } 
-    }); 
+    const r = await apiFetch(path); 
     return r.ok ? await r.json() : null; 
   } catch { 
     return null; 
@@ -92,11 +84,11 @@ const Performance: React.FC = () => {
 
   const fetchAll = useCallback(async () => {
     const [g,p,pp,rb,bs] = await Promise.all([
-      apiFetch<GlobalPerf>('/api/performance/global'),
-      apiFetch<{pairs:PairPerf[]}>('/api/performance/by-pair'),
-      apiFetch<PaperSummary>('/api/paper-trading/summary'),
-      apiFetch<RebStatus>('/api/rebalance/status'),
-      apiFetch<BotStatus>('/api/status'),
+      apiFetchJson<GlobalPerf>('/api/performance/global'),
+      apiFetchJson<{pairs:PairPerf[]}>('/api/performance/by-pair'),
+      apiFetchJson<PaperSummary>('/api/paper-trading/summary'),
+      apiFetchJson<RebStatus>('/api/rebalance/status'),
+      apiFetchJson<BotStatus>('/api/status'),
     ]);
     if(g) setGlobalPerf(g); if(p) setPairPerfs(p.pairs);
     if(pp) setPaperSummary(pp); if(rb) setRebStatus(rb); if(bs) setBotStatus(bs);
