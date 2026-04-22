@@ -41,7 +41,8 @@ jobs:
           inputs: requirements.txt
 
   python-tests:
-    name: Python tests (${{ matrix.test_suite }})
+    # Source unique de vérité pour l'exécution des tests Python en CI.
+    name: Python tests (unit|integration)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -94,42 +95,6 @@ jobs:
         run: npm ci
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
-
-  python-tests:
-    name: Python tests (${{ matrix.suite }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [unit, integration]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Run pytest - unit
-        if: matrix.suite == 'unit'
-        run: |
-          pytest -q -m "not integration" --junitxml=pytest-unit.xml
-      - name: Run pytest - integration
-        if: matrix.suite == 'integration'
-        run: |
-          pytest -q -m "integration" --junitxml=pytest-integration.xml
-      - name: Upload pytest artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-${{ matrix.suite }}-artifacts
-          path: |
-            pytest-*.xml
-            .pytest_cache
-          if-no-files-found: ignore
 
   dashboard-build-lint:
     name: Dashboard build and lint
