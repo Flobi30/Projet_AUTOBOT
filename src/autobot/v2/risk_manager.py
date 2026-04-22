@@ -81,6 +81,7 @@ class RiskManager:
     
     # Seuil PF global pour disjoncteur
     PF_CIRCUIT_BREAKER_THRESHOLD = 1.2
+    RANGE_CONTINUITY_EPSILON = 1e-9
 
     def __init__(self, configs: Optional[list] = None, orchestrator: Optional[object] = None):
         self.configs = configs or self.DEFAULT_CONFIGS
@@ -96,6 +97,8 @@ class RiskManager:
         if not self.configs:
             raise ValueError("RiskManager requires at least one risk config")
 
+        epsilon = self.RANGE_CONTINUITY_EPSILON
+
         for i, config in enumerate(self.configs):
             if config.capital_min >= config.capital_max:
                 raise ValueError(
@@ -110,9 +113,16 @@ class RiskManager:
             if config.capital_min < prev.capital_min:
                 raise ValueError("Risk config tiers must be sorted by capital_min")
 
-            if config.capital_min != prev.capital_max:
+            boundary_delta = config.capital_min - prev.capital_max
+            if boundary_delta < -epsilon:
                 raise ValueError(
-                    "Risk config tiers must be continuous and non-overlapping: "
+                    "Risk config tiers must be non-overlapping: "
+                    f"previous capital_max={prev.capital_max}, got capital_min={config.capital_min}"
+                )
+
+            if boundary_delta > epsilon:
+                raise ValueError(
+                    "Risk config tiers must be continuous (gap detected): "
                     f"expected capital_min={prev.capital_max}, got {config.capital_min}"
                 )
     
