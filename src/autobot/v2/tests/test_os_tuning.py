@@ -58,6 +58,8 @@ import pytest
 from ..os_tuning import OSTuner, TuningResult, get_os_tuner, _SO_BUSY_POLL_LINUX, _BUSY_POLL_US
 
 
+pytestmark = pytest.mark.unit
+
 # ===========================================================================
 # TuningResult
 # ===========================================================================

@@ -3,11 +3,14 @@
 Goal: keep a compact, high-signal test surface for orchestrator hardening.
 """
 
+import pytest
 from types import SimpleNamespace
 
 from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.rebalance_manager import RebalanceManager
 
+
+pytestmark = pytest.mark.integration
 
 class _DummyOrchestrator:
     def __init__(self):

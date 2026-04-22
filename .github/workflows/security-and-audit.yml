@@ -5,6 +5,9 @@ on:
     branches: [ main, master, work ]
   push:
     branches: [ main, master, work ]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   conflict-marker-scan:
@@ -49,9 +52,9 @@ jobs:
       matrix:
         include:
           - test_suite: unit
-            marker: not integration
+            marker: unit and not external and not e2e
           - test_suite: integration
-            marker: integration
+            marker: integration and not external and not e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

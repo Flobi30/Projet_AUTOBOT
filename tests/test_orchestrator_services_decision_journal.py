@@ -1,5 +1,9 @@
+import pytest
+
 from autobot.v2.orchestrator_services import DecisionJournalService
 
+
+pytestmark = pytest.mark.integration
 
 class _Journal:
     def __init__(self):

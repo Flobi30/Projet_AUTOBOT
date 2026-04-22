@@ -1,8 +1,12 @@
+import pytest
+
 import time
 
 from autobot.v2.robustness_guard import RobustnessGuard
 from autobot.v2.safety_guard import SafetyGuard
 
+
+pytestmark = pytest.mark.integration
 
 def test_dsr_slow_path_returns_neutral_immediately():
     guard = RobustnessGuard(min_pf=1.01, min_trades=20)

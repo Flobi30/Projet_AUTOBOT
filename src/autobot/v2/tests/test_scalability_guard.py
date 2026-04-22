@@ -1,3 +1,7 @@
+import pytest
+pytestmark = pytest.mark.unit
+
+
 from autobot.v2.config import (
     ENABLE_SCALABILITY_GUARD,
     SCALING_GUARD_CPU_PCT_MAX,

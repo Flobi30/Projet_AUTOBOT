@@ -36,6 +36,8 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+pytestmark = pytest.mark.unit
+
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 from ..hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer

@@ -21,6 +21,8 @@ from unittest.mock import patch
 import pytest
 import sys, os
 
+pytestmark = pytest.mark.integration
+
 # Direct import bypassing autobot.v2.__init__ (which pulls heavy deps like orjson)
 import importlib.util as _ilu
 

@@ -21,7 +21,10 @@ import pytest
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 # Configuration pytest-asyncio
-pytestmark = pytest.mark.asyncio(loop_scope="function")
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.asyncio(loop_scope="function"),
+]
 
 # Ajouter le répertoire parent au path pour les imports
 sys.path.insert(0, '/home/node/.openclaw/workspace/src')

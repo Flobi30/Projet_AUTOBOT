@@ -7,6 +7,8 @@ from autobot.v2.portfolio_allocator import (
 )
 
 
+pytestmark = pytest.mark.unit
+
 def _allocator():
     return PortfolioAllocator(
         AllocationConstraints(

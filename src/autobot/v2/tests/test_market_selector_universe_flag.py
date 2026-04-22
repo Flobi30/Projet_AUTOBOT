@@ -1,9 +1,13 @@
+import pytest
+
 import importlib
 from dataclasses import dataclass
 
 from autobot.v2.market_analyzer import MarketQualityScore
 from autobot.v2.markets import MarketType
 
+
+pytestmark = pytest.mark.unit
 
 @dataclass
 class _Metric:

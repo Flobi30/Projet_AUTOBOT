@@ -1,3 +1,5 @@
+import pytest
+
 import asyncio
 import json
 
@@ -7,6 +9,8 @@ from autobot.v2.kill_switch import KillSwitch
 from autobot.v2.nonce_manager import NonceManager
 from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome
 
+
+pytestmark = pytest.mark.integration
 
 class DummyExecutor:
     def __init__(self, tmp_path, failures=None):

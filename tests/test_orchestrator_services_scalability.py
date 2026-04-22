@@ -1,6 +1,10 @@
+import pytest
+
 from autobot.v2.orchestrator_services import ScalabilityGuardService, ScalabilityMetrics
 from autobot.v2.scalability_guard import GuardThresholds, ScalabilityGuard
 
+
+pytestmark = pytest.mark.integration
 
 def test_scalability_guard_service_evaluates_state():
     guard = ScalabilityGuard(

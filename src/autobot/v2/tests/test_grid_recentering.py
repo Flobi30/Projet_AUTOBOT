@@ -41,6 +41,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
 from autobot.v2.grid_recentering import GridRecenteringManager, RecenterResult

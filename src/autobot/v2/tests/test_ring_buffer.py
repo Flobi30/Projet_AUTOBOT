@@ -39,6 +39,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
 from autobot.v2.ring_buffer import RingBuffer, RingBufferReader, DEFAULT_BUFFER_SIZE

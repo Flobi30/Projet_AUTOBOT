@@ -1,3 +1,5 @@
+import pytest
+
 import json
 
 import autobot.v2.persistence as persistence_mod
@@ -5,6 +7,8 @@ from autobot.v2.consolidated_review import build_consolidated_profitability_revi
 from autobot.v2.decision_journal import DecisionJournal
 from autobot.v2.persistence import StatePersistence
 
+
+pytestmark = pytest.mark.unit
 
 def _reset_thread_local_conn():
     conn = getattr(persistence_mod._local, "conn", None)

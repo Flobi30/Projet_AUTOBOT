@@ -1,8 +1,12 @@
+import pytest
+
 from dataclasses import dataclass
 
 from autobot.v2.pair_ranking_engine import PairRankingEngine
 from autobot.v2.universe_manager import UniverseManager
 
+
+pytestmark = pytest.mark.unit
 
 @dataclass
 class _Metrics:

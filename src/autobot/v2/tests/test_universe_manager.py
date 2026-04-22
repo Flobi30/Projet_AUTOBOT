@@ -1,6 +1,10 @@
+import pytest
+
 from autobot.v2.markets import get_market_config, MarketType
 from autobot.v2.universe_manager import UniverseManager
 
+
+pytestmark = pytest.mark.unit
 
 def test_universe_manager_initialization_caps_and_forex_filter():
     manager = UniverseManager(max_supported=4, max_eligible=2, enable_forex=False)

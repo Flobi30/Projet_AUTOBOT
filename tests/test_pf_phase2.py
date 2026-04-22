@@ -1,3 +1,5 @@
+import pytest
+
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -7,6 +9,8 @@ from autobot.v2.pf_validation import apply_cost_sensitivity, walk_forward_valida
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
 
+
+pytestmark = pytest.mark.integration
 
 def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
     db = tmp_path / "state.db"
