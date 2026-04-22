@@ -1434,7 +1434,7 @@ async def get_system_metrics(authorized: bool = Depends(verify_token)):
         import psutil
         
         # CPU
-        cpu_percent = psutil.cpu_percent(interval=1)
+        cpu_percent = psutil.cpu_percent(interval=None)
         
         # RAM
         mem = psutil.virtual_memory()
