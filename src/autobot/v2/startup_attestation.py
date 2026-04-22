@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
+import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -298,15 +300,91 @@ class StartupAttestation:
             return _CheckOutcome(ok=False, reason="nonce_manager_missing", message="Nonce manager missing", error_code="io")
 
     def _check_db_writable(self) -> _CheckOutcome:
+        health_db_path = os.getenv("STARTUP_HEALTH_DB_PATH", "").strip()
         try:
-            p = self.order_executor
-            # low-cost check via nonce db write already done in _check_nonce_health
-            if p is not None:
-                return _CheckOutcome(ok=True, message="executor db path available")
-            return _CheckOutcome(ok=False, reason="db_executor_missing", message="Database executor missing", error_code="io")
+            from .persistence import get_persistence
+
+            db_path = Path(health_db_path) if health_db_path else Path(get_persistence().db_path)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            token = f"startup_attest_{time.time_ns()}"
+            with sqlite3.connect(str(db_path), timeout=5.0) as conn:
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS startup_health_checks (
+                        check_id TEXT PRIMARY KEY,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    )
+                    """
+                )
+                conn.execute("INSERT INTO startup_health_checks (check_id) VALUES (?)", (token,))
+                row = conn.execute(
+                    "SELECT check_id FROM startup_health_checks WHERE check_id = ?",
+                    (token,),
+                ).fetchone()
+                conn.execute("DELETE FROM startup_health_checks WHERE check_id = ?", (token,))
+                conn.commit()
+
+            if row and row[0] == token:
+                return _CheckOutcome(ok=True, message=f"database read/write probe succeeded ({db_path})")
+            return _CheckOutcome(
+                ok=False,
+                reason="db_readback_failed",
+                message="Database readback probe failed",
+                error_code="io",
+            )
+        except PermissionError as exc:
+            self._log_check_exception("db_writable", "io", exc)
+            return _CheckOutcome(
+                ok=False,
+                reason="db_write_permission_denied",
+                message="Database write permission denied",
+                error_code="io",
+            )
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("db_writable", "timeout", exc)
+            return _CheckOutcome(
+                ok=False,
+                reason="db_io_timeout",
+                message="Database I/O timed out",
+                error_code="timeout",
+            )
+        except sqlite3.OperationalError as exc:
+            err = str(exc).lower()
+            if "database is locked" in err or "busy" in err:
+                self._log_check_exception("db_writable", "timeout", exc)
+                return _CheckOutcome(
+                    ok=False,
+                    reason="db_io_timeout",
+                    message="Database busy/locked timeout during read-write probe",
+                    error_code="timeout",
+                )
+            if "disk is full" in err or "database or disk is full" in err:
+                self._log_check_exception("db_writable", "io", exc)
+                return _CheckOutcome(
+                    ok=False,
+                    reason="db_disk_full",
+                    message="Database disk is full",
+                    error_code="io",
+                )
+            self._log_check_exception("db_writable", "io", exc)
+            return _CheckOutcome(ok=False, reason="db_io_error", message="Database read-write probe failed", error_code="io")
         except OSError as exc:
             self._log_check_exception("db_writable", "io", exc)
-            return _CheckOutcome(ok=False, reason="db_io_error", message="Database not writable", error_code="io")
+            if exc.errno == errno.ENOSPC:
+                return _CheckOutcome(ok=False, reason="db_disk_full", message="Database disk is full", error_code="io")
+            if exc.errno in (errno.EACCES, errno.EPERM, errno.EROFS):
+                return _CheckOutcome(
+                    ok=False,
+                    reason="db_write_permission_denied",
+                    message="Database write permission denied",
+                    error_code="io",
+                )
+            if exc.errno in (errno.ETIMEDOUT,):
+                return _CheckOutcome(ok=False, reason="db_io_timeout", message="Database I/O timed out", error_code="timeout")
+            return _CheckOutcome(ok=False, reason="db_io_error", message="Database read-write probe failed", error_code="io")
 
     def _check_audit_writable(self) -> _CheckOutcome:
         try:
