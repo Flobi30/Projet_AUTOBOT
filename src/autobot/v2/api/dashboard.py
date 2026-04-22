@@ -10,7 +10,7 @@ import threading
 import inspect
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -948,7 +948,12 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
 
 
 @app.get("/api/trades")
-async def get_trades(request: Request, authorized: bool = Depends(verify_token), limit: int = 50):
+async def get_trades(
+    request: Request,
+    authorized: bool = Depends(verify_token),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
     """Liste des trades exécutés"""
     orchestrator = request.app.state.orchestrator
     if not orchestrator:
@@ -977,9 +982,20 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
 
         trades.sort(key=lambda x: x['timestamp'], reverse=True)
 
+        total_count = len(trades)
+        paginated_trades = trades[offset:offset + limit]
+
         return {
-            "count": len(trades),
-            "trades": trades[:limit]
+            "count": total_count,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "returned": len(paginated_trades),
+                "total": total_count,
+                "has_more": (offset + limit) < total_count,
+                "next_offset": (offset + limit) if (offset + limit) < total_count else None,
+            },
+            "trades": paginated_trades
         }
     except Exception:
         logger.exception("Erreur récupération trades")
