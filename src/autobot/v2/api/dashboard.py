@@ -965,8 +965,7 @@ async def get_trades(
 
         for inst in instances_data:
             inst_trades = inst.get('trades_history', [])
-            chunk_size = max(1, limit // len(instances_data)) if instances_data else limit
-            for trade in inst_trades[-chunk_size:]:
+            for trade in inst_trades:
                 trades.append({
                     "id": trade.get('id', 'unknown'),
                     "instance_id": inst['id'],
@@ -981,6 +980,9 @@ async def get_trades(
                 })
 
         trades.sort(key=lambda x: x['timestamp'], reverse=True)
+        total = len(trades)
+        paginated_trades = trades[offset:offset + limit]
+        next_offset = offset + limit if (offset + limit) < total else None
 
         total_count = len(trades)
         paginated_trades = trades[offset:offset + limit]
