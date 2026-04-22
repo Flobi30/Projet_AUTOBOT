@@ -1,3 +1,5 @@
+import pytest
+
 import asyncio
 
 from autobot.v2.global_kill_switch import GlobalKillSwitchStore
@@ -6,6 +8,8 @@ from autobot.v2.reconciliation_strict import StrictReconciliation
 from autobot.v2.startup_attestation import StartupAttestation
 from autobot.v2.nonce_manager import NonceManager
 
+
+pytestmark = pytest.mark.integration
 
 class DummyExecutor:
     def __init__(self, tmp_path):

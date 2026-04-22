@@ -5,8 +5,24 @@ on:
     branches: [ main, master, work ]
   push:
     branches: [ main, master, work ]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
+  conflict-marker-scan:
+    name: Conflict marker scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if merge conflict markers are present
+        run: |
+          if rg -n --hidden --glob '!**/node_modules/**' '^(<<<<<<<|=======|>>>>>>>)' .; then
+            echo "Merge conflict markers detected. Resolve conflicts before merge."
+            exit 1
+          fi
+          echo "No merge conflict markers found."
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -28,16 +44,17 @@ jobs:
           inputs: requirements.txt
 
   python-tests:
-    name: Python tests (${{ matrix.test_suite }})
+    # Source unique de vérité pour l'exécution des tests Python en CI.
+    name: Python tests (unit|integration)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - test_suite: unit
-            marker: not integration
+            marker: unit and not external and not e2e
           - test_suite: integration
-            marker: integration
+            marker: integration and not external and not e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -82,44 +99,8 @@ jobs:
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
 
-  python-tests:
-    name: Python tests (${{ matrix.suite }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [unit, integration]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Run pytest - unit
-        if: matrix.suite == 'unit'
-        run: |
-          pytest -q -m "not integration" --junitxml=pytest-unit.xml
-      - name: Run pytest - integration
-        if: matrix.suite == 'integration'
-        run: |
-          pytest -q -m "integration" --junitxml=pytest-integration.xml
-      - name: Upload pytest artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-${{ matrix.suite }}-artifacts
-          path: |
-            pytest-*.xml
-            .pytest_cache
-          if-no-files-found: ignore
-
-  dashboard-lint-test:
-    name: Dashboard lint and test
+  dashboard-build-lint:
+    name: Dashboard build and lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -185,6 +166,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
     needs:
+      - conflict-marker-scan
       - python-tests
       - dashboard-lint-test
       - dashboard-build

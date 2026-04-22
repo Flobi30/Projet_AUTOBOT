@@ -54,6 +54,8 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+pytestmark = pytest.mark.unit
+
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")

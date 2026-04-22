@@ -5,6 +5,8 @@ import pytest
 from autobot.v2.orchestrator_services import BackgroundTasksService
 
 
+pytestmark = pytest.mark.integration
+
 @pytest.mark.asyncio
 async def test_background_tasks_service_start_and_stop():
     service = BackgroundTasksService()

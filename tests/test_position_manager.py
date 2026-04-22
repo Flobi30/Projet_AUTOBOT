@@ -1,6 +1,10 @@
+import pytest
+
 from autobot.order_manager import Order, OrderSide
 from autobot.position_manager import PositionManager, PositionStatus
 
+
+pytestmark = pytest.mark.integration
 
 class _DummyGridCalculator:
     def get_sell_levels(self):

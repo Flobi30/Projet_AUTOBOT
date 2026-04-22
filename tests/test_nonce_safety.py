@@ -1,9 +1,13 @@
+import pytest
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from autobot.v2.order_executor_async import OrderExecutorAsync
 from autobot.v2.nonce_manager import NonceManager
 
+
+pytestmark = pytest.mark.integration
 
 def test_nonce_generator_monotonic_under_concurrency(tmp_path):
     nm = NonceManager(str(tmp_path / "nonce.db"))

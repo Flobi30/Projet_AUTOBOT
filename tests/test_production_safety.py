@@ -1,3 +1,5 @@
+import pytest
+
 import asyncio
 import time
 
@@ -7,6 +9,8 @@ from autobot.v2.order_state_machine import PersistedOrderStateMachine
 from autobot.v2.persistence import StatePersistence
 from autobot.v2.reconciliation_strict import StrictReconciliation
 
+
+pytestmark = pytest.mark.integration
 
 def test_duplicate_order_idempotency(monkeypatch):
     async def _run():

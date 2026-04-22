@@ -270,17 +270,43 @@ class SignalHandlerAsync:
         divergences = self._reconciler.compare_balances(local_total, exchange_total)
         # Deeper parity: fees / realized / unrealized PnL aggregates
         tb = await self.order_executor.get_trade_balance("EUR")
+        exchange_realized = self._to_optional_float(tb.get("n") if isinstance(tb, dict) else None)
+        exchange_unrealized = self._to_optional_float(tb.get("u") if isinstance(tb, dict) else None)
+        exchange_fees = self._to_optional_float(tb.get("c") if isinstance(tb, dict) else None)
+        local_unrealized = self._compute_unrealized_pnl()
+        local_fees = self._compute_local_fees_aggregate()
+        local_realized = self._to_optional_float(self.instance.get_profit())
+
         exchange_metrics = {
-            "realized_pnl": float(tb.get("n", 0.0) if isinstance(tb.get("n"), (int, float)) else 0.0),
-            "unrealized_pnl": float(tb.get("u", 0.0) if isinstance(tb.get("u"), (int, float)) else 0.0),
-            "fees": float(tb.get("c", 0.0) if isinstance(tb.get("c"), (int, float)) else 0.0),
+            "realized_pnl": exchange_realized,
+            "unrealized_pnl": exchange_unrealized,
+            "fees": exchange_fees,
         }
         local_metrics = {
-            "realized_pnl": float(self.instance.get_profit()),
-            "unrealized_pnl": 0.0,  # TODO: derive mark-to-market from open positions
-            "fees": 0.0,  # TODO: persist/aggregate actual exchange fees in dedicated table
+            "realized_pnl": local_realized,
+            "unrealized_pnl": local_unrealized,
+            "fees": local_fees,
         }
-        divergences.extend(self._reconciler.compare_fills_fees_pnl(local_metrics, exchange_metrics))
+        quality_flags = {
+            "local_realized_available": local_realized is not None,
+            "local_unrealized_quality": getattr(self, "_last_unrealized_pnl_quality", "incomplete"),
+            "local_fees_available": local_fees is not None,
+            "exchange_realized_available": exchange_realized is not None,
+            "exchange_unrealized_available": exchange_unrealized is not None,
+            "exchange_fees_available": exchange_fees is not None,
+        }
+        metrics_quality = self._derive_metrics_quality(quality_flags)
+        logger.info(
+            "📊 Réconciliation métriques qualité=%s (flags=%s)",
+            metrics_quality,
+            quality_flags,
+        )
+        divergences.extend(
+            self._reconciler.compare_fills_fees_pnl(
+                self._normalize_metrics_for_reconciliation(local_metrics),
+                self._normalize_metrics_for_reconciliation(exchange_metrics),
+            )
+        )
         if self._reconciler.should_kill_switch(divergences):
             await self._kill_switch.trigger("reconciliation_mismatch", divergences[0].message)
 
@@ -329,6 +355,50 @@ class SignalHandlerAsync:
         except Exception:
             return 0.0
 
+    def _compute_local_fees_aggregate(self) -> Optional[float]:
+        persistence = getattr(self.instance, "_persistence", None)
+        if persistence is None or not hasattr(persistence, "get_trade_ledger_metrics"):
+            return None
+        try:
+            metrics = persistence.get_trade_ledger_metrics(self.instance.id)
+            return self._to_optional_float(metrics.get("total_fees"))
+        except Exception:
+            logger.exception("❌ Impossible d'agréger les frais locaux (persistence/audit)")
+            return None
+
+    @staticmethod
+    def _normalize_metrics_for_reconciliation(metrics: dict[str, Optional[float]]) -> dict[str, float]:
+        return {
+            "realized_pnl": float(metrics.get("realized_pnl") or 0.0),
+            "unrealized_pnl": float(metrics.get("unrealized_pnl") or 0.0),
+            "fees": float(metrics.get("fees") or 0.0),
+        }
+
+    @staticmethod
+    def _to_optional_float(value: Any) -> Optional[float]:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _derive_metrics_quality(flags: dict[str, Any]) -> str:
+        required_available = (
+            flags.get("local_realized_available")
+            and flags.get("local_fees_available")
+            and flags.get("exchange_realized_available")
+            and flags.get("exchange_unrealized_available")
+            and flags.get("exchange_fees_available")
+        )
+        unrealized_quality = flags.get("local_unrealized_quality", "incomplete")
+        if not required_available or unrealized_quality == "incomplete":
+            return "incomplet"
+        if unrealized_quality == "estimated":
+            return "estimé"
+        return "complet"
+
     def _compute_exit_levels(self, entry_price: float) -> tuple[float, float, float, float]:
         atr_pct = self._estimate_atr_pct(entry_price)
         sl_pct = max(0.004, atr_pct * self._atr_sl_mult)
@@ -356,16 +426,29 @@ class SignalHandlerAsync:
         total_cost_bps = fee_bps + slippage_bps + spread_bps
         return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
 
-    def _compute_unrealized_pnl(self) -> float:
+    def _compute_unrealized_pnl(self) -> Optional[float]:
         last_price = getattr(self.instance, "_last_price", None)
         if last_price is None:
-            return 0.0
+            self._last_unrealized_pnl_quality = "incomplete"
+            return None
         unrealized = 0.0
+        has_open_position = False
+        has_partial_data = False
         for pos in self.instance.get_positions_snapshot():
             if pos.get("status") != "open":
                 continue
-            buy_price = float(pos.get("buy_price", 0.0))
-            volume = float(pos.get("volume", 0.0))
+            has_open_position = True
+            buy_price = self._to_optional_float(pos.get("buy_price"))
+            volume = self._to_optional_float(pos.get("volume"))
+            if buy_price is None or volume is None:
+                has_partial_data = True
+                continue
             if buy_price > 0 and volume > 0:
                 unrealized += (float(last_price) - buy_price) * volume
+            else:
+                has_partial_data = True
+        if has_open_position and has_partial_data and unrealized == 0.0:
+            self._last_unrealized_pnl_quality = "incomplete"
+            return None
+        self._last_unrealized_pnl_quality = "estimated" if has_partial_data else "complete"
         return unrealized

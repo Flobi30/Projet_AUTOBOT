@@ -1,3 +1,5 @@
+import pytest
+
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -5,6 +7,8 @@ from fastapi.testclient import TestClient
 from autobot.v2.api import dashboard
 import autobot.v2.config as config
 
+
+pytestmark = pytest.mark.integration
 
 class _DummyUniverse:
     def snapshot(self):

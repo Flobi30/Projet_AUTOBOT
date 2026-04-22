@@ -1,4 +1,6 @@
 import pytest
+pytestmark = pytest.mark.integration
+
 
 from autobot.error_handler import (
     CircuitBreakerOpenError,

@@ -1,6 +1,10 @@
+import pytest
+
 from autobot.v2.instance_activation_manager import ActivationInput, InstanceActivationManager
 from autobot.v2.scalability_guard import ScalingState
 
+
+pytestmark = pytest.mark.unit
 
 def _inp(now, score=80, health=85, guard=ScalingState.ALLOW_SCALE_UP, ranked=10, running=1):
     symbols = [f"SYM{i}" for i in range(ranked)]

@@ -1,5 +1,9 @@
+import pytest
+
 import importlib
 
+
+pytestmark = pytest.mark.unit
 
 def _reload_config(monkeypatch, env: dict[str, str]):
     keys = [

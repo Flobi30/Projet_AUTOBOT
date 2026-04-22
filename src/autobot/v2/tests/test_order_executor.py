@@ -2,11 +2,14 @@
 Tests unitaires pour OrderExecutor avec mock de l'API Kraken
 """
 
+import pytest
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
 
 import sys
+pytestmark = pytest.mark.unit
+
 sys.path.insert(0, 'src')
 
 from autobot.v2.order_executor import OrderExecutor, OrderSide, OrderResult, get_order_executor, reset_order_executor

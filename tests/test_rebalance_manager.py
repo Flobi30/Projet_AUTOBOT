@@ -7,6 +7,8 @@ import pytest
 import sys
 import os
 
+pytestmark = pytest.mark.integration
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 

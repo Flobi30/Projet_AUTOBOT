@@ -1,8 +1,12 @@
+import pytest
+
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+
+pytestmark = pytest.mark.integration
 
 def _run_json_cli(repo_root: Path, args: list[str]) -> dict:
     proc = subprocess.run(

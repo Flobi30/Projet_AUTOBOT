@@ -14,6 +14,8 @@ import pytest
 from autobot.v2.strategies.mean_reversion import MeanReversionStrategy
 
 
+pytestmark = pytest.mark.unit
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)

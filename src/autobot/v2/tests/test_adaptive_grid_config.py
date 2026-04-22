@@ -3,6 +3,8 @@ Tests for PairProfileRegistry and DynamicGridAllocator.
 """
 
 import pytest
+pytestmark = pytest.mark.unit
+
 from autobot.v2.strategies.adaptive_grid_config import (
     PairProfile,
     PairProfileRegistry,

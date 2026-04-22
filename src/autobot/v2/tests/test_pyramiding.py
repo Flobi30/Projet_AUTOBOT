@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import sys
 
+
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
 import pytest
+pytestmark = pytest.mark.unit
+
 
 from autobot.v2.modules.pyramiding_manager import PyramidingManager
 

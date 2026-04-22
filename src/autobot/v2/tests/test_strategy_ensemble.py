@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 
+pytestmark = pytest.mark.unit
+
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
 
 import pytest

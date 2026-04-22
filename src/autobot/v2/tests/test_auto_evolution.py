@@ -2,6 +2,9 @@
 Tests pour AutoEvolutionManager
 """
 
+import pytest
+pytestmark = pytest.mark.unit
+
 import unittest
 import tempfile
 import os
