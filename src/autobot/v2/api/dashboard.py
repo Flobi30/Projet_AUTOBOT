@@ -10,7 +10,7 @@ import threading
 import inspect
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -948,7 +948,12 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
 
 
 @app.get("/api/trades")
-async def get_trades(request: Request, authorized: bool = Depends(verify_token), limit: int = 50):
+async def get_trades(
+    request: Request,
+    authorized: bool = Depends(verify_token),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
     """Liste des trades exécutés"""
     orchestrator = request.app.state.orchestrator
     if not orchestrator:
@@ -960,8 +965,7 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
 
         for inst in instances_data:
             inst_trades = inst.get('trades_history', [])
-            chunk_size = max(1, limit // len(instances_data)) if instances_data else limit
-            for trade in inst_trades[-chunk_size:]:
+            for trade in inst_trades:
                 trades.append({
                     "id": trade.get('id', 'unknown'),
                     "instance_id": inst['id'],
@@ -976,10 +980,20 @@ async def get_trades(request: Request, authorized: bool = Depends(verify_token),
                 })
 
         trades.sort(key=lambda x: x['timestamp'], reverse=True)
+        total = len(trades)
+        paginated_trades = trades[offset:offset + limit]
+        next_offset = offset + limit if (offset + limit) < total else None
 
         return {
-            "count": len(trades),
-            "trades": trades[:limit]
+            "trades": paginated_trades,
+            "pagination": {
+                "total": total,
+                "count": len(paginated_trades),
+                "limit": limit,
+                "offset": offset,
+                "has_more": next_offset is not None,
+                "next_offset": next_offset
+            }
         }
     except Exception:
         logger.exception("Erreur récupération trades")
