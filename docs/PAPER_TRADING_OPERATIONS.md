@@ -2,6 +2,38 @@
 
 Operational support pass for safer day-to-day paper trading.
 
+## 0) Credentials exchange: règle conditionnelle
+
+- **Préflight complet** (attestation avec connectivité exchange) => `KRAKEN_API_KEY` + `KRAKEN_API_SECRET` **obligatoires**.
+- **Paper réel** (trading simulé mais connecté) => `KRAKEN_API_KEY` + `KRAKEN_API_SECRET` **obligatoires**.
+- **Offline/mock pur** => credentials non requis, activer explicitement `MOCK_BROKER=true`.
+
+### Matrice “mode d'exécution -> variables obligatoires”
+
+| Mode | Variables obligatoires |
+|---|---|
+| Préflight complet | `PREFLIGHT_ONLY=true`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` |
+| Paper réel | `PREFLIGHT_ONLY=false`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` |
+| Offline/mock pur | `PREFLIGHT_ONLY=true`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`, `MOCK_BROKER=true`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT` |
+
+### Exemple “attestation pass + trading paper activé”
+
+```bash
+# 1) Attestation
+PREFLIGHT_ONLY=true PAPER_TRADING=false DEPLOYMENT_STAGE=paper \
+DASHBOARD_API_TOKEN=change_me INITIAL_CAPITAL=1000 \
+MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
+KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+python -u src/autobot/v2/main_async.py
+
+# 2) Passage en paper activé
+PREFLIGHT_ONLY=false PAPER_TRADING=true DEPLOYMENT_STAGE=paper \
+LIVE_TRADING_CONFIRMATION=false DASHBOARD_API_TOKEN=change_me \
+INITIAL_CAPITAL=1000 MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
+KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+python -u src/autobot/v2/main_async.py
+```
+
 ## 1) Pre-launch validation helper
 
 Validate `.env` and paper safety gates before starting:

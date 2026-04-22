@@ -6,41 +6,52 @@ Entrypoint officiel: `src/autobot/v2/main_async.py`.
 
 ## Quick start
 1. Copier `.env.example` vers `.env`.
-2. Remplir les variables obligatoires (token dashboard, limites de risque, etc.).
-3. Lancer un préflight sans trading:
+2. Remplir les variables obligatoires (cf. matrice ci-dessous selon le mode).
+3. Lancer un préflight d'attestation (sans trading):
    ```bash
-   PREFLIGHT_ONLY=true python -u src/autobot/v2/main_async.py
+   PREFLIGHT_ONLY=true PAPER_TRADING=false DEPLOYMENT_STAGE=paper \
+   KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+   python -u src/autobot/v2/main_async.py
    ```
-4. Lancer en paper:
+4. Lancer en paper réel (attestation OK + trading paper activé):
    ```bash
-   PAPER_TRADING=true DEPLOYMENT_STAGE=paper python -u src/autobot/v2/main_async.py
+   PREFLIGHT_ONLY=false PAPER_TRADING=true DEPLOYMENT_STAGE=paper \
+   KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+   python -u src/autobot/v2/main_async.py
    ```
 
 ## Variables runtime essentielles
 Valeurs par défaut recommandées: orientées **paper + preflight** (donc pas d'ordres live par défaut).
 
-| Variable | Obligatoire | Valeur défaut (`.env.example`) | Impact |
-|---|---|---:|---|
-| `PAPER_TRADING` | Oui | `true` | `true` = simulation, `false` active le mode live. |
-| `DEPLOYMENT_STAGE` | Oui | `paper` | Gate de promotion (`paper`, `micro_live`, `small_live`). |
-| `PREFLIGHT_ONLY` | Oui | `true` | `true` exécute uniquement les checks de démarrage. |
-| `LIVE_TRADING_CONFIRMATION` | Oui | `false` | Doit rester `false` hors live; protection anti-ordre réel accidentel. |
-| `DASHBOARD_API_TOKEN` | Oui | `change_me` | Authentification API dashboard (startup bloqué si absent). |
-| `API_KEY_ASSIGNMENT_MODE` | Oui | `dedicated` | En live, impose une clé API dédiée par bot. |
-| `ALLOW_SHARED_API_KEY` | Oui | `false` | Interdit le partage d'une clé API en live. |
-| `UNIQUE_BOT_ID` | Oui | `bot-paper-01` | Identité du bot pour vérifier l'assignation de clé. |
-| `API_KEY_ASSIGNED_BOT_ID` | Oui | `bot-paper-01` | Doit matcher `UNIQUE_BOT_ID` en live. |
-| `MAX_LIVE_INSTANCES` | Oui | `1` | Limite stricte du nombre d'instances live simultanées. |
-| `LEAKED_SSH_KEY_ROTATED_ACK` | Oui | `false` | Ack explicite après rotation d'un secret compromis. |
-| `SECRET_EXPOSURE_MARKER_PATH` | Oui | `data/compromised_secret.marker` | Fichier marker: présent => startup bloqué. |
-| `INITIAL_CAPITAL` | Oui | `1000.0` | Capital de base pour sizing et diagnostics. |
-| `MAX_DRAWDOWN_PCT` | Oui | `10` | Seuil de drawdown global avant blocage/stop. |
-| `RISK_PER_TRADE_PCT` | Oui | `1` | Risque maximum alloué par trade. |
-| `MAX_POSITION_SIZE_PCT` | Oui | `20` | Taille max d'une position vs capital. |
-| `KRAKEN_API_KEY` | Optionnelle* | vide | Nécessaire pour connexion exchange réelle. |
-| `KRAKEN_API_SECRET` | Optionnelle* | vide | Nécessaire pour connexion exchange réelle. |
+### Règle explicite sur les credentials exchange
+- **Préflight complet ou paper réel**: `KRAKEN_API_KEY` et `KRAKEN_API_SECRET` sont **obligatoires** (la connectivité exchange est vérifiée).
+- **Modes purement offline/mock**: laissez les credentials vides **et activez explicitement** `MOCK_BROKER=true` (ou votre backend mock équivalent) pour bypasser toute dépendance exchange.
 
-\* Optionnelles en préflight strict; recommandées pour valider la connectivité exchange.
+### Matrice “mode d’exécution → variables obligatoires”
+
+| Mode d'exécution | Variables obligatoires | Notes |
+|---|---|---|
+| Préflight complet (connectivité réelle) | `PREFLIGHT_ONLY=true`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` | Attestation full-stack sans prise de position. |
+| Paper réel (trading simulé connecté exchange) | `PREFLIGHT_ONLY=false`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` | Mode paper opérationnel après attestation. |
+| Offline/mock pur | `PREFLIGHT_ONLY=true`, `PAPER_TRADING=true`, `DEPLOYMENT_STAGE=paper`, `MOCK_BROKER=true`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT` | Aucun appel exchange; credentials Kraken non requis. |
+
+### Exemple de lancement paper “attestation pass + trading paper activé”
+
+```bash
+# 1) Attestation (doit passer)
+PREFLIGHT_ONLY=true PAPER_TRADING=false DEPLOYMENT_STAGE=paper \
+DASHBOARD_API_TOKEN=change_me INITIAL_CAPITAL=1000 \
+MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
+KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+python -u src/autobot/v2/main_async.py
+
+# 2) Trading paper activé (mêmes minima)
+PREFLIGHT_ONLY=false PAPER_TRADING=true DEPLOYMENT_STAGE=paper \
+LIVE_TRADING_CONFIRMATION=false DASHBOARD_API_TOKEN=change_me \
+INITIAL_CAPITAL=1000 MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
+KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
+python -u src/autobot/v2/main_async.py
+```
 
 ## Paper-trading operations helpers
 - Validate paper launch config: `python tools/paper_ops.py validate --env-file .env`
