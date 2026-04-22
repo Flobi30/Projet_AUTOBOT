@@ -3,7 +3,7 @@ Position Manager - Gestion des positions et cycle BUY→SELL
 """
 
 import logging
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, cast
 from dataclasses import dataclass
 from enum import Enum
 
@@ -154,6 +154,12 @@ class PositionManager:
         """
         if not buy_order.is_buy():
             raise ValueError("L'ordre doit être un ordre d'achat (BUY)")
+
+        # Contrat: un ordre BUY tracké doit toujours avoir un identifiant non nul.
+        if not buy_order.id:
+            raise ValueError("buy_order.id manquant")
+
+        buy_order_id = cast(str, buy_order.id)
         
         # Vérifie la limite de positions
         if not self.can_open_position():
@@ -164,17 +170,17 @@ class PositionManager:
             return None
         
         position = Position(
-            buy_order_id=buy_order.id,
+            buy_order_id=buy_order_id,
             buy_price=buy_order.price,
             volume=buy_order.volume,
             status=PositionStatus.OPEN
         )
         
-        self._positions[buy_order.id] = position
+        self._positions[buy_order_id] = position
         
         logger.info(
             f"📊 Position ouverte: BUY {buy_order.volume} @ €{buy_order.price:,.2f} "
-            f"(ID: {buy_order.id}) - {len(self.get_open_positions())}/{self.max_positions}"
+            f"(ID: {buy_order_id}) - {len(self.get_open_positions())}/{self.max_positions}"
         )
         
         return position
@@ -184,7 +190,7 @@ class PositionManager:
         Vérifie si un ordre BUY est rempli et crée l'ordre SELL correspondant.
         
         Args:
-            buy_order_id: ID de l'ordre BUY
+            buy_order_id: ID non-null de l'ordre BUY
             
         Returns:
             Position mise à jour si remplie, None sinon
@@ -228,14 +234,18 @@ class PositionManager:
                 volume=buy_order.volume
             )
             
+            if not sell_order.id:
+                raise ValueError("sell_order.id manquant")
+            sell_order_id = cast(str, sell_order.id)
+
             # Met à jour la position
-            position.sell_order_id = sell_order.id
+            position.sell_order_id = sell_order_id
             position.sell_price = sell_price
             position.status = PositionStatus.FILLED
             position.profit = position.calculate_profit()
             
             # Indexe par sell_order_id pour suivi futur
-            self._positions_by_sell[sell_order.id] = buy_order_id
+            self._positions_by_sell[sell_order_id] = buy_order_id
             
             logger.info(
                 f"📈 Ordre SELL placé: {buy_order.volume} @ €{sell_price:,.2f} "
