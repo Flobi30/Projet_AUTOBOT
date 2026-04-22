@@ -143,10 +143,10 @@ def build_rejected_opportunity_report(
     by_symbol: Dict[str, int] = {}
     reason_symbol: Dict[str, int] = {}
     total_rejections = 0
-    tail_records = deque(maxlen=records_limit if records_limit > 0 else None)
+    records = deque(maxlen=records_limit if records_limit > 0 else None)
 
-    with open(path, "r", encoding="utf-8", errors="ignore") as handle:
-        for line in handle:
+    with path.open(encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
             line = line.strip()
             if not line:
                 continue
@@ -176,8 +176,9 @@ def build_rejected_opportunity_report(
             by_symbol[symbol] = by_symbol.get(symbol, 0) + 1
             key = f"{reason}::{symbol}"
             reason_symbol[key] = reason_symbol.get(key, 0) + 1
+
             if records_limit > 0:
-                tail_records.append(rec)
+                records.append(rec)
 
     return {
         "generated_at": now.isoformat(),
@@ -186,5 +187,5 @@ def build_rejected_opportunity_report(
         "by_reason": dict(sorted(by_reason.items(), key=lambda kv: kv[1], reverse=True)),
         "by_symbol": dict(sorted(by_symbol.items(), key=lambda kv: kv[1], reverse=True)),
         "reason_symbol": dict(sorted(reason_symbol.items(), key=lambda kv: kv[1], reverse=True)),
-        "records": list(tail_records),
+        "records": list(records) if records_limit > 0 else [],
     }

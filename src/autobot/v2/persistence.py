@@ -19,6 +19,376 @@ _local = _threading.local()
 logger = logging.getLogger(__name__)
 
 
+class _PersistenceRepositoryBase:
+    """Shared helpers for SQLite repositories."""
+
+    def __init__(self, get_conn, lock: threading.Lock):
+        self._get_conn = get_conn
+        self._lock = lock
+
+
+class OrderRepository(_PersistenceRepositoryBase):
+    """Order lifecycle persistence (orders + transitions)."""
+
+    def upsert_order(
+        self,
+        client_order_id: str,
+        instance_id: str,
+        symbol: str,
+        side: str,
+        order_type: str,
+        requested_qty: float,
+        status: str = "NEW",
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+    ) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute(
+                    """
+                    INSERT INTO orders
+                    (client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                     requested_qty, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(client_order_id) DO UPDATE SET
+                        decision_id=excluded.decision_id,
+                        signal_id=excluded.signal_id,
+                        instance_id=excluded.instance_id,
+                        symbol=excluded.symbol,
+                        side=excluded.side,
+                        order_type=excluded.order_type,
+                        requested_qty=excluded.requested_qty,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                        requested_qty, status, now, now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur upsert_order {client_order_id}: {e}")
+            return False
+
+    def transition_order_state(
+        self,
+        client_order_id: str,
+        to_status: str,
+        reason: str,
+        source: str,
+        exchange_order_id: Optional[str] = None,
+        filled_qty: Optional[float] = None,
+        avg_fill_price: Optional[float] = None,
+        retries_delta: int = 0,
+        last_error_code: Optional[str] = None,
+        last_error_message: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        terminal = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT status, retries, sent_at, ack_at FROM orders WHERE client_order_id = ?",
+                    (client_order_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                from_status = row["status"]
+                payload_hash = hashlib.sha256(
+                    orjson.dumps(payload or {}, option=orjson.OPT_SORT_KEYS)
+                ).hexdigest()
+                conn.execute(
+                    """
+                    INSERT INTO order_state_transitions
+                    (client_order_id, from_status, to_status, reason, source, payload_hash, occurred_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (client_order_id, from_status, to_status, reason, source, payload_hash, now),
+                )
+                sent_at = row["sent_at"] or (now if to_status == "SENT" else None)
+                ack_at = row["ack_at"] or (now if to_status == "ACK" else None)
+                terminal_at = now if to_status in terminal else None
+                conn.execute(
+                    """
+                    UPDATE orders SET
+                        exchange_order_id = COALESCE(?, exchange_order_id),
+                        filled_qty = COALESCE(?, filled_qty),
+                        avg_fill_price = COALESCE(?, avg_fill_price),
+                        status = ?,
+                        retries = retries + ?,
+                        last_error_code = COALESCE(?, last_error_code),
+                        last_error_message = COALESCE(?, last_error_message),
+                        sent_at = COALESCE(?, sent_at),
+                        ack_at = COALESCE(?, ack_at),
+                        terminal_at = COALESCE(?, terminal_at),
+                        updated_at = ?
+                    WHERE client_order_id = ?
+                    """,
+                    (
+                        exchange_order_id, filled_qty, avg_fill_price, to_status, retries_delta,
+                        last_error_code, last_error_message, sent_at, ack_at, terminal_at, now, client_order_id,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur transition_order_state {client_order_id}: {e}")
+            return False
+
+    def get_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT * FROM orders WHERE client_order_id = ?",
+                    (client_order_id,),
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_order {client_order_id}: {e}")
+            return None
+
+    def get_non_terminal_orders(self) -> List[Dict[str, Any]]:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM orders WHERE status IN ('NEW','SENT','ACK','PARTIAL')"
+                ).fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_non_terminal_orders: {e}")
+            return []
+
+
+class AuditRepository(_PersistenceRepositoryBase):
+    """Immutable audit trail persistence."""
+
+    def append_audit_event(
+        self,
+        event_id: str,
+        event_type: str,
+        instance_id: str,
+        config_hash: str,
+        risk_snapshot: Dict[str, Any],
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        exchange_order_id: Optional[str] = None,
+        balance_before: Optional[Dict[str, Any]] = None,
+        balance_after: Optional[Dict[str, Any]] = None,
+        fees: Optional[float] = None,
+        slippage_bps: Optional[float] = None,
+        order_from_status: Optional[str] = None,
+        order_to_status: Optional[str] = None,
+        exchange_raw_normalized: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                prev = conn.execute(
+                    "SELECT event_hash FROM audit_events ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = prev["event_hash"] if prev else None
+                normalized = {
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "decision_id": decision_id,
+                    "signal_id": signal_id,
+                    "client_order_id": client_order_id,
+                    "exchange_order_id": exchange_order_id,
+                    "instance_id": instance_id,
+                    "config_hash": config_hash,
+                    "risk_snapshot": risk_snapshot,
+                    "balance_before": balance_before,
+                    "balance_after": balance_after,
+                    "fees": fees,
+                    "slippage_bps": slippage_bps,
+                    "order_from_status": order_from_status,
+                    "order_to_status": order_to_status,
+                    "exchange_raw_normalized": exchange_raw_normalized,
+                    "prev_event_hash": prev_hash,
+                    "created_at": now,
+                }
+                event_hash = hashlib.sha256(
+                    orjson.dumps(normalized, option=orjson.OPT_SORT_KEYS)
+                ).hexdigest()
+                conn.execute(
+                    """
+                    INSERT INTO audit_events
+                    (event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                     instance_id, config_hash, risk_snapshot, balance_before, balance_after, fees, slippage_bps,
+                     order_from_status, order_to_status, exchange_raw_normalized, prev_event_hash, event_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                        instance_id, config_hash,
+                        orjson.dumps(risk_snapshot).decode("utf-8"),
+                        orjson.dumps(balance_before).decode("utf-8") if balance_before is not None else None,
+                        orjson.dumps(balance_after).decode("utf-8") if balance_after is not None else None,
+                        fees, slippage_bps, order_from_status, order_to_status,
+                        orjson.dumps(exchange_raw_normalized).decode("utf-8") if exchange_raw_normalized is not None else None,
+                        prev_hash, event_hash, now,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur append_audit_event {event_id}: {e}")
+            return False
+
+
+class PositionRepository(_PersistenceRepositoryBase):
+    """Open positions + trade history persistence."""
+
+    def save_position(
+        self,
+        position_id: str,
+        instance_id: str,
+        buy_price: float,
+        volume: float,
+        status: str = "open",
+        strategy: str = "",
+        metadata: Optional[Dict] = None,
+    ) -> bool:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute("""
+                    INSERT OR REPLACE INTO positions
+                    (id, instance_id, buy_price, volume, status, open_time, strategy, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    position_id, instance_id, buy_price, volume, status,
+                    datetime.now(timezone.utc).isoformat(), strategy,
+                    orjson.dumps(metadata).decode('utf-8') if metadata else None
+                ))
+                conn.commit()
+            logger.debug(f"💾 Position sauvegardée: {instance_id}/{position_id}")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur sauvegarde position: {e}")
+            return False
+
+    def update_position_status(self, position_id: str, status: str) -> bool:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute("UPDATE positions SET status = ? WHERE id = ?", (status, position_id))
+                conn.commit()
+                logger.debug(f"📝 Position mise à jour: {position_id} -> {status}")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur mise à jour position: {e}")
+            return False
+
+    def close_position_and_record_trade(self, position_id: str, trade_data: Dict[str, Any]) -> bool:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                with conn:
+                    conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+                    conn.execute("""
+                        INSERT INTO trades
+                        (position_id, instance_id, side, price, volume, profit, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        position_id,
+                        trade_data['instance_id'],
+                        trade_data['side'],
+                        trade_data['price'],
+                        trade_data['volume'],
+                        trade_data.get('profit'),
+                        trade_data['timestamp']
+                    ))
+                logger.debug(f"🗑️ Position {position_id} fermée + trade enregistré (atomique)")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur fermeture position atomique: {e}")
+            return False
+
+    def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT * FROM positions
+                    WHERE instance_id = ? AND status = 'open'
+                """, (instance_id,))
+                positions = []
+                for row in cursor.fetchall():
+                    pos = dict(row)
+                    if pos.get('metadata'):
+                        pos['metadata'] = orjson.loads(pos['metadata'])
+                    positions.append(pos)
+            if positions:
+                logger.warning(f"🔄 Recovery: {len(positions)} position(s) ouverte(s) trouvée(s) pour {instance_id}")
+            else:
+                logger.debug(f"✅ Pas de positions à récupérer pour {instance_id}")
+            return positions
+        except Exception as e:
+            logger.exception(f"❌ Erreur récupération positions: {e}")
+            return []
+
+
+class InstanceStateRepository(_PersistenceRepositoryBase):
+    """Instance lifecycle state persistence."""
+
+    def save_instance_state(
+        self,
+        instance_id: str,
+        status: str,
+        current_capital: float,
+        allocated_capital: float,
+        win_count: int,
+        loss_count: int,
+    ) -> bool:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.execute("""
+                    INSERT OR REPLACE INTO instance_state
+                    (instance_id, status, current_capital, allocated_capital,
+                     win_count, loss_count, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    instance_id, status, current_capital, allocated_capital,
+                    win_count, loss_count, datetime.now(timezone.utc).isoformat()
+                ))
+                conn.commit()
+            logger.debug(f"💾 État instance sauvegardé: {instance_id}")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ Erreur sauvegarde état instance: {e}")
+            return False
+
+    def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self._lock:
+                conn = self._get_conn()
+                conn.row_factory = sqlite3.Row
+                row = conn.execute("""
+                    SELECT * FROM instance_state
+                    WHERE instance_id = ?
+                """, (instance_id,)).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.exception(f"❌ Erreur récupération état instance: {e}")
+            return None
+
+
 class StatePersistence:
     """
     Persistance d'état SQLite pour recovery après crash.
@@ -33,6 +403,10 @@ class StatePersistence:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self.orders = OrderRepository(self._get_conn, self._lock)
+        self.audit = AuditRepository(self._get_conn, self._lock)
+        self.positions = PositionRepository(self._get_conn, self._lock)
+        self.instance_state = InstanceStateRepository(self._get_conn, self._lock)
         
         # Initialise la base de données
         self._init_db()
@@ -241,36 +615,17 @@ class StatePersistence:
         signal_id: Optional[str] = None,
     ) -> bool:
         """Create or update an order lifecycle record."""
-        now = datetime.now(timezone.utc).isoformat()
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.execute(
-                    """
-                    INSERT INTO orders
-                    (client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
-                     requested_qty, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(client_order_id) DO UPDATE SET
-                        decision_id=excluded.decision_id,
-                        signal_id=excluded.signal_id,
-                        instance_id=excluded.instance_id,
-                        symbol=excluded.symbol,
-                        side=excluded.side,
-                        order_type=excluded.order_type,
-                        requested_qty=excluded.requested_qty,
-                        updated_at=excluded.updated_at
-                    """,
-                    (
-                        client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
-                        requested_qty, status, now, now,
-                    ),
-                )
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.exception(f"❌ Erreur upsert_order {client_order_id}: {e}")
-            return False
+        return self.orders.upsert_order(
+            client_order_id=client_order_id,
+            instance_id=instance_id,
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            requested_qty=requested_qty,
+            status=status,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
 
     def transition_order_state(
         self,
@@ -287,87 +642,26 @@ class StatePersistence:
         payload: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Persist a state transition for the order state machine."""
-        now = datetime.now(timezone.utc).isoformat()
-        terminal = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                row = conn.execute(
-                    "SELECT status, retries, sent_at, ack_at FROM orders WHERE client_order_id = ?",
-                    (client_order_id,),
-                ).fetchone()
-                if not row:
-                    return False
-                from_status = row["status"]
-                payload_hash = hashlib.sha256(
-                    orjson.dumps(payload or {}, option=orjson.OPT_SORT_KEYS)
-                ).hexdigest()
-                conn.execute(
-                    """
-                    INSERT INTO order_state_transitions
-                    (client_order_id, from_status, to_status, reason, source, payload_hash, occurred_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (client_order_id, from_status, to_status, reason, source, payload_hash, now),
-                )
-                sent_at = row["sent_at"] or (now if to_status == "SENT" else None)
-                ack_at = row["ack_at"] or (now if to_status == "ACK" else None)
-                terminal_at = now if to_status in terminal else None
-                conn.execute(
-                    """
-                    UPDATE orders SET
-                        exchange_order_id = COALESCE(?, exchange_order_id),
-                        filled_qty = COALESCE(?, filled_qty),
-                        avg_fill_price = COALESCE(?, avg_fill_price),
-                        status = ?,
-                        retries = retries + ?,
-                        last_error_code = COALESCE(?, last_error_code),
-                        last_error_message = COALESCE(?, last_error_message),
-                        sent_at = COALESCE(?, sent_at),
-                        ack_at = COALESCE(?, ack_at),
-                        terminal_at = COALESCE(?, terminal_at),
-                        updated_at = ?
-                    WHERE client_order_id = ?
-                    """,
-                    (
-                        exchange_order_id, filled_qty, avg_fill_price, to_status, retries_delta,
-                        last_error_code, last_error_message, sent_at, ack_at, terminal_at, now, client_order_id,
-                    ),
-                )
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.exception(f"❌ Erreur transition_order_state {client_order_id}: {e}")
-            return False
+        return self.orders.transition_order_state(
+            client_order_id=client_order_id,
+            to_status=to_status,
+            reason=reason,
+            source=source,
+            exchange_order_id=exchange_order_id,
+            filled_qty=filled_qty,
+            avg_fill_price=avg_fill_price,
+            retries_delta=retries_delta,
+            last_error_code=last_error_code,
+            last_error_message=last_error_message,
+            payload=payload,
+        )
 
     def get_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                row = conn.execute(
-                    "SELECT * FROM orders WHERE client_order_id = ?",
-                    (client_order_id,),
-                ).fetchone()
-                return dict(row) if row else None
-        except Exception as e:
-            logger.exception(f"❌ Erreur get_order {client_order_id}: {e}")
-            return None
+        return self.orders.get_order(client_order_id)
 
     def get_non_terminal_orders(self) -> List[Dict[str, Any]]:
         """Used for crash recovery/replay."""
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT * FROM orders WHERE status IN ('NEW','SENT','ACK','PARTIAL')"
-                ).fetchall()
-                return [dict(r) for r in rows]
-        except Exception as e:
-            logger.exception(f"❌ Erreur get_non_terminal_orders: {e}")
-            return []
+        return self.orders.get_non_terminal_orders()
 
     def append_audit_event(
         self,
@@ -389,62 +683,24 @@ class StatePersistence:
         exchange_raw_normalized: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Append immutable audit event with hash-chain."""
-        now = datetime.now(timezone.utc).isoformat()
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                prev = conn.execute(
-                    "SELECT event_hash FROM audit_events ORDER BY created_at DESC LIMIT 1"
-                ).fetchone()
-                prev_hash = prev["event_hash"] if prev else None
-                normalized = {
-                    "event_id": event_id,
-                    "event_type": event_type,
-                    "decision_id": decision_id,
-                    "signal_id": signal_id,
-                    "client_order_id": client_order_id,
-                    "exchange_order_id": exchange_order_id,
-                    "instance_id": instance_id,
-                    "config_hash": config_hash,
-                    "risk_snapshot": risk_snapshot,
-                    "balance_before": balance_before,
-                    "balance_after": balance_after,
-                    "fees": fees,
-                    "slippage_bps": slippage_bps,
-                    "order_from_status": order_from_status,
-                    "order_to_status": order_to_status,
-                    "exchange_raw_normalized": exchange_raw_normalized,
-                    "prev_event_hash": prev_hash,
-                    "created_at": now,
-                }
-                event_hash = hashlib.sha256(
-                    orjson.dumps(normalized, option=orjson.OPT_SORT_KEYS)
-                ).hexdigest()
-                conn.execute(
-                    """
-                    INSERT INTO audit_events
-                    (event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
-                     instance_id, config_hash, risk_snapshot, balance_before, balance_after, fees, slippage_bps,
-                     order_from_status, order_to_status, exchange_raw_normalized, prev_event_hash, event_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
-                        instance_id, config_hash,
-                        orjson.dumps(risk_snapshot).decode("utf-8"),
-                        orjson.dumps(balance_before).decode("utf-8") if balance_before is not None else None,
-                        orjson.dumps(balance_after).decode("utf-8") if balance_after is not None else None,
-                        fees, slippage_bps, order_from_status, order_to_status,
-                        orjson.dumps(exchange_raw_normalized).decode("utf-8") if exchange_raw_normalized is not None else None,
-                        prev_hash, event_hash, now,
-                    ),
-                )
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.exception(f"❌ Erreur append_audit_event {event_id}: {e}")
-            return False
+        return self.audit.append_audit_event(
+            event_id=event_id,
+            event_type=event_type,
+            instance_id=instance_id,
+            config_hash=config_hash,
+            risk_snapshot=risk_snapshot,
+            decision_id=decision_id,
+            signal_id=signal_id,
+            client_order_id=client_order_id,
+            exchange_order_id=exchange_order_id,
+            balance_before=balance_before,
+            balance_after=balance_after,
+            fees=fees,
+            slippage_bps=slippage_bps,
+            order_from_status=order_from_status,
+            order_to_status=order_to_status,
+            exchange_raw_normalized=exchange_raw_normalized,
+        )
     
     def save_position(self, position_id: str, instance_id: str, 
                       buy_price: float, volume: float,
@@ -454,45 +710,21 @@ class StatePersistence:
         Sauvegarde une position ouverte.
         Appelé quand une position est créée.
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.execute("""
-                    INSERT OR REPLACE INTO positions
-                    (id, instance_id, buy_price, volume, status, open_time, strategy, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    position_id, instance_id, buy_price, volume, status,
-                    datetime.now(timezone.utc).isoformat(), strategy,
-                    orjson.dumps(metadata).decode('utf-8') if metadata else None
-                ))
-                conn.commit()
-
-            logger.debug(f"💾 Position sauvegardée: {instance_id}/{position_id}")
-            return True
-            
-        except Exception as e:
-            logger.exception(f"❌ Erreur sauvegarde position: {e}")
-            return False
+        return self.positions.save_position(
+            position_id=position_id,
+            instance_id=instance_id,
+            buy_price=buy_price,
+            volume=volume,
+            status=status,
+            strategy=strategy,
+            metadata=metadata,
+        )
     
     def update_position_status(self, position_id: str, status: str) -> bool:
         """
         Met à jour le statut d'une position.
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.execute("""
-                    UPDATE positions SET status = ? WHERE id = ?
-                """, (status, position_id))
-                conn.commit()
-                logger.debug(f"📝 Position mise à jour: {position_id} -> {status}")
-
-            return True
-            
-        except Exception as e:
-            logger.exception(f"❌ Erreur mise à jour position: {e}")
-            return False
+        return self.positions.update_position_status(position_id, status)
 
     def close_position_and_record_trade(self, position_id: str, 
                                         trade_data: Dict[str, Any]) -> bool:
@@ -500,36 +732,7 @@ class StatePersistence:
         CORRECTION: Opération atomique - ferme position ET enregistre le trade
         dans une seule transaction. Évite les "ghost positions".
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                # Transaction atomique
-                with conn:  # Auto-commit/rollback
-                    # 1. Supprime la position
-                    conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
-
-                    # 2. Enregistre le trade
-                    conn.execute("""
-                        INSERT INTO trades
-                        (position_id, instance_id, side, price, volume, profit, timestamp)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        position_id,
-                        trade_data['instance_id'],
-                        trade_data['side'],
-                        trade_data['price'],
-                        trade_data['volume'],
-                        trade_data.get('profit'),
-                        trade_data['timestamp']
-                    ))
-
-                logger.debug(f"🗑️ Position {position_id} fermée + trade enregistré (atomique)")
-
-            return True
-            
-        except Exception as e:
-            logger.exception(f"❌ Erreur fermeture position atomique: {e}")
-            return False
+        return self.positions.close_position_and_record_trade(position_id, trade_data)
     
     def save_instance_state(self, instance_id: str, status: str,
                            current_capital: float, allocated_capital: float,
@@ -538,26 +741,14 @@ class StatePersistence:
         Sauvegarde l'état d'une instance.
         Appelé périodiquement et à l'arrêt.
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.execute("""
-                    INSERT OR REPLACE INTO instance_state
-                    (instance_id, status, current_capital, allocated_capital,
-                     win_count, loss_count, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    instance_id, status, current_capital, allocated_capital,
-                    win_count, loss_count, datetime.now(timezone.utc).isoformat()
-                ))
-                conn.commit()
-
-            logger.debug(f"💾 État instance sauvegardé: {instance_id}")
-            return True
-            
-        except Exception as e:
-            logger.exception(f"❌ Erreur sauvegarde état instance: {e}")
-            return False
+        return self.instance_state.save_instance_state(
+            instance_id=instance_id,
+            status=status,
+            current_capital=current_capital,
+            allocated_capital=allocated_capital,
+            win_count=win_count,
+            loss_count=loss_count,
+        )
     
     def record_trade(self, position_id: str, instance_id: str,
                     side: str, price: float, volume: float,
@@ -868,54 +1059,13 @@ class StatePersistence:
         Récupère les positions ouvertes après un crash.
         Appelé au démarrage d'une instance.
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("""
-                    SELECT * FROM positions
-                    WHERE instance_id = ? AND status = 'open'
-                """, (instance_id,))
-
-                positions = []
-                for row in cursor.fetchall():
-                    pos = dict(row)
-                    if pos.get('metadata'):
-                        pos['metadata'] = orjson.loads(pos['metadata'])
-                    positions.append(pos)
-                        
-            if positions:
-                logger.warning(f"🔄 Recovery: {len(positions)} position(s) ouverte(s) trouvée(s) pour {instance_id}")
-            else:
-                logger.debug(f"✅ Pas de positions à récupérer pour {instance_id}")
-                
-            return positions
-            
-        except Exception as e:
-            logger.exception(f"❌ Erreur récupération positions: {e}")
-            return []
+        return self.positions.recover_positions(instance_id)
     
     def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
         """
         Récupère l'état sauvegardé d'une instance.
         """
-        try:
-            with self._lock:
-                conn = self._get_conn()
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("""
-                    SELECT * FROM instance_state
-                    WHERE instance_id = ?
-                """, (instance_id,))
-
-                row = cursor.fetchone()
-                if row:
-                    return dict(row)
-                return None
-                    
-        except Exception as e:
-            logger.exception(f"❌ Erreur récupération état instance: {e}")
-            return None
+        return self.instance_state.recover_instance_state(instance_id)
     
     def cleanup_old_data(self, days: int = 30) -> int:
         """
