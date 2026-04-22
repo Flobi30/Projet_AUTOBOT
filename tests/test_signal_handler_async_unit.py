@@ -9,23 +9,34 @@ import pytest
 from autobot.v2.order_executor import OrderResult
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
+from autobot.v2.validator import ValidationStatus
+
 
 pytestmark = pytest.mark.unit
 
 
 @dataclass
-class _Cfg:
+class _Config:
     max_positions: int = 5
+    atr_sl_mult: float = 2.2
+    tp_rr: float = 1.9
+    fallback_atr_pct: float = 0.02
+    max_spread_bps: float = 25.0
+    min_edge_bps: float = 9.0
+    risk_per_trade_pct: float = 1.5
+    max_position_capital_pct: float = 20.0
 
 
 class _Instance:
-    def __init__(self) -> None:
+    def __init__(self):
         self.id = "inst-unit"
-        self.config = _Cfg()
-        self._strategy = None
+        self.config = _Config()
         self.status = SimpleNamespace(value="running")
+        self._strategy = None
         self._price_history = []
+        self._last_price = 100.0
         self._persistence = SimpleNamespace(append_audit_event=lambda **_: None)
+        self.opened = []
 
     def get_available_capital(self):
         return 1_000.0
@@ -33,74 +44,94 @@ class _Instance:
     def get_positions_snapshot(self):
         return []
 
-    async def open_position(self, **_kwargs):
+    async def open_position(self, **kwargs):
+        self.opened.append(kwargs)
+        return SimpleNamespace(id="pos-1")
+
+    def get_current_capital(self):
+        return 1_000.0
+
+    def get_profit(self):
+        return 0.0
+
+    async def emergency_stop(self):
+        return None
+
+
+class _Validator:
+    def validate(self, *_args, **_kwargs):
+        return SimpleNamespace(status=ValidationStatus.GREEN, message="ok")
+
+
+class _OSM:
+    def is_duplicate_active(self, *_args, **_kwargs):
+        return False
+
+    def new_order(self, **_kwargs):
+        return SimpleNamespace(client_order_id="cid-1")
+
+    def transition(self, *_args, **_kwargs):
         return None
 
 
 class _Executor:
-    def __init__(self) -> None:
-        self.market_calls = []
+    async def execute_market_order(self, *_args, **_kwargs):
+        return OrderResult(success=True, txid="buy-1", executed_volume=0.2, executed_price=100.0)
 
-    async def execute_market_order(self, symbol, side, volume):
-        self.market_calls.append((symbol, side.value, volume))
-        return OrderResult(success=True, txid="tx_buy", executed_volume=volume, executed_price=100.0, fees=0.2)
-
-    async def execute_stop_loss_order(self, symbol, side, volume, stop_price):
-        return OrderResult(success=True, txid="tx_sl", executed_volume=volume, executed_price=stop_price)
+    async def execute_stop_loss_order(self, *_args, **_kwargs):
+        return OrderResult(success=True, txid="sl-1")
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_uses_safe_defaults_without_injection(monkeypatch):
-    monkeypatch.delenv("ATR_SL_MULT", raising=False)
-    monkeypatch.delenv("TP_RR", raising=False)
-    monkeypatch.delenv("FALLBACK_ATR_PCT", raising=False)
-    monkeypatch.delenv("MAX_SPREAD_BPS", raising=False)
-    monkeypatch.delenv("MIN_EDGE_BPS", raising=False)
-
-    instance = _Instance()
-    executor = _Executor()
-    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+async def test_execute_buy_and_cost_guard_without_external_injection():
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=_Executor())
+    handler.validator = _Validator()
+    handler._osm = _OSM()
+    handler._post_trade_reconcile = _noop_reconcile
 
     signal = TradingSignal(
         type=SignalType.BUY,
         symbol="BTC/EUR",
         price=100.0,
-        volume=0.0,
-        reason="unit-buy",
+        volume=0.2,
+        reason="unit",
         timestamp=datetime.now(timezone.utc),
-        metadata={"spread_bps": 5.0, "expected_move_bps": 80.0, "fee_bps": 20.0, "slippage_bps": 6.0},
+        metadata={"spread_bps": 10.0, "expected_move_bps": 120.0, "fee_bps": 20.0, "slippage_bps": 8.0},
     )
+
+    assert handler._passes_cost_guard(signal, atr_pct=0.01) is True
 
     await handler._execute_buy(signal)
 
-    assert executor.market_calls, "_execute_buy should place a market order with internal defaults"
+    assert len(handler.instance.opened) == 1
+    assert handler.instance.opened[0]["buy_txid"] == "buy-1"
 
 
-def test_passes_cost_guard_works_with_env_and_bounds(monkeypatch):
-    monkeypatch.setenv("MAX_SPREAD_BPS", "40")
-    monkeypatch.setenv("MIN_EDGE_BPS", "10")
-    monkeypatch.setenv("TP_RR", "1.7")
+def test_init_loads_env_and_clamps_invalid_ranges():
+    import os
 
-    handler = SignalHandlerAsync(instance=_Instance(), order_executor=None)
+    env_backup = {k: os.environ.get(k) for k in ("ATR_SL_MULT", "TP_RR", "FALLBACK_ATR_PCT", "MAX_SPREAD_BPS", "MIN_EDGE_BPS")}
+    try:
+        os.environ["ATR_SL_MULT"] = "-4"  # invalid -> fallback then clamp
+        os.environ["TP_RR"] = "0"  # invalid -> fallback
+        os.environ["FALLBACK_ATR_PCT"] = "10"  # valid but clamped to safe range
+        os.environ["MAX_SPREAD_BPS"] = "0"  # invalid -> fallback
+        os.environ["MIN_EDGE_BPS"] = "20000"  # clamped
 
-    ok_signal = TradingSignal(
-        type=SignalType.BUY,
-        symbol="BTC/EUR",
-        price=100.0,
-        volume=0.0,
-        reason="ok",
-        timestamp=datetime.now(timezone.utc),
-        metadata={"spread_bps": 8.0, "expected_move_bps": 95.0, "fee_bps": 25.0, "slippage_bps": 6.0},
-    )
-    bad_signal = TradingSignal(
-        type=SignalType.BUY,
-        symbol="BTC/EUR",
-        price=100.0,
-        volume=0.0,
-        reason="bad",
-        timestamp=datetime.now(timezone.utc),
-        metadata={"spread_bps": 55.0, "expected_move_bps": 70.0, "fee_bps": 25.0, "slippage_bps": 10.0},
-    )
+        handler = SignalHandlerAsync(instance=_Instance(), order_executor=None)
 
-    assert handler._passes_cost_guard(ok_signal, atr_pct=0.01) is True
-    assert handler._passes_cost_guard(bad_signal, atr_pct=0.01) is False
+        assert handler._atr_sl_mult > 0
+        assert handler._tp_rr > 0
+        assert 0.001 <= handler._fallback_atr_pct <= 0.25
+        assert 1.0 <= handler._max_spread_bps <= 1000.0
+        assert 1.0 <= handler._min_edge_bps <= 1000.0
+    finally:
+        for key, value in env_backup.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+async def _noop_reconcile():
+    return None

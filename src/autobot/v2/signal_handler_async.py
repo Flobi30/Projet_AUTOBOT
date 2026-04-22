@@ -8,6 +8,7 @@ Connects strategy signals to async order execution.
 from __future__ import annotations
 
 import asyncio
+import os
 import logging
 import os
 import time
@@ -39,67 +40,63 @@ class SignalHandlerAsync:
         self.validator = create_default_validator_engine()
         self._last_signal_time: Optional[datetime] = None
         self._cooldown_seconds = 5
-        self._atr_sl_mult = self._get_positive_float("ATR_SL_MULT", "atr_sl_mult", default=1.8)
-        self._tp_rr = self._get_positive_float("TP_RR", "tp_rr", default=1.6)
-        self._fallback_atr_pct = self._get_positive_float(
-            "FALLBACK_ATR_PCT",
-            "fallback_atr_pct",
-            default=0.01,
+        self._atr_period = 14
+        self._risk_per_trade_pct = self._load_positive_float(
+            "risk_per_trade_pct",
+            "RISK_PER_TRADE_PCT",
+            1.0,
         )
-        self._max_spread_bps = self._get_positive_float("MAX_SPREAD_BPS", "max_spread_bps", default=35.0)
-        self._min_edge_bps = self._get_positive_float("MIN_EDGE_BPS", "min_edge_bps", default=12.0)
-        # Required by sizing/ATR logic in _execute_buy/_estimate_atr_pct.
-        self._risk_per_trade_pct = self._get_positive_float("RISK_PER_TRADE_PCT", "risk_per_trade_pct", default=1.0)
-        self._max_position_capital_pct = self._get_positive_float(
-            "MAX_POSITION_CAPITAL_PCT",
+        self._max_position_capital_pct = self._load_positive_float(
             "max_position_capital_pct",
-            default=10.0,
+            "MAX_POSITION_CAPITAL_PCT",
+            15.0,
         )
-        self._atr_period = self._get_positive_int("ATR_PERIOD", "atr_period", default=14)
-        self._validate_risk_bounds()
+        self._atr_sl_mult = self._load_positive_float("atr_sl_mult", "ATR_SL_MULT", 1.8)
+        self._tp_rr = self._load_positive_float("tp_rr", "TP_RR", 1.6)
+        self._fallback_atr_pct = self._load_positive_float(
+            "fallback_atr_pct",
+            "FALLBACK_ATR_PCT",
+            0.012,
+        )
+        self._max_spread_bps = self._load_positive_float(
+            "max_spread_bps",
+            "MAX_SPREAD_BPS",
+            35.0,
+        )
+        self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
+        self._validate_risk_parameters()
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
         self._reconciler = StrictReconciliation()
         self._setup_signal_callback()
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
-    def _get_positive_float(self, env_name: str, config_attr: str, default: float) -> float:
-        config = getattr(self.instance, "config", None)
-        env_value = os.getenv(env_name)
-        raw = env_value if env_value is not None else getattr(config, config_attr, default)
+    def _load_positive_float(self, config_key: str, env_key: str, default: float) -> float:
+        """Read config then env value and fallback to default on invalid input."""
+        candidate = getattr(getattr(self.instance, "config", None), config_key, default)
+        env_value = os.getenv(env_key)
+        if env_value is not None and str(env_value).strip() != "":
+            candidate = env_value
         try:
-            value = float(raw)
+            value = float(candidate)
         except (TypeError, ValueError):
-            logger.warning("⚠️ %s invalide (%r) -> default %s", env_name, raw, default)
+            logger.warning("Paramètre invalide %s=%r, default=%.6f", env_key, candidate, default)
             return default
         if value <= 0:
-            logger.warning("⚠️ %s doit être > 0 (reçu=%s) -> default %s", env_name, value, default)
+            logger.warning("Paramètre hors bornes %s=%.6f (doit être > 0), default=%.6f", env_key, value, default)
             return default
         return value
 
-    def _get_positive_int(self, env_name: str, config_attr: str, default: int) -> int:
-        value = self._get_positive_float(env_name, config_attr, float(default))
-        as_int = int(round(value))
-        if as_int <= 0:
-            logger.warning("⚠️ %s doit être > 0 (reçu=%s) -> default %s", env_name, value, default)
-            return default
-        return as_int
-
-    def _validate_risk_bounds(self) -> None:
-        """Validate cost/risk bounds and enforce coherent bps configuration."""
-        if self._fallback_atr_pct >= 1.0:
-            logger.warning("⚠️ FALLBACK_ATR_PCT=%s trop élevé, clamp à 0.2", self._fallback_atr_pct)
-            self._fallback_atr_pct = 0.2
-        if self._max_spread_bps > 1000.0:
-            logger.warning("⚠️ MAX_SPREAD_BPS=%s incohérent, clamp à 1000", self._max_spread_bps)
-            self._max_spread_bps = 1000.0
-        if self._min_edge_bps >= self._max_spread_bps * 20:
-            logger.warning(
-                "⚠️ MIN_EDGE_BPS=%s incohérent vs MAX_SPREAD_BPS=%s, fallback sur 12 bps",
-                self._min_edge_bps,
-                self._max_spread_bps,
-            )
-            self._min_edge_bps = 12.0
+    def _validate_risk_parameters(self) -> None:
+        """Normalize parameters to safe bounds for risk/cost guards."""
+        # Safety ranges
+        self._fallback_atr_pct = min(0.25, max(0.001, self._fallback_atr_pct))
+        self._tp_rr = min(8.0, max(0.5, self._tp_rr))
+        self._atr_sl_mult = min(6.0, max(0.5, self._atr_sl_mult))
+        self._max_spread_bps = min(1000.0, max(1.0, self._max_spread_bps))
+        self._min_edge_bps = min(1000.0, max(1.0, self._min_edge_bps))
+        self._risk_per_trade_pct = min(10.0, max(0.05, self._risk_per_trade_pct))
+        self._max_position_capital_pct = min(100.0, max(1.0, self._max_position_capital_pct))
 
     def _setup_signal_callback(self) -> None:
         strategy = getattr(self.instance, "_strategy", None)
