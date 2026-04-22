@@ -19,6 +19,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Créer utilisateur non-root
@@ -53,7 +54,11 @@ RUN chown -R appuser:appuser /app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD ["/bin/sh", "-c", "if [ \"$HEALTHCHECK_MODE\" = \"local\" ]; then curl --fail --silent --show-error \"$HEALTHCHECK_URL_LOCAL\"; else curl --fail --silent --show-error --cacert \"$HEALTHCHECK_CA_CERT\" \"$HEALTHCHECK_URL_TLS\"; fi"]
+    CMD sh -c 'if [ "${HEALTHCHECK_MODE:-internal_http}" = "tls" ]; then \
+      curl --fail --silent --show-error --cacert "${HEALTHCHECK_CA_CERT:-/app/certs/ca.crt}" https://localhost:8080/health >/dev/null; \
+    else \
+      curl --fail --silent --show-error http://127.0.0.1:8080/health >/dev/null; \
+    fi' || exit 1
 
 USER appuser
 

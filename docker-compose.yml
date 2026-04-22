@@ -24,13 +24,11 @@ services:
       - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN}
       - DASHBOARD_SSL_CERT=/app/certs/server.crt
       - DASHBOARD_SSL_KEY=/app/certs/server.key
-      # Mode de healthcheck:
-      # - tls   (défaut): vérification TLS stricte via CA locale (/app/certs/server.crt)
-      # - local         : endpoint HTTP interne (127.0.0.1) sans TLS, réservé au réseau local du conteneur
-      - HEALTHCHECK_MODE=${HEALTHCHECK_MODE:-tls}
-      - HEALTHCHECK_URL_TLS=${HEALTHCHECK_URL_TLS:-https://localhost:8080/health}
-      - HEALTHCHECK_URL_LOCAL=${HEALTHCHECK_URL_LOCAL:-http://127.0.0.1:8080/health}
-      - HEALTHCHECK_CA_CERT=${HEALTHCHECK_CA_CERT:-/app/certs/server.crt}
+      # Healthcheck mode:
+      # - internal_http (default): probe locale en HTTP via loopback (réseau conteneur local uniquement)
+      # - tls: probe HTTPS avec validation stricte d'un certificat CA de confiance
+      - HEALTHCHECK_MODE=${HEALTHCHECK_MODE:-internal_http}
+      - HEALTHCHECK_CA_CERT=${HEALTHCHECK_CA_CERT:-/app/certs/ca.crt}
       - INITIAL_CAPITAL=${INITIAL_CAPITAL:-100}
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
       - PAPER_TRADING=${PAPER_TRADING:-true}
@@ -67,11 +65,7 @@ services:
     
     # Health check
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "if [ \"$${HEALTHCHECK_MODE:-tls}\" = \"local\" ]; then curl --fail --silent --show-error \"$${HEALTHCHECK_URL_LOCAL:-http://127.0.0.1:8080/health}\"; else curl --fail --silent --show-error --cacert \"$${HEALTHCHECK_CA_CERT:-/app/certs/server.crt}\" \"$${HEALTHCHECK_URL_TLS:-https://localhost:8080/health}\"; fi"
-        ]
+      test: ["CMD-SHELL", "if [ \"$$HEALTHCHECK_MODE\" = \"tls\" ]; then curl --fail --silent --show-error --cacert \"$$HEALTHCHECK_CA_CERT\" https://localhost:8080/health >/dev/null; else curl --fail --silent --show-error http://127.0.0.1:8080/health >/dev/null; fi"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence
 
@@ -267,6 +268,97 @@ class BackgroundTasksService:
             except asyncio.CancelledError:
                 pass
             self.tasks.pop(name, None)
+
+
+class SafetyService:
+    def __init__(
+        self,
+        *,
+        safety_guard: Any,
+        robustness_guard: Any,
+        hardening_flags: Dict[str, bool],
+        reset_flag_reader: Callable[[], bool],
+    ) -> None:
+        self.safety_guard = safety_guard
+        self.robustness_guard = robustness_guard
+        self.hardening_flags = hardening_flags
+        self.reset_flag_reader = reset_flag_reader
+
+    def activate_emergency_mode(self, reason: str, logger: Any) -> bool:
+        if self.safety_guard.emergency_mode:
+            return False
+        self.safety_guard.emergency_mode = True
+        self.robustness_guard.set_emergency_mode(True)
+        self.hardening_flags["enable_validation_guard"] = False
+        self.hardening_flags["enable_sentiment"] = False
+        self.hardening_flags["enable_ml"] = False
+        self.hardening_flags["enable_xgboost"] = False
+        self.hardening_flags["enable_onchain"] = False
+        logger.error("🚨 SAFETY EMERGENCY MODE enabled: %s", reason)
+        return True
+
+    def reset_emergency_mode(self) -> None:
+        self.safety_guard.reset_emergency()
+        self.robustness_guard.set_emergency_mode(False)
+
+    async def monitor_cycle_health(
+        self,
+        *,
+        running: Callable[[], bool],
+        loop_metrics: Dict[str, float],
+        on_activate: Callable[[str], None],
+        logger: Any,
+        interval_seconds: float = 300.0,
+    ) -> None:
+        while running():
+            try:
+                await asyncio.sleep(interval_seconds)
+                cycle_ms = float(loop_metrics.get("process_cycle_ms", 0.0))
+                if not self.safety_guard.check_performance_budget(cycle_ms):
+                    on_activate("cycle health monitor")
+                if self.reset_flag_reader():
+                    self.reset_emergency_mode()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Cycle health check erreur (isolée): %s", exc)
+
+
+class ReportingService:
+    def __init__(self, reporter: Any) -> None:
+        self.reporter = reporter
+
+    async def run_daily_report_loop(
+        self,
+        *,
+        running: Callable[[], bool],
+        logger: Any,
+    ) -> None:
+        while running():
+            try:
+                now = datetime.now(timezone.utc)
+                next_day = (now + timedelta(days=1)).replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                wait_seconds = max((next_day - now).total_seconds(), 1.0)
+                await asyncio.sleep(wait_seconds)
+                try:
+                    report = self.reporter.generate_report()
+                    logger.info(
+                        "🗓️ Daily report généré: date=%s trades=%s",
+                        report.get("date"),
+                        report.get("total_trades"),
+                    )
+                except Exception as exc:
+                    logger.warning("Daily report génération erreur (isolée): %s", exc)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Daily report loop erreur (isolée): %s", exc)
+                await asyncio.sleep(60)
 
 
 def journal_symbol_cap() -> int:

@@ -53,23 +53,18 @@ Detailed guide: `docs/PAPER_TRADING_OPERATIONS.md`.
 ## Mode live
 Voir `docs/LIVE_PROMOTION_GATES.md`, `SECURITY.md`, `RUNBOOK.md`.
 
-## Healthcheck Docker (TLS vs local)
-Le healthcheck Docker est configurable selon l'environnement via `HEALTHCHECK_MODE`:
+## Healthcheck Docker (TLS vs endpoint interne)
+Le conteneur supporte **2 modes explicites** pour `/health`:
 
-- `tls` (par défaut): appel `https://localhost:8080/health` avec vérification TLS stricte via `curl --cacert`.
-  - Variables associées: `HEALTHCHECK_URL_TLS`, `HEALTHCHECK_CA_CERT`.
-  - Recommandé pour production/staging avec certificat monté dans le conteneur (`/app/certs/server.crt`).
-- `local`: appel `http://127.0.0.1:8080/health` sans TLS, uniquement en boucle locale du conteneur.
-  - Variable associée: `HEALTHCHECK_URL_LOCAL`.
-  - Recommandé pour dev local/réseau interne isolé uniquement.
+| Contexte | Mode recommandé | Configuration | Comportement |
+|---|---|---|---|
+| Local/dev/paper sur réseau Docker privé | `internal_http` (défaut) | `HEALTHCHECK_MODE=internal_http` | Le healthcheck interroge `http://127.0.0.1:8080/health` (loopback interne au conteneur, sans TLS). |
+| Production avec terminaison TLS dans l'app | `tls` | `HEALTHCHECK_MODE=tls` + `HEALTHCHECK_CA_CERT=/app/certs/ca.crt` | Le healthcheck interroge `https://localhost:8080/health` avec validation CA stricte via `--cacert` (pas de `-k`). |
 
-Exemple `.env`:
+Exemple production:
 ```bash
-# Prod/staging
 HEALTHCHECK_MODE=tls
-
-# Dev local uniquement
-# HEALTHCHECK_MODE=local
+HEALTHCHECK_CA_CERT=/app/certs/ca.crt
 ```
 
 ## Contribution policy
