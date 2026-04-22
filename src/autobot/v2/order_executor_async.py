@@ -74,6 +74,10 @@ class OrderExecutorAsync:
 
         # Centralized nonce manager (cross-worker/process monotonicity)
         self._nonce_manager: NonceManager = nonce_manager or NonceManager()
+        self._nonce_cache_lock = asyncio.Lock()
+        self._nonce_block_size: int = 64
+        self._nonce_next: Optional[int] = None
+        self._nonce_high: Optional[int] = None
 
         # Rate limiting
         self._last_call_time: float = 0
@@ -128,7 +132,7 @@ class OrderExecutorAsync:
 
         # Centralized monotonic nonce generation per API key fingerprint
         api_key_id = hashlib.sha256((self._api_key or "none").encode("utf-8")).hexdigest()[:16]
-        nonce = self._nonce_manager.next_nonce(api_key_id)
+        nonce = await self._next_nonce(api_key_id)
         params["nonce"] = str(int(nonce))
         sig = _kraken_signature(urlpath, params, self._api_secret)
 
@@ -140,6 +144,30 @@ class OrderExecutorAsync:
         session = await self._get_session()
         async with session.post(url, data=params, headers=headers) as resp:
             return await resp.json()
+
+    async def _next_nonce(self, api_key_id: str) -> int:
+        """
+        Consume a locally cached hi/lo nonce range.
+
+        A fresh range is reserved durably in SQLite only when local cache is exhausted.
+        """
+        async with self._nonce_cache_lock:
+            if (
+                self._nonce_next is None
+                or self._nonce_high is None
+                or self._nonce_next > self._nonce_high
+            ):
+                low, high = await asyncio.to_thread(
+                    self._nonce_manager.reserve_range,
+                    api_key_id,
+                    self._nonce_block_size,
+                )
+                self._nonce_next = int(low)
+                self._nonce_high = int(high)
+
+            nonce = int(self._nonce_next)
+            self._nonce_next += 1
+            return nonce
 
     # ------------------------------------------------------------------
     # Rate limiting
