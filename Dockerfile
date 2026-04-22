@@ -42,6 +42,10 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV APP_ENV=production
 ENV DASHBOARD_STATIC_DIR=/app/dashboard/dist
+ENV HEALTHCHECK_MODE=tls
+ENV HEALTHCHECK_URL_TLS=https://localhost:8080/health
+ENV HEALTHCHECK_URL_LOCAL=http://127.0.0.1:8080/health
+ENV HEALTHCHECK_CA_CERT=/app/certs/server.crt
 
 # Permissions
 RUN chown -R appuser:appuser /app
@@ -49,7 +53,7 @@ RUN chown -R appuser:appuser /app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -fk https://localhost:8080/health || exit 1
+    CMD ["/bin/sh", "-c", "if [ \"$HEALTHCHECK_MODE\" = \"local\" ]; then curl --fail --silent --show-error \"$HEALTHCHECK_URL_LOCAL\"; else curl --fail --silent --show-error --cacert \"$HEALTHCHECK_CA_CERT\" \"$HEALTHCHECK_URL_TLS\"; fi"]
 
 USER appuser
 
