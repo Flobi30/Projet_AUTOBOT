@@ -969,6 +969,9 @@ async def get_trades(
         if target_window <= 0:
             target_window = limit
 
+        total_count = 0
+        paginated_trades: List[Dict[str, Any]] = []
+
         # Preferred strategy when available: persistence-side paginated access.
         persistence = getattr(orchestrator, "persistence", None)
         if persistence is None:
@@ -1005,7 +1008,6 @@ async def get_trades(
 
             # 1) Collect at most `offset + limit` newest trades per instance.
             per_instance_top: List[List[Dict[str, Any]]] = []
-            total_count = 0
 
             for inst in instances_data:
                 inst_trades = inst.get("trades_history", [])
@@ -1062,6 +1064,9 @@ async def get_trades(
             for trade in paginated_trades:
                 trade.pop("_ts_epoch", None)
 
+        has_more = (offset + len(paginated_trades)) < total_count
+        next_offset = offset + len(paginated_trades) if has_more else None
+
         return {
             "count": total_count,
             "pagination": {
@@ -1069,8 +1074,8 @@ async def get_trades(
                 "offset": offset,
                 "returned": len(paginated_trades),
                 "total": total_count,
-                "has_more": (offset + limit) < total_count,
-                "next_offset": (offset + limit) if (offset + limit) < total_count else None,
+                "has_more": has_more,
+                "next_offset": next_offset,
             },
             "trades": paginated_trades
         }
