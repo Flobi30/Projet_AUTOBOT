@@ -1,0 +1,31 @@
+name: Dashboard Build (CI)
+
+on:
+  pull_request:
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/dashboard-build.yml'
+  push:
+    branches: [ main, master, work ]
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/dashboard-build.yml'
+
+jobs:
+  build-dashboard:
+    name: Build dashboard artifacts in CI/CD
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build dashboard
+        run: npm run build

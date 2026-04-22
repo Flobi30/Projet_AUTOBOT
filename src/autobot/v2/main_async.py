@@ -143,7 +143,7 @@ def _build_grid_config(symbol: str) -> dict:
             "dgt_max_recenters_per_day": _parse_int_env("DGT_MAX_RECENTERS", 4, 1, 100),
         }
     else:
-        # Legacy: 7% range, 15 levels (unchanged from V2)
+        # Legacy fallback: 2% range, 20 levels (unchanged from V2 defaults in code)
         return {"range_percent": 2.0, "num_levels": 20}
 
 
@@ -171,7 +171,7 @@ class AutoBotV2Async:
         
         Reads TRADING_PAIRS env var (comma-separated Kraken symbols).
         Falls back to TRADING_SYMBOL for backward compatibility.
-        Capital is split equally across all pairs.
+        Capital is distributed using pair weights (BTC/ETH overweight).
         """
         pairs_str = os.getenv("TRADING_PAIRS", "")
         if pairs_str:
@@ -180,7 +180,9 @@ class AutoBotV2Async:
             symbols = [os.getenv("TRADING_SYMBOL", "XXBTZEUR")]
         
         total_capital = float(os.getenv("INITIAL_CAPITAL", 1000.0))
-        capital_per_pair = total_capital / len(symbols)
+        if total_capital <= 0:
+            logger.warning("INITIAL_CAPITAL <= 0 (%.2f), allocations forced to 0", total_capital)
+            total_capital = 0.0
         
         # Capital weighting: BTC and ETH get more (1.5x), alts get standard (1.0x)
         weights = {}

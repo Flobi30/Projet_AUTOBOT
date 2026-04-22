@@ -25,3 +25,6 @@ plans/HARDENING_PERF_STABILITY_PLAN.md
 reports/AUDIT_BATCH_RECONCILIATION_*.md
 reports/REPO_FULL_AUDIT_*.md
 scripts/repo_audit.py
+# Frontend build artifacts (generated in CI/CD only)
+dashboard/dist/
+dashboard/node_modules/
