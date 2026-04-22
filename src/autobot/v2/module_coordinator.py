@@ -105,6 +105,72 @@ class ModuleCoordinator:
             return None
         return hostname, allowed_ips
 
+    def _resolve_allowed_ping_ip(self, hostname: str) -> Optional[str]:
+        try:
+            addr_info = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+        except Exception:
+            return None
+        for addr in addr_info:
+            candidate_ip = addr[4][0]
+            parsed_ip = ip_address(candidate_ip)
+            if parsed_ip.is_private or parsed_ip.is_loopback or parsed_ip.is_link_local:
+                continue
+            return candidate_ip
+        return None
+
+    def _is_allowed_remote_ip(self, ip_value: str) -> bool:
+        try:
+            remote_ip = ip_address(ip_value)
+        except ValueError:
+            return False
+        return not (remote_ip.is_private or remote_ip.is_loopback or remote_ip.is_link_local)
+
+    def _quick_ping_with_pinned_ip(
+        self,
+        hostname: str,
+        request_target: str,
+        timeout: float,
+        port: int = 443,
+    ) -> bool:
+        target_ip = self._resolve_allowed_ping_ip(hostname)
+        if not target_ip:
+            return False
+
+        context = ssl.create_default_context()
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+
+        try:
+            with socket.create_connection((target_ip, port), timeout=timeout) as tcp_sock:
+                with context.wrap_socket(tcp_sock, server_hostname=hostname) as tls_sock:
+                    tls_sock.settimeout(timeout)
+                    remote_peer = tls_sock.getpeername()[0]
+                    if remote_peer != target_ip or not self._is_allowed_remote_ip(remote_peer):
+                        return False
+                    request_data = (
+                        f"HEAD {request_target} HTTP/1.1\r\n"
+                        f"Host: {hostname}\r\n"
+                        "Connection: close\r\n"
+                        "User-Agent: AutobotHealthcheck/1.0\r\n\r\n"
+                    ).encode("ascii", errors="ignore")
+                    tls_sock.sendall(request_data)
+                    first_line = b""
+                    while not first_line.endswith(b"\r\n"):
+                        chunk = tls_sock.recv(1)
+                        if not chunk:
+                            break
+                        first_line += chunk
+
+            if not first_line:
+                return False
+            status_parts = first_line.decode("iso-8859-1", errors="replace").strip().split(" ")
+            if len(status_parts) < 2:
+                return False
+            status_code = int(status_parts[1])
+            return status_code < 500
+        except Exception:
+            return False
+
     def _quick_ping(
         self,
         url: str,
