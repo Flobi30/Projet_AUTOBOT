@@ -1470,9 +1470,9 @@ async def get_system_metrics(authorized: bool = Depends(verify_token)):
             },
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    except Exception as e:
-        logger.error(f"Erreur lors de la récupération des métriques système: {e}")
-        raise HTTPException(status_code=500, detail=f"Erreur système: {str(e)}")
+    except Exception:
+        logger.exception("Erreur lors de la récupération des métriques système")
+        raise HTTPException(status_code=500, detail="Erreur interne")
 
 class DashboardServer:
     """Serveur Dashboard intégré au bot - CORRECTION: graceful shutdown"""
