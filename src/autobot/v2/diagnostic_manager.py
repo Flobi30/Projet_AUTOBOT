@@ -214,8 +214,8 @@ class DiagnosticManager:
             ram_percent = mem.percent
             ram_available_gb = mem.available / (1024**3)
             
-            # CPU
-            cpu_percent = psutil.cpu_percent(interval=1)
+            # CPU (non bloquant pour éviter de ralentir run_full_check)
+            cpu_percent = psutil.cpu_percent(interval=None)
             
             # Disque
             disk = psutil.disk_usage("/")
