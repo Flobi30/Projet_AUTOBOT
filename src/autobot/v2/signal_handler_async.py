@@ -23,6 +23,7 @@ from .validator import ValidatorEngine, ValidationStatus, create_default_validat
 from .order_state_machine import PersistedOrderStateMachine
 from .kill_switch import KillSwitch
 from .reconciliation_strict import StrictReconciliation
+from .modules.fee_optimizer import FeeOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ class SignalHandlerAsync:
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
         self._reconciler = StrictReconciliation()
         self._setup_signal_callback()
+        self._fee_optimizer: Optional[FeeOptimizer] = getattr(self.instance, "_fee_optimizer", None)
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
     def _load_positive_float(self, config_key: str, env_key: str, default: float) -> float:
@@ -179,19 +181,29 @@ class SignalHandlerAsync:
             return
 
         symbol = self._convert_symbol(signal.symbol)
+        execution_plan = self._build_execution_plan(signal, volume)
         decision_id = f"dec_{uuid.uuid4().hex}"
         signal_id = f"sig_{uuid.uuid4().hex}"
         rec = self._osm.new_order(
             instance_id=self.instance.id,
             symbol=symbol,
             side="buy",
-            order_type="market",
+            order_type=execution_plan["order_type"],
             requested_qty=volume,
             decision_id=decision_id,
             signal_id=signal_id,
         )
         self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
-        result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume)
+        if execution_plan["order_type"] == "limit":
+            result = await self.order_executor.execute_limit_order(
+                symbol=symbol,
+                side=OrderSide.BUY,
+                volume=volume,
+                limit_price=execution_plan["price"],
+                post_only=bool(execution_plan.get("post_only", False)),
+            )
+        else:
+            result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume)
 
         if not result.success:
             logger.error(f"❌ Échec ordre Kraken: {result.error}")
@@ -210,7 +222,12 @@ class SignalHandlerAsync:
             "ACK",
             "exchange_ack",
             exchange_order_id=result.txid,
-            payload=result.raw_response or {},
+            payload={
+                **(result.raw_response or {}),
+                "liquidity": result.liquidity,
+                "order_type": execution_plan["order_type"],
+                "post_only": bool(execution_plan.get("post_only", False)),
+            },
         )
         if result.executed_volume and result.executed_volume < volume:
             self._osm.transition(
@@ -235,6 +252,20 @@ class SignalHandlerAsync:
 
         executed_price = result.executed_price or signal.price
         executed_volume = result.executed_volume or volume
+        actual_liquidity = self._normalize_liquidity(result.liquidity)
+        logger.info(
+            "💸 Exécution BUY %s: type=%s post_only=%s liquidity=%s reason=%s",
+            symbol,
+            execution_plan["order_type"],
+            bool(execution_plan.get("post_only", False)),
+            actual_liquidity,
+            execution_plan["reason"],
+        )
+        self._record_fee_optimizer_trade(
+            amount=executed_price * executed_volume,
+            fees=result.fees,
+            liquidity=actual_liquidity,
+        )
 
         stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(executed_price)
         sl_result = await self.order_executor.execute_stop_loss_order(
@@ -252,6 +283,25 @@ class SignalHandlerAsync:
         )
 
         if position:
+            self.instance._persistence.append_trade_ledger(
+                trade_id=f"trd_{uuid.uuid4().hex}",
+                position_id=position.id,
+                instance_id=self.instance.id,
+                symbol=symbol,
+                side="buy",
+                expected_price=signal.price,
+                executed_price=executed_price,
+                volume=executed_volume,
+                fees=result.fees,
+                slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
+                realized_pnl=None,
+                exchange_order_id=result.txid,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                is_opening_leg=True,
+                is_closing_leg=False,
+                execution_liquidity=actual_liquidity,
+            )
             logger.info(f"✅ Position créée: {position.id}")
             # Immutable audit event
             config_hash = hashlib.sha256(
@@ -271,6 +321,7 @@ class SignalHandlerAsync:
                     "max_positions": getattr(self.instance.config, "max_positions", 10),
                 },
                 fees=result.fees,
+                slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
                 order_from_status="SENT",
                 order_to_status="FILLED",
                 exchange_raw_normalized=result.raw_response or {},
@@ -305,6 +356,36 @@ class SignalHandlerAsync:
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
+                actual_liquidity = self._normalize_liquidity(result.liquidity)
+                logger.info(
+                    "💸 Exécution SELL %s: type=market post_only=False liquidity=%s",
+                    symbol,
+                    actual_liquidity,
+                )
+                self._record_fee_optimizer_trade(
+                    amount=price * vol,
+                    fees=result.fees,
+                    liquidity=actual_liquidity,
+                )
+                self.instance._persistence.append_trade_ledger(
+                    trade_id=f"trd_{uuid.uuid4().hex}",
+                    position_id=pos_id,
+                    instance_id=self.instance.id,
+                    symbol=symbol,
+                    side="sell",
+                    expected_price=signal.price,
+                    executed_price=price,
+                    volume=vol,
+                    fees=result.fees,
+                    slippage_bps=self._slippage_bps(signal.price, price, "sell"),
+                    realized_pnl=pos.get("profit"),
+                    exchange_order_id=result.txid,
+                    decision_id=None,
+                    signal_id=None,
+                    is_opening_leg=False,
+                    is_closing_leg=True,
+                    execution_liquidity=actual_liquidity,
+                )
                 if sl_txid:
                     await self.order_executor.cancel_order(sl_txid)
                 await self._post_trade_reconcile()
@@ -470,15 +551,61 @@ class SignalHandlerAsync:
         return float(raw if side == "buy" else -raw)
 
     def _passes_cost_guard(self, signal: TradingSignal, atr_pct: float) -> bool:
-        spread_bps = float(signal.metadata.get("spread_bps", 0.0))
+        metadata = signal.metadata or {}
+        spread_bps = float(metadata.get("spread_bps", 0.0))
         if spread_bps > self._max_spread_bps:
             logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
             return False
-        expected_move_bps = float(signal.metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
-        fee_bps = float(signal.metadata.get("fee_bps", 40.0))
-        slippage_bps = float(signal.metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
+        fee_bps = float(metadata.get("fee_bps", 40.0))
+        slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
         total_cost_bps = fee_bps + slippage_bps + spread_bps
         return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
+
+    def _build_execution_plan(self, signal: TradingSignal, volume: float) -> dict[str, Any]:
+        metadata = signal.metadata or {}
+        spread_bps = float(metadata.get("spread_bps", 0.0))
+        expected_move_bps = float(metadata.get("expected_move_bps", self._min_edge_bps + spread_bps + 40.0))
+        fee_bps = float(metadata.get("fee_bps", 40.0))
+        slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        edge_bps = expected_move_bps - (spread_bps + fee_bps + slippage_bps)
+        urgency = max(0.0, min(1.0, float(metadata.get("urgency", 0.0))))
+        low_urgency = urgency <= 0.35
+        has_edge = edge_bps >= self._min_edge_bps
+
+        amount = max(signal.price * volume, 0.0)
+        rec = (
+            self._fee_optimizer.recommend(
+                side="buy",
+                price=signal.price,
+                amount=amount,
+                urgency=urgency,
+                spread_pct=(spread_bps / 100.0),
+            )
+            if self._fee_optimizer is not None
+            else {"order_type": "market", "post_only": False, "reason": "fee_optimizer_unavailable"}
+        )
+        prefer_limit = low_urgency and has_edge and rec.get("order_type") == "limit"
+        if prefer_limit:
+            price = float(metadata.get("limit_price") or signal.price)
+            return {"order_type": "limit", "post_only": True, "price": price, "reason": rec.get("reason", "low_urgency_edge")}
+        return {"order_type": "market", "post_only": False, "price": signal.price, "reason": rec.get("reason", "market_fallback")}
+
+    @staticmethod
+    def _normalize_liquidity(liquidity: Optional[str]) -> str:
+        normalized = str(liquidity or "unknown").lower()
+        if normalized not in {"maker", "taker"}:
+            return "unknown"
+        return normalized
+
+    def _record_fee_optimizer_trade(self, amount: float, fees: float, liquidity: str) -> None:
+        if self._fee_optimizer is None or amount <= 0:
+            return
+        self._fee_optimizer.record_trade(
+            volume=amount,
+            fee=max(0.0, float(fees or 0.0)),
+            was_maker=(liquidity == "maker"),
+        )
 
     def _compute_unrealized_pnl(self) -> Optional[float]:
         last_price = getattr(self.instance, "_last_price", None)

@@ -429,7 +429,66 @@ class OrderExecutorAsync:
         assert txid is not None
         logger.info(f"✅ Ordre accepté, txid: {txid[:8]}...")
 
-        return await self._wait_for_execution(txid, max_wait=60)
+        return await self._wait_for_execution(txid, max_wait=60, fallback_liquidity="taker")
+
+    async def execute_limit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        volume: float,
+        limit_price: float,
+        post_only: bool = False,
+        userref: Optional[int] = None,
+    ) -> OrderResult:
+        """Execute a LIMIT order on Kraken (async), optionally post-only."""
+        logger.info(
+            "📤 Ordre LIMIT %s %.6f %s @ %.2f post_only=%s",
+            side.value.upper(),
+            volume,
+            symbol,
+            limit_price,
+            post_only,
+        )
+
+        MIN_VOLUME = 0.0001
+        if volume < MIN_VOLUME:
+            return OrderResult(
+                success=False,
+                error=f"Volume {volume:.6f} inférieur au minimum Kraken ({MIN_VOLUME})",
+            )
+        if volume <= 0:
+            return OrderResult(success=False, error="Volume doit être > 0")
+        if limit_price <= 0:
+            return OrderResult(success=False, error="Prix limite doit être > 0")
+
+        order_params: Dict[str, Any] = {
+            "pair": symbol,
+            "type": side.value,
+            "ordertype": "limit",
+            "price": str(limit_price),
+            "volume": str(volume),
+        }
+        if post_only:
+            order_params["oflags"] = "post"
+        if userref:
+            order_params["userref"] = str(userref)
+
+        success, response = await self._safe_api_call("AddOrder", **order_params)
+        if not success:
+            error_msg = _extract_error(response)
+            logger.error(f"❌ Échec ordre LIMIT: {error_msg}")
+            return OrderResult(success=False, error=error_msg)
+
+        txid, txid_error = _extract_txid(response)
+        if txid_error:
+            return OrderResult(success=False, error=txid_error)
+        assert txid is not None
+        logger.info(f"✅ Ordre LIMIT accepté, txid: {txid[:8]}...")
+        return await self._wait_for_execution(
+            txid,
+            max_wait=60,
+            fallback_liquidity="maker" if post_only else "unknown",
+        )
 
     async def execute_stop_loss_order(
         self,
@@ -477,7 +536,10 @@ class OrderExecutorAsync:
         return OrderResult(success=True, txid=txid)
 
     async def _wait_for_execution(
-        self, txid: str, max_wait: int = 60
+        self,
+        txid: str,
+        max_wait: int = 60,
+        fallback_liquidity: str = "unknown",
     ) -> OrderResult:
         """Wait for order execution and retrieve fill details."""
         deadline = time.monotonic() + max_wait
@@ -499,8 +561,13 @@ class OrderExecutorAsync:
                     info.get("avg_price", 0)
                 )
                 fee = float(info.get("fee", 0))
+                liquidity = str(info.get("liquidity") or fallback_liquidity or "unknown").lower()
                 logger.info(
-                    f"✅ Ordre exécuté: {vol_exec:.6f} @ {avg_price:.2f}€ (frais: {fee:.4f}€)"
+                    "✅ Ordre exécuté: %.6f @ %.2f€ (frais: %.4f€, liquidité: %s)",
+                    vol_exec,
+                    avg_price,
+                    fee,
+                    liquidity,
                 )
                 return OrderResult(
                     success=True,
@@ -508,6 +575,7 @@ class OrderExecutorAsync:
                     executed_volume=vol_exec,
                     executed_price=avg_price,
                     fees=fee,
+                    liquidity=liquidity,
                     raw_response=info,
                 )
 

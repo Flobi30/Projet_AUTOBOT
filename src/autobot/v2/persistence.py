@@ -492,9 +492,15 @@ class StatePersistence:
                     exchange_order_id TEXT,
                     decision_id TEXT,
                     signal_id TEXT,
+                    execution_liquidity TEXT,
                     created_at TEXT NOT NULL
                 )
             """)
+            # Backward-compatible migration for pre-existing DBs.
+            try:
+                conn.execute("ALTER TABLE trade_ledger ADD COLUMN execution_liquidity TEXT")
+            except sqlite3.OperationalError:
+                pass
 
             # Persisted order lifecycle state machine
             conn.execute("""
@@ -792,6 +798,7 @@ class StatePersistence:
         exchange_order_id: Optional[str] = None,
         decision_id: Optional[str] = None,
         signal_id: Optional[str] = None,
+        execution_liquidity: Optional[str] = None,
         is_opening_leg: bool = False,
         is_closing_leg: bool = False,
     ) -> bool:
@@ -805,8 +812,8 @@ class StatePersistence:
                     INSERT INTO trade_ledger
                     (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
                      volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
-                     exchange_order_id, decision_id, signal_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trade_id,
@@ -825,6 +832,7 @@ class StatePersistence:
                         exchange_order_id,
                         decision_id,
                         signal_id,
+                        execution_liquidity,
                         now,
                     ),
                 )

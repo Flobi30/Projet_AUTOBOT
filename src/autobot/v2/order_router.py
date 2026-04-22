@@ -679,6 +679,15 @@ class OrderRouter:
                     volume=params["volume"],
                     userref=params.get("userref"),
                 )
+            elif order_type == "limit":
+                return await self._executor.execute_limit_order(
+                    symbol=params["symbol"],
+                    side=OrderSide(params["side"]),
+                    volume=params["volume"],
+                    limit_price=params["price"],
+                    post_only=bool(params.get("post_only", False)),
+                    userref=params.get("userref"),
+                )
             
             elif order_type == "stop_loss":
                 return await self._executor.execute_stop_loss_order(
