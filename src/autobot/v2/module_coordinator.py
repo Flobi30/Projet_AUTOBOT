@@ -3,17 +3,32 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import ssl
 import shutil
+from http.client import HTTPSConnection
 from ipaddress import ip_address
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, List
+from typing import Dict, List, Set
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from .config import MAX_BACKOFF_SECONDS
 
 logger = logging.getLogger(__name__)
+
+
+class _PinnedIPHTTPSConnection(HTTPSConnection):
+    """HTTPS connection pinned to a resolved IP while preserving TLS host/SNI."""
+
+    def __init__(self, host: str, target_ip: str, timeout: float) -> None:
+        super().__init__(host=host, port=443, timeout=timeout, context=ssl.create_default_context())
+        self._target_ip = target_ip
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self._target_ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self._tunnel()
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
 
 
 class ModuleCoordinator:
@@ -43,41 +58,52 @@ class ModuleCoordinator:
             self._o._record_module_event(module, "warning", f"url_rejected:{endpoint_name}:{reason}")
         return False
 
-    def _validate_ping_url(
+    def _resolve_allowed_ping_ips(
         self,
         url: str,
         module: str = "dependency",
         endpoint_name: str = "endpoint",
-    ) -> bool:
+    ) -> tuple[str, Set[str]] | None:
         parsed = urlparse(url)
         if parsed.scheme.lower() != "https":
-            return self._reject_ping_url(module, endpoint_name, url, "non_https_scheme")
+            self._reject_ping_url(module, endpoint_name, url, "non_https_scheme")
+            return None
 
         hostname = (parsed.hostname or "").strip().lower()
         if not hostname:
-            return self._reject_ping_url(module, endpoint_name, url, "missing_hostname")
+            self._reject_ping_url(module, endpoint_name, url, "missing_hostname")
+            return None
 
         allowlist = self._get_allowed_ping_hosts()
         if hostname not in allowlist:
-            return self._reject_ping_url(module, endpoint_name, url, f"host_not_allowlisted:{hostname}")
+            self._reject_ping_url(module, endpoint_name, url, f"host_not_allowlisted:{hostname}")
+            return None
 
         try:
             host_ip = ip_address(hostname)
             if host_ip.is_private or host_ip.is_loopback or host_ip.is_link_local:
-                return self._reject_ping_url(module, endpoint_name, url, "forbidden_ip_literal")
+                self._reject_ping_url(module, endpoint_name, url, "forbidden_ip_literal")
+                return None
         except ValueError:
             pass
 
         try:
             addr_info = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
         except Exception:
-            return self._reject_ping_url(module, endpoint_name, url, "dns_resolution_failed")
+            self._reject_ping_url(module, endpoint_name, url, "dns_resolution_failed")
+            return None
 
+        allowed_ips: Set[str] = set()
         for addr in addr_info:
             resolved_ip = ip_address(addr[4][0])
             if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:
-                return self._reject_ping_url(module, endpoint_name, url, f"forbidden_resolved_ip:{resolved_ip}")
-        return True
+                self._reject_ping_url(module, endpoint_name, url, f"forbidden_resolved_ip:{resolved_ip}")
+                return None
+            allowed_ips.add(str(resolved_ip))
+        if not allowed_ips:
+            self._reject_ping_url(module, endpoint_name, url, "no_valid_resolved_ip")
+            return None
+        return hostname, allowed_ips
 
     def _quick_ping(
         self,
@@ -86,12 +112,32 @@ class ModuleCoordinator:
         module: str = "dependency",
         endpoint_name: str = "endpoint",
     ) -> bool:
-        if not self._validate_ping_url(url, module=module, endpoint_name=endpoint_name):
+        resolved = self._resolve_allowed_ping_ips(url, module=module, endpoint_name=endpoint_name)
+        if not resolved:
             return False
+        parsed = urlparse(url)
+        request_path = parsed.path or "/"
+        if parsed.query:
+            request_path = f"{request_path}?{parsed.query}"
+        hostname, allowed_ips = resolved
+        target_ip = sorted(allowed_ips)[0]
         try:
-            req = Request(url, method="HEAD")
-            with urlopen(req, timeout=timeout) as resp:
-                return int(getattr(resp, "status", 200)) < 500
+            conn = _PinnedIPHTTPSConnection(host=hostname, target_ip=target_ip, timeout=timeout)
+            conn.request("HEAD", request_path, headers={"Host": hostname})
+            peer_ip = conn.sock.getpeername()[0] if conn.sock else ""
+            if peer_ip not in allowed_ips:
+                self._reject_ping_url(
+                    module,
+                    endpoint_name,
+                    url,
+                    f"post_connect_ip_not_allowlisted:{peer_ip or 'unknown'}",
+                )
+                conn.close()
+                return False
+            resp = conn.getresponse()
+            status_ok = int(getattr(resp, "status", 200)) < 500
+            conn.close()
+            return status_ok
         except Exception:
             return False
 
