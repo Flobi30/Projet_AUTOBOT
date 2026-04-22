@@ -34,7 +34,7 @@ class RiskManager:
     DEFAULT_CONFIGS = [
         RiskConfig(
             capital_min=100,
-            capital_max=499,
+            capital_max=500,
             stop_loss_pct=-0.25,
             take_profit_pct=0.40,
             max_positions=5,
@@ -43,7 +43,7 @@ class RiskManager:
         ),
         RiskConfig(
             capital_min=500,
-            capital_max=999,
+            capital_max=1000,
             stop_loss_pct=-0.20,
             take_profit_pct=0.30,
             max_positions=8,
@@ -52,7 +52,7 @@ class RiskManager:
         ),
         RiskConfig(
             capital_min=1000,
-            capital_max=1999,
+            capital_max=2000,
             stop_loss_pct=-0.15,
             take_profit_pct=0.25,
             max_positions=10,
@@ -61,7 +61,7 @@ class RiskManager:
         ),
         RiskConfig(
             capital_min=2000,
-            capital_max=4999,
+            capital_max=5000,
             stop_loss_pct=-0.12,
             take_profit_pct=0.22,
             max_positions=12,
@@ -84,19 +84,48 @@ class RiskManager:
 
     def __init__(self, configs: Optional[list] = None, orchestrator: Optional[object] = None):
         self.configs = configs or self.DEFAULT_CONFIGS
+        self._validate_configs()
         self._on_sl_triggered: Optional[Callable] = None
         self._on_tp_triggered: Optional[Callable] = None
         self._orchestrator = orchestrator  # Référence orchestrator pour disjoncteur
         
         logger.info("🛡️ RiskManager initialisé")
+
+    def _validate_configs(self) -> None:
+        """Valide la cohérence des paliers (triés, continus, non chevauchants)."""
+        if not self.configs:
+            raise ValueError("RiskManager requires at least one risk config")
+
+        for i, config in enumerate(self.configs):
+            if config.capital_min >= config.capital_max:
+                raise ValueError(
+                    f"Invalid risk config range at index {i}: "
+                    f"[{config.capital_min}, {config.capital_max})"
+                )
+
+            if i == 0:
+                continue
+
+            prev = self.configs[i - 1]
+            if config.capital_min < prev.capital_min:
+                raise ValueError("Risk config tiers must be sorted by capital_min")
+
+            if config.capital_min != prev.capital_max:
+                raise ValueError(
+                    "Risk config tiers must be continuous and non-overlapping: "
+                    f"expected capital_min={prev.capital_max}, got {config.capital_min}"
+                )
     
     def get_config_for_capital(self, capital: float) -> RiskConfig:
         """Retourne la configuration adaptée au capital"""
+        if capital < self.configs[0].capital_min:
+            return self.configs[0]
+
         for config in self.configs:
             if config.capital_min <= capital < config.capital_max:
                 return config
         
-        # Fallback sur dernière config
+        # Fallback sur dernière config (capitaux au-dessus du maximum)
         return self.configs[-1]
     
     def calculate_sl_price(self, entry_price: float, capital: float, side: str = 'long') -> float:

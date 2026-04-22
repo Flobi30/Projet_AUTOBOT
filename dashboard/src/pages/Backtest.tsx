@@ -4,9 +4,8 @@ import MetricCard from '../components/ui/MetricCard';
 import Modal from '../components/ui/Modal';
 import StrategyDetailModal from '../components/ui/StrategyDetailModal';
 import { BarChart3, Brain, Cpu, Target, TrendingUp, Calendar, Loader } from 'lucide-react';
+import { apiFetch } from '../api/client';
 
-const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 export interface Strategy {
   name: string;
@@ -31,7 +30,7 @@ const Backtest: React.FC = () => {
     const fetchData = async () => {
       try {
         // Fetch pour remplir les métriques si disponibles
-        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const capitalRes = await apiFetch(`/api/capital`);
         if (capitalRes.ok) {
           const data = await capitalRes.json();
           const perf = data.total_invested > 0 
@@ -45,7 +44,7 @@ const Backtest: React.FC = () => {
         }
 
         // Données historiques pour le graphique
-        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=30`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const historyRes = await apiFetch(`/api/history?days=30`);
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (historyData.history) {

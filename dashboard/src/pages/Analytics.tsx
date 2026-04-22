@@ -3,12 +3,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import MetricCard from '../components/ui/MetricCard';
 import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
 import { calculateRendementPercent } from './analyticsMetrics';
+import { apiFetch } from '../api/client';
 
-const API_BASE_URL = '';
-const API_TOKEN =
-  import.meta.env.VITE_DASHBOARD_API_TOKEN ||
-  window.localStorage.getItem('DASHBOARD_API_TOKEN') ||
-  ''; // no hardcoded secret
 
 
 interface ScalingStatusResponse {
@@ -82,7 +78,7 @@ const Analytics: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const capitalRes = await apiFetch(`/api/capital`);
         if (capitalRes.ok) {
           const capitalData = await capitalRes.json();
           const pnlPercent = calculateRendementPercent(capitalData, '0.0');
@@ -93,7 +89,7 @@ const Analytics: React.FC = () => {
           }));
         }
 
-        const historyRes = await fetch(`${API_BASE_URL}/api/history?days=7`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const historyRes = await apiFetch(`/api/history?days=7`);
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (historyData.history && historyData.history.length > 0) {
@@ -106,10 +102,10 @@ const Analytics: React.FC = () => {
 
 
         const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/scaling/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/universe/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/opportunities/top?limit=6`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
-          fetch(`${API_BASE_URL}/api/portfolio/allocation`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } }),
+          apiFetch(`/api/scaling/status`),
+          apiFetch(`/api/universe/status`),
+          apiFetch(`/api/opportunities/top?limit=6`),
+          apiFetch(`/api/portfolio/allocation`),
         ]);
         if (scalingRes.ok) setScalingStatus(await scalingRes.json());
         if (universeRes.ok) setUniverseStatus(await universeRes.json());

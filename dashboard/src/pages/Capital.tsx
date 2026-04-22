@@ -2,9 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader } from 'lucide-react';
 import MetricCard from '../components/ui/MetricCard';
 import { useAppStore } from '../store/useAppStore';
+import { apiFetch } from '../api/client';
 
-const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 interface CapitalData {
   total_capital: number;
@@ -44,14 +43,14 @@ const Capital: React.FC = () => {
       setError(null);
 
       // Fetch capital details
-      const capitalRes = await fetch(`${API_BASE_URL}/api/capital`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+      const capitalRes = await apiFetch(`/api/capital`);
       if (capitalRes.ok) {
         const data: CapitalData = await capitalRes.json();
         setCapitalData(data);
         setCapitalTotal(data.total_capital);
       } else {
         // Fallback sur /api/status si /api/capital n'existe pas encore
-        const statusRes = await fetch(`${API_BASE_URL}/api/status`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const statusRes = await apiFetch(`/api/status`);
         if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
         const statusData = await statusRes.json();
         const fallback: CapitalData = {
@@ -67,7 +66,7 @@ const Capital: React.FC = () => {
       }
 
       // Fetch recent trades
-      const tradesRes = await fetch(`${API_BASE_URL}/api/trades?limit=10`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+      const tradesRes = await apiFetch(`/api/trades?limit=10`);
       if (tradesRes.ok) {
         const tradesData = await tradesRes.json();
         setTrades(tradesData.trades || []);
@@ -76,7 +75,7 @@ const Capital: React.FC = () => {
       
       // Check if paper mode
       try {
-        const paperRes = await fetch(`${API_BASE_URL}/api/paper-trading/summary`, { headers: { "Authorization": `Bearer ${API_TOKEN}` } });
+        const paperRes = await apiFetch(`/api/paper-trading/summary`);
         if (paperRes.ok) {
           const paperData = await paperRes.json();
           setIsPaperMode(paperData.is_paper_mode === true);

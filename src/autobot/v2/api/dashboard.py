@@ -984,16 +984,20 @@ async def get_trades(
         paginated_trades = trades[offset:offset + limit]
         next_offset = offset + limit if (offset + limit) < total else None
 
+        total_count = len(trades)
+        paginated_trades = trades[offset:offset + limit]
+
         return {
-            "trades": paginated_trades,
+            "count": total_count,
             "pagination": {
-                "total": total,
-                "count": len(paginated_trades),
                 "limit": limit,
                 "offset": offset,
-                "has_more": next_offset is not None,
-                "next_offset": next_offset
-            }
+                "returned": len(paginated_trades),
+                "total": total_count,
+                "has_more": (offset + limit) < total_count,
+                "next_offset": (offset + limit) if (offset + limit) < total_count else None,
+            },
+            "trades": paginated_trades
         }
     except Exception:
         logger.exception("Erreur récupération trades")

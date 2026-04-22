@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api/client';
 import { 
   Activity, 
   Server, 
@@ -17,8 +18,6 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = '';
-const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || window.localStorage.getItem('DASHBOARD_API_TOKEN') || '';// no hardcoded secret
 
 interface SystemMetrics {
   cpu: {
@@ -239,11 +238,7 @@ const Diagnostic: React.FC = () => {
 
   const fetchSystemMetrics = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/system`, {
-        headers: {
-          'Authorization': `Bearer ${API_TOKEN}`
-        }
-      });
+      const response = await apiFetch(`/api/system`);
       
       if (!response.ok) {
         throw new Error('Erreur lors de la récupération des métriques');
