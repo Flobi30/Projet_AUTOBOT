@@ -2,12 +2,13 @@ import pytest
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import aiohttp
 
 from autobot.v2.kill_switch import KillSwitch
 from autobot.v2.nonce_manager import NonceManager
-from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome
+from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome, write_attestation_artifact
 
 
 pytestmark = pytest.mark.integration
@@ -213,4 +214,57 @@ def test_failure_reason_io_error(monkeypatch, tmp_path):
         assert res.checks["nonce_health"] is False
         assert "nonce_io_error" in res.reasons
         assert res.diagnostics["nonce_health"]["error_code"] == "io"
+    asyncio.run(_run())
+
+
+def test_write_attestation_artifact_format(monkeypatch, tmp_path):
+    async def _run():
+        _base_env(monkeypatch)
+        artifact = tmp_path / "attestation.json"
+        monkeypatch.setattr(StartupAttestation, "_check_exchange_connectivity", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="exchange ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_api_auth", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="auth ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_orders_endpoint", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="orders ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_clock_drift", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="clock ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_reconciliation_baseline", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="recon ok")))
+        monkeypatch.setattr(StartupAttestation, "_kill_switch_self_test", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="ks ok")))
+        result = await write_attestation_artifact(
+            artifact,
+            preflight_only=True,
+            order_executor=DummyExecutor(tmp_path),
+            kill_switch=KillSwitch(),
+        )
+        assert result.ok is True
+        payload = json.loads(artifact.read_text(encoding="utf-8"))
+        assert payload["status"] == "pass"
+        assert isinstance(payload["reasons"], list)
+        assert isinstance(payload["diagnostics"], dict)
+        assert payload["preflight_only"] is True
+        assert "generated_at" in payload
+
+    asyncio.run(_run())
+
+
+def test_write_attestation_artifact_failure_reasons(monkeypatch, tmp_path):
+    async def _run():
+        _base_env(monkeypatch)
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMATION", "false")
+        artifact = tmp_path / "attestation_fail.json"
+        monkeypatch.setattr(StartupAttestation, "_check_exchange_connectivity", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="exchange ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_api_auth", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="auth ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_orders_endpoint", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="orders ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_clock_drift", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="clock ok")))
+        monkeypatch.setattr(StartupAttestation, "_check_reconciliation_baseline", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="recon ok")))
+        monkeypatch.setattr(StartupAttestation, "_kill_switch_self_test", AsyncMock(return_value=_CheckOutcome(ok=True, reason="ok", message="ks ok")))
+        result = await write_attestation_artifact(
+            artifact,
+            preflight_only=True,
+            order_executor=DummyExecutor(tmp_path),
+            kill_switch=KillSwitch(),
+        )
+        assert result.ok is False
+        payload = json.loads(artifact.read_text(encoding="utf-8"))
+        assert payload["status"] == "fail"
+        assert "live_confirmation_missing" in payload["reasons"]
+        assert payload["diagnostics"]["live_confirmation"]["status"] == "fail"
+
     asyncio.run(_run())

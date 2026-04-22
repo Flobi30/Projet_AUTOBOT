@@ -21,3 +21,21 @@
 | `exchange_connectivity_timeout` / `api_auth_timeout` / `orders_endpoint_timeout` / `clock_drift_timeout` / `reconciliation_timeout` | Vérifier latence réseau, saturation runtime, ajuster timeouts si nécessaire. |
 | `nonce_io_error` / `db_io_error` / `audit_io_error` / `audit_write_failed` | Vérifier disque/permissions/volume monté, puis valider écriture locale avant relance. |
 | `kill_switch_not_initialized` / `kill_switch_already_tripped` | Réinitialiser proprement le kill switch, investiguer pourquoi il est trippé avant redémarrage live. |
+
+## Go/No-Go paper
+
+Avant toute session paper, générer l’attestation artifact :
+
+```bash
+python tools/paper_ops.py readiness --artifact-file artifacts/startup_attestation.json --format json
+```
+
+Règles de décision à partir de l’artifact JSON (`status`, `reasons`, `diagnostics`) :
+
+- **GO** si `status == "pass"` et `reasons` est vide.
+- **NO-GO** si `status == "fail"` ou si `reasons` contient au moins une raison bloquante.
+- En cas de **NO-GO**, traiter d’abord les entrées de `diagnostics` avec `status="fail"`, corriger la cause, puis relancer la commande `readiness`.
+
+Exploitation pratique:
+- Le script `tools/paper_ops.py readiness` retourne **0** si prêt et **non-zéro** sinon.
+- L’artifact `artifacts/startup_attestation.json` est la source de vérité opérateur pour la décision de lancement.

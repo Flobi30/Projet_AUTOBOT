@@ -19,6 +19,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+from autobot.v2.kill_switch import KillSwitch
+from autobot.v2.startup_attestation import write_attestation_artifact
+
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
 PAPER_REQUIRED = {
@@ -528,6 +531,28 @@ def cmd_session_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_readiness(args: argparse.Namespace) -> int:
+    result = __import__("asyncio").run(
+        write_attestation_artifact(
+            artifact_path=args.artifact_file,
+            preflight_only=args.preflight_only,
+            kill_switch=KillSwitch(),
+            order_executor=None,
+        )
+    )
+
+    payload = json.loads(Path(args.artifact_file).read_text(encoding="utf-8"))
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"readiness_status={payload.get('status')} artifact={args.artifact_file}")
+        if payload.get("reasons"):
+            print("reasons=" + ",".join(payload["reasons"]))
+
+    return 0 if result.ok else 1
+
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AUTOBOT paper operations helper")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -554,6 +579,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_flags = sub.add_parser("flags-guide", help="print paper-mode feature flag guidance")
     p_flags.set_defaults(func=lambda _args: (print_flags_guide() or 0))
+
+    p_readiness = sub.add_parser("readiness", help="run startup attestation and write readiness artifact")
+    p_readiness.add_argument("--artifact-file", default="artifacts/startup_attestation.json", help="output JSON artifact path")
+    p_readiness.add_argument("--preflight-only", action="store_true", default=True, help="run preflight-only attestation path")
+    p_readiness.add_argument("--format", choices=("text", "json"), default="text", help="CLI output format")
+    p_readiness.set_defaults(func=cmd_readiness)
 
     return parser
 

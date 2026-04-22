@@ -53,6 +53,39 @@ class _CheckOutcome:
     error_code: Optional[str] = None
 
 
+
+
+async def write_attestation_artifact(
+    artifact_path: str | Path,
+    *,
+    preflight_only: bool = True,
+    order_executor: Optional[OrderExecutorAsync] = None,
+    kill_switch: Optional[KillSwitch] = None,
+    app_env: Optional[str] = None,
+) -> StartupAttestationResult:
+    gate = StartupAttestation(
+        order_executor=order_executor,
+        kill_switch=kill_switch,
+        app_env=app_env,
+    )
+    result = await gate.run(preflight_only=preflight_only)
+
+    payload = {
+        "status": result.status,
+        "reasons": result.reasons,
+        "diagnostics": result.diagnostics,
+        "ok": result.ok,
+        "checks": result.checks,
+        "preflight_only": preflight_only,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    artifact = Path(artifact_path)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    return result
+
+
 class StartupAttestation:
     VALID_ENVS = {"development", "staging", "production"}
     VALID_STAGES = {"paper", "micro_live", "small_live"}
@@ -479,3 +512,32 @@ class StartupAttestation:
                 and max_instances <= 2
             )
         return False
+
+
+def _build_cli_parser() -> "argparse.ArgumentParser":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate startup attestation artifact")
+    parser.add_argument("--artifact", default="artifacts/startup_attestation.json", help="path to output JSON artifact")
+    parser.add_argument("--preflight-only", action="store_true", default=False, help="run preflight-only checks")
+    parser.add_argument("--app-env", default=None, help="override APP_ENV value")
+    return parser
+
+
+def _main_cli() -> int:
+    parser = _build_cli_parser()
+    args = parser.parse_args()
+    result = asyncio.run(
+        write_attestation_artifact(
+            artifact_path=args.artifact,
+            preflight_only=bool(args.preflight_only),
+            app_env=args.app_env,
+            kill_switch=KillSwitch(),
+            order_executor=None,
+        )
+    )
+    return 0 if result.ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main_cli())
