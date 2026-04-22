@@ -1,4 +1,6 @@
 import pytest
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
@@ -90,3 +92,32 @@ def test_status_total_profit_uses_snapshot_when_status_instances_have_no_profit(
     body = r.json()
     assert body["total_capital"] == 1500.0
     assert body["total_profit"] == 10.5
+
+
+def test_system_metrics_endpoint_stays_responsive_under_parallel_load(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    client = TestClient(dashboard.app)
+
+    import psutil
+
+    observed_intervals = []
+
+    def _fake_cpu_percent(interval=None):
+        observed_intervals.append(interval)
+        if interval not in (None, 0):
+            time.sleep(0.2)
+        return 12.3
+
+    monkeypatch.setattr(psutil, "cpu_percent", _fake_cpu_percent)
+
+    def _call_system():
+        return client.get("/api/system", headers={"Authorization": "Bearer tok"})
+
+    started_at = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(lambda _: _call_system(), range(8)))
+    elapsed = time.perf_counter() - started_at
+
+    assert all(r.status_code == 200 for r in responses)
+    assert observed_intervals and all(interval is None for interval in observed_intervals)
+    assert elapsed < 0.5
