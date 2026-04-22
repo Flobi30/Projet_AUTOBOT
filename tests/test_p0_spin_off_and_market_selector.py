@@ -1,3 +1,5 @@
+import pytest
+
 import asyncio
 from types import SimpleNamespace
 
@@ -7,6 +9,8 @@ from autobot.v2.markets import MarketType
 from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.validator import ValidationStatus
 
+
+pytestmark = pytest.mark.integration
 
 class _FakeParent:
     def __init__(self, capital: float, available: float, pf_30d: float) -> None:

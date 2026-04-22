@@ -1,7 +1,11 @@
+import pytest
+
 from fastapi.testclient import TestClient
 
 from autobot.v2.api import dashboard
 
+
+pytestmark = pytest.mark.integration
 
 class _LegacyOrchestrator:
     def get_status(self):

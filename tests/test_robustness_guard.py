@@ -1,5 +1,9 @@
+import pytest
+
 from autobot.v2.robustness_guard import RobustnessGuard
 
+
+pytestmark = pytest.mark.integration
 
 def test_walk_forward_and_dsr_pass_on_stable_series():
     guard = RobustnessGuard(min_pf=1.01, min_trades=30)

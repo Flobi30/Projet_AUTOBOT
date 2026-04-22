@@ -1,9 +1,13 @@
+import pytest
+
 from types import SimpleNamespace
 
 from autobot.v2.orchestrator_services import InstanceLifecycleService, PortfolioAllocationService
 from autobot.v2.portfolio_allocator import AllocationConstraints, PortfolioAllocator
 from autobot.v2.risk_cluster_manager import RiskClusterManager
 
+
+pytestmark = pytest.mark.integration
 
 class _Inst:
     def __init__(self, symbol: str, cap: float, running: bool, pf30: float = 1.0):

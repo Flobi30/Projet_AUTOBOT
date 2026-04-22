@@ -1,6 +1,10 @@
+import pytest
+
 from autobot.v2.regime_controller import RegimeController
 from autobot.v2.risk_cluster_manager import RiskClusterManager
 
+
+pytestmark = pytest.mark.integration
 
 class _Cfg:
     def __init__(self, symbol: str):

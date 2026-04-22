@@ -1,7 +1,11 @@
+import pytest
+
 from autobot.v2.instance_activation_manager import InstanceActivationManager
 from autobot.v2.orchestrator_services import ActivationContext, InstanceActivationService
 from autobot.v2.scalability_guard import ScalingState
 
+
+pytestmark = pytest.mark.integration
 
 def test_instance_activation_service_returns_decision_payload():
     manager = InstanceActivationManager(

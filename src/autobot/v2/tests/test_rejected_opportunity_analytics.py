@@ -1,3 +1,7 @@
+import pytest
+pytestmark = pytest.mark.unit
+
+
 import json
 
 from autobot.v2.decision_journal import (

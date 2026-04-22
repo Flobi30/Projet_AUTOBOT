@@ -2,12 +2,19 @@
 Kraken API Test Module - Tests de connexion et trading paper
 """
 
+import pytest
 import logging
 import os
 import sys
 from typing import Dict, Optional, Tuple
 from decimal import Decimal
 import time
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.e2e,
+    pytest.mark.external,
+]
 
 # Ajoute src au path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))

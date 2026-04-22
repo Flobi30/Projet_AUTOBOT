@@ -5,6 +5,9 @@ on:
     branches: [ main, master, work ]
   push:
     branches: [ main, master, work ]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   secret-scan:
@@ -27,17 +30,56 @@ jobs:
         with:
           inputs: requirements.txt
 
-  python-tests:
-    name: Python tests (${{ matrix.test_suite }})
+  python-tests-pr:
+    name: Python hermetic tests (${{ matrix.test_suite }})
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - test_suite: unit
-            marker: not integration
+            marker: unit and not external and not e2e
           - test_suite: integration
-            marker: integration
+            marker: integration and not external and not e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest (${{ matrix.test_suite }})
+        run: |
+          mkdir -p artifacts/python-tests
+          set -o pipefail
+          pytest -q -m "${{ matrix.marker }}" --junitxml="artifacts/python-tests/junit-${{ matrix.test_suite }}.xml" \
+            2>&1 | tee "artifacts/python-tests/pytest-${{ matrix.test_suite }}.log"
+      - name: Upload pytest artifacts (${{ matrix.test_suite }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-tests-${{ matrix.test_suite }}-artifacts
+          path: artifacts/python-tests/
+          if-no-files-found: error
+          retention-days: 14
+
+  python-tests-external:
+    name: Python external/e2e tests (${{ matrix.test_suite }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test_suite: external
+            marker: external
+          - test_suite: e2e
+            marker: e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -82,42 +124,6 @@ jobs:
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
 
-  python-tests:
-    name: Python tests (${{ matrix.suite }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [unit, integration]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Run pytest - unit
-        if: matrix.suite == 'unit'
-        run: |
-          pytest -q -m "not integration" --junitxml=pytest-unit.xml
-      - name: Run pytest - integration
-        if: matrix.suite == 'integration'
-        run: |
-          pytest -q -m "integration" --junitxml=pytest-integration.xml
-      - name: Upload pytest artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-${{ matrix.suite }}-artifacts
-          path: |
-            pytest-*.xml
-            .pytest_cache
-          if-no-files-found: ignore
-
   dashboard-build-lint:
     name: Dashboard build and lint
     runs-on: ubuntu-latest
@@ -153,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
     needs:
-      - python-tests
+      - python-tests-pr
       - dashboard-build-lint
     steps:
       - name: Confirm required gates passed

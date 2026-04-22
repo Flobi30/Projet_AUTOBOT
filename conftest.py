@@ -1,12 +1,30 @@
-"""Global pytest bootstrap for deterministic local/CI imports."""
-
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parent
-_SRC_PATH = _REPO_ROOT / "src"
+_REQUIRED_MARKERS = {"unit", "integration", "e2e"}
 
-if str(_SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(_SRC_PATH))
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Fail collection when a test has no explicit suite marker.
+
+    A test must be tagged (module/class/function) with at least one of:
+    - unit
+    - integration
+    - e2e
+    """
+
+    unmarked: list[str] = []
+    for item in items:
+        item_markers = {mark.name for mark in item.iter_markers()}
+        if item_markers.isdisjoint(_REQUIRED_MARKERS):
+            location = f"{item.location[0]}:{item.location[1] + 1}"
+            unmarked.append(location)
+
+    if unmarked:
+        details = "\n".join(f"- {location}" for location in sorted(unmarked))
+        raise pytest.UsageError(
+            "Every test must declare at least one suite marker "
+            "(unit/integration/e2e). Missing markers:\n"
+            f"{details}"
+        )

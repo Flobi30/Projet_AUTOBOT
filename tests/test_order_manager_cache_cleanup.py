@@ -1,7 +1,11 @@
+import pytest
+
 from datetime import timedelta, timezone, datetime
 
 from autobot.order_manager import Order, OrderManager
 
+
+pytestmark = pytest.mark.integration
 
 def _make_closed_order(order_id: str, closed_at: datetime) -> Order:
     return Order(id=order_id, status="closed", closed_at=closed_at)

@@ -1,7 +1,11 @@
+import pytest
+
 import math
 
 from autobot.v2.main_async import AutoBotV2Async, _build_grid_config
 
+
+pytestmark = pytest.mark.unit
 
 def test_build_grid_config_legacy_defaults(monkeypatch):
     monkeypatch.setattr("autobot.v2.main_async._pair_registry", None)

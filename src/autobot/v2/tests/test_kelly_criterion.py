@@ -12,9 +12,12 @@ Couvre :
 Ou directement : python3 test_kelly_criterion.py
 """
 
+import pytest
 import threading
 import sys
 import os
+
+pytestmark = pytest.mark.unit
 
 # Ajouter le répertoire parent au path pour l'import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

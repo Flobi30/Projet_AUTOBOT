@@ -1,6 +1,10 @@
+import pytest
+
 import autobot.v2.persistence as persistence_mod
 from autobot.v2.persistence import StatePersistence
 
+
+pytestmark = pytest.mark.unit
 
 def _reset_thread_local_conn():
     conn = getattr(persistence_mod._local, "conn", None)

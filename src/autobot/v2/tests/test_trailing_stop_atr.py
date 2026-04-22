@@ -19,10 +19,13 @@ import sys
 import os
 import threading
 
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from modules.trailing_stop_atr import TrailingStopATR
 
 import pytest
+pytestmark = pytest.mark.unit
+
 
 
 # ---------------------------------------------------------------------------

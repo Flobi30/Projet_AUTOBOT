@@ -1,8 +1,12 @@
+import pytest
+
 import json
 from pathlib import Path
 
 from autobot.v2.decision_journal import DecisionJournal, journal_from_env
 
+
+pytestmark = pytest.mark.unit
 
 def _read_jsonl(path: Path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
