@@ -5,6 +5,7 @@ CORRECTIONS: Auth, thread-safety, graceful shutdown, error handling
 
 import logging
 import os
+import hmac
 import time
 import threading
 import inspect
@@ -82,7 +83,10 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
             detail="DASHBOARD_API_TOKEN non configuré — accès refusé en production"
         )
 
-    if credentials.credentials.strip() != expected_token.strip():
+    received_token = credentials.credentials.strip()
+    configured_token = expected_token.strip()
+
+    if not hmac.compare_digest(received_token, configured_token):
         logger.warning("Token mismatch from client")
         raise HTTPException(status_code=403, detail="Token invalide")
 
