@@ -135,7 +135,7 @@ jobs:
   dashboard-build:
     name: Build dashboard artifacts in CI/CD
     runs-on: ubuntu-latest
-    needs: dashboard-lint-test
+    needs: dashboard-build-lint
     defaults:
       run:
         working-directory: dashboard
@@ -168,7 +168,7 @@ jobs:
     needs:
       - conflict-marker-scan
       - python-tests
-      - dashboard-lint-test
+      - dashboard-build-lint
       - dashboard-build
     steps:
       - name: Confirm required gates passed
