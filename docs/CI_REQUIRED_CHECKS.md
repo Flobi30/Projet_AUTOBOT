@@ -7,7 +7,8 @@ For pull requests targeting critical branches (`main`, `master`, `work`), requir
 This gate depends on:
 
 - `Python tests (unit)` and `Python tests (integration)` from the `python-tests` matrix job.
-- `Dashboard build and lint`.
+- `Dashboard lint and test` (frontend test check).
+- `Build dashboard artifacts in CI/CD`.
 - `Conflict marker scan`.
 
 Recommended GitHub configuration:
