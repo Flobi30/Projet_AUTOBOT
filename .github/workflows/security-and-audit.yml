@@ -167,9 +167,13 @@ jobs:
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master' || github.base_ref == 'work')
     needs:
       - conflict-marker-scan
+      - secret-scan
+      - python-audit
       - python-tests
+      - npm-audit
       - dashboard-build-lint
       - dashboard-build
+      - leaked-secret-promotion-guard
     steps:
       - name: Confirm required gates passed
         run: echo "All required CI gates passed for critical branch PR."
