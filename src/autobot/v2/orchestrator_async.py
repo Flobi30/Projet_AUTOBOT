@@ -164,6 +164,24 @@ def _env_bool(name: str, default: bool) -> bool:
     return value in ("1", "true", "yes", "on")
 
 
+def _apply_force_enable_all_hardening_flags(hardening_flags: Dict[str, bool]) -> None:
+    if _env_bool("AUTOBOT_FORCE_ENABLE_ALL", False):
+        for flag in (
+            "enable_mean_reversion",
+            "enable_sentiment",
+            "enable_ml",
+            "enable_xgboost",
+            "enable_onchain",
+            "enable_trading_health_score",
+            "enable_shadow_promotion",
+            "enable_shadow_trading",
+            "enable_rebalance",
+            "enable_auto_evolution",
+            "enable_validation_guard",
+        ):
+            hardening_flags[flag] = True
+
+
 def _get_available_capital_real(
     api_key: Optional[str] = None,
     api_secret: Optional[str] = None,
@@ -328,21 +346,7 @@ class OrchestratorAsync:
             "log_conflicts": _env_bool("ENABLE_CONFLICT_LOGGING", True),
         }
         self._module_diagnostics: Dict[str, Dict[str, Any]] = {}
-        if _env_bool("AUTOBOT_FORCE_ENABLE_ALL", True):
-            for flag in (
-                "enable_mean_reversion",
-                "enable_sentiment",
-                "enable_ml",
-                "enable_xgboost",
-                "enable_onchain",
-                "enable_trading_health_score",
-                "enable_shadow_promotion",
-                "enable_shadow_trading",
-                "enable_rebalance",
-                "enable_auto_evolution",
-                "enable_validation_guard",
-            ):
-                self.hardening_flags[flag] = True
+        _apply_force_enable_all_hardening_flags(self.hardening_flags)
         self._dependency_report: Dict[str, List[str]] = {"enabled": [], "disabled": []}
         self._config_validation_notes: List[str] = []
         self.decision = DecisionEngine(self)
