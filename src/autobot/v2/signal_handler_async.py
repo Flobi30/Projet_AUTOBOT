@@ -28,6 +28,22 @@ from .modules.fee_optimizer import FeeOptimizer
 logger = logging.getLogger(__name__)
 
 
+RISK_REGIME_PRESETS: dict[str, dict[str, dict[str, float]]] = {
+    "balanced": {
+        "RANGE": {"atr_sl_mult": 1.55, "tp_rr": 1.55, "min_edge_bps": 12.0},
+        "TREND": {"atr_sl_mult": 1.95, "tp_rr": 1.75, "min_edge_bps": 14.0},
+    },
+    "defensive": {
+        "RANGE": {"atr_sl_mult": 1.35, "tp_rr": 1.85, "min_edge_bps": 16.0},
+        "TREND": {"atr_sl_mult": 1.70, "tp_rr": 2.10, "min_edge_bps": 18.0},
+    },
+    "offensive": {
+        "RANGE": {"atr_sl_mult": 1.75, "tp_rr": 1.35, "min_edge_bps": 10.0},
+        "TREND": {"atr_sl_mult": 2.20, "tp_rr": 1.55, "min_edge_bps": 12.0},
+    },
+}
+
+
 class SignalHandlerAsync:
     """Async signal handler — receives signals, validates, executes orders."""
 
@@ -54,6 +70,8 @@ class SignalHandlerAsync:
         )
         self._atr_sl_mult = self._load_positive_float("atr_sl_mult", "ATR_SL_MULT", 1.8)
         self._tp_rr = self._load_positive_float("tp_rr", "TP_RR", 1.6)
+        self._base_atr_sl_mult = self._atr_sl_mult
+        self._base_tp_rr = self._tp_rr
         self._fallback_atr_pct = self._load_positive_float(
             "fallback_atr_pct",
             "FALLBACK_ATR_PCT",
@@ -65,6 +83,10 @@ class SignalHandlerAsync:
             35.0,
         )
         self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
+        self._base_min_edge_bps = self._min_edge_bps
+        self._risk_regime_preset = str(
+            getattr(getattr(self.instance, "config", None), "risk_regime_preset", os.getenv("RISK_REGIME_PRESET", "balanced"))
+        ).strip().lower()
         self._validate_risk_parameters()
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
@@ -99,6 +121,16 @@ class SignalHandlerAsync:
         self._min_edge_bps = min(1000.0, max(1.0, self._min_edge_bps))
         self._risk_per_trade_pct = min(10.0, max(0.05, self._risk_per_trade_pct))
         self._max_position_capital_pct = min(100.0, max(1.0, self._max_position_capital_pct))
+        self._base_tp_rr = self._tp_rr
+        self._base_atr_sl_mult = self._atr_sl_mult
+        self._base_min_edge_bps = self._min_edge_bps
+        if self._risk_regime_preset not in RISK_REGIME_PRESETS:
+            logger.warning(
+                "Preset risque inconnu '%s' (disponibles=%s), fallback=balanced",
+                self._risk_regime_preset,
+                ",".join(sorted(RISK_REGIME_PRESETS.keys())),
+            )
+            self._risk_regime_preset = "balanced"
 
     def _setup_signal_callback(self) -> None:
         strategy = getattr(self.instance, "_strategy", None)
@@ -165,7 +197,8 @@ class SignalHandlerAsync:
             return
 
         atr_pct = self._estimate_atr_pct(signal.price)
-        stop_distance = max(signal.price * atr_pct * self._atr_sl_mult, signal.price * 0.002)
+        risk_params = self._resolve_dynamic_risk_params(signal, atr_pct)
+        stop_distance = max(signal.price * atr_pct * risk_params["atr_sl_mult"], signal.price * 0.002)
         risk_budget = max(0.0, available * (self._risk_per_trade_pct / 100.0))
         max_order_value = available * (self._max_position_capital_pct / 100.0)
         volume_risk = (risk_budget / stop_distance) if stop_distance > 0 else 0.0
@@ -176,7 +209,7 @@ class SignalHandlerAsync:
         if volume <= 0:
             return
 
-        if not self._passes_cost_guard(signal, atr_pct):
+        if not self._passes_cost_guard(signal, atr_pct, risk_params):
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
@@ -267,7 +300,10 @@ class SignalHandlerAsync:
             liquidity=actual_liquidity,
         )
 
-        stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(executed_price)
+        stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(
+            executed_price,
+            signal=signal,
+        )
         sl_result = await self.order_executor.execute_stop_loss_order(
             symbol, OrderSide.SELL, executed_volume, stop_price
         )
@@ -536,11 +572,20 @@ class SignalHandlerAsync:
             return "estimé"
         return "complet"
 
-    def _compute_exit_levels(self, entry_price: float) -> tuple[float, float, float, float]:
+    def _compute_exit_levels(
+        self,
+        entry_price: float,
+        signal: Optional[TradingSignal] = None,
+    ) -> tuple[float, float, float, float]:
         atr_pct = self._estimate_atr_pct(entry_price)
-        sl_pct = max(0.004, atr_pct * self._atr_sl_mult)
+        risk_params = self._resolve_dynamic_risk_params(signal, atr_pct) if signal else {
+            "atr_sl_mult": self._base_atr_sl_mult,
+            "tp_rr": self._base_tp_rr,
+            "min_edge_bps": self._base_min_edge_bps,
+        }
+        sl_pct = max(0.004, atr_pct * risk_params["atr_sl_mult"])
         stop_price = entry_price * (1.0 - sl_pct)
-        tp_pct = max(sl_pct * self._tp_rr, sl_pct * 1.2)
+        tp_pct = max(sl_pct * risk_params["tp_rr"], sl_pct * 1.2)
         take_profit = entry_price * (1.0 + tp_pct)
         trailing_activation = entry_price * (1.0 + sl_pct * 0.8)
         trailing_gap = sl_pct * 0.7
@@ -552,17 +597,65 @@ class SignalHandlerAsync:
         raw = ((executed_price - expected_price) / expected_price) * 10000
         return float(raw if side == "buy" else -raw)
 
-    def _passes_cost_guard(self, signal: TradingSignal, atr_pct: float) -> bool:
+    def _passes_cost_guard(
+        self,
+        signal: TradingSignal,
+        atr_pct: float,
+        risk_params: Optional[dict[str, float]] = None,
+    ) -> bool:
         metadata = signal.metadata or {}
         spread_bps = float(metadata.get("spread_bps", 0.0))
         if spread_bps > self._max_spread_bps:
             logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
             return False
-        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * self._tp_rr))
+        params = risk_params or self._resolve_dynamic_risk_params(signal, atr_pct)
+        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * params["tp_rr"]))
         fee_bps = float(metadata.get("fee_bps", 40.0))
         slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
         total_cost_bps = fee_bps + slippage_bps + spread_bps
-        return (expected_move_bps - total_cost_bps) >= self._min_edge_bps
+        return (expected_move_bps - total_cost_bps) >= params["min_edge_bps"]
+
+    def _resolve_dynamic_risk_params(self, signal: Optional[TradingSignal], atr_pct: float) -> dict[str, float]:
+        metadata = (signal.metadata if signal else None) or {}
+        regime = str(metadata.get("regime", "RANGE")).upper()
+        regime_key = "TREND" if "TREND" in regime else "RANGE"
+        preset = RISK_REGIME_PRESETS.get(self._risk_regime_preset, RISK_REGIME_PRESETS["balanced"])
+        base = preset[regime_key]
+
+        spread_bps = max(0.0, float(metadata.get("spread_bps", 0.0)))
+        vol_ratio = self._compute_recent_volatility_ratio(atr_pct)
+
+        atr_sl_mult = float(base["atr_sl_mult"])
+        tp_rr = float(base["tp_rr"])
+        min_edge_bps = float(base["min_edge_bps"])
+
+        if vol_ratio >= 1.35:
+            atr_sl_mult *= 1.12
+            tp_rr += 0.22
+            min_edge_bps += min(8.0, (vol_ratio - 1.35) * 12.0)
+        elif vol_ratio <= 0.75:
+            atr_sl_mult *= 0.94
+            tp_rr = max(1.1, tp_rr - 0.10)
+
+        spread_rr_floor = 1.20 + min(1.0, spread_bps / 120.0)
+        tp_rr = max(tp_rr, spread_rr_floor)
+        min_edge_bps += min(12.0, spread_bps * 0.12)
+
+        return {
+            "atr_sl_mult": min(6.0, max(0.5, atr_sl_mult)),
+            "tp_rr": min(8.0, max(0.5, tp_rr)),
+            "min_edge_bps": min(1000.0, max(1.0, min_edge_bps)),
+        }
+
+    def _compute_recent_volatility_ratio(self, atr_pct: float) -> float:
+        baseline = max(self._fallback_atr_pct, 1e-4)
+        history = list(getattr(self.instance, "_price_history", []))
+        if len(history) >= 10:
+            closes = [float(x[1]) for x in history[-min(len(history), 60):]]
+            moves = [abs(closes[i] - closes[i - 1]) / max(closes[i - 1], 1e-8) for i in range(1, len(closes))]
+            if moves:
+                baseline = max(baseline, sum(moves) / len(moves))
+        return max(0.25, min(4.0, atr_pct / max(baseline, 1e-8)))
 
     def _build_execution_plan(self, signal: TradingSignal, volume: float) -> dict[str, Any]:
         metadata = signal.metadata or {}
