@@ -24,8 +24,25 @@ from .order_state_machine import PersistedOrderStateMachine
 from .kill_switch import KillSwitch
 from .reconciliation_strict import StrictReconciliation
 from .modules.fee_optimizer import FeeOptimizer
+from .market_analyzer import get_market_analyzer
 
 logger = logging.getLogger(__name__)
+
+
+RISK_REGIME_PRESETS: dict[str, dict[str, dict[str, float]]] = {
+    "balanced": {
+        "RANGE": {"atr_sl_mult": 1.55, "tp_rr": 1.55, "min_edge_bps": 12.0},
+        "TREND": {"atr_sl_mult": 1.95, "tp_rr": 1.75, "min_edge_bps": 14.0},
+    },
+    "defensive": {
+        "RANGE": {"atr_sl_mult": 1.35, "tp_rr": 1.85, "min_edge_bps": 16.0},
+        "TREND": {"atr_sl_mult": 1.70, "tp_rr": 2.10, "min_edge_bps": 18.0},
+    },
+    "offensive": {
+        "RANGE": {"atr_sl_mult": 1.75, "tp_rr": 1.35, "min_edge_bps": 10.0},
+        "TREND": {"atr_sl_mult": 2.20, "tp_rr": 1.55, "min_edge_bps": 12.0},
+    },
+}
 
 
 class SignalHandlerAsync:
@@ -54,6 +71,8 @@ class SignalHandlerAsync:
         )
         self._atr_sl_mult = self._load_positive_float("atr_sl_mult", "ATR_SL_MULT", 1.8)
         self._tp_rr = self._load_positive_float("tp_rr", "TP_RR", 1.6)
+        self._base_atr_sl_mult = self._atr_sl_mult
+        self._base_tp_rr = self._tp_rr
         self._fallback_atr_pct = self._load_positive_float(
             "fallback_atr_pct",
             "FALLBACK_ATR_PCT",
@@ -64,20 +83,21 @@ class SignalHandlerAsync:
             "MAX_SPREAD_BPS",
             35.0,
         )
+        self._max_signal_latency_ms = self._load_positive_float(
+            "max_signal_latency_ms",
+            "MAX_SIGNAL_LATENCY_MS",
+            2500.0,
+        )
+        self._max_expected_slippage_bps = self._load_positive_float(
+            "max_expected_slippage_bps",
+            "MAX_EXPECTED_SLIPPAGE_BPS",
+            22.0,
+        )
         self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
-        self._edge_percentile_target = self._load_float_in_range(
-            "edge_percentile_target",
-            "EDGE_PERCENTILE_TARGET",
-            0.70,
-            minimum=0.50,
-            maximum=0.99,
-        )
-        self._cost_obs_window = int(self._load_positive_float("cost_observation_window", "COST_OBSERVATION_WINDOW", 60.0))
-        self._volatility_edge_weight = self._load_positive_float(
-            "volatility_edge_weight",
-            "VOLATILITY_EDGE_WEIGHT",
-            0.20,
-        )
+        self._base_min_edge_bps = self._min_edge_bps
+        self._risk_regime_preset = str(
+            getattr(getattr(self.instance, "config", None), "risk_regime_preset", os.getenv("RISK_REGIME_PRESET", "balanced"))
+        ).strip().lower()
         self._validate_risk_parameters()
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
@@ -123,12 +143,21 @@ class SignalHandlerAsync:
         self._tp_rr = min(8.0, max(0.5, self._tp_rr))
         self._atr_sl_mult = min(6.0, max(0.5, self._atr_sl_mult))
         self._max_spread_bps = min(1000.0, max(1.0, self._max_spread_bps))
+        self._max_signal_latency_ms = min(60_000.0, max(5.0, self._max_signal_latency_ms))
+        self._max_expected_slippage_bps = min(1000.0, max(1.0, self._max_expected_slippage_bps))
         self._min_edge_bps = min(1000.0, max(1.0, self._min_edge_bps))
         self._risk_per_trade_pct = min(10.0, max(0.05, self._risk_per_trade_pct))
         self._max_position_capital_pct = min(100.0, max(1.0, self._max_position_capital_pct))
-        self._edge_percentile_target = min(0.99, max(0.50, self._edge_percentile_target))
-        self._cost_obs_window = int(min(500, max(10, self._cost_obs_window)))
-        self._volatility_edge_weight = min(2.0, max(0.05, self._volatility_edge_weight))
+        self._base_tp_rr = self._tp_rr
+        self._base_atr_sl_mult = self._atr_sl_mult
+        self._base_min_edge_bps = self._min_edge_bps
+        if self._risk_regime_preset not in RISK_REGIME_PRESETS:
+            logger.warning(
+                "Preset risque inconnu '%s' (disponibles=%s), fallback=balanced",
+                self._risk_regime_preset,
+                ",".join(sorted(RISK_REGIME_PRESETS.keys())),
+            )
+            self._risk_regime_preset = "balanced"
 
     def _setup_signal_callback(self) -> None:
         strategy = getattr(self.instance, "_strategy", None)
@@ -158,6 +187,8 @@ class SignalHandlerAsync:
 
         try:
             if signal.type == SignalType.BUY:
+                if not self._passes_microstructure_hard_filter(signal):
+                    return
                 await self._execute_buy(signal)
             elif signal.type in (SignalType.SELL, SignalType.CLOSE):
                 await self._execute_sell(signal)
@@ -195,7 +226,8 @@ class SignalHandlerAsync:
             return
 
         atr_pct = self._estimate_atr_pct(signal.price)
-        stop_distance = max(signal.price * atr_pct * self._atr_sl_mult, signal.price * 0.002)
+        risk_params = self._resolve_dynamic_risk_params(signal, atr_pct)
+        stop_distance = max(signal.price * atr_pct * risk_params["atr_sl_mult"], signal.price * 0.002)
         risk_budget = max(0.0, available * (self._risk_per_trade_pct / 100.0))
         max_order_value = available * (self._max_position_capital_pct / 100.0)
         volume_risk = (risk_budget / stop_distance) if stop_distance > 0 else 0.0
@@ -206,8 +238,7 @@ class SignalHandlerAsync:
         if volume <= 0:
             return
 
-        edge_ctx = self._estimate_edge_context(signal, atr_pct)
-        if not self._passes_cost_guard(edge_ctx):
+        if not self._passes_cost_guard(signal, atr_pct, risk_params):
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
@@ -298,7 +329,10 @@ class SignalHandlerAsync:
             liquidity=actual_liquidity,
         )
 
-        stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(executed_price)
+        stop_price, take_profit, trailing_activation, trailing_gap = self._compute_exit_levels(
+            executed_price,
+            signal=signal,
+        )
         sl_result = await self.order_executor.execute_stop_loss_order(
             symbol, OrderSide.SELL, executed_volume, stop_price
         )
@@ -567,11 +601,20 @@ class SignalHandlerAsync:
             return "estimé"
         return "complet"
 
-    def _compute_exit_levels(self, entry_price: float) -> tuple[float, float, float, float]:
+    def _compute_exit_levels(
+        self,
+        entry_price: float,
+        signal: Optional[TradingSignal] = None,
+    ) -> tuple[float, float, float, float]:
         atr_pct = self._estimate_atr_pct(entry_price)
-        sl_pct = max(0.004, atr_pct * self._atr_sl_mult)
+        risk_params = self._resolve_dynamic_risk_params(signal, atr_pct) if signal else {
+            "atr_sl_mult": self._base_atr_sl_mult,
+            "tp_rr": self._base_tp_rr,
+            "min_edge_bps": self._base_min_edge_bps,
+        }
+        sl_pct = max(0.004, atr_pct * risk_params["atr_sl_mult"])
         stop_price = entry_price * (1.0 - sl_pct)
-        tp_pct = max(sl_pct * self._tp_rr, sl_pct * 1.2)
+        tp_pct = max(sl_pct * risk_params["tp_rr"], sl_pct * 1.2)
         take_profit = entry_price * (1.0 + tp_pct)
         trailing_activation = entry_price * (1.0 + sl_pct * 0.8)
         trailing_gap = sl_pct * 0.7
@@ -583,59 +626,12 @@ class SignalHandlerAsync:
         raw = ((executed_price - expected_price) / expected_price) * 10000
         return float(raw if side == "buy" else -raw)
 
-    def _percentile(self, values: list[float], q: float) -> float:
-        if not values:
-            return 0.0
-        ordered = sorted(values)
-        if len(ordered) == 1:
-            return ordered[0]
-        clamped_q = min(1.0, max(0.0, float(q)))
-        idx = (len(ordered) - 1) * clamped_q
-        lo = int(idx)
-        hi = min(lo + 1, len(ordered) - 1)
-        if lo == hi:
-            return ordered[lo]
-        frac = idx - lo
-        return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
-
-    def _load_recent_execution_costs(self, symbol: str) -> list[dict[str, float]]:
-        persistence = getattr(self.instance, "_persistence", None)
-        if persistence is None or not hasattr(persistence, "_get_conn"):
-            return []
-        try:
-            with persistence._lock:
-                conn = persistence._get_conn()
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    """
-                    SELECT executed_price, volume, fees, slippage_bps
-                    FROM trade_ledger
-                    WHERE instance_id = ?
-                      AND symbol = ?
-                      AND executed_price IS NOT NULL
-                      AND volume IS NOT NULL
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (self.instance.id, symbol, int(self._cost_obs_window)),
-                ).fetchall()
-            samples: list[dict[str, float]] = []
-            for row in rows:
-                px = self._to_optional_float(row["executed_price"])
-                vol = self._to_optional_float(row["volume"])
-                if px is None or vol is None or px <= 0 or vol <= 0:
-                    continue
-                amount = px * vol
-                fee = max(0.0, self._to_optional_float(row["fees"]) or 0.0)
-                fee_bps = (fee / amount) * 10000 if amount > 0 else 0.0
-                slip = abs(self._to_optional_float(row["slippage_bps"]) or 0.0)
-                samples.append({"fee_bps": fee_bps, "slippage_bps": slip, "total_cost_bps": fee_bps + slip})
-            return samples
-        except Exception:
-            logger.exception("❌ Impossible de charger les coûts observés pour %s", symbol)
-            return []
-
-    def _estimate_edge_context(self, signal: TradingSignal, atr_pct: float) -> dict[str, float]:
+    def _passes_cost_guard(
+        self,
+        signal: TradingSignal,
+        atr_pct: float,
+        risk_params: Optional[dict[str, float]] = None,
+    ) -> bool:
         metadata = signal.metadata or {}
         symbol = self._convert_symbol(signal.symbol)
         spread_bps = float(metadata.get("spread_bps", 0.0))
@@ -670,19 +666,180 @@ class SignalHandlerAsync:
         if spread_bps > self._max_spread_bps:
             logger.info("Spread %.1f bps > max %.1f bps", spread_bps, self._max_spread_bps)
             return False
-        net_edge_bps = float(edge_ctx.get("net_edge_bps", 0.0))
-        adaptive_min_edge_bps = float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps))
-        if net_edge_bps < adaptive_min_edge_bps:
-            logger.info(
-                "Edge net %.2f bps < seuil adaptatif %.2f bps (pctl=%.2f, n=%d, coûts=%.2f)",
-                net_edge_bps,
-                adaptive_min_edge_bps,
-                self._edge_percentile_target,
-                int(edge_ctx.get("observed_samples", 0.0)),
-                float(edge_ctx.get("total_cost_bps", 0.0)),
+        params = risk_params or self._resolve_dynamic_risk_params(signal, atr_pct)
+        expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * params["tp_rr"]))
+        fee_bps = float(metadata.get("fee_bps", 40.0))
+        slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        total_cost_bps = fee_bps + slippage_bps + spread_bps
+        return (expected_move_bps - total_cost_bps) >= params["min_edge_bps"]
+
+    def _resolve_dynamic_risk_params(self, signal: Optional[TradingSignal], atr_pct: float) -> dict[str, float]:
+        metadata = (signal.metadata if signal else None) or {}
+        regime = str(metadata.get("regime", "RANGE")).upper()
+        regime_key = "TREND" if "TREND" in regime else "RANGE"
+        preset = RISK_REGIME_PRESETS.get(self._risk_regime_preset, RISK_REGIME_PRESETS["balanced"])
+        base = preset[regime_key]
+
+        spread_bps = max(0.0, float(metadata.get("spread_bps", 0.0)))
+        vol_ratio = self._compute_recent_volatility_ratio(atr_pct)
+
+        atr_sl_mult = float(base["atr_sl_mult"])
+        tp_rr = float(base["tp_rr"])
+        min_edge_bps = float(base["min_edge_bps"])
+
+        if vol_ratio >= 1.35:
+            atr_sl_mult *= 1.12
+            tp_rr += 0.22
+            min_edge_bps += min(8.0, (vol_ratio - 1.35) * 12.0)
+        elif vol_ratio <= 0.75:
+            atr_sl_mult *= 0.94
+            tp_rr = max(1.1, tp_rr - 0.10)
+
+        spread_rr_floor = 1.20 + min(1.0, spread_bps / 120.0)
+        tp_rr = max(tp_rr, spread_rr_floor)
+        min_edge_bps += min(12.0, spread_bps * 0.12)
+
+        return {
+            "atr_sl_mult": min(6.0, max(0.5, atr_sl_mult)),
+            "tp_rr": min(8.0, max(0.5, tp_rr)),
+            "min_edge_bps": min(1000.0, max(1.0, min_edge_bps)),
+        }
+
+    def _compute_recent_volatility_ratio(self, atr_pct: float) -> float:
+        baseline = max(self._fallback_atr_pct, 1e-4)
+        history = list(getattr(self.instance, "_price_history", []))
+        if len(history) >= 10:
+            closes = [float(x[1]) for x in history[-min(len(history), 60):]]
+            moves = [abs(closes[i] - closes[i - 1]) / max(closes[i - 1], 1e-8) for i in range(1, len(closes))]
+            if moves:
+                baseline = max(baseline, sum(moves) / len(moves))
+        return max(0.25, min(4.0, atr_pct / max(baseline, 1e-8)))
+
+    def _passes_microstructure_hard_filter(self, signal: TradingSignal) -> bool:
+        """Hard gate before _execute_buy to reject poor microstructure setups."""
+        metadata = signal.metadata or {}
+        market_metrics = self._get_market_metrics(signal.symbol)
+
+        spread_bps = self._resolve_spread_bps(metadata, market_metrics)
+        latency_ms = self._resolve_signal_latency_ms(signal, metadata)
+        expected_slippage_bps = self._resolve_expected_slippage_bps(metadata, spread_bps, market_metrics)
+
+        rejection_reasons: list[str] = []
+        if spread_bps > self._max_spread_bps:
+            rejection_reasons.append(
+                f"spread_bps={spread_bps:.2f} > max_spread_bps={self._max_spread_bps:.2f}"
             )
-            return False
-        return True
+        if latency_ms > self._max_signal_latency_ms:
+            rejection_reasons.append(
+                f"signal_latency_ms={latency_ms:.1f} > max_signal_latency_ms={self._max_signal_latency_ms:.1f}"
+            )
+        if expected_slippage_bps > self._max_expected_slippage_bps:
+            rejection_reasons.append(
+                "expected_slippage_bps="
+                f"{expected_slippage_bps:.2f} > max_expected_slippage_bps={self._max_expected_slippage_bps:.2f}"
+            )
+
+        if not rejection_reasons:
+            return True
+
+        context = {
+            "symbol": signal.symbol,
+            "reason": signal.reason,
+            "price": float(signal.price),
+            "spread_bps": spread_bps,
+            "signal_latency_ms": latency_ms,
+            "expected_slippage_bps": expected_slippage_bps,
+            "thresholds": {
+                "max_spread_bps": self._max_spread_bps,
+                "max_signal_latency_ms": self._max_signal_latency_ms,
+                "max_expected_slippage_bps": self._max_expected_slippage_bps,
+            },
+        }
+        if market_metrics is not None:
+            context["market_analyzer"] = {
+                "spread_avg_pct": market_metrics.spread_avg,
+                "volatility_24h_pct": market_metrics.volatility_24h,
+                "market_quality": market_metrics.market_quality.name,
+                "composite_score": market_metrics.composite_score,
+            }
+
+        logger.info("⛔ Hard microstructure reject %s: %s", signal.symbol, "; ".join(rejection_reasons))
+        self._journal_rejected_microstructure(signal.symbol, rejection_reasons, context)
+        return False
+
+    def _get_market_metrics(self, symbol: str) -> Optional[Any]:
+        try:
+            analyzer = get_market_analyzer()
+            return analyzer.analyze_market(symbol)
+        except Exception:
+            logger.debug("Market analyzer indisponible pour %s", symbol, exc_info=True)
+            return None
+
+    @staticmethod
+    def _safe_float(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _resolve_spread_bps(self, metadata: dict[str, Any], market_metrics: Optional[Any]) -> float:
+        spread_bps = self._safe_float(metadata.get("spread_bps"), -1.0)
+        if spread_bps >= 0:
+            return spread_bps
+        if market_metrics is not None:
+            return max(0.0, float(market_metrics.spread_avg) * 100.0)
+        return 0.0
+
+    def _resolve_signal_latency_ms(self, signal: TradingSignal, metadata: dict[str, Any]) -> float:
+        candidate_keys = (
+            "signal_latency_ms",
+            "latency_ms",
+            "ws_latency_ms",
+            "tick_age_ms",
+        )
+        for key in candidate_keys:
+            parsed = self._safe_float(metadata.get(key), -1.0)
+            if parsed >= 0:
+                return parsed
+        signal_ts = signal.timestamp
+        if signal_ts.tzinfo is None:
+            signal_ts = signal_ts.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - signal_ts).total_seconds() * 1000.0)
+
+    def _resolve_expected_slippage_bps(
+        self,
+        metadata: dict[str, Any],
+        spread_bps: float,
+        market_metrics: Optional[Any],
+    ) -> float:
+        expected_slippage = self._safe_float(metadata.get("expected_slippage_bps"), -1.0)
+        if expected_slippage >= 0:
+            return expected_slippage
+        explicit_slippage = self._safe_float(metadata.get("slippage_bps"), -1.0)
+        if explicit_slippage >= 0:
+            return explicit_slippage
+        if market_metrics is not None:
+            return max(4.0, spread_bps * 0.45, float(market_metrics.spread_avg) * 60.0)
+        return max(4.0, spread_bps * 0.35)
+
+    def _journal_rejected_microstructure(
+        self,
+        symbol: str,
+        reasons: list[str],
+        context: dict[str, Any],
+    ) -> None:
+        service = getattr(self.instance, "decision_journal_service", None)
+        if service is None or not hasattr(service, "rejected_opportunity"):
+            return
+        try:
+            service.rejected_opportunity(
+                reason="microstructure_hard_filter",
+                source="signal_handler_async",
+                symbol=symbol,
+                context={**context, "reasons": reasons},
+            )
+        except Exception:
+            logger.debug("Decision journal indisponible pour rejet microstructure", exc_info=True)
 
     def _build_execution_plan(self, signal: TradingSignal, volume: float, edge_ctx: Optional[dict[str, float]] = None) -> dict[str, Any]:
         metadata = signal.metadata or {}
