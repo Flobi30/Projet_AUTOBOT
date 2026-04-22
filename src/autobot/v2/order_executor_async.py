@@ -17,6 +17,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import time
 import urllib.parse
@@ -48,6 +49,26 @@ def _kraken_signature(urlpath: str, data: dict, secret: str) -> str:
     message = urlpath.encode("utf-8") + hashlib.sha256(encoded).digest()
     mac = hmac.new(base64.b64decode(secret), message, hashlib.sha512)
     return base64.b64encode(mac.digest()).decode("utf-8")
+
+
+def _build_error_response(
+    code: str,
+    message: str,
+    *,
+    http_status: Optional[int] = None,
+) -> dict:
+    """Standardized internal error payload for coherent error mapping."""
+    payload: Dict[str, Any] = {
+        "error": [f"{code}:{message}"],
+        "error_code": code,
+    }
+    if http_status is not None:
+        payload["http_status"] = http_status
+    return payload
+
+
+def _truncate_payload(value: str, max_len: int = 300) -> str:
+    return value if len(value) <= max_len else value[:max_len] + "..."
 
 
 class OrderExecutorAsync:
@@ -120,7 +141,7 @@ class OrderExecutorAsync:
         url = f"{self.KRAKEN_API_URL}/0/public/{method}"
         session = await self._get_session()
         async with session.post(url, data=params) as resp:
-            return await resp.json()
+            return await self._parse_kraken_http_response(resp, method=method, is_private=False)
 
     async def _query_private(self, method: str, **params: Any) -> dict:
         """Call Kraken private API endpoint with HMAC signing."""
@@ -143,7 +164,77 @@ class OrderExecutorAsync:
 
         session = await self._get_session()
         async with session.post(url, data=params, headers=headers) as resp:
-            return await resp.json()
+            return await self._parse_kraken_http_response(resp, method=method, is_private=True)
+
+    async def _parse_kraken_http_response(
+        self,
+        resp: aiohttp.ClientResponse,
+        *,
+        method: str,
+        is_private: bool,
+    ) -> dict:
+        """Validate HTTP status and defensively parse JSON response body."""
+        scope = "private" if is_private else "public"
+        status = resp.status
+        body = await resp.text()
+
+        if status != 200:
+            logger.error(
+                "❌ Kraken HTTP %s %s/%s: status=%s body=%s",
+                "POST",
+                scope,
+                method,
+                status,
+                _truncate_payload(body),
+            )
+            return _build_error_response(
+                "HTTP_STATUS_ERROR",
+                f"HTTP {status} sur endpoint {scope}/{method}",
+                http_status=status,
+            )
+
+        if not body.strip():
+            logger.error("❌ Réponse vide Kraken sur %s/%s", scope, method)
+            return _build_error_response(
+                "EMPTY_RESPONSE",
+                f"Réponse vide sur endpoint {scope}/{method}",
+                http_status=status,
+            )
+
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            logger.error(
+                "❌ JSON invalide Kraken sur %s/%s: %s",
+                scope,
+                method,
+                _truncate_payload(body),
+            )
+            return _build_error_response(
+                "INVALID_JSON",
+                f"Réponse JSON invalide sur endpoint {scope}/{method}",
+                http_status=status,
+            )
+
+        if not isinstance(payload, dict):
+            logger.error(
+                "❌ Format inattendu Kraken sur %s/%s (type=%s)",
+                scope,
+                method,
+                type(payload).__name__,
+            )
+            return _build_error_response(
+                "INVALID_RESPONSE_FORMAT",
+                f"Format réponse inattendu ({type(payload).__name__}) sur endpoint {scope}/{method}",
+                http_status=status,
+            )
+
+        if "error" not in payload:
+            payload["error"] = []
+        elif not isinstance(payload["error"], list):
+            payload["error"] = [str(payload["error"])]
+
+        return payload
 
     async def _next_nonce(self, api_key_id: str) -> int:
         """
@@ -243,7 +334,18 @@ class OrderExecutorAsync:
                 elif method in _PUBLIC:
                     response = await self._query_public(method, **params)
                 else:
-                    return False, {"error": f"Méthode inconnue: {method}"}
+                    return False, _build_error_response(
+                        "UNKNOWN_METHOD",
+                        f"Méthode inconnue: {method}",
+                    )
+
+                if not isinstance(response, dict):
+                    logger.error("❌ Réponse API non dict pour %s", method)
+                    await self._increment_error_count()
+                    return False, _build_error_response(
+                        "INVALID_RESPONSE_FORMAT",
+                        f"Réponse API inattendue (type={type(response).__name__}) pour {method}",
+                    )
 
                 # Check errors
                 if response.get("error"):
@@ -321,16 +423,11 @@ class OrderExecutorAsync:
             logger.error(f"❌ Échec ordre MARKET: {error_msg}")
             return OrderResult(success=False, error=error_msg)
 
-        txid = None
-        if "result" in response and "txid" in response["result"]:
-            # SEC-08: validate response shape before indexing
-            txid_list = response["result"]["txid"]
-            if not isinstance(txid_list, list) or len(txid_list) == 0:
-                return OrderResult(success=False, error="txid vide ou invalide dans réponse Kraken")
-            txid = txid_list[0]
-            logger.info(f"✅ Ordre accepté, txid: {txid[:8]}...")
-        else:
-            return OrderResult(success=False, error="Pas de txid dans réponse")
+        txid, txid_error = _extract_txid(response)
+        if txid_error:
+            return OrderResult(success=False, error=txid_error)
+        assert txid is not None
+        logger.info(f"✅ Ordre accepté, txid: {txid[:8]}...")
 
         return await self._wait_for_execution(txid, max_wait=60)
 
@@ -372,13 +469,12 @@ class OrderExecutorAsync:
             logger.error(f"❌ Échec stop-loss: {error_msg}")
             return OrderResult(success=False, error=error_msg)
 
-        txid = None
-        if "result" in response and "txid" in response["result"]:
-            txid = response["result"]["txid"][0]
-            logger.info(f"✅ Stop-loss posé, txid: {txid[:8]}...")
-            return OrderResult(success=True, txid=txid)
-
-        return OrderResult(success=False, error="Pas de txid")
+        txid, txid_error = _extract_txid(response)
+        if txid_error:
+            return OrderResult(success=False, error=txid_error)
+        assert txid is not None
+        logger.info(f"✅ Stop-loss posé, txid: {txid[:8]}...")
+        return OrderResult(success=True, txid=txid)
 
     async def _wait_for_execution(
         self, txid: str, max_wait: int = 60
@@ -556,6 +652,22 @@ def _extract_error(response: dict) -> str:
     if isinstance(err, list):
         return err[0] if err else "Unknown"
     return str(err)
+
+
+def _extract_txid(response: dict) -> Tuple[Optional[str], Optional[str]]:
+    """Extract txid from Kraken AddOrder response with explicit shape checks."""
+    result = response.get("result")
+    if not isinstance(result, dict):
+        return None, "Champ 'result' manquant ou invalide dans réponse Kraken"
+
+    txid_list = result.get("txid")
+    if not isinstance(txid_list, list) or not txid_list:
+        return None, "Champ 'txid' manquant, vide ou invalide dans réponse Kraken"
+
+    txid = txid_list[0]
+    if not isinstance(txid, str) or not txid:
+        return None, "Premier txid invalide dans réponse Kraken"
+    return txid, None
 
 
 # ------------------------------------------------------------------
