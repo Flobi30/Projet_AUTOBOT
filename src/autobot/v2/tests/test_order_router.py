@@ -61,6 +61,7 @@ async def router():
     # Mocker l'executor
     router._executor = MagicMock()
     router._executor.execute_market_order = AsyncMock()
+    router._executor.execute_limit_order = AsyncMock()
     router._executor.execute_stop_loss_order = AsyncMock()
     router._executor.cancel_order = AsyncMock()
     router._executor.cancel_all_orders = AsyncMock()
@@ -330,6 +331,31 @@ class TestOrderRouterExecution:
         assert result.success
         assert result.txid == "TEST-123"
         running_router._executor.execute_market_order.assert_called_once()
+
+    async def test_submit_limit_post_only_order(self, running_router):
+        """Test la soumission d'un ordre limit post-only."""
+        expected_result = OrderResult(
+            success=True,
+            txid="LMT-123",
+            executed_price=49990.0,
+            executed_volume=0.02,
+            liquidity="maker",
+        )
+        running_router._executor.execute_limit_order.return_value = expected_result
+
+        order = {
+            "type": "limit",
+            "symbol": "XXBTZEUR",
+            "side": "buy",
+            "volume": 0.02,
+            "price": 49990.0,
+            "post_only": True,
+        }
+        result = await running_router.submit(order, OrderPriority.ORDER)
+
+        assert result.success
+        assert result.liquidity == "maker"
+        running_router._executor.execute_limit_order.assert_called_once()
     
     async def test_submit_stop_loss_order(self, running_router):
         """Test la soumission d'un ordre stop-loss."""
