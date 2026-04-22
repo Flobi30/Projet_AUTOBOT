@@ -1,0 +1,11 @@
+python-dotenv
+aiohttp
+aiofiles
+uvloop
+krakenex
+websocket-client
+websockets
+orjson
+aiosqlite
+python-dateutil
+psutil
