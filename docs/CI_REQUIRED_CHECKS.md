@@ -8,6 +8,7 @@ This gate depends on:
 
 - `Python tests (unit)` and `Python tests (integration)` from the `python-tests` matrix job.
 - `Dashboard build and lint`.
+- `Conflict marker scan`.
 
 Recommended GitHub configuration:
 
@@ -17,3 +18,6 @@ Recommended GitHub configuration:
 4. Mark `Required CI gates (critical branches)` as required.
 
 Artifacts are published for diagnostics even when jobs fail.
+
+
+Additionally, enforce the dedicated pre-merge routine described in `docs/PRE_MERGE_ROUTINE.md`.
