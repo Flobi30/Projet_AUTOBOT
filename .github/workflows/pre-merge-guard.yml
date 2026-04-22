@@ -1,0 +1,19 @@
+name: Pre-merge Guard
+
+on:
+  pull_request:
+    branches: [ main, master, work ]
+
+jobs:
+  conflict-marker-scan:
+    name: Conflict marker scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if merge conflict markers are present
+        run: |
+          if rg -n --hidden --glob '!**/node_modules/**' '^(<<<<<<<|=======|>>>>>>>)' .; then
+            echo "Merge conflict markers detected. Resolve conflicts before merge."
+            exit 1
+          fi
+          echo "No merge conflict markers found."
