@@ -53,6 +53,20 @@ Detailed guide: `docs/PAPER_TRADING_OPERATIONS.md`.
 ## Mode live
 Voir `docs/LIVE_PROMOTION_GATES.md`, `SECURITY.md`, `RUNBOOK.md`.
 
+## Healthcheck Docker (TLS vs endpoint interne)
+Le conteneur supporte **2 modes explicites** pour `/health`:
+
+| Contexte | Mode recommandé | Configuration | Comportement |
+|---|---|---|---|
+| Local/dev/paper sur réseau Docker privé | `internal_http` (défaut) | `HEALTHCHECK_MODE=internal_http` | Le healthcheck interroge `http://127.0.0.1:8080/health` (loopback interne au conteneur, sans TLS). |
+| Production avec terminaison TLS dans l'app | `tls` | `HEALTHCHECK_MODE=tls` + `HEALTHCHECK_CA_CERT=/app/certs/ca.crt` | Le healthcheck interroge `https://localhost:8080/health` avec validation CA stricte via `--cacert` (pas de `-k`). |
+
+Exemple production:
+```bash
+HEALTHCHECK_MODE=tls
+HEALTHCHECK_CA_CERT=/app/certs/ca.crt
+```
+
 ## Contribution policy
 - Do not commit build outputs (`dashboard/dist/`) or dependencies (`dashboard/node_modules/`).
 - Frontend artifacts must be generated during CI/CD builds (GitHub Actions/Netlify), not versioned in Git.
