@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { TrendingUp, BarChart3, Wallet, PieChart, Bot, User, Activity, Menu, X, Activity as ActivityIcon, HeartPulse } from 'lucide-react';
+import { TrendingUp, BarChart3, Wallet, PieChart, Bot, User, Activity, Menu, X, HeartPulse } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -10,15 +10,18 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const navItems = [
     {
-      category: 'TRADING',
+      category: 'TRADING & ANALYSE',
       items: [
+        { name: 'Live Trading', path: '/trading', icon: TrendingUp },
         { name: 'Performance', path: '/performance', icon: Activity },
+        { name: 'Backtest', path: '/backtest', icon: BarChart3 },
       ]
     },
     {
       category: 'GESTION',
       items: [
         { name: 'Capital', path: '/capital', icon: Wallet },
+        { name: 'Analytics', path: '/analytics', icon: PieChart },
       ]
     },
     {
@@ -31,7 +34,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
   return (
     <>
-      {/* Mobile Menu Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="lg:hidden fixed top-4 left-4 z-50 bg-gray-800 text-white p-2 rounded-xl border border-gray-700 shadow-lg"
@@ -39,7 +41,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
         {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
       </button>
 
-      {/* Mobile Overlay */}
       {isOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/50 z-40"
@@ -47,16 +48,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
         />
       )}
 
-      {/* Sidebar */}
       <div className={`
         fixed left-0 top-0 h-screen w-64 bg-gray-800 border-r border-gray-700 shadow-2xl z-50 transform transition-transform duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
       `}>
-        {/* Logo Header */}
         <div className="p-6 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-750">
           <div className="flex items-center space-x-4">
-            {/* Logo Container */}
             <div className="w-12 h-12 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
               <Bot className="w-7 h-7 text-white" />
             </div>
@@ -70,7 +68,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
           </div>
         </div>
 
-        {/* Navigation */}
         <div className="flex-1 overflow-y-auto py-4">
           {navItems.map((category, categoryIndex) => (
             <div key={categoryIndex} className="px-4 mb-6">
@@ -100,9 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
           ))}
         </div>
 
-        {/* Status & User Profile */}
         <div className="p-4 border-t border-gray-700 bg-gray-800/50">
-          {/* Bot Status */}
           <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -116,7 +111,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             </div>
           </div>
 
-          {/* User Profile */}
           <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-700 transition-colors cursor-pointer">
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center shadow-md">
               <User className="w-5 h-5 text-white" />

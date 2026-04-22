@@ -26,3 +26,9 @@ Detailed guide: `docs/PAPER_TRADING_OPERATIONS.md`.
 
 ## Mode live
 Voir `docs/LIVE_PROMOTION_GATES.md`, `SECURITY.md`, `RUNBOOK.md`.
+
+
+## Contribution
+Voir `CONTRIBUTING.md`.
+
+Règle frontend impérative: tout code React/TSX doit vivre sous `dashboard/src`.

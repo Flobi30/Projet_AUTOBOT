@@ -44,6 +44,14 @@ jobs:
       - name: Run npm audit (high+)
         run: npm audit --audit-level=high
 
+  frontend-structure-guard:
+    name: Frontend structure guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce canonical frontend paths
+        run: bash scripts/check_frontend_paths.sh
+
   leaked-secret-promotion-guard:
     name: Unsafe promotion guard
     runs-on: ubuntu-latest
