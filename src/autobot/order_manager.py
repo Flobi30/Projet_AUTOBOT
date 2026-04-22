@@ -6,6 +6,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime, timedelta, timezone
 
 try:
     import krakenex
@@ -47,6 +48,7 @@ class Order:
     status: str = "pending"  # pending, open, closed, canceled
     created_at: Optional[str] = None
     filled_volume: float = 0.0
+    closed_at: Optional[datetime] = None
     
     def is_filled(self) -> bool:
         """Vérifie si l'ordre est complètement exécuté"""
@@ -112,6 +114,31 @@ class OrderManager:
         self._active_orders: Dict[str, Order] = {}
         
         logger.info(f"📊 OrderManager initialisé (sandbox={sandbox}, max_value={max_order_value}€)")
+
+    @staticmethod
+    def _utcnow() -> datetime:
+        """Retourne la date/heure UTC courante (aware)."""
+        return datetime.now(timezone.utc)
+
+    def _set_terminal_timestamp(self, order: Order, previous_status: Optional[str] = None) -> None:
+        """
+        Enregistre un timestamp quand un ordre passe en état terminal.
+
+        Args:
+            order: Ordre à mettre à jour
+            previous_status: Statut précédent pour détecter une transition
+        """
+        terminal_statuses = {"closed", "canceled", "error"}
+        if order.status not in terminal_statuses:
+            return
+
+        if previous_status == order.status and order.closed_at is not None:
+            return
+
+        if previous_status in terminal_statuses and order.closed_at is not None:
+            return
+
+        order.closed_at = self._utcnow()
     
     def _get_client(self):
         """Retourne le client API Kraken"""
@@ -356,7 +383,10 @@ class OrderManager:
         
         if self.sandbox:
             logger.info(f"🧪 [SANDBOX] Ordre {order_id} annulé")
-            self._active_orders[order_id].status = "canceled"
+            order = self._active_orders[order_id]
+            previous_status = order.status
+            order.status = "canceled"
+            self._set_terminal_timestamp(order, previous_status)
             return True
         
         def _do_cancel():
@@ -371,7 +401,10 @@ class OrderManager:
         try:
             success = self.error_handler.execute_with_retry(_do_cancel)
             if success:
-                self._active_orders[order_id].status = "canceled"
+                order = self._active_orders[order_id]
+                previous_status = order.status
+                order.status = "canceled"
+                self._set_terminal_timestamp(order, previous_status)
                 logger.info(f"✅ Ordre {order_id} annulé")
             return success
         except Exception as e:
@@ -428,14 +461,17 @@ class OrderManager:
                 # Met à jour l'ordre existant ou crée un nouveau
                 if order_id in self._active_orders:
                     order = self._active_orders[order_id]
+                    previous_status = order.status
                     order.status = info.get('status', order.status)
                     order.filled_volume = float(info.get('vol_exec', order.filled_volume))
+                    self._set_terminal_timestamp(order, previous_status)
                 else:
                     order = Order(
                         id=order_id,
                         status=info.get('status', 'unknown'),
                         filled_volume=float(info.get('vol_exec', 0))
                     )
+                    self._set_terminal_timestamp(order)
                     self._active_orders[order_id] = order
                 return order
         except Exception as e:
@@ -480,16 +516,27 @@ class OrderManager:
         Nettoie les ordres fermés du cache pour éviter la fuite mémoire.
         
         Args:
-            max_age_hours: Âge max avant suppression (non implémenté - supprime tout)
+            max_age_hours: Âge max avant suppression des ordres fermés.
             
         Returns:
             Nombre d'ordres nettoyés
         """
         closed_statuses = ("closed", "canceled", "error")
-        to_remove = [
-            order_id for order_id, order in self._active_orders.items()
-            if order.status in closed_statuses
-        ]
+        if max_age_hours <= 0:
+            to_remove = [
+                order_id for order_id, order in self._active_orders.items()
+                if order.status in closed_statuses
+            ]
+        else:
+            now = self._utcnow()
+            cutoff = now - timedelta(hours=max_age_hours)
+            to_remove = [
+                order_id
+                for order_id, order in self._active_orders.items()
+                if order.status in closed_statuses
+                and order.closed_at is not None
+                and order.closed_at <= cutoff
+            ]
         
         for order_id in to_remove:
             del self._active_orders[order_id]
