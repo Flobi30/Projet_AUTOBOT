@@ -59,6 +59,7 @@ class KrakenWebSocketAsync:
 
         # Callbacks (async)
         self._ticker_callbacks: Dict[str, List[AsyncCallback]] = {}
+        self._book_callbacks: Dict[str, List[Callable]] = {}
 
         # Cache
         self._last_prices: Dict[str, TickerData] = {}
@@ -223,6 +224,8 @@ class KrakenWebSocketAsync:
 
             if "ticker" in channel_name:
                 await self._process_ticker(pair, channel_data)
+            elif "book" in channel_name:
+                await self._process_book(pair, channel_data)
             else:
                 logger.debug(f"📨 WS channel non géré: {channel_name} pair={pair}")
 
@@ -280,6 +283,37 @@ class KrakenWebSocketAsync:
                 await cb(ticker)
             except Exception as exc:
                 logger.error(f"❌ Erreur callback ticker {pair}: {exc}")
+
+    async def _process_book(self, pair: str, data: dict) -> None:
+        """Process order book update."""
+        callbacks = list(self._book_callbacks.get(pair, []))
+        for cb in callbacks:
+            try:
+                await cb(pair, data)
+            except Exception as exc:
+                logger.error(f"❌ Erreur callback book {pair}: {exc}")
+
+    async def subscribe_book(self, pair: str, callback: Callable) -> None:
+        """Subscribe to order book (depth 10)."""
+        if pair not in self._book_callbacks:
+            self._book_callbacks[pair] = []
+        self._book_callbacks[pair].append(callback)
+        
+        if self._ws:
+            msg = orjson.dumps({
+                "event": "subscribe",
+                "pair": [pair],
+                "subscription": {"name": "book", "depth": 10}
+            })
+            await self._ws.send(msg.decode("utf-8"))
+            logger.info(f"📡 Subscription book (OFI): {pair}")
+
+    async def unsubscribe_book(self, pair: str, callback: Callable) -> None:
+        if pair in self._book_callbacks:
+            try:
+                self._book_callbacks[pair].remove(callback)
+            except ValueError:
+                pass
 
     # ------------------------------------------------------------------
     # Subscriptions

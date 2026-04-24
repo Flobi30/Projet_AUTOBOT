@@ -329,8 +329,14 @@ class XGBoostPredictor:
 
             try:
                 if _HAS_XGBOOST and isinstance(self._model, xgb.Booster):
-                    dtest = xgb.DMatrix([features])
-                    prob = float(self._model.predict(dtest)[0])
+                    # LOG-02: Optimization: use inplace_predict for low-latency single-row inference
+                    try:
+                        import numpy as np
+                        prob = float(self._model.inplace_predict(np.array([features], dtype=np.float32))[0])
+                    except (ImportError, AttributeError):
+                        # Fallback if numpy is missing or old xgboost version
+                        dtest = xgb.DMatrix([features])
+                        prob = float(self._model.predict(dtest)[0])
                     pred = 1 if prob > 0.5 else 0
                 else:
                     pred = self._predict_simple(features)

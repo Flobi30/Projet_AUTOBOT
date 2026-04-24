@@ -45,6 +45,9 @@ class ReconciliationManagerAsync:
     async def reconcile_all(self) -> List[Divergence]:
         all_div: List[Divergence] = []
         logger.info("🔄 Réconciliation complète (async)...")
+        # ROB-02: cleanup orphaned orders
+        await self._cleanup_orphaned_orders()
+
         # ARCH-06: use callable to get the current (dynamic) instances snapshot
         for inst_id, inst in self._get_instances().items():
             try:
@@ -121,6 +124,39 @@ class ReconciliationManagerAsync:
             return 0.0
         except Exception:
             return 0.0
+
+    async def _cleanup_orphaned_orders(self) -> int:
+        """
+        ROB-02: Search for SL orders on Kraken that have no local position.
+        Returns number of canceled orders.
+        """
+        try:
+            open_kraken = await self.order_executor.get_open_orders()
+            if not open_kraken:
+                return 0
+            
+            # Map all local active txids (buy orders, sl orders)
+            active_txids = set()
+            for inst in self._get_instances().values():
+                for pos in inst.get_positions_snapshot():
+                    if pos.get("txid"): active_txids.add(pos["txid"])
+                    if pos.get("stop_loss_txid"): active_txids.add(pos["stop_loss_txid"])
+                # Also include pending orders from signal handler if possible
+                # But here we focus on SL orphans
+            
+            canceled = 0
+            for txid, info in open_kraken.items():
+                if txid not in active_txids:
+                    descr = info.get("descr", {})
+                    # We only cancel SL orders that are orphaned
+                    if descr.get("ordertype") in ("stop-loss", "take-profit"):
+                        logger.warning(f"🧹 Annulation SL orphelin détecté: {txid}")
+                        await self.order_executor.cancel_order(txid)
+                        canceled += 1
+            return canceled
+        except Exception as exc:
+            logger.error(f"❌ Erreur cleanup SL orphelins: {exc}")
+            return 0
 
     async def _loop(self) -> None:
         logger.info("🔄 Boucle réconciliation démarrée (async)")

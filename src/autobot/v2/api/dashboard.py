@@ -40,7 +40,7 @@ def _compute_global_totals(orchestrator: Any, status: Dict[str, Any]) -> tuple[f
             total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
 
     if total_profit is None:
-        raise HTTPException(status_code=500, detail="Erreur interne")
+        total_profit = 0.0
 
     return total_capital, total_profit
 

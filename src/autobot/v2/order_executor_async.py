@@ -78,6 +78,10 @@ class OrderExecutorAsync:
     Drop-in async replacement for OrderExecutor.
     """
 
+    def __repr__(self) -> str:
+        key_hint = self._api_key[:6] + "..." if self._api_key else "None"
+        return f"OrderExecutorAsync(api_key={key_hint!r})"
+
     KRAKEN_API_URL = "https://api.kraken.com"
 
     def __init__(
@@ -655,6 +659,23 @@ class OrderExecutorAsync:
     # ------------------------------------------------------------------
     # Phase 3: reconciliation helpers
     # ------------------------------------------------------------------
+
+
+    async def find_order_by_userref(self, userref: int) -> Optional[tuple[str, dict]]:
+        """Find an order (open or closed) by its userref (ROB-01 recovery)."""
+        # Check open orders
+        open_orders = await self.get_open_orders()
+        for txid, info in open_orders.items():
+            if int(info.get("userref", 0)) == userref:
+                return txid, info
+        
+        # Check closed orders (recent)
+        closed_orders = await self.get_closed_orders()
+        for txid, info in closed_orders.items():
+            if int(info.get("userref", 0)) == userref:
+                return txid, info
+        
+        return None
 
     async def get_closed_orders(
         self,

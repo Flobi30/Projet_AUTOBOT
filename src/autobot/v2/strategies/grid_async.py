@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import TradingSignal, SignalType, calculate_grid_levels, PositionSizing
+from ..modules.trailing_stop_atr import TrailingStopATR
+from ..modules.atr_filter import ATRFilter
 from .strategy_async import StrategyAsync
 from ..speculative_order_cache import SpeculativeOrderCache
 
@@ -98,6 +100,11 @@ class GridStrategyAsync(StrategyAsync):
         self.num_levels = self.config.get("num_levels", 15)
         self.max_capital_per_level = self.config.get("max_capital_per_level", 50.0)
         self.max_positions = self.config.get("max_positions", 10)
+        self.voter_filter_active = self.config.get("voter_filter_active", True)
+        self.kelly_active = self.config.get("kelly_active", True)
+        self.trailing_tp_active = self.config.get("trailing_tp_active", True)
+        self.trailing_stops: Dict[int, TrailingStopATR] = {}
+        self._atr_tracker = ATRFilter(period=14)
 
         self.grid_levels: List[float] = []
         self._runtime_capital_per_level: float = 0.0
@@ -110,7 +117,7 @@ class GridStrategyAsync(StrategyAsync):
         self._grid_allocator = _DynamicGridAllocator if _DynamicGridAllocator else None
         self._adaptive_mode = False
         self._cold_path_counter = 0
-        self._cold_path_interval = self.config.get("adaptive_update_interval", 60)
+        self._cold_path_interval = self.config.get("adaptive_update_interval", 30) # Hetzner optimized
 
         # V3: Initialize adaptive components if profile available
         self._init_adaptive()
@@ -233,7 +240,26 @@ class GridStrategyAsync(StrategyAsync):
             range_percent=self.range_percent,
             num_levels=self.num_levels,
         )
+        
+        # P1: Liquidation Magnet (Task #38)
+        # On ajuste légèrement les niveaux pour "coller" aux zones de liquidation probables.
+        try:
+            heatmap = self.instance.orchestrator.module_manager.get("liquidation_heatmap")
+            if heatmap:
+                zones = heatmap.get_liquidation_zones(self.center_price, top_n=3)
+                for zone in zones:
+                    z_price = zone["price"]
+                    # Trouver le niveau de grille le plus proche
+                    for i, level in enumerate(self.grid_levels):
+                        # Si un niveau est à moins de 0.2% d'une zone de liquidation, on l'aligne pile dessus.
+                        if abs(level - z_price) / z_price < 0.002:
+                            logger.info(f"🧲 Liquidation Magnet: alignement niveau {i} sur {z_price}")
+                            self.grid_levels[i] = z_price
+        except Exception as exc:
+            logger.debug(f"Liquidation Magnet skip: {exc}")
+
         available = self.instance.get_available_capital()
+
         if available <= 0:
             raise ValueError(f"Capital invalide: {available:.2f}")
 
@@ -382,7 +408,8 @@ class GridStrategyAsync(StrategyAsync):
     def _can_open_position(self, available_capital: float) -> bool:
         if len(self.open_levels) >= self.max_positions:
             return False
-        cpl = self._runtime_capital_per_level
+        # Kelly Dynamic Sizing (Phase 2)
+                cpl = self._calculate_kelly_cpl(price)
         return cpl > 0 and available_capital >= cpl
 
     def _check_drawdown(self, price: float) -> Optional[int]:
@@ -399,13 +426,101 @@ class GridStrategyAsync(StrategyAsync):
     # on_price — CPU-bound, no I/O
     # ------------------------------------------------------------------
 
+    def _calculate_kelly_cpl(self, price: float) -> float:
+        """Calcul du capital par niveau ajusté par Kelly + Voter Strength (PF Boost P2)."""
+        base_# Kelly Dynamic Sizing (Phase 2)
+                cpl = self._calculate_kelly_cpl(price)
+        if not self.kelly_active or self._kelly is None:
+            return base_cpl
+
+        try:
+            # 1) Get instance metrics
+            trades = list(getattr(self.instance, "_trades", []))
+            wins = [t for t in trades if (t.profit or 0.0) > 0]
+            losses = [t for t in trades if (t.profit or 0.0) < 0]
+            total = len(trades)
+            win_rate = (len(wins) / total) if total > 0 else 0.5
+            avg_win = (sum((t.profit or 0.0) for t in wins) / len(wins)) if wins else 1.0
+            avg_loss = (abs(sum((t.profit or 0.0) for t in losses)) / len(losses)) if losses else 1.0
+            pf = self.instance.get_profit_factor_days(30)
+            
+            # 2) Kelly Position Sizing
+            capital = self.instance.get_current_capital()
+            kelly_size = self._kelly.calculate_position_size(
+                win_rate=win_rate,
+                avg_win=float(max(avg_win, 1e-8)),
+                avg_loss=float(max(avg_loss, 1e-8)),
+                current_capital=capital,
+                current_pf=float(pf if pf != float("inf") else 2.0)
+            )
+            
+            if kelly_size <= 0:
+                return base_cpl * 0.5 
+
+            # 3) Voter Strength Weighting
+            voter_mult = 1.0
+            if hasattr(self.instance.orchestrator, "voter"):
+                tally = self.instance.orchestrator.voter.tally()
+                if tally["signal"] == "BUY":
+                    if tally["strength"] == "strong": voter_mult = 1.2
+                    elif tally["strength"] == "weak": voter_mult = 0.9
+                elif tally["signal"] == "SELL":
+                    voter_mult = 0.6
+            
+            # Distribution
+            final_cpl = kelly_size * voter_mult / 5.0 
+            return max(5.0, min(final_cpl, self.max_capital_per_level))
+
+        except Exception as e:
+            logger.error(f"Error in Kelly sizing: {e}")
+            return base_cpl
+
+    def _get_active_trailing_sells(self, current_price: float, symbol: str) -> List[int]:
+        """Gère la logique de Trailing Take-Profit (Phase 3)."""
+        if not self.trailing_tp_active:
+            return self._get_sell_levels(current_price)
+            
+        ready_to_sell = []
+        current_atr_pct = self._atr_tracker.get_current_atr()
+        
+        if not current_atr_pct:
+            return self._get_sell_levels(current_price)
+            
+        atr_val = (current_atr_pct / 100) * current_price
+        
+        for idx, pos in list(self.open_levels.items()):
+            lp = self.grid_levels[idx]
+            target_price = lp * (1 + self._sell_threshold_pct / 100)
+            
+            if current_price >= target_price:
+                if idx not in self.trailing_stops:
+                    self.trailing_stops[idx] = TrailingStopATR(atr_multiplier=1.5, activation_profit=0.5)
+                
+                stop_price = self.trailing_stops[idx].update(current_price, atr_val, target_price)
+                
+                if current_price < stop_price:
+                    logger.info(f"📈 Trailing TP déclenché pour {symbol} niveau {idx} (stop @ {stop_price:.2f})")
+                    ready_to_sell.append(idx)
+                    self.trailing_stops.pop(idx, None)
+            else:
+                self.trailing_stops.pop(idx, None)
+                
+        return ready_to_sell
+
     def on_price(self, price: float) -> None:
+        # Update volatility tracker
+        self._atr_tracker.on_price(price)
+
         if not self._initialized or not math.isfinite(price) or price <= 0:
             return
 
         # V3: Feed price to range calculator (O(1) deque append)
         if self._range_calculator is not None:
             self._range_calculator.on_price(price)
+            
+        # Phase 6: Update RegimeDetector (simulated OHLC from tick)
+        if self._regime_detector:
+            self._regime_detector.update(high=price, low=price, close=price)
 
         # Dynamic grid initialization on first price received
         if not self._grid_initialized:
@@ -482,6 +597,7 @@ class GridStrategyAsync(StrategyAsync):
                         self.grid_levels = result.new_grid_levels
                         for idx in positions_closed:
                             self.open_levels.pop(idx, None)
+                            self.trailing_stops.pop(idx, None)
                         self._emergency_close_price = self.center_price * (
                             1 - self.range_percent * self._grid_invalidation_factor / 100
                         )
@@ -543,9 +659,9 @@ class GridStrategyAsync(StrategyAsync):
                 )
                 self.emit_signal(sig)
 
-        # Sells
-        sell_levels = self._get_sell_levels(price)
-        sell_data = [(idx, self.open_levels[idx], self.grid_levels[idx]) for idx in sell_levels if idx in self.open_levels]
+        # Sells with Trailing TP (Phase 3)
+        active_sells = self._get_active_trailing_sells(price, symbol)
+        sell_data = [(idx, self.open_levels[idx], self.grid_levels[idx]) for idx in active_sells if idx in self.open_levels]
         for i, (idx, pos, lp) in enumerate(sell_data):
             pct = (price - lp) / lp * 100
             sig = TradingSignal(
@@ -563,12 +679,21 @@ class GridStrategyAsync(StrategyAsync):
         if self._oi_monitor and self._oi_monitor.is_squeeze_risk():
             return
 
+        # PF Boost: Voter Entry Filter
+        if self.voter_filter_active and hasattr(self.instance.orchestrator, "voter"):
+            tally = self.instance.orchestrator.voter.tally()
+            if tally["signal"] == "SELL" and tally["strength"] == "strong":
+                # Pour une grille LONG (achat de baisse), on évite d'acheter si le consensus est fortement baissier
+                logger.warning(f"🛡️ Voter Filter: skip BUY for {symbol} (consensus: STRONG SELL)")
+                return
+
         # Buys
         if self._can_open_position(available_capital):
             buy_levels = self._get_buy_levels(price)
             if buy_levels:
                 best = max(buy_levels)
-                cpl = self._runtime_capital_per_level
+                # Kelly Dynamic Sizing (Phase 2)
+                cpl = self._calculate_kelly_cpl(price)
                 if cpl > 0:
                     volume = cpl / price
                     sig = TradingSignal(
@@ -604,6 +729,7 @@ class GridStrategyAsync(StrategyAsync):
             return
         idx = self._find_nearest_level(position.buy_price)
         self.open_levels.pop(idx, None)
+        self.trailing_stops.pop(idx, None)
         if self._spec_cache is not None:
             symbol = self.instance.config.symbol
             self._spec_cache.invalidate(symbol, "sell", idx)

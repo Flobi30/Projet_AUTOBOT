@@ -171,8 +171,7 @@ class TradingInstanceAsync:
     async def recover_state(self) -> None:
         """Recover state from SQLite (called at startup)."""
         try:
-            saved_positions = await self._run_sync(
-                self._persistence.recover_positions, self.id
+            saved_positions = await self._persistence.recover_positions(self.id
             )
             if saved_positions:
                 logger.warning(
@@ -206,8 +205,7 @@ class TradingInstanceAsync:
                                     source=metadata.get("buy_fee_source", "recovered_metadata"),
                                 )
 
-            saved_state = await self._run_sync(
-                self._persistence.recover_instance_state, self.id
+            saved_state = await self._persistence.recover_instance_state(self.id
             )
             if saved_state:
                 async with self._lock:
@@ -227,9 +225,7 @@ class TradingInstanceAsync:
                 lc = self._loss_count
                 st = self.status.value
 
-            await self._run_sync(
-                self._persistence.save_instance_state,
-                self.id,
+            await self._persistence.save_instance_state(self.id,
                 st,
                 cc,
                 ac,
@@ -340,6 +336,10 @@ class TradingInstanceAsync:
         await self.recover_state()
         await self.save_state()
         self._init_strategy()
+
+        # ROB-01: WAL + Reconcile after crash
+        if hasattr(self, "_signal_handler") and self._signal_handler:
+            await self._signal_handler.recover()
 
         # P3: if a queue is attached, start the consumer task
         if self._instance_queue is not None:
@@ -529,9 +529,7 @@ class TradingInstanceAsync:
         )
 
         # Persistence (non-blocking)
-        await self._run_sync(
-            self._persistence.save_position,
-            position_id,
+        await self._persistence.save_position(position_id,
             self.id,
             price,
             volume,
@@ -643,9 +641,7 @@ class TradingInstanceAsync:
             f" (fees buy={buy_fee_value:.6f} [{buy_fee_source}], sell={sell_fee_value:.6f} [{sell_fee_source}], quality={pnl_quality})"
         )
 
-        await self._run_sync(
-            self._persistence.close_position_and_record_trade,
-            position_id,
+        await self._persistence.close_position_and_record_trade(position_id,
             {
                 "instance_id": self.id,
                 "side": "sell",
@@ -933,9 +929,7 @@ class TradingInstanceAsync:
             if cached and self._to_optional_float(cached.get("fee")) is not None:
                 return float(cached["fee"]), str(cached.get("source", "cache")), "exact"
 
-            persisted_fee = await self._run_sync(
-                self._persistence.get_execution_fee,
-                self.id,
+            persisted_fee = await self._persistence.get_execution_fee(self.id,
                 txid,
             )
             persisted = self._to_optional_float(persisted_fee)

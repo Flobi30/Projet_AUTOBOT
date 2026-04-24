@@ -196,9 +196,49 @@ class SignalHandlerAsync:
         except Exception as exc:
             logger.exception(f"❌ Erreur exécution signal: {exc}")
 
+
+    async def recover(self) -> None:
+        """ROB-01: Check for in-flight orders and reconcile with exchange."""
+        pending = await self._osm.recover_non_terminal()
+        if not pending:
+            return
+        
+        logger.info(f"🔄 [WAL] Récupération de {len(pending)} ordres non terminés...")
+        for row in pending:
+            client_order_id = row["client_order_id"]
+            userref = row.get("userref")
+            txid = row.get("exchange_order_id")
+            symbol = row["symbol"]
+            
+            logger.info(f"🔎 [WAL] Vérification ordre {client_order_id} (userref={userref}, txid={txid})")
+            
+            found_txid = None
+            order_info = None
+            
+            if txid:
+                # We have a TXID, query directly
+                status = await self.order_executor.get_order_status(txid)
+                if status:
+                    found_txid = txid
+                    # Update info from status if possible
+            elif userref:
+                # No TXID, search by userref
+                found = await self.order_executor.find_order_by_userref(userref)
+                if found:
+                    found_txid, order_info = found
+            
+            if found_txid:
+                logger.info(f"✅ [WAL] Ordre trouvé sur l'échange: {found_txid}")
+                # Transition based on exchange state
+                # For now, mark as ACK to trigger reconciliation
+                await self._osm.transition(client_order_id, "ACK", "recovered_from_exchange", exchange_order_id=found_txid)
+            else:
+                logger.warning(f"❌ [WAL] Ordre {client_order_id} introuvable sur l'échange -- marquage REJECTED")
+                await self._osm.transition(client_order_id, "REJECTED", "not_found_on_exchange_after_crash")
+
     async def _execute_buy(self, signal: TradingSignal) -> None:
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
-        if self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy"):
+        if await self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy"):
             logger.warning("🔁 Ordre BUY dupliqué bloqué (idempotency)")
             return
 
@@ -246,7 +286,7 @@ class SignalHandlerAsync:
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
         signal_id = f"sig_{uuid.uuid4().hex}"
-        rec = self._osm.new_order(
+        rec = await self._osm.new_order(
             instance_id=self.instance.id,
             symbol=symbol,
             side="buy",
@@ -255,7 +295,7 @@ class SignalHandlerAsync:
             decision_id=decision_id,
             signal_id=signal_id,
         )
-        self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
+        await self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
         if execution_plan["order_type"] == "limit":
             result = await self.order_executor.execute_limit_order(
                 symbol=symbol,
@@ -263,13 +303,14 @@ class SignalHandlerAsync:
                 volume=volume,
                 limit_price=execution_plan["price"],
                 post_only=bool(execution_plan.get("post_only", False)),
+                userref=rec.userref,
             )
         else:
-            result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume)
+            result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume, userref=rec.userref)
 
         if not result.success:
             logger.error(f"❌ Échec ordre Kraken: {result.error}")
-            self._osm.transition(
+            await self._osm.transition(
                 rec.client_order_id,
                 "REJECTED",
                 "exchange_error",
@@ -279,7 +320,7 @@ class SignalHandlerAsync:
             await self._kill_switch.record_api_failure(result.error or "unknown")
             return
         self._kill_switch.record_api_success()
-        self._osm.transition(
+        await self._osm.transition(
             rec.client_order_id,
             "ACK",
             "exchange_ack",
@@ -292,7 +333,7 @@ class SignalHandlerAsync:
             },
         )
         if result.executed_volume and result.executed_volume < volume:
-            self._osm.transition(
+            await self._osm.transition(
                 rec.client_order_id,
                 "PARTIAL",
                 "partial_fill",
@@ -302,7 +343,7 @@ class SignalHandlerAsync:
             )
             self._kill_switch.mark_partial(rec.client_order_id, time.time())
         else:
-            self._osm.transition(
+            await self._osm.transition(
                 rec.client_order_id,
                 "FILLED",
                 "full_fill",
@@ -350,7 +391,7 @@ class SignalHandlerAsync:
         )
 
         if position:
-            self.instance._persistence.append_trade_ledger(
+            await self.instance._persistence.append_trade_ledger(
                 trade_id=f"trd_{uuid.uuid4().hex}",
                 position_id=position.id,
                 instance_id=self.instance.id,
@@ -374,7 +415,7 @@ class SignalHandlerAsync:
             config_hash = hashlib.sha256(
                 str(vars(self.instance.config)).encode("utf-8")
             ).hexdigest()
-            self.instance._persistence.append_audit_event(
+            await self.instance._persistence.append_audit_event(
                 event_id=f"evt_{uuid.uuid4().hex}",
                 event_type="ORDER_BUY_FILLED",
                 decision_id=decision_id,
@@ -418,8 +459,29 @@ class SignalHandlerAsync:
                 continue
             symbol = self._convert_symbol(pos.get("symbol") or signal.symbol)
 
+            # ROB-01: WAL + Idempotency
+            if await self._osm.is_duplicate_active(symbol, "sell"):
+                logger.warning(f"🔁 Ordre SELL dupliqué bloqué (idempotency): {symbol}")
+                continue
+
+            rec = await self._osm.new_order(
+                instance_id=self.instance.id,
+                symbol=symbol,
+                side="sell",
+                order_type="market",
+                requested_qty=vol,
+                signal_id=f"sig_sell_{uuid.uuid4().hex}"
+            )
+            await self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
+
             sl_txid = pos.get("stop_loss_txid")
-            result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol)
+            result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol, userref=rec.userref)
+            if result.success:
+                price = result.executed_price or signal.price
+                await self.instance.close_position(pos_id, price, sell_txid=result.txid)
+                await self._osm.transition(rec.client_order_id, "FILLED", "execution_success", 
+                                   exchange_order_id=result.txid, filled_qty=vol, avg_fill_price=price)
+
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
@@ -434,7 +496,7 @@ class SignalHandlerAsync:
                     fees=result.fees,
                     liquidity=actual_liquidity,
                 )
-                self.instance._persistence.append_trade_ledger(
+                await self.instance._persistence.append_trade_ledger(
                     trade_id=f"trd_{uuid.uuid4().hex}",
                     position_id=pos_id,
                     instance_id=self.instance.id,
@@ -733,6 +795,20 @@ class SignalHandlerAsync:
             rejection_reasons.append(
                 f"signal_latency_ms={latency_ms:.1f} > max_signal_latency_ms={self._max_signal_latency_ms:.1f}"
             )
+        # P1: Order Flow Imbalance (OFI) Filter
+        try:
+            if hasattr(self.instance, "orchestrator") and hasattr(self.instance.orchestrator, "ofi"):
+                ofi = self.instance.orchestrator.ofi
+                if ofi:
+                    side = "buy" if signal.type == SignalType.BUY else "sell"
+                    if ofi.is_unbalanced_against(signal.symbol, side):
+                        score = ofi.get_ofi_score(signal.symbol)
+                        rejection_reasons.append(
+                            f"OFI_BLOCK: pressure against {side} (score={score:.2f})"
+                        )
+        except Exception as exc:
+            logger.warning(f"⚠️ Erreur OFI filter: {exc}")
+
         if expected_slippage_bps > self._max_expected_slippage_bps:
             rejection_reasons.append(
                 "expected_slippage_bps="
@@ -863,10 +939,16 @@ class SignalHandlerAsync:
             if self._fee_optimizer is not None
             else {"order_type": "market", "post_only": False, "reason": "fee_optimizer_unavailable"}
         )
-        prefer_limit = low_urgency and has_edge and rec.get("order_type") == "limit"
+        # Phase 5: Force Maker Only (Ultra Optimization)
+        force_maker = getattr(self.instance.config, "force_maker_only", os.getenv("FORCE_MAKER_ONLY", "false").lower() == "true")
+        
+        prefer_limit = (low_urgency and has_edge and rec.get("order_type") == "limit") or force_maker
         if prefer_limit:
+            # Use provided limit price or current signal price
             price = float(metadata.get("limit_price") or signal.price)
-            return {"order_type": "limit", "post_only": True, "price": price, "reason": rec.get("reason", "low_urgency_edge")}
+            reason = "force_maker_only_enabled" if force_maker else rec.get("reason", "low_urgency_edge")
+            return {"order_type": "limit", "post_only": True, "price": price, "reason": reason}
+            
         return {"order_type": "market", "post_only": False, "price": signal.price, "reason": rec.get("reason", "market_fallback")}
 
     @staticmethod

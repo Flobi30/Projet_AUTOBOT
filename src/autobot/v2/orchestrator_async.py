@@ -23,13 +23,17 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+from .modules.order_flow_imbalance import OrderFlowImbalance
+from .system_optimizer import SystemOptimizer
 from .ring_buffer_dispatcher import RingBufferDispatcher
+from .system_optimizer import SystemOptimizer
+from .modules.order_flow_imbalance import OrderFlowImbalance
 from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
 from .order_executor_async import OrderExecutorAsync, get_order_executor_async
 try:
-    from .paper_trading_fix import PaperTradingExecutor
+    from .paper_trading import PaperTradingExecutor
 except ImportError:
     PaperTradingExecutor = None
 from .order_router import OrderRouter, get_order_router, OrderPriority
@@ -49,6 +53,7 @@ from .modules.pyramiding_manager import PyramidingManager
 from .modules.kelly_criterion import KellyCriterion
 from .modules.momentum_scoring import MomentumScorer
 from .modules.xgboost_predictor import XGBoostPredictor
+from .modules.multi_indicator_vote import MultiIndicatorVoter
 from .modules.sentiment_nlp import SentimentAnalyzer
 from .modules.cnn_lstm_predictor import HeuristicPredictor
 from .modules.onchain_data import OnchainDataModule
@@ -218,7 +223,7 @@ class OrchestratorAsync:
         api_secret: Optional[str] = None,
     ) -> None:
         # SEC-01: store API credentials — do NOT log these values
-        self.api_key = api_key
+        self.api_key = api_key # SEC-01: handled by __repr__
         self.api_secret = api_secret
 
         # Order executor (async) — PaperTrading si PAPER_TRADING=true
@@ -264,9 +269,13 @@ class OrchestratorAsync:
         self.strategy_ensemble = StrategyEnsemble()
         self.momentum = MomentumScorer()
         self.xgboost = XGBoostPredictor()
+        self.voter = MultiIndicatorVoter(min_votes_required=2)
         self.sentiment = SentimentAnalyzer()
         self.heuristic_predictor = HeuristicPredictor()
         self.onchain_data = OnchainDataModule()
+        self.voter.register_indicator("xgboost", weight=1.2)
+        self.voter.register_indicator("heuristic", weight=1.0)
+        self.voter.register_indicator("sentiment", weight=0.8)
         self.daily_reporter = DailyReporter(self)
         self._daily_report_task: Optional[asyncio.Task] = None
         self._xgboost_train_task: Optional[asyncio.Task] = None
@@ -382,6 +391,11 @@ class OrchestratorAsync:
 
         # Validator
         self.validator = ValidatorEngine()
+
+        # Performance Ultra (Task #35 & #37)
+        SystemOptimizer.optimize_for_hetzner()
+        self.ofi = OrderFlowImbalance()
+        SystemOptimizer.optimize_for_hetzner()
 
         # Instances
         self._instances: Dict[str, TradingInstanceAsync] = {}
@@ -739,6 +753,10 @@ class OrchestratorAsync:
             if self.parent_instance_id is None:
                 # Première instance créée = parent racine (à ne pas supprimer)
                 self.parent_instance_id = instance_id
+
+            # P1: Order Flow Imbalance (OFI) subscription
+            if self.ofi:
+                await self._ws.subscribe_book(config.symbol, self.ofi.on_book_update)
             # Protection TrailingStop dédiée par instance
             self.trailing_stops[instance_id] = TrailingStopATR(
                 atr_multiplier=2.5,
@@ -997,10 +1015,16 @@ class OrchestratorAsync:
         return False
 
     async def _get_available_capital(self) -> float:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, _get_available_capital_real, self.api_key, self.api_secret
-        )
+        """Get available ZEUR capital from Kraken (async)."""
+        if self.paper_mode:
+            return 1000.0  # Fixed paper capital
+        try:
+            balances = await self.order_executor.get_balance()
+            # Kraken returns ZEUR for Euro
+            return float(balances.get("ZEUR", balances.get("EUR", 0.0)))
+        except Exception as exc:
+            logger.error(f"❌ Erreur récupération balance: {exc}")
+            return 0.0
 
     async def _evaluate_scalability_guard(self) -> None:
         if self.scalability_guard is None:
@@ -1722,6 +1746,7 @@ class OrchestratorAsync:
                         timeout=5.0,
                     )
                     sentiment_score = float(sentiment.get("score", 0.0))
+                    self.voter.submit_vote("sentiment", "BUY" if sentiment_score > 0 else "SELL", confidence=abs(sentiment_score))
                     logger.info("Sentiment: %.3f", sentiment_score)
                     self._module_record_success("sentiment")
                 except Exception as exc:
@@ -1763,17 +1788,20 @@ class OrchestratorAsync:
                         if prediction is not None:
                             ml_confidence = float(prediction.get("probability", 0.0))
                             ml_direction = "BUY" if prediction.get("direction") == "UP" else "SELL"
+                            self.voter.submit_vote("xgboost", ml_direction, confidence=ml_confidence)
                         else:
                             self.heuristic_predictor.update(price=price, volume=volume)
                             hp = self.heuristic_predictor.predict()
                             if hp is not None:
                                 ml_confidence = float(hp.confidence)
                                 ml_direction = "BUY" if hp.probability_up >= 0.5 else "SELL"
+                                self.voter.submit_vote("heuristic", ml_direction, confidence=ml_confidence)
 
                         # enrichit dataset XGBoost (label naïf basée sur tendance)
                         label = 1 if trend == "up" else 0
                         self.xgboost.add_sample(features_ext, label)
                     self._module_record_success("xgboost")
+                    self.voter.tick()
                 except Exception as exc:
                     logger.warning("ML path unavailable (isolé): %s", exc)
                     self._module_record_failure("xgboost")
@@ -1892,6 +1920,7 @@ class OrchestratorAsync:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self.xgboost._train)
                 self._module_record_success("xgboost")
+                    self.voter.tick()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -2384,7 +2413,7 @@ class OrchestratorAsync:
         # Cleanup orphaned instance_state records at startup
         try:
             persistence = get_persistence()
-            deleted = persistence.cleanup_orphaned_instances()
+            deleted = await persistence.cleanup_orphaned_instances()
             if deleted:
                 logger.info(f"🧹 Startup cleanup: {deleted} orphaned instances removed")
         except Exception as exc:

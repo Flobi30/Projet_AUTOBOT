@@ -54,7 +54,7 @@ class KellyCriterion:
     Utilise Half-Kelly (f*/2) avec plafond a 25% du capital.
     """
 
-    def __init__(self, max_position_pct: float = 0.25) -> None:
+    def __init__(self, max_position_pct: float = 0.25, dynamic_cap: float = 0.02) -> None:
         """
         Args:
             max_position_pct: Maximum du capital a allouer (defaut 25%).
@@ -73,6 +73,7 @@ class KellyCriterion:
             )
 
         self._max_position_pct: float = float(max_position_pct)
+        self._dynamic_cap: float = float(dynamic_cap)
         self._lock: threading.RLock = threading.RLock()
 
         # Etat interne (dernier calcul, pour dashboard/debug)
@@ -271,8 +272,8 @@ class KellyCriterion:
                     0.85 ** exponent,
                 )
 
-            # --- Plafond a 2% du capital ---
-            position = min(kelly * capital, capital * 0.02)
+            # --- Plafond dynamique ---
+            position = min(kelly * capital, capital * self._dynamic_cap)
 
             logger.info(
                 "Kelly dynamic: position %.2f euros (%.4f%% capital, %d pertes consecutives)",

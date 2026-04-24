@@ -33,7 +33,7 @@ class ModuleManager:
             "pairs_trading":         _env_bool("MODULE_PAIRS_TRADING", False),
             "momentum_scoring":      _env_bool("MODULE_MOMENTUM_SCORING", True),
             "multi_indicator_vote":  _env_bool("MODULE_MULTI_INDICATOR_VOTE", True),
-            "liquidation_heatmap":   _env_bool("MODULE_LIQUIDATION_HEATMAP", False),
+            "liquidation_heatmap":   _env_bool("MODULE_LIQUIDATION_HEATMAP", True),
             "black_swan":            _env_bool("MODULE_BLACK_SWAN", True),
             "vwap_twap":             _env_bool("MODULE_VWAP_TWAP", False),
             "dca_hybrid":            _env_bool("MODULE_DCA_HYBRID", False),

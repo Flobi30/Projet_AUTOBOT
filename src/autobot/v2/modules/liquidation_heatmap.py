@@ -240,23 +240,52 @@ class LiquidationHeatmap:
     def _recenter(self, price: float) -> None:
         """
         Recentre la heatmap autour d'un nouveau prix.
-
-        WARNING: Cette opération effectue un reset brutal de toutes les
-        données accumulées (long_liq_map et short_liq_map sont remises à
-        zéro). Tout l'historique de liquidation est perdu lors d'un
-        recentrage. Cela se produit quand le prix dérive de plus de 5%
-        par rapport au centre actuel. Pour les marchés très volatils,
-        considérer augmenter le seuil dans update_open_interest() ou
-        implémenter une migration partielle des buckets.
+        
+        LOG-01: Au lieu de reset brutalement, on décale les buckets existants
+        pour préserver l'historique de liquidation.
         """
-        self._center_price = price
-        self._price_low = price * (1 - self._price_range_pct / 100)
-        self._price_high = price * (1 + self._price_range_pct / 100)
-        self._bucket_size = (self._price_high - self._price_low) / self._bucket_count
+        if self._center_price == 0:
+            self._center_price = price
+            self._price_low = price * (1 - self._price_range_pct / 100)
+            self._price_high = price * (1 + self._price_range_pct / 100)
+            self._bucket_size = (self._price_high - self._price_low) / self._bucket_count
+            self._long_liq_map = [0.0] * self._bucket_count
+            self._short_liq_map = [0.0] * self._bucket_count
+            return
 
-        # Reset les maps
-        self._long_liq_map = [0.0] * self._bucket_count
-        self._short_liq_map = [0.0] * self._bucket_count
+        old_low = self._price_low
+        new_center = price
+        new_low = new_center * (1 - self._price_range_pct / 100)
+        new_high = new_center * (1 + self._price_range_pct / 100)
+        new_bucket_size = (new_high - new_low) / self._bucket_count
+        
+        # Calculer le décalage approximatif en nombre de buckets
+        # (new_low - old_low) / old_bucket_size
+        shift = int(round((new_low - old_low) / self._bucket_size))
+        
+        if abs(shift) >= self._bucket_count:
+            # Shift trop grand, reset nécessaire
+            self._long_liq_map = [0.0] * self._bucket_count
+            self._short_liq_map = [0.0] * self._bucket_count
+        else:
+            # Décaler les buckets
+            new_long = [0.0] * self._bucket_count
+            new_short = [0.0] * self._bucket_count
+            
+            for i in range(self._bucket_count):
+                old_idx = i + shift
+                if 0 <= old_idx < self._bucket_count:
+                    new_long[i] = self._long_liq_map[old_idx]
+                    new_short[i] = self._short_liq_map[old_idx]
+            
+            self._long_liq_map = new_long
+            self._short_liq_map = new_short
+
+        self._center_price = new_center
+        self._price_low = new_low
+        self._price_high = new_high
+        self._bucket_size = new_bucket_size
+        logger.info(f"LiquidationHeatmap recentrée (shift={shift})")
 
     def _price_to_bucket(self, price: float) -> int:
         """Convertit un prix en index de bucket."""

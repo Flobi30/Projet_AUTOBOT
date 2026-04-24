@@ -1,0 +1,166 @@
+{
+  "checks": {
+    "api_auth": false,
+    "app_env_valid": true,
+    "audit_writable": false,
+    "clock_drift": false,
+    "compromised_fingerprint": true,
+    "dashboard_token": false,
+    "db_writable": false,
+    "deployment_stage_valid": true,
+    "exchange_connectivity": false,
+    "kill_switch_initialized": true,
+    "kill_switch_self_test": false,
+    "leaked_ssh_ack": false,
+    "live_confirmation": false,
+    "nonce_health": false,
+    "orders_endpoint": false,
+    "promotion_gate": false,
+    "reconciliation_baseline": false,
+    "risk_limits": false,
+    "secret_exposure_marker": true,
+    "shared_key_guard": true
+  },
+  "diagnostics": {
+    "api_auth": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "app_env_valid": {
+      "error_code": null,
+      "message": "APP_ENV accepted",
+      "reason": "ok",
+      "status": "pass"
+    },
+    "audit_writable": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "clock_drift": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "compromised_fingerprint": {
+      "error_code": null,
+      "message": "no known compromised fingerprint",
+      "reason": "ok",
+      "status": "pass"
+    },
+    "dashboard_token": {
+      "error_code": "auth",
+      "message": "DASHBOARD_API_TOKEN manquant",
+      "reason": "dashboard_token_missing",
+      "status": "fail"
+    },
+    "db_writable": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "deployment_stage_valid": {
+      "error_code": null,
+      "message": "DEPLOYMENT_STAGE accepted",
+      "reason": "ok",
+      "status": "pass"
+    },
+    "exchange_connectivity": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "kill_switch_initialized": {
+      "error_code": null,
+      "message": "kill switch initialized",
+      "reason": "ok",
+      "status": "pass"
+    },
+    "kill_switch_self_test": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "leaked_ssh_ack": {
+      "error_code": null,
+      "message": "LEAKED_SSH_KEY_ROTATED_ACK != true",
+      "reason": "leaked_ssh_ack_missing",
+      "status": "fail"
+    },
+    "live_confirmation": {
+      "error_code": null,
+      "message": "LIVE mode sans LIVE_TRADING_CONFIRMATION=true",
+      "reason": "live_confirmation_missing",
+      "status": "fail"
+    },
+    "nonce_health": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "orders_endpoint": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "promotion_gate": {
+      "error_code": null,
+      "message": "Promotion gate failed for stage=paper",
+      "reason": "promotion_gate_failed",
+      "status": "fail"
+    },
+    "reconciliation_baseline": {
+      "error_code": null,
+      "message": "OrderExecutor absent",
+      "reason": "order_executor_missing",
+      "status": "fail"
+    },
+    "risk_limits": {
+      "error_code": null,
+      "message": "Risk limits manquants: ['MAX_DRAWDOWN_PCT', 'RISK_PER_TRADE_PCT', 'MAX_POSITION_SIZE_PCT']",
+      "reason": "risk_limits_missing",
+      "status": "fail"
+    },
+    "secret_exposure_marker": {
+      "error_code": null,
+      "message": "no secret exposure marker",
+      "reason": "ok",
+      "status": "pass"
+    },
+    "shared_key_guard": {
+      "error_code": null,
+      "message": "shared key guard passed",
+      "reason": "ok",
+      "status": "pass"
+    }
+  },
+  "generated_at": "2026-04-24T03:18:48Z",
+  "ok": false,
+  "preflight_only": true,
+  "reasons": [
+    "live_confirmation_missing",
+    "dashboard_token_missing",
+    "risk_limits_missing",
+    "leaked_ssh_ack_missing",
+    "promotion_gate_failed",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing",
+    "order_executor_missing"
+  ],
+  "status": "fail"
+}

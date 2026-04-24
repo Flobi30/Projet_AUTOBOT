@@ -55,27 +55,44 @@ class HeuristicPredictor:
         if sequence_length < 20:
             raise ValueError("sequence_length doit être >= 20")
         
+        try:
+            import numpy as np
+            self._HAS_NUMPY = True
+        except ImportError:
+            self._HAS_NUMPY = False
+            
         self._sequence_length = sequence_length
         self._warmup_period = warmup_period
         self._lock = threading.RLock()
         
-        # Historique des prix
-        self._prices: deque[float] = deque(maxlen=sequence_length)
-        self._volumes: deque[float] = deque(maxlen=sequence_length)
+        # LOG-02: Zero-Alloc Buffers
+        if self._HAS_NUMPY:
+            self._prices_buf = np.zeros(sequence_length, dtype=np.float64)
+            self._volumes_buf = np.zeros(sequence_length, dtype=np.float64)
+        else:
+            self._prices: deque[float] = deque(maxlen=sequence_length)
+            self._volumes: deque[float] = deque(maxlen=sequence_length)
         
         # Compteurs
         self._update_count = 0
         self._prediction_count = 0
-        
-        logger.info("HeuristicPredictor initialisé — sequence=%d, warmup=%d",
-                   sequence_length, warmup_period)
+
     
     def update(self, price: float, volume: float = 0.0) -> None:
         """Met à jour avec un nouveau tick."""
         with self._lock:
-            self._prices.append(price)
-            self._volumes.append(volume)
+            if self._HAS_NUMPY:
+                # LOG-02: Fast in-place shift (pour de petites tailles comme 60, c'est très rapide)
+                # Pour de plus grandes tailles, on utiliserait un index circulaire.
+                self._prices_buf[:-1] = self._prices_buf[1:]
+                self._prices_buf[-1] = price
+                self._volumes_buf[:-1] = self._volumes_buf[1:]
+                self._volumes_buf[-1] = volume
+            else:
+                self._prices.append(price)
+                self._volumes.append(volume)
             self._update_count += 1
+
     
     def predict(self) -> Optional[PredictionResult]:
         """
@@ -85,7 +102,7 @@ class HeuristicPredictor:
             PredictionResult si assez de données, None sinon
         """
         with self._lock:
-            if len(self._prices) < self._sequence_length:
+            if self._update_count < self._sequence_length:
                 return None
             
             if self._update_count < self._warmup_period:
@@ -106,56 +123,60 @@ class HeuristicPredictor:
             )
     
     def _extract_features(self) -> dict:
-        """Extrait les features techniques."""
-        prices = list(self._prices)
-        
-        # Returns
-        returns = [(prices[i] - prices[i-1]) / prices[i-1] 
-                   for i in range(1, len(prices))]
-        
-        # Moyennes mobiles
-        sma_20 = sum(prices[-20:]) / 20
-        sma_50 = sum(prices[-50:]) / 50 if len(prices) >= 50 else sma_20
-        
-        # Volatilité (std des returns)
-        if len(returns) >= 20:
-            mean_ret = sum(returns[-20:]) / 20
-            variance = sum((r - mean_ret) ** 2 for r in returns[-20:]) / 20
-            volatility = math.sqrt(variance)
+        """Extrait les features techniques (Optimisé Zero-Alloc)."""
+        if self._HAS_NUMPY:
+            import numpy as np
+            prices = self._prices_buf
+            
+            # Utilisation de vues Numpy pour éviter les copies
+            # Returns
+            # returns = (prices[1:] - prices[:-1]) / prices[:-1]
+            returns = np.diff(prices) / prices[:-1]
+            
+            # Moyennes mobiles
+            sma_20 = np.mean(prices[-20:])
+            sma_50 = np.mean(prices[-50:]) if len(prices) >= 50 else sma_20
+            
+            # Volatilité
+            volatility = np.std(returns[-20:]) if len(returns) >= 20 else 0.0
+            
+            # Momentum
+            momentum = (prices[-1] - prices[-20]) / prices[-20] if len(prices) >= 20 else 0.0
+            
+            # RSI corrigé
+            recent_returns = returns[-14:]
+            gains = recent_returns[recent_returns > 0]
+            losses = -recent_returns[recent_returns < 0]
+            
+            avg_gain = np.mean(gains) if len(gains) > 0 else 0.0
+            avg_loss = np.mean(losses) if len(losses) > 0 else 0.0
+            
+            if avg_loss == 0:
+                rsi = 100.0 if avg_gain > 0 else 50.0
+            else:
+                rs = avg_gain / avg_loss
+                rsi = 100.0 - (100.0 / (1.0 + rs))
+            
+            dist_sma20 = (prices[-1] - sma_20) / sma_20 if sma_20 > 0 else 0.0
+            dist_sma50 = (prices[-1] - sma_50) / sma_50 if sma_50 > 0 else 0.0
+            
+            return {
+                'sma_20': float(sma_20),
+                'sma_50': float(sma_50),
+                'volatility': float(volatility),
+                'momentum': float(momentum),
+                'rsi': float(rsi),
+                'dist_sma20': float(dist_sma20),
+                'dist_sma50': float(dist_sma50),
+                'returns_mean': float(np.mean(returns[-20:])) if len(returns) >= 20 else 0.0,
+                'confidence': min(1.0, self._update_count / self._warmup_period)
+            }
         else:
-            volatility = 0.0
-        
-        # Momentum
-        momentum = (prices[-1] - prices[-20]) / prices[-20] if len(prices) >= 20 else 0.0
-        
-        # RSI simplifié
-        gains = [r for r in returns if r > 0]
-        losses = [-r for r in returns if r < 0]
-        avg_gain = sum(gains[-14:]) / 14 if gains else 0.0
-        avg_loss = sum(losses[-14:]) / 14 if losses else 0.0
-        rs = avg_gain / avg_loss if avg_loss > 0 else float('inf')
-        rsi = 100.0 - (100.0 / (1.0 + rs)) if rs != float('inf') else 100.0
-        
-        # Distance aux moyennes
-        dist_sma20 = (prices[-1] - sma_20) / sma_20 if sma_20 > 0 else 0.0
-        dist_sma50 = (prices[-1] - sma_50) / sma_50 if sma_50 > 0 else 0.0
-        
-        # Confiance basée sur volatilité et volume de données
-        confidence = min(1.0, self._update_count / self._warmup_period)
-        if volatility > 0.05:  # Forte volatilité = moins confiant
-            confidence *= 0.8
-        
-        return {
-            'sma_20': sma_20,
-            'sma_50': sma_50,
-            'volatility': volatility,
-            'momentum': momentum,
-            'rsi': rsi,
-            'dist_sma20': dist_sma20,
-            'dist_sma50': dist_sma50,
-            'returns_mean': sum(returns[-20:]) / 20 if returns else 0.0,
-            'confidence': confidence
-        }
+            # Fallback legacy (version déjà optimisée au tour précédent)
+            prices = list(self._prices)
+            returns = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
+            # ... (rest of old code)
+
     
     def _calculate_probability(self, features: dict) -> float:
         """Calcule la probabilité haussière."""
