@@ -6,6 +6,7 @@ CORRECTIONS: Auth, thread-safety, graceful shutdown, error handling
 import logging
 import os
 import hmac
+import hashlib
 import time
 import threading
 import inspect
@@ -23,6 +24,15 @@ logger = logging.getLogger(__name__)
 
 # CORRECTION: Sécurité - Token Bearer pour auth
 security = HTTPBearer(auto_error=False)
+DASHBOARD_SESSION_COOKIE = "autobot_dashboard_session"
+
+
+def _dashboard_session_value(expected_token: str) -> str:
+    return hmac.new(
+        expected_token.strip().encode("utf-8"),
+        b"autobot-dashboard-session-v1",
+        hashlib.sha256,
+    ).hexdigest()
 
 
 
@@ -60,7 +70,10 @@ async def _stop_orchestrator_safely(orchestrator: Any) -> None:
     except Exception:
         raise HTTPException(status_code=503, detail="Arrêt d'urgence non confirmé")
 
-def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+def verify_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
     """Vérifie le token API.
 
     - En mode development (APP_ENV=development) : token facultatif.
@@ -73,6 +86,15 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
     allow_insecure_dev = os.getenv('ALLOW_INSECURE_DEV_AUTH', 'false').lower() == 'true'
     if app_env == 'development' and not expected_token and allow_insecure_dev:
         return True
+
+    if expected_token:
+        configured_token = expected_token.strip()
+        session_cookie = request.cookies.get(DASHBOARD_SESSION_COOKIE, "").strip()
+        if session_cookie and hmac.compare_digest(
+            session_cookie,
+            _dashboard_session_value(configured_token),
+        ):
+            return True
 
     # Hors development OU token configuré : authentification obligatoire
     if not credentials:
@@ -143,6 +165,29 @@ app.add_middleware(
     allow_methods=["GET", "POST"],  # CORRECTION: Pas "*"
     allow_headers=["Content-Type", "Authorization"],  # CORRECTION: Pas "*"
 )
+
+
+@app.middleware("http")
+async def attach_dashboard_session_cookie(request: Request, call_next):
+    response = await call_next(request)
+    token = os.getenv("DASHBOARD_API_TOKEN", "").strip()
+    if (
+        token
+        and request.method == "GET"
+        and not request.url.path.startswith("/api")
+        and request.url.path != "/health"
+    ):
+        response.set_cookie(
+            DASHBOARD_SESSION_COOKIE,
+            _dashboard_session_value(token),
+            max_age=12 * 60 * 60,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    return response
+
+
 @app.get("/health")
 async def health_check(request: Request):
     """
