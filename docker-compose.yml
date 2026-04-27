@@ -22,8 +22,10 @@ services:
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=8080
       - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN}
-      - DASHBOARD_SSL_CERT=/app/certs/server.crt
-      - DASHBOARD_SSL_KEY=/app/certs/server.key
+      # Set both DASHBOARD_SSL_* and HEALTHCHECK_MODE=tls only when cert/key
+      # files are mounted and readable by the container user.
+      - DASHBOARD_SSL_CERT=${DASHBOARD_SSL_CERT:-}
+      - DASHBOARD_SSL_KEY=${DASHBOARD_SSL_KEY:-}
       # Healthcheck mode:
       # - internal_http (default): probe locale en HTTP via loopback (réseau conteneur local uniquement)
       # - tls: probe HTTPS avec validation stricte d'un certificat CA de confiance

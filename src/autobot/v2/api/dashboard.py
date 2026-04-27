@@ -1565,6 +1565,23 @@ class DashboardServer:
         self.port = int(os.getenv('DASHBOARD_PORT', str(port)))
         self.server = None
         self.uvicorn_server = None
+
+    @staticmethod
+    def _resolve_ssl_files() -> tuple[str | None, str | None]:
+        certfile = os.getenv('DASHBOARD_SSL_CERT')
+        keyfile = os.getenv('DASHBOARD_SSL_KEY')
+        if not certfile and not keyfile:
+            return None, None
+        if not certfile or not keyfile:
+            logger.warning("HTTPS dashboard disabled: cert or key is missing")
+            return None, None
+        if not os.path.isfile(certfile) or not os.path.isfile(keyfile):
+            logger.warning("HTTPS dashboard disabled: cert/key files are absent")
+            return None, None
+        if not os.access(certfile, os.R_OK) or not os.access(keyfile, os.R_OK):
+            logger.warning("HTTPS dashboard disabled: cert/key not readable by container user")
+            return None, None
+        return certfile, keyfile
         
     def start(self, orchestrator):
         """Démarre le serveur dans un thread séparé"""
@@ -1573,8 +1590,7 @@ class DashboardServer:
         
         def run_server():
             # SEC-02: HTTPS support via env-configured SSL cert/key
-            ssl_certfile = os.getenv('DASHBOARD_SSL_CERT')
-            ssl_keyfile = os.getenv('DASHBOARD_SSL_KEY')
+            ssl_certfile, ssl_keyfile = self._resolve_ssl_files()
             config = uvicorn.Config(
                 app,
                 host=self.host,
@@ -1589,7 +1605,7 @@ class DashboardServer:
 
         self.server = threading.Thread(target=run_server)
         self.server.start()
-        ssl_certfile = os.getenv('DASHBOARD_SSL_CERT')
+        ssl_certfile, _ = self._resolve_ssl_files()
         scheme = "https" if ssl_certfile else "http"
         logger.info(f"Dashboard API demarré sur {scheme}://{self.host}:{self.port}")
         if ssl_certfile:

@@ -2413,7 +2413,7 @@ class OrchestratorAsync:
             status = instance.get_status()
             current_price = status.get("last_price")
             if not current_price or current_price <= 0:
-                return
+                return 0
             current_price = float(current_price)
 
             for pos in instance.get_positions_snapshot():
