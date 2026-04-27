@@ -191,6 +191,38 @@ def _latest_filled_paper_trade(db_path: Any) -> tuple[Optional[Dict[str, Any]], 
         return None, 0
 
 
+def _paper_symbol_key(symbol: Any) -> str:
+    raw = str(symbol or "").replace("/", "").upper()
+    if raw == "XETHZEUR":
+        return "ETHEUR"
+    if raw in {"XXBTZEUR", "XBTZEUR"}:
+        return "BTCEUR"
+    return raw
+
+
+def _filled_paper_trade_counts_by_symbol(db_path: Any) -> Dict[str, int]:
+    path = str(db_path) if db_path else ""
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                """
+                SELECT symbol, COUNT(*)
+                FROM trades
+                WHERE status = 'filled'
+                GROUP BY symbol
+                """
+            ).fetchall()
+            return {_paper_symbol_key(row[0]): int(row[1]) for row in rows}
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Paper trade counts unavailable: %s", exc)
+        return {}
+
+
 def _trading_pipeline_debug(
     *,
     instances_data: List[Dict[str, Any]],
@@ -1701,6 +1733,12 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 pair_map[symbol] = []
             pair_map[symbol].append(inst)
 
+        executor = getattr(orchestrator, "order_executor", None)
+        paper_trade_counts = (
+            _filled_paper_trade_counts_by_symbol(getattr(executor, "db_path", "data/paper_trades.db"))
+            if is_paper_mode else {}
+        )
+
         # Group by symbol
         by_pair = []
         pairs_tested = len(pair_map)
@@ -1741,6 +1779,9 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                     total_trades += wc + lc
                     winning_trades += wc
 
+            paper_filled_trades = paper_trade_counts.get(_paper_symbol_key(symbol), 0)
+            total_trades = max(total_trades, paper_filled_trades)
+
             avg_profit_pct = (sum(profits_pct) / len(profits_pct)) if profits_pct else 0.0
             pair_pf = (gross_profit / gross_loss) if gross_loss > 0 else (
                 999.99 if gross_profit > 0 else 0.0
@@ -1767,6 +1808,8 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 "recommendation": recommendation,
                 "warmup_active": warmup_active,
                 "blocked_reasons": sorted(blocked_reasons),
+                "paper_filled_trades": paper_filled_trades,
+                "trade_count_source": "paper_trades_db" if paper_filled_trades else "instance_memory",
             })
 
         return {
