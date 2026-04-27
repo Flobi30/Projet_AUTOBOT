@@ -245,12 +245,14 @@ class SignalHandlerAsync:
         try:
             if signal.type == SignalType.BUY:
                 if not self._passes_microstructure_hard_filter(signal):
+                    details = getattr(self, "_last_microstructure_reject_context", None)
                     self._record_runtime_event(
                         "_last_decision_event",
                         event="signal_rejected",
                         reason="microstructure_filter",
                         symbol=signal.symbol,
                         side=signal.type.value,
+                        details=details if isinstance(details, dict) else None,
                     )
                     return
                 await self._execute_buy(signal)
@@ -310,6 +312,13 @@ class SignalHandlerAsync:
     async def _execute_buy(self, signal: TradingSignal) -> None:
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
         if await self._maybe_await(self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy")):
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="duplicate_active_order",
+                symbol=signal.symbol,
+                side="buy",
+            )
             logger.warning("🔁 Ordre BUY dupliqué bloqué (idempotency)")
             return
 
@@ -360,17 +369,43 @@ class SignalHandlerAsync:
         volume = signal.volume if signal.volume > 0 else min(volume_default, volume_risk or volume_default, volume_cap or volume_default)
         volume = round(volume, 6)
         if volume <= 0:
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="zero_or_negative_volume",
+                symbol=signal.symbol,
+                side="buy",
+                available_capital=float(available),
+                order_value=float(order_value),
+            )
             return
 
         edge_ctx = self._estimate_edge_context(signal, atr_pct, risk_params)
         if not self._passes_cost_guard(edge_ctx):
+            cost_details = {
+                key: round(float(value), 6)
+                for key, value in edge_ctx.items()
+                if isinstance(value, (int, float))
+            }
             self._record_runtime_event(
                 "_last_decision_event",
                 event="buy_rejected",
                 reason="cost_guard",
                 symbol=signal.symbol,
+                side="buy",
                 net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
                 min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+                blocking_condition=(
+                    "net_edge_bps < adaptive_min_edge_bps"
+                    if float(edge_ctx.get("net_edge_bps", 0.0)) < float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps))
+                    else "spread_bps > max_spread_bps"
+                ),
+                atr_pct=round(float(atr_pct), 8),
+                volume=float(volume),
+                order_value=round(float(volume * signal.price), 8),
+                available_capital=round(float(available), 8),
+                risk_params={k: round(float(v), 6) for k, v in risk_params.items()},
+                edge_context=cost_details,
             )
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
@@ -1035,6 +1070,10 @@ class SignalHandlerAsync:
             }
 
         logger.info("⛔ Hard microstructure reject %s: %s", signal.symbol, "; ".join(rejection_reasons))
+        self._last_microstructure_reject_context = {
+            **context,
+            "rejection_reasons": rejection_reasons,
+        }
         self._journal_rejected_microstructure(signal.symbol, rejection_reasons, context)
         return False
 

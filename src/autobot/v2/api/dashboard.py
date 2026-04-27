@@ -140,6 +140,164 @@ def _latest_event(instances: List[Dict[str, Any]], key: str) -> Optional[Dict[st
     return latest
 
 
+def _event_timestamp(event: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(event, dict):
+        return ""
+    return str(event.get("timestamp") or event.get("created_at") or "")
+
+
+def _event_is_at_least(event: Optional[Dict[str, Any]], reference: Optional[Dict[str, Any]]) -> bool:
+    event_ts = _event_timestamp(event)
+    reference_ts = _event_timestamp(reference)
+    return bool(event_ts and (not reference_ts or event_ts >= reference_ts))
+
+
+def _latest_filled_paper_trade(db_path: Any) -> tuple[Optional[Dict[str, Any]], int]:
+    path = str(db_path) if db_path else ""
+    if not path or not os.path.exists(path):
+        return None, 0
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            count = int(conn.execute(
+                "SELECT COUNT(*) FROM trades WHERE status = 'filled'"
+            ).fetchone()[0])
+            row = conn.execute(
+                """
+                SELECT txid, symbol, side, volume, price, fees, timestamp, status
+                FROM trades
+                WHERE status = 'filled'
+                ORDER BY timestamp DESC, created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if not row:
+                return None, count
+            return {
+                "txid": row[0],
+                "symbol": row[1],
+                "side": row[2],
+                "volume": row[3],
+                "price": row[4],
+                "fees": row[5],
+                "timestamp": row[6],
+                "status": row[7],
+                "source": "paper_trades_db",
+            }, count
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Latest filled paper trade unavailable: %s", exc)
+        return None, 0
+
+
+def _trading_pipeline_debug(
+    *,
+    instances_data: List[Dict[str, Any]],
+    last_trade: Optional[Dict[str, Any]],
+    trade_count: int,
+    paper_mode: bool,
+) -> Dict[str, Any]:
+    last_market_tick = _latest_event(instances_data, "last_market_tick")
+    last_signal = _latest_event(instances_data, "last_signal")
+    last_decision = _latest_event(instances_data, "last_decision")
+    last_order = _latest_event(instances_data, "last_order")
+
+    status = "waiting_for_signal"
+    reason = "no_signal_generated"
+    blocking_condition: Optional[str] = None
+    execution_reached = False
+
+    if last_signal is None:
+        warmup_or_blocked = [
+            {
+                "id": inst.get("id"),
+                "name": inst.get("name"),
+                "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
+                "warmup": inst.get("warmup", {}),
+                "blocked_reasons": inst.get("blocked_reasons", []),
+            }
+            for inst in instances_data
+            if (inst.get("warmup") or {}).get("active") or inst.get("blocked_reasons")
+        ]
+        if warmup_or_blocked:
+            status = "blocked_before_signal"
+            reason = "warmup_or_strategy_block"
+            blocking_condition = ", ".join(sorted({
+                str(reason)
+                for inst in warmup_or_blocked
+                for reason in ((inst.get("blocked_reasons") or []) + ((inst.get("warmup") or {}).get("blocked_reasons") or []))
+            })) or "warmup_or_strategy_block"
+    elif last_order is not None and _event_is_at_least(last_order, last_signal):
+        execution_reached = True
+        if str(last_order.get("event")) == "order_filled":
+            status = "executed"
+            reason = "paper_order_filled" if paper_mode else "order_filled"
+        else:
+            status = "execution_failed"
+            reason = str(last_order.get("reason") or last_order.get("error") or last_order.get("event") or "order_not_filled")
+            blocking_condition = reason
+    elif last_decision is not None and _event_is_at_least(last_decision, last_signal):
+        decision_event = str(last_decision.get("event") or "")
+        decision_reason = str(last_decision.get("reason") or "decision_recorded")
+        if "reject" in decision_event or "ignored" in decision_event:
+            status = "rejected"
+            reason = decision_reason
+            blocking_condition = str(
+                last_decision.get("blocking_condition")
+                or last_decision.get("message")
+                or decision_reason
+            )
+        else:
+            status = "accepted_pending_execution"
+            reason = decision_reason
+    else:
+        status = "signal_seen_no_decision"
+        reason = "signal_received_without_later_decision"
+
+    if status != "executed" and last_trade is not None and trade_count > 0:
+        # A previous paper trade exists, but it is not linked to the latest signal.
+        previous_trade = last_trade
+    else:
+        previous_trade = None
+
+    return {
+        "pipeline": {
+            "market_data": {
+                "seen": last_market_tick is not None,
+                "last_tick": last_market_tick,
+            },
+            "signal": {
+                "generated": last_signal is not None,
+                "last_signal": last_signal,
+            },
+            "decision": {
+                "status": status,
+                "last_decision": last_decision,
+                "reason": reason,
+                "blocking_condition": blocking_condition,
+            },
+            "execution": {
+                "reached": execution_reached,
+                "last_order": last_order,
+            },
+            "paper_trade": {
+                "recorded": bool(last_trade),
+                "filled_trade_count": trade_count,
+                "last_trade": last_trade,
+                "previous_trade_not_linked_to_latest_signal": previous_trade,
+            },
+        },
+        "status": status,
+        "reason": reason,
+        "blocking_condition": blocking_condition,
+        "last_signal": last_signal,
+        "last_decision": last_decision,
+        "last_order": last_order,
+        "last_trade": last_trade,
+    }
+
+
 async def _stop_orchestrator_safely(orchestrator: Any) -> None:
     """Execute stop path and confirm stop state before returning success."""
     stop_result = orchestrator.stop()
@@ -231,6 +389,11 @@ class PositionInfo(BaseModel):
 
 class EmergencyStopRequest(BaseModel):
     confirmation: str  # Doit être "CONFIRM_STOP"
+
+class PaperTestSignalRequest(BaseModel):
+    confirmation: str
+    symbol: Optional[str] = None
+    notional_eur: Optional[float] = None
 
 # Application FastAPI
 app = FastAPI(
@@ -1685,34 +1848,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         last_trade = None
         trade_count = 0
         if paper_db.get("accessible") and (paper_db.get("tables", {}).get("trades") or {}).get("exists"):
-            trade_count = int((paper_db["tables"]["trades"]).get("rows", 0))
-            try:
-                conn = sqlite3.connect(f"file:{paper_db['path']}?mode=ro", uri=True)
-                try:
-                    row = conn.execute(
-                        """
-                        SELECT txid, symbol, side, volume, price, fees, timestamp, status
-                        FROM trades
-                        ORDER BY timestamp DESC, created_at DESC
-                        LIMIT 1
-                        """
-                    ).fetchone()
-                    if row:
-                        last_trade = {
-                            "txid": row[0],
-                            "symbol": row[1],
-                            "side": row[2],
-                            "volume": row[3],
-                            "price": row[4],
-                            "fees": row[5],
-                            "timestamp": row[6],
-                            "status": row[7],
-                            "source": "paper_trades_db",
-                        }
-                finally:
-                    conn.close()
-            except Exception as exc:
-                logger.warning("Runtime trace last paper trade unavailable: %s", exc)
+            last_trade, trade_count = _latest_filled_paper_trade(paper_db.get("path"))
 
         if last_trade is None and state_db.get("accessible") and (state_db.get("tables", {}).get("trade_ledger") or {}).get("exists"):
             trade_count = max(trade_count, int((state_db["tables"]["trade_ledger"]).get("rows", 0)))
@@ -1864,6 +2000,191 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
     except Exception:
         logger.exception("Erreur runtime trace")
         raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/trading/debug")
+async def get_trading_debug(request: Request, authorized: bool = Depends(verify_token)):
+    """Explain the latest Market Data -> Signal -> Decision -> Execution state."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances_data = orchestrator.get_instances_snapshot()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        executor = getattr(orchestrator, "order_executor", None)
+        paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
+        last_trade, filled_trade_count = _latest_filled_paper_trade(paper_db_path) if paper_mode else (None, 0)
+
+        debug = _trading_pipeline_debug(
+            instances_data=instances_data,
+            last_trade=last_trade,
+            trade_count=filled_trade_count,
+            paper_mode=paper_mode,
+        )
+
+        per_instance = []
+        for inst in instances_data:
+            inst_debug = _trading_pipeline_debug(
+                instances_data=[inst],
+                last_trade=last_trade,
+                trade_count=filled_trade_count,
+                paper_mode=paper_mode,
+            )
+            per_instance.append({
+                "id": inst.get("id"),
+                "name": inst.get("name"),
+                "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
+                "status": inst_debug["status"],
+                "reason": inst_debug["reason"],
+                "blocking_condition": inst_debug["blocking_condition"],
+                "warmup": inst.get("warmup", {}),
+                "blocked_reasons": inst.get("blocked_reasons", []),
+                "last_price": inst.get("last_price"),
+                "last_signal": inst_debug["last_signal"],
+                "last_decision": inst_debug["last_decision"],
+                "last_order": inst_debug["last_order"],
+            })
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "paper" if paper_mode else "live",
+            "paper_mode": paper_mode,
+            "overall": {
+                "status": debug["status"],
+                "reason": debug["reason"],
+                "blocking_condition": debug["blocking_condition"],
+            },
+            **debug,
+            "instances": per_instance,
+            "paper_test_mode": {
+                "enabled": os.getenv("PAPER_TEST_TRADING_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+                "endpoint": "/api/trading/test-paper-signal",
+                "guardrails": [
+                    "paper_mode_required",
+                    "PaperTradingExecutor_required",
+                    "auth_required",
+                    "confirmation_required",
+                    "small_notional_cap",
+                ],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur trading debug")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.post("/api/trading/test-paper-signal")
+async def trigger_paper_test_signal(
+    payload: PaperTestSignalRequest,
+    request: Request,
+    authorized: bool = Depends(verify_token),
+):
+    """Inject a tiny paper-only test signal through the normal signal handler."""
+    if os.getenv("PAPER_TEST_TRADING_ENABLED", "false").lower() not in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=403, detail="Mode test paper non activé")
+    if payload.confirmation != "EXECUTE_PAPER_TEST":
+        raise HTTPException(status_code=400, detail="Confirmation EXECUTE_PAPER_TEST requise")
+
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    status = orchestrator.get_status()
+    paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+    executor = getattr(orchestrator, "order_executor", None)
+    if not paper_mode or type(executor).__name__ != "PaperTradingExecutor":
+        raise HTTPException(status_code=409, detail="Test autorisé uniquement avec PaperTradingExecutor en paper mode")
+
+    instances = list(getattr(orchestrator, "_instances", {}).values())
+    if payload.symbol:
+        wanted = payload.symbol.replace("/", "").upper()
+        instances = [
+            inst for inst in instances
+            if wanted in str(getattr(getattr(inst, "config", None), "symbol", "")).replace("/", "").upper()
+        ]
+    if not instances:
+        raise HTTPException(status_code=404, detail="Aucune instance paper compatible")
+
+    max_notional = min(25.0, max(1.0, float(os.getenv("PAPER_TEST_MAX_NOTIONAL_EUR", "10.0"))))
+    requested_notional = payload.notional_eur if payload.notional_eur is not None else 5.0
+    requested_notional = min(max_notional, max(1.0, float(requested_notional)))
+
+    selected = None
+    selected_price = 0.0
+    selected_notional = requested_notional
+    for inst in sorted(instances, key=lambda i: str(getattr(getattr(i, "config", None), "symbol", ""))):
+        inst_status = inst.get_status() if hasattr(inst, "get_status") else {}
+        price = float(inst_status.get("last_price") or 0.0)
+        handler = getattr(inst, "_signal_handler", None)
+        if price <= 0 or handler is None:
+            continue
+        min_notional = price * 0.0001 * 1.02
+        if min_notional <= max_notional:
+            selected = inst
+            selected_price = price
+            selected_notional = max(requested_notional, min_notional)
+            break
+
+    if selected is None:
+        raise HTTPException(status_code=409, detail="Aucune instance avec prix courant et volume minimum paper compatible")
+
+    from ..strategies import TradingSignal, SignalType
+
+    handler = getattr(selected, "_signal_handler", None)
+    symbol = getattr(selected.config, "symbol", payload.symbol or "UNKNOWN")
+    volume = round(max(0.0001, selected_notional / selected_price), 6)
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol=symbol,
+        price=selected_price,
+        volume=volume,
+        reason="paper_test_controlled_debug",
+        timestamp=datetime.now(timezone.utc),
+        metadata={
+            "spread_bps": 0.1,
+            "expected_move_bps": 250.0,
+            "fee_bps": 0.1,
+            "slippage_bps": 0.1,
+            "expected_slippage_bps": 0.1,
+            "urgency": 0.0,
+            "limit_price": selected_price,
+        },
+    )
+
+    previous_last_signal_time = getattr(handler, "_last_signal_time", None)
+    handler._last_signal_time = None
+    try:
+        await handler._on_signal(signal)
+    finally:
+        if getattr(handler, "_last_signal_time", None) is None:
+            handler._last_signal_time = previous_last_signal_time
+
+    instances_data = orchestrator.get_instances_snapshot()
+    paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
+    last_trade, filled_trade_count = _latest_filled_paper_trade(paper_db_path)
+    debug = _trading_pipeline_debug(
+        instances_data=instances_data,
+        last_trade=last_trade,
+        trade_count=filled_trade_count,
+        paper_mode=True,
+    )
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "triggered": True,
+        "paper_mode": True,
+        "instance_id": getattr(selected, "id", None),
+        "symbol": symbol,
+        "price": selected_price,
+        "volume": volume,
+        "notional_eur": round(volume * selected_price, 8),
+        "result_status": debug["status"],
+        "result_reason": debug["reason"],
+        "debug": debug,
+    }
 
 
 @app.get("/api/system")
