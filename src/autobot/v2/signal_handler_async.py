@@ -411,6 +411,26 @@ class SignalHandlerAsync:
             return
 
         symbol = self._convert_symbol(signal.symbol)
+        accepted_edge_details = {
+            key: round(float(value), 6)
+            for key, value in edge_ctx.items()
+            if isinstance(value, (int, float))
+        }
+        self._record_runtime_event(
+            "_last_decision_event",
+            event="buy_accepted",
+            reason="all_guards_passed",
+            symbol=signal.symbol,
+            side="buy",
+            net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
+            min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+            atr_pct=round(float(atr_pct), 8),
+            volume=float(volume),
+            order_value=round(float(volume * signal.price), 8),
+            available_capital=round(float(available), 8),
+            risk_params={k: round(float(v), 6) for k, v in risk_params.items()},
+            edge_context=accepted_edge_details,
+        )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
         signal_id = f"sig_{uuid.uuid4().hex}"
