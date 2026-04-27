@@ -2502,8 +2502,10 @@ class OrchestratorAsync:
             name="leverage-downgrade",
         )
 
-        # Connect WS via ring dispatcher (P2)
-        await self.ring_dispatcher.connect()
+        # Connect WS via ring dispatcher (P2). Kraken can occasionally return
+        # transient 5xx responses during the opening handshake; retry startup
+        # before declaring the bot unavailable.
+        await self._connect_ring_dispatcher_with_retry()
 
         # Start P3 async dispatcher (starts per-pair dispatch tasks)
         await self.async_dispatcher.start()
@@ -2534,6 +2536,7 @@ class OrchestratorAsync:
         self._xgboost_train_task = self.background_tasks.tasks.get("xgboost_train")
         self._sentiment_task = self.background_tasks.tasks.get("sentiment_update")
         self._cycle_health_task = self.background_tasks.tasks.get("cycle_health")
+
         if self.paper_mode:
             total_capital = sum(
                 float(inst.get_current_capital()) for inst in self._instances.values()
@@ -2566,6 +2569,40 @@ class OrchestratorAsync:
         # Main loop
         self._main_task = asyncio.create_task(self._main_loop())
         logger.info("✅ OrchestratorAsync démarré (P4: hot/cold path actif)")
+
+    async def _connect_ring_dispatcher_with_retry(self) -> None:
+        max_attempts = max(1, int(os.getenv("WS_CONNECT_RETRIES", "6")))
+        delay_s = max(0.5, float(os.getenv("WS_CONNECT_RETRY_DELAY_S", "5.0")))
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self.ring_dispatcher.connect()
+                if attempt > 1:
+                    logger.info("✅ WebSocket connecté après %d tentative(s)", attempt)
+                return
+            except Exception as exc:
+                last_error = exc
+                self._module_diagnostics["websocket_startup"] = {
+                    "status": "retrying" if attempt < max_attempts else "error",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "error": str(exc)[:240],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                if attempt >= max_attempts:
+                    break
+                logger.warning(
+                    "⚠️ Connexion WebSocket échouée au démarrage (%d/%d): %s. Nouvelle tentative dans %.1fs",
+                    attempt,
+                    max_attempts,
+                    exc,
+                    delay_s,
+                )
+                await asyncio.sleep(delay_s)
+                delay_s = min(delay_s * 1.7, 45.0)
+
+        raise last_error if last_error else RuntimeError("Connexion WebSocket impossible")
 
     def _check_leverage_all_instances(self) -> None:
         """
