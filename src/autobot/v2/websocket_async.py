@@ -467,7 +467,25 @@ class KrakenWebSocketAsync:
         return (time.monotonic() - self._last_message_time) < max_age_seconds
 
     def is_connected(self) -> bool:
-        return self._running and self._ws is not None and self._ws.open
+        if not self._running or self._ws is None:
+            return False
+
+        open_attr = getattr(self._ws, "open", None)
+        if open_attr is not None:
+            return bool(open_attr)
+
+        closed_attr = getattr(self._ws, "closed", None)
+        if closed_attr is not None:
+            return not bool(closed_attr)
+
+        state = getattr(self._ws, "state", None)
+        state_name = str(getattr(state, "name", "")).upper()
+        if state_name:
+            return state_name == "OPEN"
+        try:
+            return int(state) == 1
+        except (TypeError, ValueError):
+            return getattr(self._ws, "close_code", None) is None
 
 
 class WebSocketMultiplexerAsync:
