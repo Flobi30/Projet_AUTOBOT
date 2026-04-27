@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Banknote, Loader, CheckCircle, AlertTriangle, User } from 'lucide-react';
-import axios from 'axios';
 
 const WithdrawalForm: React.FC = () => {
   const [amount, setAmount] = useState('');

@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 from autobot.v2.strategies.smart_recentering import SmartRecentering, SmartRecenterResult
 
+pytestmark = pytest.mark.unit
+
 
 class TestSmartRecentering:
     def setup_method(self):

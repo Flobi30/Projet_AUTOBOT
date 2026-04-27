@@ -9,6 +9,8 @@ import pytest
 from autobot.v2.strategies.adaptive_grid_config import PairProfile
 from autobot.v2.strategies.range_calculator import AdaptiveRangeCalculator
 
+pytestmark = pytest.mark.unit
+
 
 class TestAdaptiveRangeCalculator:
     def setup_method(self):

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
 import Modal from '../components/ui/Modal';
 import StrategyDetailModal from '../components/ui/StrategyDetailModal';
-import { BarChart3, Brain, Cpu, Target, TrendingUp, Calendar, Loader } from 'lucide-react';
+import { BarChart3, Cpu, Target, TrendingUp } from 'lucide-react';
 import { apiFetch } from '../api/client';
 
 
@@ -16,6 +16,24 @@ export interface Strategy {
   status: 'Active' | 'En observation';
 }
 
+interface CapitalApiData {
+  total_invested?: number;
+  total_profit?: number;
+}
+
+interface BacktestPoint {
+  time: string;
+  value: number;
+}
+
+interface HistoryApiPoint {
+  value: number;
+}
+
+interface HistoryApiData {
+  history?: HistoryApiPoint[];
+}
+
 const Backtest: React.FC = () => {
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,7 +42,7 @@ const Backtest: React.FC = () => {
     sharpe: '—',
     strategies: '—'
   });
-  const [backtestData, setBacktestData] = useState<any[]>([]);
+  const [backtestData, setBacktestData] = useState<BacktestPoint[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -32,9 +50,11 @@ const Backtest: React.FC = () => {
         // Fetch pour remplir les métriques si disponibles
         const capitalRes = await apiFetch(`/api/capital`);
         if (capitalRes.ok) {
-          const data = await capitalRes.json();
-          const perf = data.total_invested > 0 
-            ? ((data.total_profit / data.total_invested) * 100).toFixed(2)
+          const data = await capitalRes.json() as CapitalApiData;
+          const totalInvested = data.total_invested ?? 0;
+          const totalProfit = data.total_profit ?? 0;
+          const perf = totalInvested > 0
+            ? ((totalProfit / totalInvested) * 100).toFixed(2)
             : '0.00';
           setMetrics({
             performance: `+${perf}%`,
@@ -46,9 +66,9 @@ const Backtest: React.FC = () => {
         // Données historiques pour le graphique
         const historyRes = await apiFetch(`/api/history?days=30`);
         if (historyRes.ok) {
-          const historyData = await historyRes.json();
+          const historyData = await historyRes.json() as HistoryApiData;
           if (historyData.history) {
-            const formatted = historyData.history.map((item: any, idx: number) => ({
+            const formatted = historyData.history.map((item, idx) => ({
               time: `Jour ${idx * 5}`,
               value: item.value
             }));
@@ -57,7 +77,7 @@ const Backtest: React.FC = () => {
         }
 
         setIsLoading(false);
-      } catch (err) {
+      } catch {
         setIsLoading(false);
       }
     };
@@ -140,6 +160,14 @@ const Backtest: React.FC = () => {
           ))}
         </div>
       </div>
+
+      <Modal
+        isOpen={selectedStrategy !== null}
+        onClose={() => setSelectedStrategy(null)}
+        title={selectedStrategy?.name ?? 'Strategie'}
+      >
+        {selectedStrategy && <StrategyDetailModal strategy={selectedStrategy} />}
+      </Modal>
     </div>
   );
 };

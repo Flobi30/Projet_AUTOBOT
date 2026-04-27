@@ -7,9 +7,15 @@ import { apiFetch } from '../api/client';
 
 interface CapitalData {
   total_capital: number;
+  total_balance?: number;
+  allocated_capital?: number;
+  reserve_cash?: number;
   total_profit: number;
   total_invested: number;
   available_cash: number;
+  source?: string;
+  source_status?: string;
+  paper_mode?: boolean;
   currency: string;
   timestamp: string;
 }
@@ -44,26 +50,11 @@ const Capital: React.FC = () => {
 
       // Fetch capital details
       const capitalRes = await apiFetch(`/api/capital`);
-      if (capitalRes.ok) {
-        const data: CapitalData = await capitalRes.json();
-        setCapitalData(data);
-        setCapitalTotal(data.total_capital);
-      } else {
-        // Fallback sur /api/status si /api/capital n'existe pas encore
-        const statusRes = await apiFetch(`/api/status`);
-        if (!statusRes.ok) throw new Error(`API Error: ${statusRes.status}`);
-        const statusData = await statusRes.json();
-        const fallback: CapitalData = {
-          total_capital: statusData.total_capital || 0,
-          total_profit: statusData.total_profit || 0,
-          total_invested: (statusData.total_capital || 0) - (statusData.total_profit || 0),
-          available_cash: (statusData.total_capital || 0) * 0.1,
-          currency: 'EUR',
-          timestamp: new Date().toISOString(),
-        };
-        setCapitalData(fallback);
-        setCapitalTotal(fallback.total_capital);
-      }
+      if (!capitalRes.ok) throw new Error(`API Capital indisponible: ${capitalRes.status}`);
+      const data: CapitalData = await capitalRes.json();
+      setCapitalData(data);
+      setCapitalTotal(data.total_capital);
+      setIsPaperMode(data.paper_mode === true);
 
       // Fetch recent trades
       const tradesRes = await apiFetch(`/api/trades?limit=10`);
@@ -80,7 +71,9 @@ const Capital: React.FC = () => {
           const paperData = await paperRes.json();
           setIsPaperMode(paperData.is_paper_mode === true);
         }
-      } catch {}
+      } catch {
+        setIsPaperMode(data.paper_mode === true);
+      }
 
       setIsLoading(false);
     } catch (err) {
@@ -160,7 +153,7 @@ const Capital: React.FC = () => {
         />
         <MetricCard
           title="Capital Investi"
-          value={capitalData ? formatCurrency(capitalData.total_invested) : '—'}
+          value={capitalData ? formatCurrency(capitalData.allocated_capital ?? capitalData.total_invested) : '—'}
           icon={<CreditCard className="w-5 h-5" />}
         />
         <MetricCard

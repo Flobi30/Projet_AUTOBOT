@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { TrendingUp, BarChart3, Wallet, PieChart, Bot, User, Activity, Menu, X, Activity as ActivityIcon, HeartPulse } from 'lucide-react';
+import { Wallet, Bot, User, Activity, Menu, X, HeartPulse } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;

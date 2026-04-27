@@ -15,7 +15,6 @@ import {
   HeartPulse
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
 
@@ -37,17 +36,6 @@ interface SystemMetrics {
     status: 'healthy' | 'warning' | 'critical';
   };
   timestamp: string;
-}
-
-interface SystemStatus {
-  overall: 'healthy' | 'warning' | 'critical';
-  timestamp: string;
-  metrics: SystemMetrics;
-  docker: { running: boolean; containers: string[] };
-  kraken: { accessible: boolean; latency: number };
-  database: { exists: boolean; size_mb: number };
-  issues: string[];
-  recommendations: string[];
 }
 
 const StatusBadge: React.FC<{ status: 'healthy' | 'warning' | 'critical' }> = ({ status }) => {
@@ -312,6 +300,12 @@ const Diagnostic: React.FC = () => {
 
   const overallStatus = getOverallStatus();
   const timestamp = systemMetrics?.timestamp || new Date().toISOString();
+  const diagnosticIssues = overallStatus === 'healthy' ? [] : [
+    `Ressources système en état ${overallStatus}`,
+  ];
+  const diagnosticRecommendations = overallStatus === 'healthy'
+    ? ['Continuer la surveillance automatique.']
+    : ['Consulter les logs backend avant toute relance du bot.'];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -426,6 +420,10 @@ const Diagnostic: React.FC = () => {
             {systemMetrics ? `${systemMetrics.disk.used_gb} GB / ${systemMetrics.disk.total_gb} GB` : 'Chargement...'}
           </p>
         </div>
+      </div>
+
+      <div className="mb-6 lg:mb-8">
+        <IssuesPanel issues={diagnosticIssues} recommendations={diagnosticRecommendations} />
       </div>
 
       {/* Services */}

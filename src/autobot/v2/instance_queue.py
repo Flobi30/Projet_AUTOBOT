@@ -73,7 +73,7 @@ class InstanceQueue:
         self,
         instance_id: str,
         maxsize: int = DEFAULT_QUEUE_SIZE,
-        warn_every: int = 100,
+        warn_every: int = 10_000,
     ) -> None:
         """
         Args:

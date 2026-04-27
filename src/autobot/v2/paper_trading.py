@@ -123,6 +123,68 @@ class PaperTradingExecutor:
     def set_on_trade_callback(self, callback: Callable[[PaperTrade], None]):
         """Callback appelé quand un trade est exécuté."""
         self._on_trade_executed = callback
+
+    @staticmethod
+    def _asset_for_symbol(symbol: str) -> str:
+        if "ETH" in symbol:
+            return "XETH"
+        if "BTC" in symbol or "XBT" in symbol:
+            return "XXBT"
+        return symbol.replace("ZEUR", "").replace("EUR", "")
+
+    @staticmethod
+    def _symbol_for_asset(asset: str) -> str:
+        if asset == "XETH":
+            return "XETHZEUR"
+        if asset == "XXBT":
+            return "XXBTZEUR"
+        return f"{asset}ZEUR"
+
+    @staticmethod
+    def _fallback_price_for_symbol(symbol: str) -> float:
+        if "ETH" in symbol:
+            return 2000.0
+        return 60000.0
+
+    @staticmethod
+    def _timestamp_to_epoch(timestamp: str) -> float:
+        try:
+            return datetime.fromisoformat(str(timestamp).replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return datetime.now(timezone.utc).timestamp()
+
+    @staticmethod
+    def _order_type_from_txid(txid: str) -> str:
+        if txid.startswith("PAPER_SL_"):
+            return "stop-loss"
+        if txid.startswith("PAPER_TP_"):
+            return "take-profit"
+        return "market"
+
+    def _row_to_kraken_order(self, row: tuple[Any, ...]) -> Dict[str, Any]:
+        txid = row[1]
+        symbol = row[2]
+        side = row[3]
+        volume = float(row[4] or 0.0)
+        price = float(row[5] or 0.0)
+        status = row[8]
+        return {
+            "txid": txid,
+            "descr": {
+                "pair": symbol,
+                "type": side,
+                "ordertype": self._order_type_from_txid(txid),
+                "price": str(price),
+            },
+            "vol": str(volume),
+            "vol_exec": str(volume if status == "filled" else 0.0),
+            "price": str(price),
+            "avg_price": str(price if status == "filled" else 0.0),
+            "fee": str(float(row[6] or 0.0)),
+            "status": "closed" if status == "filled" else status,
+            "opentm": self._timestamp_to_epoch(row[7]),
+            "userref": row[9],
+        }
     
     # ------------------------------------------------------------------
     # Simulation des ordres
@@ -188,6 +250,68 @@ class PaperTradingExecutor:
             executed_volume=volume,
             executed_price=price,
             fees=fees,
+            raw_response=trade.to_dict(),
+        )
+
+    async def execute_limit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        volume: float,
+        limit_price: float,
+        post_only: bool = False,
+        userref: Optional[int] = None,
+    ) -> OrderResult:
+        """Simule un ordre LIMIT avec exécution immédiate au prix limite."""
+        logger.info(
+            "[PAPER] Ordre LIMIT %s %.6f %s @ %.2f post_only=%s",
+            side.value.upper(),
+            volume,
+            symbol,
+            limit_price,
+            post_only,
+        )
+
+        MIN_VOLUME = 0.0001
+        if volume < MIN_VOLUME:
+            return OrderResult(
+                success=False,
+                error=f"Volume {volume:.6f} inférieur au minimum ({MIN_VOLUME})",
+            )
+        if limit_price <= 0:
+            return OrderResult(success=False, error="Prix limite doit être > 0")
+
+        notional = volume * limit_price
+        fees = notional * self.fee_rate
+        trade = PaperTrade(
+            id=str(uuid.uuid4()),
+            txid=f"PAPER_LMT_{uuid.uuid4().hex[:16]}",
+            symbol=symbol,
+            side=side.value,
+            volume=volume,
+            price=limit_price,
+            fees=fees,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            status="filled",
+            userref=userref,
+        )
+
+        async with self._lock:
+            self._save_trade(trade)
+
+        if self._on_trade_executed:
+            try:
+                self._on_trade_executed(trade)
+            except Exception as e:
+                logger.error(f"Erreur callback trade: {e}")
+
+        return OrderResult(
+            success=True,
+            txid=trade.txid,
+            executed_volume=volume,
+            executed_price=limit_price,
+            fees=fees,
+            liquidity="maker" if post_only else "unknown",
             raw_response=trade.to_dict(),
         )
     
@@ -287,6 +411,14 @@ class PaperTradingExecutor:
                 avg_price=row[5],
                 fee=row[6],
             )
+
+    async def get_open_orders(self) -> Dict[str, dict]:
+        """Récupère les ordres paper encore ouverts, au format Kraken-like."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE status = 'pending'"
+            ).fetchall()
+            return {row[1]: self._row_to_kraken_order(row) for row in rows}
     
     async def cancel_order(self, txid: str) -> bool:
         """Annule un ordre paper pending."""
@@ -335,15 +467,15 @@ class PaperTradingExecutor:
             result = {}
             for row in rows:
                 txid = row[1]
-                result[txid] = {
-                    "txid": txid,
+                order = self._row_to_kraken_order(row)
+                order.update({
                     "symbol": row[2],
                     "side": row[3],
                     "volume": row[4],
-                    "price": row[5],
                     "fees": row[6],
                     "timestamp": row[7],
-                }
+                })
+                result[txid] = order
             return result
     
     async def get_balance(self) -> Dict[str, float]:
@@ -352,7 +484,7 @@ class PaperTradingExecutor:
             rows = conn.execute("SELECT * FROM trades WHERE status = 'filled'").fetchall()
             
             eur_balance = self.initial_capital
-            btc_balance = 0.0
+            asset_balances: Dict[str, float] = {}
             
             for row in rows:
                 side = row[3]
@@ -364,26 +496,33 @@ class PaperTradingExecutor:
                 
                 if side == "buy":
                     eur_balance -= notional + fees
-                    btc_balance += volume
+                    asset = self._asset_for_symbol(row[2])
+                    asset_balances[asset] = asset_balances.get(asset, 0.0) + volume
                 else:  # sell
                     eur_balance += notional - fees
-                    btc_balance -= volume
+                    asset = self._asset_for_symbol(row[2])
+                    asset_balances[asset] = asset_balances.get(asset, 0.0) - volume
             
-            return {"ZEUR": eur_balance, "XXBT": btc_balance}
+            return {"ZEUR": eur_balance, **asset_balances}
     
     async def get_trade_balance(self, asset: str = "EUR") -> Dict[str, float]:
         """Retourne le trade balance simulé."""
         balance = await self.get_balance()
         eur = balance.get("ZEUR", 0.0)
-        btc = balance.get("XXBT", 0.0)
+        asset_value = 0.0
         
         # Valeur estimée du BTC en EUR (prix courant approximatif)
-        price = await self._get_current_price("XXBTZEUR") or 60000.0
+        for paper_asset, qty in balance.items():
+            if paper_asset == "ZEUR" or qty == 0:
+                continue
+            symbol = self._symbol_for_asset(paper_asset)
+            price = await self._get_current_price(symbol) or self._fallback_price_for_symbol(symbol)
+            asset_value += qty * price
         
         return {
-            "equivalent_balance": eur + btc * price,
+            "equivalent_balance": eur + asset_value,
             "trade_balance": eur,
-            "margin": eur + btc * price,
+            "margin": eur + asset_value,
         }
     
     # ------------------------------------------------------------------

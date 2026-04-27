@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 pytestmark = pytest.mark.unit
 
 sys.path.insert(0, "/home/node/.openclaw/workspace/src")
-
-import pytest
 
 from autobot.v2.strategy_ensemble import MarketRegime, StrategyEnsemble
 

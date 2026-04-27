@@ -17,7 +17,11 @@ interface PairPerf {
   symbol: string; instances_count: number; capital_total: number;
   profit_total: number; profit_percent: number; profit_factor: number;
   win_rate: number; total_trades: number; max_drawdown: number; status: string;
-  instances: { id: string; name: string; capital: number; profit: number; strategy: string; status: string }[];
+  instances: {
+    id: string; name: string; capital: number; profit: number; strategy: string; status: string;
+    warmup?: { active?: boolean; blocked_reasons?: string[]; price_samples?: number; required_samples?: number };
+    blocked_reasons?: string[];
+  }[];
 }
 interface PaperPair {
   symbol: string; instance_count: number; total_trades: number;
@@ -36,6 +40,9 @@ interface BotStatus {
   running: boolean; instance_count: number; total_capital: number;
   total_profit: number; websocket_connected: boolean; uptime_seconds: number | null;
   total_trades?: number;
+}
+interface CapitalData {
+  total_capital: number; available_cash: number; source: string; paper_mode: boolean;
 }
 const formatUptime = (seconds: number | null): string => {
   if (!seconds) return '—';
@@ -74,6 +81,7 @@ const Performance: React.FC = () => {
   const [paperSummary, setPaperSummary] = useState<PaperSummary|null>(null);
   const [rebStatus, setRebStatus] = useState<RebStatus|null>(null);
   const [botStatus, setBotStatus] = useState<BotStatus|null>(null);
+  const [capitalData, setCapitalData] = useState<CapitalData|null>(null);
   const [expandedPair, setExpandedPair] = useState<string|null>(null);
 
   const tabs: Tab[] = [
@@ -83,15 +91,17 @@ const Performance: React.FC = () => {
   ];
 
   const fetchAll = useCallback(async () => {
-    const [g,p,pp,rb,bs] = await Promise.all([
+    const [g,p,pp,rb,bs,cap] = await Promise.all([
       apiFetchJson<GlobalPerf>('/api/performance/global'),
       apiFetchJson<{pairs:PairPerf[]}>('/api/performance/by-pair'),
       apiFetchJson<PaperSummary>('/api/paper-trading/summary'),
       apiFetchJson<RebStatus>('/api/rebalance/status'),
       apiFetchJson<BotStatus>('/api/status'),
+      apiFetchJson<CapitalData>('/api/capital'),
     ]);
     if(g) setGlobalPerf(g); if(p) setPairPerfs(p.pairs);
     if(pp) setPaperSummary(pp); if(rb) setRebStatus(rb); if(bs) setBotStatus(bs);
+    if(cap) setCapitalData(cap);
     setIsLoading(false);
   }, []);
 
@@ -232,6 +242,18 @@ const Performance: React.FC = () => {
                       <div>
                         <span className="text-white font-medium">{inst.name}</span>
                         <span className="text-gray-400 text-sm ml-2">({inst.strategy})</span>
+                        {inst.warmup?.active && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <Clock className="w-3 h-3"/>
+                            Chauffe {inst.warmup.price_samples ?? 0}/{inst.warmup.required_samples ?? 14}
+                          </span>
+                        )}
+                        {!inst.warmup?.active && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            <CheckCircle className="w-3 h-3"/>
+                            Prête
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-4">
                         <span className="text-gray-400 text-sm">{fmtEur(inst.capital)}</span>
@@ -262,16 +284,6 @@ const Performance: React.FC = () => {
           <MetricCard title="Instances Live" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
           <MetricCard title="Paires testées" value={String(paperSummary.pairs_tested)} icon={<Layers className="w-5 h-5"/>}/>
         </div>
-        {false && (
-          <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
-            <h3 className="text-xl font-bold text-emerald-400 mb-2">Paires en test</h3>
-            <div className="flex flex-wrap gap-2 mb-6">
-              {paperSummary.pairs_tested.map(p=>(
-                <span key={p} className="px-3 py-1 bg-gray-700/50 rounded-full text-sm text-white border border-gray-600/50">{p}</span>
-              ))}
-            </div>
-          </div>
-        )}
         {paperSummary.by_pair.length > 0 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
             <h3 className="text-xl font-bold text-emerald-400 mb-4">Performance par paire</h3>
@@ -328,8 +340,9 @@ const Performance: React.FC = () => {
             <h3 className="text-amber-400 font-bold text-lg">Mode Entraînement (Paper Trading)</h3>
             <p className="text-amber-300/80 text-sm">Le bot s'entraîne avec du capital virtuel. Aucun argent réel n'est engagé.</p>
             <div className="flex gap-4 mt-2 text-sm">
-              <span className="text-gray-400">Capital réel : <strong className="text-white">0,00 €</strong></span>
-              <span className="text-gray-400">Capital paper : <strong className="text-amber-400">{globalPerf ? fmtEur(globalPerf.capital_total) : '—'}</strong></span>
+              <span className="text-gray-400">Source : <strong className="text-white">{capitalData?.source ?? 'backend'}</strong></span>
+              <span className="text-gray-400">Cash disponible : <strong className="text-amber-400">{capitalData ? fmtEur(capitalData.available_cash) : '—'}</strong></span>
+              <span className="text-gray-400">Capital paper : <strong className="text-amber-400">{capitalData ? fmtEur(capitalData.total_capital) : (globalPerf ? fmtEur(globalPerf.capital_total) : '—')}</strong></span>
             </div>
           </div>
         </div>

@@ -11,6 +11,8 @@ from autobot.v2.strategies.adaptive_grid_config import (
     _FALLBACK_PROFILE,
 )
 
+pytestmark = pytest.mark.unit
+
 
 # ====================================================================
 # PairProfile

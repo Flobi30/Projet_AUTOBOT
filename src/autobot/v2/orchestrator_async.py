@@ -240,6 +240,11 @@ class OrchestratorAsync:
         else:
             self.order_executor = get_order_executor_async(api_key, api_secret)
             logger.info("🔴 MODE LIVE TRADING")
+        self._last_capital_snapshot: Dict[str, Any] = {
+            "paper_mode": self.paper_mode,
+            "source": "paper" if self.paper_mode else "kraken",
+            "source_status": "not_loaded",
+        }
 
         # Stop-loss manager (async)
         self.stop_loss_manager = StopLossManagerAsync(self.order_executor)
@@ -675,9 +680,10 @@ class OrchestratorAsync:
             logger.warning("🕶️ ShadowTradingManager ignoré: PAPER_TRADING=false")
             return None
 
-        shadow_capital = 250.0  # 25% de 1000€ max
-        if shadow_capital > 1000.0:
-            shadow_capital = 1000.0
+        initial_capital = float(os.getenv("INITIAL_CAPITAL", "1000.0"))
+        default_shadow_capital = max(0.0, initial_capital * 0.20)
+        shadow_capital = float(os.getenv("SHADOW_CAPITAL_POOL", str(default_shadow_capital)))
+        shadow_capital = max(0.0, min(shadow_capital, default_shadow_capital))
         manager = ShadowTradingManager()
         setattr(manager, "_shadow_capital_pool", shadow_capital)
         if not hasattr(manager, "update_prices"):
@@ -1015,16 +1021,74 @@ class OrchestratorAsync:
         return False
 
     async def _get_available_capital(self) -> float:
-        """Get available ZEUR capital from Kraken (async)."""
-        if self.paper_mode:
-            return 1000.0  # Fixed paper capital
+        """Get unallocated cash from the live/paper balance source."""
+        snapshot = await self.get_capital_snapshot()
+        return float(snapshot.get("available_cash", 0.0))
+
+    async def get_capital_snapshot(self) -> Dict[str, Any]:
+        """Return the backend source of truth for dashboard capital values."""
+        allocated_capital = sum(
+            float(inst.get_current_capital()) for inst in self._instances.values()
+        )
+        total_profit = sum(
+            float(getattr(inst, "get_profit", lambda: 0.0)()) for inst in self._instances.values()
+        )
+        open_position_notional = 0.0
+        for inst in self._instances.values():
+            try:
+                for pos in inst.get_positions_snapshot():
+                    if pos.get("status") == "open":
+                        open_position_notional += float(pos.get("buy_price", 0.0)) * float(pos.get("volume", 0.0))
+            except Exception:
+                continue
+
+        source = "paper" if self.paper_mode else "kraken"
         try:
             balances = await self.order_executor.get_balance()
-            # Kraken returns ZEUR for Euro
-            return float(balances.get("ZEUR", balances.get("EUR", 0.0)))
+            cash_balance = float(balances.get("ZEUR", balances.get("EUR", 0.0)))
+            total_balance = cash_balance
+            if self.paper_mode and hasattr(self.order_executor, "get_trade_balance"):
+                trade_balance = await self.order_executor.get_trade_balance("EUR")
+                total_balance = float(trade_balance.get("equivalent_balance", cash_balance))
+            reserve_cash = max(0.0, total_balance - allocated_capital)
+            snapshot = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "paper_mode": self.paper_mode,
+                "source": source,
+                "source_status": "ok",
+                "currency": "EUR",
+                "total_balance": total_balance,
+                "total_capital": total_balance,
+                "allocated_capital": allocated_capital,
+                "reserve_cash": reserve_cash,
+                "available_cash": reserve_cash,
+                "cash_balance": cash_balance,
+                "open_position_notional": open_position_notional,
+                "total_profit": total_profit,
+                "total_invested": allocated_capital,
+                "balances": balances,
+            }
         except Exception as exc:
             logger.error(f"❌ Erreur récupération balance: {exc}")
-            return 0.0
+            snapshot = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "paper_mode": self.paper_mode,
+                "source": source,
+                "source_status": "unavailable",
+                "currency": "EUR",
+                "total_balance": 0.0,
+                "total_capital": 0.0,
+                "allocated_capital": allocated_capital,
+                "reserve_cash": 0.0,
+                "available_cash": 0.0,
+                "cash_balance": 0.0,
+                "open_position_notional": open_position_notional,
+                "total_profit": total_profit,
+                "total_invested": allocated_capital,
+                "error": str(exc),
+            }
+        self._last_capital_snapshot = snapshot
+        return snapshot
 
     async def _evaluate_scalability_guard(self) -> None:
         if self.scalability_guard is None:
@@ -1920,7 +1984,7 @@ class OrchestratorAsync:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self.xgboost._train)
                 self._module_record_success("xgboost")
-                    self.voter.tick()
+                self.voter.tick()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -2413,7 +2477,8 @@ class OrchestratorAsync:
         # Cleanup orphaned instance_state records at startup
         try:
             persistence = get_persistence()
-            deleted = await persistence.cleanup_orphaned_instances()
+            await persistence.initialize()
+            deleted = await persistence.cleanup_orphaned_instances(list(self._instances.keys()))
             if deleted:
                 logger.info(f"🧹 Startup cleanup: {deleted} orphaned instances removed")
         except Exception as exc:
@@ -2471,10 +2536,12 @@ class OrchestratorAsync:
             total_capital = sum(
                 float(inst.get_current_capital()) for inst in self._instances.values()
             ) + float(getattr(self.shadow_manager, "_shadow_capital_pool", 0.0) if self.shadow_manager else 0.0)
-            if total_capital > 1000.0:
+            initial_capital = float(os.getenv("INITIAL_CAPITAL", "1000.0"))
+            if total_capital > initial_capital:
                 logger.warning(
-                    "🕶️ Capital total paper+shadow %.2f€ > 1000€ (limite demandée)",
+                    "🕶️ Capital total paper+shadow %.2f€ > %.2f€ (limite paper)",
                     total_capital,
+                    initial_capital,
                 )
             self.background_tasks.start(
                 {
@@ -2637,6 +2704,7 @@ class OrchestratorAsync:
                     "explain": dict(self._portfolio_plan.explain),
                 } if self._portfolio_plan else None,
             },
+            "capital": dict(self._last_capital_snapshot),
             "safety": {
                 "emergency_mode": self.safety_guard.emergency_mode,
                 "dsr_last_ms": float(self.robustness_guard._last_dsr_exec_ms),
@@ -2684,6 +2752,11 @@ class OrchestratorAsync:
                     "status": s["status"],
                     "strategy": s["strategy"],
                     "open_positions": s["open_positions_count"],
+                    "initial_capital": s.get("initial_capital"),
+                    "warmup": s.get("warmup", {}),
+                    "blocked_reasons": s.get("blocked_reasons", []),
+                    "strategy_status": s.get("strategy_status", {}),
+                    "last_price": s.get("last_price"),
                 })
             except Exception:
                 pass

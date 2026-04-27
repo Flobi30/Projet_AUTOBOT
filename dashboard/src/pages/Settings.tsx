@@ -24,7 +24,7 @@ const Settings: React.FC = () => {
     dataRetention: '1year',
   });
 
-  const handleSettingChange = (key: string, value: any) => {
+  const handleSettingChange = (key: string, value: string | boolean) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 

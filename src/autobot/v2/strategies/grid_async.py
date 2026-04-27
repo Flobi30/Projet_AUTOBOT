@@ -405,11 +405,10 @@ class GridStrategyAsync(StrategyAsync):
                 sells.append(idx)
         return sells
 
-    def _can_open_position(self, available_capital: float) -> bool:
+    def _can_open_position(self, available_capital: float, price: float) -> bool:
         if len(self.open_levels) >= self.max_positions:
             return False
-        # Kelly Dynamic Sizing (Phase 2)
-                cpl = self._calculate_kelly_cpl(price)
+        cpl = self._calculate_kelly_cpl(price)
         return cpl > 0 and available_capital >= cpl
 
     def _check_drawdown(self, price: float) -> Optional[int]:
@@ -428,8 +427,7 @@ class GridStrategyAsync(StrategyAsync):
 
     def _calculate_kelly_cpl(self, price: float) -> float:
         """Calcul du capital par niveau ajusté par Kelly + Voter Strength (PF Boost P2)."""
-        base_# Kelly Dynamic Sizing (Phase 2)
-                cpl = self._calculate_kelly_cpl(price)
+        base_cpl = float(self._runtime_capital_per_level or self.max_capital_per_level)
         if not self.kelly_active or self._kelly is None:
             return base_cpl
 
@@ -688,7 +686,7 @@ class GridStrategyAsync(StrategyAsync):
                 return
 
         # Buys
-        if self._can_open_position(available_capital):
+        if self._can_open_position(available_capital, price):
             buy_levels = self._get_buy_levels(price)
             if buy_levels:
                 best = max(buy_levels)

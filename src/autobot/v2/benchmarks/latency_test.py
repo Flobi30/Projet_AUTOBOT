@@ -9,8 +9,7 @@ import logging
 import numpy as np
 from datetime import datetime, timezone
 
-# Import mock components
-from ..websocket_async import TickerData
+from autobot.v2.websocket_async import TickerData
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Benchmark")

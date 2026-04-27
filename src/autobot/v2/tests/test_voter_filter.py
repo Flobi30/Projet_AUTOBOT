@@ -1,7 +1,12 @@
 import unittest
 import logging
 from datetime import datetime, timezone
+
+import pytest
+
 from autobot.v2.modules.multi_indicator_vote import MultiIndicatorVoter, VOTE_BUY, VOTE_SELL, VOTE_NEUTRAL
+
+pytestmark = pytest.mark.unit
 
 class TestVoterFilter(unittest.TestCase):
     def setUp(self):

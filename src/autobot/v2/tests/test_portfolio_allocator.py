@@ -1,3 +1,5 @@
+import pytest
+
 from autobot.v2.portfolio_allocator import (
     AllocationConstraints,
     AllocationWeightProvider,

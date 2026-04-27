@@ -17,8 +17,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const API_BASE_URL = 'http://204.168.205.73:8080';
-const API_TOKEN = 'autobot_token_12345';
+const API_BASE_URL = import.meta.env.VITE_DASHBOARD_API_BASE_URL || '';
+const API_TOKEN = import.meta.env.VITE_DASHBOARD_API_TOKEN || '';
 
 interface SystemMetrics {
   cpu: {
@@ -246,9 +246,7 @@ const Diagnostic: React.FC = () => {
   const fetchSystemMetrics = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/system`, {
-        headers: {
-          'Authorization': `Bearer ${API_TOKEN}`
-        }
+        headers: API_TOKEN ? { 'Authorization': `Bearer ${API_TOKEN}` } : undefined
       });
       
       if (!response.ok) {

@@ -861,6 +861,29 @@ class TradingInstanceAsync:
         positions_copy = list(self._positions.values())
         pnl_total = sum(self._pnl_quality_counts.values())
         estimated_count = self._pnl_quality_counts["estimated"] + self._pnl_quality_counts["mixed"]
+        strategy_status = (
+            self._strategy.get_status()
+            if self._strategy is not None and hasattr(self._strategy, "get_status")
+            else {}
+        )
+        price_samples = len(self._price_history)
+        warmup_required_samples = 14
+        atr_ready = price_samples >= warmup_required_samples
+        blocked_reasons = []
+        if self._last_price is None:
+            blocked_reasons.append("no_price")
+        if not atr_ready:
+            blocked_reasons.append("atr_vol_warmup")
+        if strategy_status.get("grid_initialized") is False:
+            blocked_reasons.append("grid_not_initialized")
+        warmup = {
+            "active": bool(blocked_reasons),
+            "price_samples": price_samples,
+            "required_samples": warmup_required_samples,
+            "atr_ready": atr_ready,
+            "volatility_ready": atr_ready,
+            "blocked_reasons": blocked_reasons,
+        }
         return {
             "id": self.id,
             "name": self.config.name,
@@ -877,6 +900,9 @@ class TradingInstanceAsync:
             "leverage": self.config.leverage,
             "trend": self.detect_trend(),
             "last_price": self._last_price,
+            "warmup": warmup,
+            "blocked_reasons": blocked_reasons,
+            "strategy_status": strategy_status,
             "pnl_quality": {
                 "last_close_quality": self._last_pnl_quality,
                 "counts": dict(self._pnl_quality_counts),

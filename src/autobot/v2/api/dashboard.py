@@ -102,6 +102,8 @@ class InstanceStatus(BaseModel):
     status: str
     strategy: str
     open_positions: int
+    warmup: Optional[Dict[str, Any]] = None
+    blocked_reasons: List[str] = []
 
 class GlobalStatus(BaseModel):
     running: bool
@@ -209,18 +211,23 @@ async def get_global_status(
         # CORRECTION: Utilise méthode thread-safe
         status = orchestrator.get_status()
         instances = status.get('instances', [])
-        total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
+        capital_snapshot = status.get('capital') or {}
+        if capital_snapshot.get("source_status") == "ok":
+            total_capital = float(capital_snapshot.get("total_capital", 0.0))
+            total_profit = float(capital_snapshot.get("total_profit", 0.0))
+        else:
+            total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
 
-        total_profit = None
-        if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
-            total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
-        elif hasattr(orchestrator, 'get_instances_snapshot'):
-            snapshot = orchestrator.get_instances_snapshot()
-            if isinstance(snapshot, list):
-                total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
+            total_profit = None
+            if instances and all(isinstance(inst, dict) and ('profit' in inst) for inst in instances):
+                total_profit = sum(float(inst.get('profit', 0.0)) for inst in instances)
+            elif hasattr(orchestrator, 'get_instances_snapshot'):
+                snapshot = orchestrator.get_instances_snapshot()
+                if isinstance(snapshot, list):
+                    total_profit = sum(float(inst.get('profit', 0.0)) for inst in snapshot if isinstance(inst, dict))
 
-        if total_profit is None:
-            raise HTTPException(status_code=500, detail="Erreur interne")
+            if total_profit is None:
+                raise HTTPException(status_code=500, detail="Erreur interne")
 
         return GlobalStatus(
             running=status['running'],
@@ -434,7 +441,9 @@ async def get_instances(
                 profit=inst['profit'],
                 status=inst['status'],
                 strategy=inst['strategy'],
-                open_positions=inst['open_positions']
+                open_positions=inst['open_positions'],
+                warmup=inst.get('warmup'),
+                blocked_reasons=inst.get('blocked_reasons', []),
             )
             for inst in instances_data
         ]
@@ -924,29 +933,31 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
-        instances_data = orchestrator.get_instances_snapshot()
-        total_capital = sum(inst.get('capital', 0) for inst in instances_data)
-        total_profit = sum(inst.get('profit', 0) for inst in instances_data)
-        total_invested = total_capital - total_profit
-        # Use real available capital from orchestrator (was hardcoded 10%)
-        get_available = getattr(orchestrator, '_get_available_capital', None)
-        if get_available:
-            import asyncio
-            try:
-                available = await get_available()
-            except Exception:
-                available = total_capital * 0.1  # fallback
-        else:
-            available = total_capital * 0.1  # fallback
+        get_snapshot = getattr(orchestrator, 'get_capital_snapshot', None)
+        if not get_snapshot:
+            raise HTTPException(status_code=503, detail="Source capital indisponible")
+        snapshot = await get_snapshot()
+        if snapshot.get("source_status") != "ok":
+            raise HTTPException(status_code=503, detail="Source capital indisponible")
 
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "total_capital": round(total_capital, 2),
-            "total_profit": round(total_profit, 2),
-            "total_invested": round(total_invested, 2),
-            "available_cash": round(available, 2),
-            "currency": "EUR"
+            "timestamp": snapshot.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "total_capital": round(float(snapshot.get("total_capital", 0.0)), 2),
+            "total_balance": round(float(snapshot.get("total_balance", 0.0)), 2),
+            "allocated_capital": round(float(snapshot.get("allocated_capital", 0.0)), 2),
+            "reserve_cash": round(float(snapshot.get("reserve_cash", 0.0)), 2),
+            "total_profit": round(float(snapshot.get("total_profit", 0.0)), 2),
+            "total_invested": round(float(snapshot.get("total_invested", 0.0)), 2),
+            "available_cash": round(float(snapshot.get("available_cash", 0.0)), 2),
+            "cash_balance": round(float(snapshot.get("cash_balance", 0.0)), 2),
+            "open_position_notional": round(float(snapshot.get("open_position_notional", 0.0)), 2),
+            "currency": snapshot.get("currency", "EUR"),
+            "paper_mode": bool(snapshot.get("paper_mode", False)),
+            "source": snapshot.get("source", "unknown"),
+            "source_status": snapshot.get("source_status", "unknown"),
         }
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Erreur récupération capital")
         raise HTTPException(status_code=500, detail="Erreur interne")
@@ -1326,6 +1337,8 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
                         "profit": round(inst.get("profit", 0), 2),
                         "strategy": inst.get("strategy", "unknown"),
                         "status": inst.get("status", "unknown"),
+                        "warmup": inst.get("warmup", {}),
+                        "blocked_reasons": inst.get("blocked_reasons", []),
                     }
                     for inst in instances
                 ],

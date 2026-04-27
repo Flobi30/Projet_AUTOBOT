@@ -527,44 +527,76 @@ class StatePersistence:
         await self.instance_state.close()
 
     async def upsert_order(self, **kwargs) -> bool:
+        await self.initialize()
         return await self.orders.upsert_order(**kwargs)
 
     async def transition_order_state(self, **kwargs) -> bool:
+        await self.initialize()
         return await self.orders.transition_order_state(**kwargs)
 
     async def get_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
+        await self.initialize()
         return await self.orders.get_order(client_order_id)
 
     async def get_non_terminal_orders(self) -> List[Dict[str, Any]]:
+        await self.initialize()
         return await self.orders.get_non_terminal_orders()
 
     async def append_audit_event(self, **kwargs) -> bool:
+        await self.initialize()
         return await self.audit.append_audit_event(**kwargs)
 
     async def get_execution_fee(self, instance_id: str, exchange_order_id: str) -> Optional[float]:
         return await self.audit.get_execution_fee(instance_id, exchange_order_id)
 
     async def save_position(self, **kwargs) -> bool:
+        await self.initialize()
         return await self.positions.save_position(**kwargs)
 
     async def update_position_status(self, position_id: str, status: str) -> bool:
+        await self.initialize()
         return await self.positions.update_position_status(position_id, status)
 
     async def close_position_and_record_trade(self, position_id: str, trade_data: Dict[str, Any]) -> bool:
+        await self.initialize()
         return await self.positions.close_position_and_record_trade(position_id, trade_data)
 
     async def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
+        await self.initialize()
         return await self.positions.recover_positions(instance_id)
 
-    async def save_instance_state(self, **kwargs) -> bool:
-        return await self.instance_state.save_instance_state(**kwargs)
+    async def save_instance_state(self, *args, **kwargs) -> bool:
+        await self.initialize()
+        return await self.instance_state.save_instance_state(*args, **kwargs)
 
     async def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
+        await self.initialize()
         return await self.instance_state.recover_instance_state(instance_id)
+
+    async def cleanup_orphaned_instances(self, active_instance_ids: Optional[List[str]] = None) -> int:
+        await self.initialize()
+        if active_instance_ids is None:
+            return 0
+        if not active_instance_ids:
+            return 0
+        placeholders = ",".join("?" for _ in active_instance_ids)
+        try:
+            conn = await self.instance_state.get_conn()
+            cursor = await conn.execute(
+                f"DELETE FROM instance_state WHERE instance_id NOT IN ({placeholders})",
+                tuple(active_instance_ids),
+            )
+            deleted = int(cursor.rowcount or 0)
+            await conn.commit()
+            return deleted
+        except Exception as e:
+            logger.exception(f"❌ Erreur cleanup_orphaned_instances: {e}")
+            return 0
 
     async def record_trade(self, position_id: str, instance_id: str,
                     side: str, price: float, volume: float,
                     profit: Optional[float] = None) -> bool:
+        await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
             conn = await self.instance_state.get_conn()
@@ -582,6 +614,7 @@ class StatePersistence:
             return False
 
     async def append_trade_ledger(self, **kwargs) -> bool:
+        await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
             # Reusing order repo connection for trade ledger
@@ -610,6 +643,7 @@ class StatePersistence:
             return False
 
     async def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:
+        await self.initialize()
         # Implementation similar to sync but with await
         where = ""
         args: tuple[Any, ...] = ()
@@ -650,6 +684,7 @@ class StatePersistence:
         return {"pairs": []}
 
     async def get_order_by_userref(self, userref: int) -> Optional[Dict[str, Any]]:
+        await self.initialize()
         try:
             conn = await self.orders.get_conn()
             async with conn.execute("SELECT * FROM orders WHERE userref = ?", (userref,)) as cursor:
@@ -660,6 +695,7 @@ class StatePersistence:
             return None
 
     async def cleanup_old_data(self, days: int = 30) -> int:
+        await self.initialize()
         try:
             conn = await self.orders.get_conn()
             cursor = await conn.execute("DELETE FROM trades WHERE julianday('now') - julianday(timestamp) > ?", (days,))
