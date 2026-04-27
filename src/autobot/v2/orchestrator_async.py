@@ -759,7 +759,12 @@ class OrchestratorAsync:
 
             # P1: Order Flow Imbalance (OFI) subscription
             if self.ofi:
-                await self._ws.subscribe_book(config.symbol, self.ofi.on_book_update)
+                book_client = getattr(self, "_ws", None) or getattr(self, "ws_client", None)
+                subscribe_book = getattr(book_client, "subscribe_book", None)
+                if subscribe_book:
+                    await subscribe_book(config.symbol, self.ofi.on_book_update)
+                else:
+                    logger.debug("OFI book subscription skipped: websocket client has no book channel")
             # Protection TrailingStop dédiée par instance
             self.trailing_stops[instance_id] = TrailingStopATR(
                 atr_multiplier=2.5,
