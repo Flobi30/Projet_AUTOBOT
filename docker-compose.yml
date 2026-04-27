@@ -1,6 +1,4 @@
 # docker-compose.yml — AutoBot V2
-version: '3.8'
-
 services:
   autobot:
     build:
@@ -8,7 +6,8 @@ services:
       dockerfile: Dockerfile
     container_name: autobot-v2
     env_file:
-      - .env
+      - path: .env
+        required: false
     restart: unless-stopped
     
     # Environnement
@@ -17,11 +16,11 @@ services:
       - APP_ENV=${APP_ENV:-production}
       - DEPLOYMENT_STAGE=${DEPLOYMENT_STAGE:-paper}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - KRAKEN_API_KEY=${KRAKEN_API_KEY}
-      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
+      - KRAKEN_API_KEY=${KRAKEN_API_KEY:-}
+      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET:-}
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=8080
-      - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN}
+      - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN:-}
       # Set both DASHBOARD_SSL_* and HEALTHCHECK_MODE=tls only when cert/key
       # files are mounted and readable by the container user.
       - DASHBOARD_SSL_CERT=${DASHBOARD_SSL_CERT:-}
