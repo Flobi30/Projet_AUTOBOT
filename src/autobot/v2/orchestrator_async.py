@@ -424,9 +424,6 @@ class OrchestratorAsync:
             "check_interval": 30,  # minutes
             "max_drawdown_global": 0.30,
         }
-        if self.instance_activation_manager is None:
-            self._activation_target_instances = self.config["max_instances"]
-
         # State
         self.running = False
         self._main_task: Optional[asyncio.Task] = None

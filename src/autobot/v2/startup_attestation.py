@@ -238,7 +238,7 @@ class StartupAttestation:
         record("orders_endpoint", await self._check_orders_endpoint())
         record("nonce_health", self._check_nonce_health())
         record("db_writable", self._check_db_writable())
-        record("audit_writable", self._check_audit_writable())
+        record("audit_writable", await self._check_audit_writable())
         record("clock_drift", await self._check_clock_drift())
         record("reconciliation_baseline", await self._check_reconciliation_baseline())
         record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
@@ -419,11 +419,11 @@ class StartupAttestation:
                 return _CheckOutcome(ok=False, reason="db_io_timeout", message="Database I/O timed out", error_code="timeout")
             return _CheckOutcome(ok=False, reason="db_io_error", message="Database read-write probe failed", error_code="io")
 
-    def _check_audit_writable(self) -> _CheckOutcome:
+    async def _check_audit_writable(self) -> _CheckOutcome:
         try:
             from .persistence import get_persistence
             ps = get_persistence()
-            ok = ps.append_audit_event(
+            ok = await ps.append_audit_event(
                 event_id=f"startup_{int(time.time()*1000)}",
                 event_type="STARTUP_PREFLIGHT",
                 instance_id="system",
