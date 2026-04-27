@@ -121,6 +121,17 @@ class SignalHandlerAsync:
         self._execution_cost_samples: dict[str, list[dict[str, float]]] = {}
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
+    def _record_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
+        """Expose non-sensitive runtime trace events for the dashboard."""
+        event = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "instance_id": getattr(self.instance, "id", None),
+            **payload,
+        }
+        setattr(self, attr_name, event)
+        setattr(self.instance, attr_name, event)
+        return event
+
     @staticmethod
     async def _maybe_await(value: Any) -> Any:
         if asyncio.iscoroutine(value) or isinstance(value, asyncio.Future):
@@ -196,25 +207,64 @@ class SignalHandlerAsync:
     async def _on_signal(self, signal: TradingSignal) -> None:
         """Async signal handler."""
         if self._kill_switch.tripped or self._kill_switch.is_globally_tripped():
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="signal_ignored",
+                reason="kill_switch_active",
+                symbol=signal.symbol,
+                side=signal.type.value,
+                price=float(signal.price),
+            )
             logger.error("🛑 Kill switch actif — signal ignoré")
             return
         logger.info(f"📡 Signal: {signal.type.value.upper()} {signal.symbol} @ {signal.price:.2f}")
+        self._record_runtime_event(
+            "_last_signal_event",
+            event="signal_received",
+            symbol=signal.symbol,
+            side=signal.type.value,
+            price=float(signal.price),
+            volume=float(signal.volume),
+            reason=getattr(signal, "reason", None),
+        )
 
         if self._last_signal_time:
             elapsed = (datetime.now(timezone.utc) - self._last_signal_time).total_seconds()
             if elapsed < self._cooldown_seconds:
+                self._record_runtime_event(
+                    "_last_decision_event",
+                    event="signal_ignored",
+                    reason="cooldown",
+                    symbol=signal.symbol,
+                    side=signal.type.value,
+                    elapsed_seconds=round(elapsed, 3),
+                )
                 logger.warning(f"⏱️ Signal ignoré (cooldown): {elapsed:.1f}s")
                 return
 
         try:
             if signal.type == SignalType.BUY:
                 if not self._passes_microstructure_hard_filter(signal):
+                    self._record_runtime_event(
+                        "_last_decision_event",
+                        event="signal_rejected",
+                        reason="microstructure_filter",
+                        symbol=signal.symbol,
+                        side=signal.type.value,
+                    )
                     return
                 await self._execute_buy(signal)
             elif signal.type in (SignalType.SELL, SignalType.CLOSE):
                 await self._execute_sell(signal)
             self._last_signal_time = datetime.now(timezone.utc)
         except Exception as exc:
+            self._record_runtime_event(
+                "_last_error_event",
+                event="signal_execution_error",
+                symbol=signal.symbol,
+                side=signal.type.value,
+                error=str(exc)[:240],
+            )
             logger.exception(f"❌ Erreur exécution signal: {exc}")
 
 
@@ -279,10 +329,23 @@ class SignalHandlerAsync:
 
         validation = self.validator.validate("open_position", context)
         if validation.status == ValidationStatus.RED:
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="open_position_validator",
+                symbol=signal.symbol,
+                message=validation.message,
+            )
             logger.error(f"❌ Signal BUY rejeté: {validation.message}")
             return
 
         if self.order_executor is None:
+            self._record_runtime_event(
+                "_last_error_event",
+                event="buy_rejected",
+                reason="order_executor_missing",
+                symbol=signal.symbol,
+            )
             logger.error("❌ OrderExecutor non configuré")
             return
 
@@ -301,6 +364,14 @@ class SignalHandlerAsync:
 
         edge_ctx = self._estimate_edge_context(signal, atr_pct, risk_params)
         if not self._passes_cost_guard(edge_ctx):
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="cost_guard",
+                symbol=signal.symbol,
+                net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
+                min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+            )
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
@@ -331,6 +402,15 @@ class SignalHandlerAsync:
             result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume, userref=rec.userref)
 
         if not result.success:
+            self._record_runtime_event(
+                "_last_order_event",
+                event="order_rejected",
+                symbol=symbol,
+                side="buy",
+                order_type=execution_plan["order_type"],
+                volume=float(volume),
+                error=(result.error or "unknown")[:240],
+            )
             logger.error(f"❌ Échec ordre Kraken: {result.error}")
             await self._maybe_await(self._osm.transition(
                 rec.client_order_id,
@@ -378,6 +458,19 @@ class SignalHandlerAsync:
         executed_price = result.executed_price or signal.price
         executed_volume = result.executed_volume or volume
         actual_liquidity = self._normalize_liquidity(result.liquidity)
+        self._record_runtime_event(
+            "_last_order_event",
+            event="order_filled",
+            symbol=symbol,
+            side="buy",
+            order_type=execution_plan["order_type"],
+            txid=result.txid,
+            requested_volume=float(volume),
+            executed_volume=float(executed_volume),
+            executed_price=float(executed_price),
+            fees=float(result.fees or 0.0),
+            paper_mode=bool(getattr(getattr(self.instance, "orchestrator", None), "paper_mode", False)),
+        )
         logger.info(
             "💸 Exécution BUY %s: type=%s post_only=%s liquidity=%s reason=%s",
             symbol,
@@ -472,12 +565,24 @@ class SignalHandlerAsync:
         logger.info(f"💰 Exécution VENTE {signal.symbol}")
 
         if self.order_executor is None:
+            self._record_runtime_event(
+                "_last_error_event",
+                event="sell_rejected",
+                reason="order_executor_missing",
+                symbol=signal.symbol,
+            )
             logger.error("❌ OrderExecutor non configuré")
             return
 
         positions = self.instance.get_positions_snapshot()
         open_positions = [p for p in positions if p.get("status") == "open"]
         if not open_positions:
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="sell_ignored",
+                reason="no_open_position",
+                symbol=signal.symbol,
+            )
             return
 
         metadata = signal.metadata or {}
@@ -518,6 +623,18 @@ class SignalHandlerAsync:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
                 actual_liquidity = self._normalize_liquidity(result.liquidity)
+                self._record_runtime_event(
+                    "_last_order_event",
+                    event="order_filled",
+                    symbol=symbol,
+                    side="sell",
+                    order_type="market",
+                    txid=result.txid,
+                    executed_volume=float(vol),
+                    executed_price=float(price),
+                    fees=float(result.fees or 0.0),
+                    paper_mode=bool(getattr(getattr(self.instance, "orchestrator", None), "paper_mode", False)),
+                )
                 logger.info(
                     "💸 Exécution SELL %s: type=market post_only=False liquidity=%s",
                     symbol,
@@ -551,6 +668,15 @@ class SignalHandlerAsync:
                     await self.order_executor.cancel_order(sl_txid)
                 await self._post_trade_reconcile()
             else:
+                self._record_runtime_event(
+                    "_last_order_event",
+                    event="order_rejected",
+                    symbol=symbol,
+                    side="sell",
+                    order_type="market",
+                    volume=float(vol),
+                    error=(result.error or "unknown")[:240],
+                )
                 logger.error(f"❌ Échec vente: {result.error}")
                 await self._kill_switch.record_api_failure(result.error or "sell failed")
 

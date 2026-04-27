@@ -11,6 +11,7 @@ import time
 import threading
 import inspect
 import heapq
+import sqlite3
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
@@ -53,6 +54,90 @@ def _compute_global_totals(orchestrator: Any, status: Dict[str, Any]) -> tuple[f
         total_profit = 0.0
 
     return total_capital, total_profit
+
+
+def _round_balances(balances: Any) -> Dict[str, float]:
+    if not isinstance(balances, dict):
+        return {}
+    result: Dict[str, float] = {}
+    for asset, value in balances.items():
+        try:
+            result[str(asset)] = round(float(value), 8)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _infer_symbol_from_instance(inst: Dict[str, Any]) -> str:
+    symbol = str(inst.get("symbol") or inst.get("pair") or "").strip()
+    if symbol:
+        return symbol
+    haystack = f"{inst.get('name', '')} {inst.get('strategy', '')}".upper()
+    known_symbols = {
+        "BTC": "BTC/EUR",
+        "XBT": "BTC/EUR",
+        "ETH": "ETH/EUR",
+        "SOL": "SOL/EUR",
+        "XRP": "XRP/EUR",
+        "ADA": "ADA/EUR",
+        "DOT": "DOT/EUR",
+    }
+    for token, normalized in known_symbols.items():
+        if token in haystack:
+            return normalized
+    return "UNKNOWN"
+
+
+def _sqlite_health(db_path: Any, required_tables: List[str]) -> Dict[str, Any]:
+    path = str(db_path) if db_path else ""
+    result: Dict[str, Any] = {
+        "path": path,
+        "exists": bool(path and os.path.exists(path)),
+        "accessible": False,
+        "tables": {},
+    }
+    if not result["exists"]:
+        result["status"] = "missing"
+        return result
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            for table in required_tables:
+                row = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone()
+                table_info = {"exists": bool(row)}
+                if row:
+                    table_info["rows"] = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                result["tables"][table] = table_info
+            result["accessible"] = True
+            result["status"] = "ok"
+        finally:
+            conn.close()
+    except Exception as exc:
+        result["status"] = "error"
+        result["error"] = str(exc)[:240]
+    return result
+
+
+def _latest_event(instances: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
+    latest: Optional[Dict[str, Any]] = None
+    latest_ts = ""
+    for inst in instances:
+        event = inst.get(key)
+        if not isinstance(event, dict):
+            continue
+        ts = str(event.get("timestamp") or "")
+        if latest is None or ts > latest_ts:
+            latest = {
+                **event,
+                "instance_id": event.get("instance_id") or inst.get("id"),
+                "instance_name": inst.get("name"),
+                "symbol": event.get("symbol") or inst.get("symbol") or _infer_symbol_from_instance(inst),
+            }
+            latest_ts = ts
+    return latest
 
 
 async def _stop_orchestrator_safely(orchestrator: Any) -> None:
@@ -984,22 +1069,47 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         snapshot = await get_snapshot()
         if snapshot.get("source_status") != "ok":
             raise HTTPException(status_code=503, detail="Source capital indisponible")
+        balances = _round_balances(snapshot.get("balances", {}))
+        paper_mode = bool(snapshot.get("paper_mode", False))
+        timestamp = snapshot.get("timestamp", datetime.now(timezone.utc).isoformat())
+        total_balance = round(float(snapshot.get("total_balance", 0.0)), 2)
+        cash_balance = round(float(snapshot.get("cash_balance", 0.0)), 2)
 
         return {
-            "timestamp": snapshot.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "timestamp": timestamp,
             "total_capital": round(float(snapshot.get("total_capital", 0.0)), 2),
-            "total_balance": round(float(snapshot.get("total_balance", 0.0)), 2),
+            "total_balance": total_balance,
             "allocated_capital": round(float(snapshot.get("allocated_capital", 0.0)), 2),
             "reserve_cash": round(float(snapshot.get("reserve_cash", 0.0)), 2),
             "total_profit": round(float(snapshot.get("total_profit", 0.0)), 2),
             "total_invested": round(float(snapshot.get("total_invested", 0.0)), 2),
             "available_cash": round(float(snapshot.get("available_cash", 0.0)), 2),
-            "cash_balance": round(float(snapshot.get("cash_balance", 0.0)), 2),
+            "cash_balance": cash_balance,
             "open_position_notional": round(float(snapshot.get("open_position_notional", 0.0)), 2),
             "currency": snapshot.get("currency", "EUR"),
-            "paper_mode": bool(snapshot.get("paper_mode", False)),
+            "paper_mode": paper_mode,
             "source": snapshot.get("source", "unknown"),
             "source_status": snapshot.get("source_status", "unknown"),
+            "balances": balances,
+            "paper_account": {
+                "active": paper_mode,
+                "total_balance": total_balance if paper_mode else None,
+                "available_cash": round(float(snapshot.get("available_cash", 0.0)), 2) if paper_mode else None,
+                "balances": balances if paper_mode else {},
+                "message": "Capital virtuel persistant du paper trading." if paper_mode else "Paper trading inactif.",
+            },
+            "kraken_account": {
+                "connected": (not paper_mode) and snapshot.get("source") == "kraken" and snapshot.get("source_status") == "ok",
+                "total_balance": total_balance if not paper_mode else None,
+                "eur_available": cash_balance if not paper_mode else None,
+                "balances": balances if not paper_mode else {},
+                "last_sync": timestamp if not paper_mode else None,
+                "message": (
+                    "Solde Kraken lu cote backend."
+                    if not paper_mode
+                    else "Mode paper: aucun capital reel n'est engage par AUTOBOT."
+                ),
+            },
         }
     except HTTPException:
         raise
@@ -1296,17 +1406,7 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
         # Group instances by symbol
         pair_map: Dict[str, list] = {}
         for inst in instances_data:
-            symbol = inst.get("symbol", inst.get("name", "UNKNOWN"))
-            # Try to extract symbol from name if not available directly
-            if symbol == "UNKNOWN" or "/" not in symbol:
-                name = inst.get("name", "")
-                # Pattern: "Auto-BTC-EUR (grid)" or "Grid BTC/EUR"
-                for known in ["BTC/EUR", "ETH/EUR", "SOL/EUR", "BTC/USD",
-                              "ETH/USD", "SOL/USD", "XRP/EUR", "ADA/EUR",
-                              "DOT/EUR"]:
-                    if known.replace("/", "-") in name or known in name:
-                        symbol = known
-                        break
+            symbol = _infer_symbol_from_instance(inst)
             if symbol not in pair_map:
                 pair_map[symbol] = []
             pair_map[symbol].append(inst)
@@ -1326,10 +1426,10 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
             gross_loss = 0.0
             total_trades = 0
             winning_trades = 0
-            trading_mode = "live"
+            trading_mode = "paper" if bool(getattr(orchestrator, "paper_mode", False)) else "live"
 
             for inst in instances:
-                mode = inst.get("trading_mode", "live")
+                mode = inst.get("trading_mode", trading_mode)
                 if mode in ("paper", "shadow", "dry_run"):
                     trading_mode = "paper"
 
@@ -1378,6 +1478,7 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
                     {
                         "id": inst.get("id"),
                         "name": inst.get("name"),
+                        "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
                         "capital": round(inst.get("capital", 0), 2),
                         "profit": round(inst.get("profit", 0), 2),
                         "strategy": inst.get("strategy", "unknown"),
@@ -1432,18 +1533,7 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
         # Build pair map
         pair_map = {}
         for inst in instances_data:
-            # Try to determine symbol from strategy or name
-            symbol = "BTC/EUR"  # Default
-            strategy = inst.get("strategy", "").lower()
-            name = inst.get("name", "").lower()
-            
-            if "btc" in strategy or "btc" in name or "bitcoin" in name:
-                symbol = "BTC/EUR"
-            elif "eth" in strategy or "eth" in name:
-                symbol = "ETH/EUR"
-            elif "sol" in strategy or "sol" in name:
-                symbol = "SOL/EUR"
-            
+            symbol = _infer_symbol_from_instance(inst)
             if symbol not in pair_map:
                 pair_map[symbol] = []
             pair_map[symbol].append(inst)
@@ -1457,12 +1547,19 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             winning_trades = 0
             gross_profit = 0.0
             gross_loss = 0.0
+            warmup_active = 0
+            blocked_reasons = set()
 
             for inst in instances:
                 initial = inst.get("initial_capital", inst.get("capital", 0))
                 profit = inst.get("profit", 0)
                 if initial > 0:
                     profits_pct.append(profit / initial * 100)
+                warmup = inst.get("warmup") or {}
+                if warmup.get("active"):
+                    warmup_active += 1
+                for reason in inst.get("blocked_reasons", []) or warmup.get("blocked_reasons", []):
+                    blocked_reasons.add(str(reason))
 
                 trades = inst.get("trades_history", [])
                 for trade in trades:
@@ -1505,6 +1602,8 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 "avg_pf": round(pair_pf, 2),
                 "win_rate": round(win_rate, 2),
                 "recommendation": recommendation,
+                "warmup_active": warmup_active,
+                "blocked_reasons": sorted(blocked_reasons),
             })
 
         return {
@@ -1542,6 +1641,228 @@ async def get_rebalance_status(request: Request, authorized: bool = Depends(veri
         }
     except Exception:
         logger.exception("Erreur récupération statut rebalance")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/runtime/trace")
+async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_token)):
+    """Operational trace proving whether AUTOBOT is really doing work."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances_data = orchestrator.get_instances_snapshot()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        mode = "paper" if paper_mode else "live"
+        executor = getattr(orchestrator, "order_executor", None)
+        persistence = getattr(orchestrator, "persistence", None)
+
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
+        state_db = _sqlite_health(state_db_path, ["positions", "instance_state", "trade_ledger"])
+        paper_db = _sqlite_health(paper_db_path, ["trades"]) if paper_mode else {
+            "path": str(paper_db_path) if paper_db_path else "",
+            "exists": False,
+            "accessible": False,
+            "status": "not_used_in_live_mode",
+            "tables": {},
+        }
+
+        open_orders_count: Optional[int] = None
+        open_orders_status = "unavailable"
+        if executor is not None and hasattr(executor, "get_open_orders"):
+            try:
+                open_orders = await executor.get_open_orders()
+                open_orders_count = len(open_orders) if isinstance(open_orders, dict) else 0
+                open_orders_status = "ok"
+            except Exception as exc:
+                open_orders_status = "error"
+                open_orders_count = None
+                logger.warning("Runtime trace open orders unavailable: %s", exc)
+
+        last_trade = None
+        trade_count = 0
+        if paper_db.get("accessible") and (paper_db.get("tables", {}).get("trades") or {}).get("exists"):
+            trade_count = int((paper_db["tables"]["trades"]).get("rows", 0))
+            try:
+                conn = sqlite3.connect(f"file:{paper_db['path']}?mode=ro", uri=True)
+                try:
+                    row = conn.execute(
+                        """
+                        SELECT txid, symbol, side, volume, price, fees, timestamp, status
+                        FROM trades
+                        ORDER BY timestamp DESC, created_at DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if row:
+                        last_trade = {
+                            "txid": row[0],
+                            "symbol": row[1],
+                            "side": row[2],
+                            "volume": row[3],
+                            "price": row[4],
+                            "fees": row[5],
+                            "timestamp": row[6],
+                            "status": row[7],
+                            "source": "paper_trades_db",
+                        }
+                finally:
+                    conn.close()
+            except Exception as exc:
+                logger.warning("Runtime trace last paper trade unavailable: %s", exc)
+
+        if last_trade is None and state_db.get("accessible") and (state_db.get("tables", {}).get("trade_ledger") or {}).get("exists"):
+            trade_count = max(trade_count, int((state_db["tables"]["trade_ledger"]).get("rows", 0)))
+            try:
+                conn = sqlite3.connect(f"file:{state_db['path']}?mode=ro", uri=True)
+                try:
+                    row = conn.execute(
+                        """
+                        SELECT trade_id, symbol, side, volume, executed_price, fees, created_at
+                        FROM trade_ledger
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if row:
+                        last_trade = {
+                            "trade_id": row[0],
+                            "symbol": row[1],
+                            "side": row[2],
+                            "volume": row[3],
+                            "price": row[4],
+                            "fees": row[5],
+                            "timestamp": row[6],
+                            "source": "trade_ledger_db",
+                        }
+                finally:
+                    conn.close()
+            except Exception as exc:
+                logger.warning("Runtime trace last ledger trade unavailable: %s", exc)
+
+        pair_set = {_infer_symbol_from_instance(inst) for inst in instances_data}
+        pair_set.discard("UNKNOWN")
+        strategy_names = sorted({str(inst.get("strategy") or "unknown") for inst in instances_data})
+        warmup_instances = [
+            {
+                "id": inst.get("id"),
+                "name": inst.get("name"),
+                "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
+                "warmup": inst.get("warmup", {}),
+                "blocked_reasons": inst.get("blocked_reasons", []),
+            }
+            for inst in instances_data
+            if (inst.get("warmup") or {}).get("active") or inst.get("blocked_reasons")
+        ]
+
+        recent_errors: List[Dict[str, Any]] = []
+        for inst in instances_data:
+            err = inst.get("last_error")
+            if isinstance(err, dict):
+                recent_errors.append({
+                    **err,
+                    "instance_id": err.get("instance_id") or inst.get("id"),
+                    "instance_name": inst.get("name"),
+                })
+        module_diagnostics = status.get("module_diagnostics") or {}
+        if isinstance(module_diagnostics, dict):
+            for module_name, diag in module_diagnostics.items():
+                if isinstance(diag, dict) and (diag.get("error") or diag.get("status") in {"error", "critical"}):
+                    recent_errors.append({
+                        "timestamp": diag.get("timestamp"),
+                        "module": module_name,
+                        "event": "module_diagnostic",
+                        "error": str(diag.get("error") or diag.get("status"))[:240],
+                    })
+
+        last_market_tick = _latest_event(instances_data, "last_market_tick")
+        if last_market_tick is None:
+            priced_instances = [inst for inst in instances_data if inst.get("last_price")]
+            if priced_instances:
+                inst = priced_instances[-1]
+                last_market_tick = {
+                    "timestamp": None,
+                    "instance_id": inst.get("id"),
+                    "instance_name": inst.get("name"),
+                    "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
+                    "price": inst.get("last_price"),
+                    "source": "instance_memory_no_timestamp",
+                }
+
+        checks = [
+            {"name": "backend_api", "ok": True, "status": "ok"},
+            {"name": "orchestrator", "ok": bool(status.get("running")), "status": "running" if status.get("running") else "stopped"},
+            {"name": "market_websocket", "ok": bool(status.get("websocket_connected")), "status": "connected" if status.get("websocket_connected") else "disconnected"},
+            {"name": "state_database", "ok": bool(state_db.get("accessible")), "status": state_db.get("status")},
+            {"name": "paper_database", "ok": bool(paper_db.get("accessible")) if paper_mode else True, "status": paper_db.get("status")},
+            {"name": "order_executor", "ok": executor is not None, "status": type(executor).__name__ if executor is not None else "missing"},
+            {"name": "strategies_imported", "ok": len(instances_data) > 0, "status": f"{len(instances_data)} strategies"},
+            {"name": "market_tick_received", "ok": last_market_tick is not None, "status": "seen" if last_market_tick else "waiting"},
+        ]
+
+        critical_failed = any(not c["ok"] for c in checks if c["name"] in {"orchestrator", "market_websocket", "state_database", "order_executor"})
+        if critical_failed:
+            overall_status = "critical"
+        elif trade_count == 0:
+            overall_status = "warning"
+        elif recent_errors:
+            overall_status = "warning"
+        else:
+            overall_status = "healthy"
+
+        messages = []
+        if trade_count == 0:
+            messages.append("Bot actif mais aucune execution encore enregistree.")
+        if paper_mode:
+            messages.append("Mode paper: aucun capital reel n'est engage par AUTOBOT.")
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": overall_status,
+            "mode": mode,
+            "paper_mode": paper_mode,
+            "capital": status.get("capital", {}),
+            "runtime": {
+                "running": bool(status.get("running")),
+                "websocket_connected": bool(status.get("websocket_connected")),
+                "uptime_seconds": status.get("uptime_seconds"),
+                "instance_count": len(instances_data),
+            },
+            "strategies": {
+                "active_count": len(instances_data),
+                "names": strategy_names,
+                "pairs_watched": sorted(pair_set),
+                "warmup_or_blocked": warmup_instances,
+            },
+            "database": {
+                "state": state_db,
+                "paper": paper_db,
+            },
+            "order_executor": {
+                "class_name": type(executor).__name__ if executor is not None else None,
+                "open_orders_status": open_orders_status,
+                "open_orders_count": open_orders_count,
+                "recorded_trades_count": trade_count,
+            },
+            "trace": {
+                "last_market_tick": last_market_tick,
+                "last_signal": _latest_event(instances_data, "last_signal"),
+                "last_decision": _latest_event(instances_data, "last_decision") or status.get("last_decision"),
+                "last_order": _latest_event(instances_data, "last_order"),
+                "last_trade": last_trade,
+                "last_error": recent_errors[-1] if recent_errors else None,
+                "recent_errors": recent_errors[-10:],
+            },
+            "checks": checks,
+            "messages": messages,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur runtime trace")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

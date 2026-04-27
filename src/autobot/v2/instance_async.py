@@ -112,6 +112,7 @@ class TradingInstanceAsync:
 
         # Price
         self._last_price: Optional[float] = None
+        self._last_price_at: Optional[datetime] = None
         self._max_history_size = 1000
         self._price_history: deque = deque(maxlen=self._max_history_size)
 
@@ -468,6 +469,7 @@ class TradingInstanceAsync:
 
         # Reuse timestamp from TickerData (set once per WS message, not per instance)
         self._price_history.append((data.timestamp, data.price))
+        self._last_price_at = data.timestamp
 
         if self._strategy is not None and self.status == InstanceStatus.RUNNING:
             # Strategy.on_price is sync (CPU-bound, no I/O)
@@ -884,9 +886,18 @@ class TradingInstanceAsync:
             "volatility_ready": atr_ready,
             "blocked_reasons": blocked_reasons,
         }
+        last_market_tick = None
+        if self._last_price is not None:
+            tick_ts = self._last_price_at
+            last_market_tick = {
+                "timestamp": tick_ts.isoformat() if tick_ts else None,
+                "price": self._last_price,
+                "source": "websocket_instance_memory",
+            }
         return {
             "id": self.id,
             "name": self.config.name,
+            "symbol": self.config.symbol,
             "status": self.status.value,
             "strategy": self.config.strategy,
             "initial_capital": self._initial_capital,
@@ -900,6 +911,11 @@ class TradingInstanceAsync:
             "leverage": self.config.leverage,
             "trend": self.detect_trend(),
             "last_price": self._last_price,
+            "last_market_tick": last_market_tick,
+            "last_signal": getattr(self, "_last_signal_event", None),
+            "last_decision": getattr(self, "_last_decision_event", None),
+            "last_order": getattr(self, "_last_order_event", None),
+            "last_error": getattr(self, "_last_error_event", None),
             "warmup": warmup,
             "blocked_reasons": blocked_reasons,
             "strategy_status": strategy_status,

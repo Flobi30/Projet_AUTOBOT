@@ -26,7 +26,7 @@ interface PairPerf {
 interface PaperPair {
   symbol: string; instance_count: number; total_trades: number;
   avg_profit_percent: number; avg_pf: number; win_rate: number;
-  recommendation: string;
+  recommendation: string; warmup_active?: number; blocked_reasons?: string[];
 }
 interface PaperSummary { active_instances: number; live_instances: number; pairs_tested: number; is_paper_mode: boolean; by_pair: PaperPair[]; }
 interface RebEvent { timestamp: string; instance_id: string; instance_name: string; action: string; amount: number; reason: string; }
@@ -42,7 +42,7 @@ interface BotStatus {
   total_trades?: number;
 }
 interface CapitalData {
-  total_capital: number; available_cash: number; source: string; paper_mode: boolean;
+  total_capital: number; available_cash: number; source: string; source_status?: string; paper_mode: boolean;
 }
 const formatUptime = (seconds: number | null): string => {
   if (!seconds) return '—';
@@ -69,7 +69,7 @@ async function apiFetchJson<T>(path: string): Promise<T|null> {
 }
 
 const RecBadge: React.FC<{rec:string}> = ({rec}) => {
-  if (rec==='promote_to_live') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"><CheckCircle className="w-3 h-3"/>Promouvoir Live</span>;
+  if (rec==='promote_to_live') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"><CheckCircle className="w-3 h-3"/>Pret pour revue live</span>;
   if (rec==='stop') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30"><XCircle className="w-3 h-3"/>Arrêter</span>;
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30"><RefreshCw className="w-3 h-3"/>Continuer Paper</span>;
 };
@@ -126,11 +126,11 @@ const Performance: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <MetricCard title="Capital Total" value={fmtEur(globalPerf.capital_total)} icon={<Wallet className="w-5 h-5"/>}/>
+          <MetricCard title={capitalData?.paper_mode ? 'Capital paper virtuel' : 'Capital Kraken/AUTOBOT'} value={fmtEur(globalPerf.capital_total)} icon={<Wallet className="w-5 h-5"/>}/>
           <MetricCard title="Profit Total" value={`${pos?'+':''}${fmtEur(globalPerf.profit_total)}`} change={`${pos?'+':''}${fmt(globalPerf.profit_percent)}%`} isPositive={pos} icon={<TrendingUp className="w-5 h-5"/>}/>
           <MetricCard title="Profit Factor" value={fmt(globalPerf.profit_factor)} icon={<Target className="w-5 h-5"/>}/>
           <MetricCard title="Win Rate" value={`${fmt(globalPerf.win_rate,1)}%`} icon={<BarChart3 className="w-5 h-5"/>}/>
-          <MetricCard title="Instances" value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} trades`} icon={<Activity className="w-5 h-5"/>}/>
+          <MetricCard title="Strategies actives" value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} trades`} icon={<Activity className="w-5 h-5"/>}/>
         </div>
         {globalPerf.history.length > 1 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
@@ -158,7 +158,7 @@ const Performance: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <div className={`w-3 h-3 rounded-full ${s.profit_total>=0?'bg-emerald-400':'bg-red-400'}`}/>
                     <span className="text-white font-medium">{stratLabel(s.strategy)}</span>
-                    <span className="text-gray-400 text-sm">{s.instances_count} instance{s.instances_count>1?'s':''}</span>
+                    <span className="text-gray-400 text-sm">{s.instances_count} strategie{s.instances_count>1?'s':''}</span>
                   </div>
                   <span className={`font-bold ${profitColor(s.profit_total)}`}>{s.profit_total>=0?'+':''}{fmtEur(s.profit_total)}</span>
                 </div>
@@ -205,7 +205,7 @@ const Performance: React.FC = () => {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-4">
                   <span className="text-lg font-bold text-white">{pair.symbol}</span>
-                  <span className="text-gray-400 text-sm">{pair.instances_count} instance{pair.instances_count>1?'s':''}</span>
+                  <span className="text-gray-400 text-sm">{pair.instances_count} strategie{pair.instances_count>1?'s':''}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${pair.status==='live'?'bg-emerald-500/20 text-emerald-400':'bg-blue-500/20 text-blue-400'}`}>{pair.status}</span>
                 </div>
                 <div className="flex items-center gap-6">
@@ -235,7 +235,7 @@ const Performance: React.FC = () => {
             </div>
             {expandedPair===pair.symbol && pair.instances.length > 0 && (
               <div className="border-t border-gray-700/50 p-4 bg-gray-850">
-                <h4 className="text-sm font-bold text-gray-400 mb-3">Instances sur {pair.symbol}</h4>
+                <h4 className="text-sm font-bold text-gray-400 mb-3">Strategies sur {pair.symbol}</h4>
                 <div className="space-y-2">
                   {pair.instances.map(inst=>(
                     <div key={inst.id} className="flex items-center justify-between p-3 bg-gray-700/20 rounded-lg">
@@ -280,9 +280,9 @@ const Performance: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <MetricCard title="Instances Paper" value={String(paperSummary.active_instances)} icon={<GraduationCap className="w-5 h-5"/>}/>
-          <MetricCard title="Instances Live" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
-          <MetricCard title="Paires testées" value={String(paperSummary.pairs_tested)} icon={<Layers className="w-5 h-5"/>}/>
+          <MetricCard title="Strategies paper actives" value={String(paperSummary.active_instances)} icon={<GraduationCap className="w-5 h-5"/>}/>
+          <MetricCard title="Strategies live" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
+          <MetricCard title="Paires surveillees" value={String(paperSummary.pairs_tested)} icon={<Layers className="w-5 h-5"/>}/>
         </div>
         {paperSummary.by_pair.length > 0 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
@@ -292,7 +292,7 @@ const Performance: React.FC = () => {
                 <thead>
                   <tr className="border-b border-gray-700">
                     <th className="text-left py-3 px-4 text-gray-400 font-medium">Paire</th>
-                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Instances</th>
+                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Strategies</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Trades</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Profit Moy.</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">PF Moy.</th>
@@ -309,7 +309,13 @@ const Performance: React.FC = () => {
                       <td className={`py-3 px-4 text-right font-bold ${profitColor(p.avg_profit_percent)}`}>{p.avg_profit_percent>=0?'+':''}{fmt(p.avg_profit_percent)}%</td>
                       <td className={`py-3 px-4 text-right font-bold ${pfColor(p.avg_pf)}`}>{fmt(p.avg_pf)}</td>
                       <td className="py-3 px-4 text-right text-gray-300">{fmt(p.win_rate,1)}%</td>
-                      <td className="py-3 px-4 text-right"><RecBadge rec={p.recommendation}/></td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <RecBadge rec={p.recommendation}/>
+                          {p.warmup_active ? <span className="text-amber-300 text-xs">Chauffe: {p.warmup_active}</span> : null}
+                          {p.blocked_reasons?.length ? <span className="text-gray-400 text-xs">{p.blocked_reasons.join(', ')}</span> : null}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -328,7 +334,7 @@ const Performance: React.FC = () => {
           <TrendingUp className="w-6 lg:w-8 h-6 lg:h-8 text-emerald-400"/>
           <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">Performance</h1>
         </div>
-        <p className="text-gray-400 text-sm lg:text-lg">Vue consolidée des performances — données réelles en temps réel.</p>
+        <p className="text-gray-400 text-sm lg:text-lg">Vue operationnelle issue du backend AUTOBOT. Les champs indisponibles restent explicites.</p>
       </div>
 
 
@@ -341,6 +347,7 @@ const Performance: React.FC = () => {
             <p className="text-amber-300/80 text-sm">Le bot s'entraîne avec du capital virtuel. Aucun argent réel n'est engagé.</p>
             <div className="flex gap-4 mt-2 text-sm">
               <span className="text-gray-400">Source : <strong className="text-white">{capitalData?.source ?? 'backend'}</strong></span>
+              <span className="text-gray-400">Statut source : <strong className="text-white">{capitalData?.source_status ?? 'inconnu'}</strong></span>
               <span className="text-gray-400">Cash disponible : <strong className="text-amber-400">{capitalData ? fmtEur(capitalData.available_cash) : '—'}</strong></span>
               <span className="text-gray-400">Capital paper : <strong className="text-amber-400">{capitalData ? fmtEur(capitalData.total_capital) : (globalPerf ? fmtEur(globalPerf.capital_total) : '—')}</strong></span>
             </div>
@@ -371,7 +378,7 @@ const Performance: React.FC = () => {
                 <span className="h-3 w-3 rounded-full bg-red-500"></span>
               )}
               <span className={`font-bold ${botStatus.running ? 'text-emerald-400' : 'text-red-400'}`}>
-                {botStatus.running ? 'Bot Actif — Données Kraken Live' : 'Bot Déconnecté'}
+                {botStatus.running ? `Bot Actif - ${capitalData?.paper_mode ? 'Paper Trading' : 'Live Trading'}` : 'Bot Deconnecte'}
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
@@ -379,7 +386,7 @@ const Performance: React.FC = () => {
                 {botStatus.websocket_connected ? <Wifi className="w-4 h-4 text-emerald-400"/> : <WifiOff className="w-4 h-4 text-red-400"/>}
                 {botStatus.websocket_connected ? <span className="text-emerald-400 ml-1">Connecté</span> : <span className="text-red-400 ml-1">Déconnecté</span>}
               </span>
-              <span>Instances : <strong className="text-white">{botStatus.instance_count}</strong></span>
+              <span>Strategies : <strong className="text-white">{botStatus.instance_count}</strong></span>
               <span className="flex items-center gap-1"><Clock className="w-4 h-4"/> Uptime : <strong className="text-white">{formatUptime(botStatus.uptime_seconds)}</strong></span>
             </div>
           </div>

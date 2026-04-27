@@ -2749,6 +2749,7 @@ class OrchestratorAsync:
                 snapshot.append({
                     "id": inst_id,
                     "name": s["name"],
+                    "symbol": s.get("symbol", getattr(inst.config, "symbol", None)),
                     "capital": s["current_capital"],
                     "profit": s["total_profit"],
                     "status": s["status"],
@@ -2759,6 +2760,11 @@ class OrchestratorAsync:
                     "blocked_reasons": s.get("blocked_reasons", []),
                     "strategy_status": s.get("strategy_status", {}),
                     "last_price": s.get("last_price"),
+                    "last_market_tick": s.get("last_market_tick"),
+                    "last_signal": s.get("last_signal"),
+                    "last_decision": s.get("last_decision"),
+                    "last_order": s.get("last_order"),
+                    "last_error": s.get("last_error"),
                 })
             except Exception:
                 pass
