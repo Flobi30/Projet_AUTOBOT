@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -137,6 +138,13 @@ class GridStrategyAsync(StrategyAsync):
 
         grid_step = self.range_percent / (self.num_levels - 1) if self.num_levels > 1 else 0.5
         self._sell_threshold_pct = max(1.5, grid_step * 0.8)
+        self._entry_touch_bps = self._read_float_config(
+            "entry_touch_bps",
+            "GRID_ENTRY_TOUCH_BPS",
+            15.0,
+            0.0,
+            500.0,
+        )
         self._max_drawdown_pct = self.config.get("max_drawdown_pct", 10.0)
         self._grid_invalidation_factor = self.config.get("grid_invalidation_factor", 2.0)
         self._emergency_close_price = (
@@ -164,6 +172,21 @@ class GridStrategyAsync(StrategyAsync):
                 f"GridAsync: {self.num_levels} niveaux, +/-{self.range_percent}% "
                 f"— center_price sera initialise au premier prix recu"
             )
+
+    def _read_float_config(
+        self,
+        config_key: str,
+        env_key: str,
+        default: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        raw = self.config.get(config_key, os.getenv(env_key, default))
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
 
     # ------------------------------------------------------------------
     # V3: Initialization helpers
@@ -397,6 +420,44 @@ class GridStrategyAsync(StrategyAsync):
         if nearest < 0:
             return []
         return [i for i in range(nearest) if i not in self.open_levels]
+
+    def _build_buy_edge_metadata(self, level_index: int, current_price: float) -> Dict[str, float | str | int]:
+        level_price = self.grid_levels[level_index]
+        target_price = level_price * (1 + self._sell_threshold_pct / 100.0)
+        expected_move_bps = max(0.0, ((target_price - current_price) / current_price) * 10000.0)
+        level_distance_bps = ((current_price - level_price) / current_price) * 10000.0
+        atr_pct = self._atr_tracker.get_current_atr()
+        atr_bps = (atr_pct * 100.0) if atr_pct is not None else None
+        metadata: Dict[str, float | str | int] = {
+            "level_index": level_index,
+            "level_price": level_price,
+            "strategy": "grid",
+            "expected_move_bps": expected_move_bps,
+            "grid_expected_move_source": "grid_target_price",
+            "grid_target_price": target_price,
+            "grid_sell_threshold_pct": self._sell_threshold_pct,
+            "grid_entry_level_distance_bps": level_distance_bps,
+            "grid_entry_touch_bps": self._entry_touch_bps,
+        }
+        if atr_bps is not None:
+            metadata["atr_bps"] = atr_bps
+        return metadata
+
+    def _passes_entry_touch_filter(self, level_index: int, current_price: float) -> bool:
+        if self._entry_touch_bps <= 0.0:
+            return True
+        level_price = self.grid_levels[level_index]
+        max_entry_price = level_price * (1 + self._entry_touch_bps / 10000.0)
+        if current_price <= max_entry_price:
+            return True
+        logger.info(
+            "Grid BUY skip: price %.6f is %.2f bps above level %.6f (max %.2f bps)",
+            current_price,
+            ((current_price - level_price) / current_price) * 10000.0,
+            level_price,
+            self._entry_touch_bps,
+        )
+        return False
 
     def _get_sell_levels(self, current_price: float) -> List[int]:
         sells = []
@@ -690,16 +751,19 @@ class GridStrategyAsync(StrategyAsync):
             buy_levels = self._get_buy_levels(price)
             if buy_levels:
                 best = max(buy_levels)
+                if not self._passes_entry_touch_filter(best, price):
+                    return
                 # Kelly Dynamic Sizing (Phase 2)
                 cpl = self._calculate_kelly_cpl(price)
                 if cpl > 0:
                     volume = cpl / price
+                    metadata = self._build_buy_edge_metadata(best, price)
                     sig = TradingSignal(
                         type=SignalType.BUY, symbol=symbol, price=price,
                         volume=volume,
                         reason=f"Grid buy level {best} @ {self.grid_levels[best]:.0f}",
                         timestamp=datetime.now(timezone.utc),
-                        metadata={"level_index": best, "level_price": self.grid_levels[best], "strategy": "grid"},
+                        metadata=metadata,
                     )
                     self.emit_signal(sig)
 

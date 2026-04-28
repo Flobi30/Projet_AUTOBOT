@@ -27,6 +27,7 @@ from .kill_switch import KillSwitch
 from .reconciliation_strict import StrictReconciliation
 from .modules.fee_optimizer import FeeOptimizer
 from .market_analyzer import get_market_analyzer
+from .opportunity_scoring import OpportunityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,7 @@ class SignalHandlerAsync:
         self._execution_cost_samples: dict[str, list[dict[str, float]]] = {}
         history_size = self._load_positive_int("cost_edge_audit_history_size", "COST_EDGE_AUDIT_HISTORY_SIZE", 50)
         self._runtime_event_history: deque[dict[str, Any]] = deque(maxlen=min(500, max(10, history_size)))
+        self._opportunity_scorer = OpportunityScorer()
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
     def _record_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
@@ -192,6 +194,45 @@ class SignalHandlerAsync:
             else:
                 serialized[key] = value
         return serialized
+
+    def _estimate_total_runtime_capital(self) -> float:
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        instances = getattr(orchestrator, "_instances", None)
+        if isinstance(instances, dict):
+            total = 0.0
+            for inst in instances.values():
+                try:
+                    total += max(0.0, float(inst.get_current_capital()))
+                except Exception:
+                    continue
+            if total > 0.0:
+                return total
+        try:
+            return max(0.0, float(self.instance.get_current_capital()))
+        except Exception:
+            return 0.0
+
+    def _build_opportunity_result(
+        self,
+        signal: TradingSignal,
+        edge_ctx: dict[str, float],
+        atr_pct: float,
+        available_capital: float,
+        open_positions: int,
+    ) -> Any:
+        return self._opportunity_scorer.score_signal(
+            symbol=signal.symbol,
+            edge_context=edge_ctx,
+            atr_pct=atr_pct,
+            available_capital=available_capital,
+            open_positions=open_positions,
+            recent_events=list(getattr(self, "_runtime_event_history", [])),
+            market_metrics=self._get_market_metrics(signal.symbol),
+            total_capital=self._estimate_total_runtime_capital(),
+        )
+
+    def _opportunity_gate_applies(self) -> dict[str, Any]:
+        return self._opportunity_scorer.execution_gate(paper_mode=self._is_paper_mode())
 
     @staticmethod
     async def _maybe_await(value: Any) -> Any:
@@ -432,13 +473,14 @@ class SignalHandlerAsync:
 
         available = self.instance.get_available_capital()
         order_value = signal.volume * signal.price if signal.volume > 0 else (available * 0.10)
+        open_positions_count = len([
+            p for p in self.instance.get_positions_snapshot() if p.get("status") == "open"
+        ])
         context = {
             # Align with open_position_validator contract
             "balance": available,
             "order_value": order_value,
-            "open_positions": len([
-                p for p in self.instance.get_positions_snapshot() if p.get("status") == "open"
-            ]),
+            "open_positions": open_positions_count,
             "price": signal.price,
             "instance_status": self.instance.status.value,
             "max_positions": getattr(self.instance.config, "max_positions", 10),
@@ -524,6 +566,64 @@ class SignalHandlerAsync:
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
 
+        opportunity = self._build_opportunity_result(
+            signal,
+            edge_ctx,
+            atr_pct,
+            available,
+            open_positions_count,
+        )
+        opportunity_payload = opportunity.to_dict()
+        opportunity_gate = self._opportunity_gate_applies()
+        if opportunity_gate.get("selection_applies_to_execution"):
+            if opportunity.status != "tradable" or opportunity.recommended_order_eur <= 0.0:
+                self._record_runtime_event(
+                    "_last_decision_event",
+                    event="buy_rejected",
+                    reason="opportunity_score",
+                    symbol=signal.symbol,
+                    side="buy",
+                    net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
+                    min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+                    gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
+                    cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
+                    blocking_condition=opportunity.reason,
+                    atr_pct=round(float(atr_pct), 8),
+                    volume=float(volume),
+                    order_value=round(float(volume * signal.price), 8),
+                    available_capital=round(float(available), 8),
+                    signal_price=float(signal.price),
+                    signal_reason=getattr(signal, "reason", None),
+                    risk_params=self._serialize_risk_params(risk_params),
+                    edge_context={
+                        key: round(float(value), 6)
+                        for key, value in edge_ctx.items()
+                        if isinstance(value, (int, float))
+                    },
+                    opportunity=opportunity_payload,
+                    opportunity_gate=opportunity_gate,
+                )
+                logger.info(
+                    "⛔ Signal BUY ignoré: opportunité insuffisante (%s, score %.1f)",
+                    opportunity.reason,
+                    opportunity.score,
+                )
+                return
+
+            capped_volume = round(opportunity.recommended_order_eur / signal.price, 6)
+            if capped_volume <= 0.0:
+                self._record_runtime_event(
+                    "_last_decision_event",
+                    event="buy_rejected",
+                    reason="opportunity_allocation_zero",
+                    symbol=signal.symbol,
+                    side="buy",
+                    opportunity=opportunity_payload,
+                    opportunity_gate=opportunity_gate,
+                )
+                return
+            volume = min(volume, capped_volume)
+
         symbol = self._convert_symbol(signal.symbol)
         accepted_edge_details = {
             key: round(float(value), 6)
@@ -550,6 +650,8 @@ class SignalHandlerAsync:
             signal_reason=getattr(signal, "reason", None),
             risk_params=self._serialize_risk_params(risk_params),
             edge_context=accepted_edge_details,
+            opportunity=opportunity_payload,
+            opportunity_gate=opportunity_gate,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
