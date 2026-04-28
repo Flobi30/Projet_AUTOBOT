@@ -1,9 +1,10 @@
 """Paper-first colony planning for AUTOBOT Grid children.
 
-The colony manager is intentionally a control-plane component.  It does not
-place orders and it does not promote anything to live by itself.  Its job is to
-make the future multi-bot behaviour explicit: capital envelopes, child roles,
-promotion gates, split gates, and paper-only guardrails.
+The colony manager is intentionally paper-first.  It does not place live orders
+and it does not promote anything to live by itself.  Its job is to make the
+multi-bot behaviour explicit: capital envelopes, child roles, promotion gates,
+split gates, paper-only guardrails, and the current routing between logical
+children and running paper Grid instances.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ def _symbol_key(value: Any) -> str:
 class ColonyConfig:
     enabled: bool = True
     paper_autopilot_enabled: bool = True
+    execution_mode: str = "logical_children"
     target_live_capital_eur: float = 500.0
     live_min_kraken_capital_eur: float = 500.0
     require_human_live_unlock: bool = True
@@ -95,6 +97,7 @@ class ColonyConfig:
         return cls(
             enabled=_env_bool("COLONY_MANAGER_ENABLED", True),
             paper_autopilot_enabled=_env_bool("COLONY_PAPER_AUTOPILOT_ENABLED", True),
+            execution_mode=os.getenv("COLONY_EXECUTION_MODE", "logical_children").strip() or "logical_children",
             target_live_capital_eur=target,
             live_min_kraken_capital_eur=_env_float("COLONY_LIVE_MIN_KRAKEN_CAPITAL_EUR", target or 500.0, 0.0, 10_000_000.0),
             require_human_live_unlock=_env_bool("COLONY_REQUIRE_HUMAN_LIVE_UNLOCK", True),
@@ -141,6 +144,9 @@ class ColonyChildPlan:
     candidate_symbols: list[str]
     primary_symbol: str | None
     score: float
+    active: bool = False
+    execution_mode: str = "logical_children"
+    assigned_instances: list[dict[str, Any]] = field(default_factory=list)
     promotion: dict[str, Any] = field(default_factory=dict)
     split: dict[str, Any] = field(default_factory=dict)
     safeguards: dict[str, Any] = field(default_factory=dict)
@@ -156,6 +162,9 @@ class ColonyChildPlan:
             "candidate_symbols": list(self.candidate_symbols),
             "primary_symbol": self.primary_symbol,
             "score": round(self.score, 2),
+            "active": self.active,
+            "execution_mode": self.execution_mode,
+            "assigned_instances": self.assigned_instances,
             "promotion": self.promotion,
             "split": self.split,
             "safeguards": self.safeguards,
@@ -226,10 +235,12 @@ class ColonyManager:
         behaviors = behaviors[:desired_children]
         child_budget = active_budget / max(len(behaviors), 1)
         symbols_per_child = max(1, min(cfg.max_child_symbols, math.ceil(len(opps) / max(len(behaviors), 1))))
+        instances_by_symbol = self._instances_by_symbol(instances_list)
 
         assigned: set[str] = set()
         children: list[ColonyChildPlan] = []
         promotion_ready_children = 0
+        active_children = 0
         for behavior in behaviors:
             profile = self.BEHAVIORS[behavior]
             ranked = self._rank_for_behavior(profile, opps)
@@ -254,6 +265,16 @@ class ColonyManager:
                 score_sum = _safe_float(ranked[0].get("score"))
 
             avg_score = score_sum / max(len(candidates), 1)
+            assigned_instances = self._assigned_instances_for_symbols(candidates, instances_by_symbol)
+            child_active = (
+                cfg.enabled
+                and cfg.paper_autopilot_enabled
+                and paper_mode
+                and bool(assigned_instances)
+                and any(self._instance_is_active(inst) for inst in assigned_instances)
+            )
+            if child_active:
+                active_children += 1
             lifecycle = "paper_training" if paper_mode else "live_blocked"
             child = ColonyChildPlan(
                 id=f"grid_{behavior}",
@@ -265,6 +286,9 @@ class ColonyManager:
                 candidate_symbols=candidates,
                 primary_symbol=candidates[0] if candidates else None,
                 score=avg_score,
+                active=child_active,
+                execution_mode=cfg.execution_mode,
+                assigned_instances=[self._summarize_instance(inst) for inst in assigned_instances],
                 promotion=self._promotion_state(behavior, instances_list, paper_mode),
                 split=self._split_state(child_budget),
                 safeguards=self._safeguards(profile),
@@ -285,9 +309,10 @@ class ColonyManager:
             "enabled": cfg.enabled,
             "mode": "paper" if paper_mode else "live",
             "paper_mode": paper_mode,
-            "implementation_stage": "paper_control_plane",
+            "implementation_stage": "paper_logical_children",
             "execution": {
                 "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
+                "execution_mode": cfg.execution_mode,
                 "auto_live_promotion": cfg.auto_live_promotion,
                 "max_auto_live_capital_eur": round(cfg.max_auto_live_capital_eur, 2),
                 "live_children_allowed": cfg.max_live_children,
@@ -317,10 +342,94 @@ class ColonyManager:
             "children": [child.to_dict() for child in children],
             "runtime": {
                 "instance_count": len(instances_list),
+                "active_children_count": active_children,
                 "opportunity_count": len(opps),
                 "watchlist_symbols": sorted({_symbol_key(opp.get("symbol") or opp.get("pair")) for opp in opps if (opp.get("symbol") or opp.get("pair"))}),
             },
         }
+
+    def _instances_by_symbol(
+        self,
+        instances: Sequence[Mapping[str, Any]],
+    ) -> dict[str, list[Mapping[str, Any]]]:
+        grouped: dict[str, list[Mapping[str, Any]]] = {}
+        for inst in instances:
+            symbol = inst.get("symbol") or inst.get("pair")
+            key = _symbol_key(symbol)
+            if not key:
+                continue
+            grouped.setdefault(key, []).append(inst)
+        return grouped
+
+    def _assigned_instances_for_symbols(
+        self,
+        symbols: Sequence[str],
+        instances_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
+    ) -> list[Mapping[str, Any]]:
+        assigned: list[Mapping[str, Any]] = []
+        seen: set[str] = set()
+        for symbol in symbols:
+            for inst in instances_by_symbol.get(_symbol_key(symbol), ()):
+                inst_id = str(inst.get("id") or "")
+                if inst_id and inst_id in seen:
+                    continue
+                if inst_id:
+                    seen.add(inst_id)
+                assigned.append(inst)
+        return assigned
+
+    def _summarize_instance(self, inst: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": inst.get("id"),
+            "name": inst.get("name"),
+            "symbol": inst.get("symbol") or inst.get("pair"),
+            "strategy": inst.get("strategy"),
+            "status": inst.get("status", "unknown"),
+            "capital_eur": round(_safe_float(inst.get("capital")), 2),
+            "profit_eur": round(_safe_float(inst.get("profit")), 2),
+            "profit_pct": round(_safe_float(inst.get("profit_pct")), 3),
+            "open_positions": int(_safe_float(inst.get("open_positions"), 0.0)),
+            "last_signal": self._event_summary(inst.get("last_signal")),
+            "last_decision": self._decision_summary(inst.get("last_decision")),
+        }
+
+    def _event_summary(self, event: Any) -> dict[str, Any] | None:
+        if not isinstance(event, Mapping):
+            return None
+        return {
+            "symbol": event.get("symbol") or event.get("pair"),
+            "side": event.get("side") or event.get("signal"),
+            "price": event.get("price"),
+            "timestamp": event.get("timestamp"),
+        }
+
+    def _decision_summary(self, decision: Any) -> dict[str, Any] | None:
+        if not isinstance(decision, Mapping):
+            return None
+        return {
+            "symbol": decision.get("symbol") or decision.get("pair"),
+            "status": decision.get("status"),
+            "reason": decision.get("reason"),
+            "gross_edge_bps": round(_safe_float(decision.get("gross_edge_bps")), 3),
+            "cost_bps": round(_safe_float(decision.get("cost_bps")), 3),
+            "net_edge_bps": round(_safe_float(decision.get("net_edge_bps")), 3),
+            "min_edge_bps": round(_safe_float(decision.get("min_edge_bps")), 3),
+            "timestamp": decision.get("timestamp"),
+        }
+
+    @staticmethod
+    def _instance_is_active(inst: Mapping[str, Any]) -> bool:
+        status = str(inst.get("status") or "").strip().lower()
+        if status in {"running", "active", "started"}:
+            return True
+        if status in {"stopped", "paused", "error", "failed"}:
+            return False
+        return bool(
+            inst.get("last_signal")
+            or inst.get("last_decision")
+            or inst.get("runtime_events")
+            or inst.get("capital") is not None
+        )
 
     def _rank_for_behavior(
         self,
@@ -454,6 +563,8 @@ class ColonyManager:
                 "scan_market",
                 "score_opportunities",
                 "assign_grid_children",
+                "activate_logical_children",
+                "route_existing_instances",
                 "rebalance_paper_budgets",
                 "validate_children",
                 "plan_single_split_per_child",

@@ -119,6 +119,40 @@ def test_colony_manager_builds_paper_children_without_live_promotion():
     assert all(child["behavior"] != "explorer" for child in snapshot["children"])
 
 
+def test_colony_manager_routes_existing_instances_to_active_logical_children():
+    manager = ColonyManager(
+        ColonyConfig(
+            target_live_capital_eur=500.0,
+            max_paper_children=2,
+            min_child_capital_eur=75.0,
+            auto_live_promotion=False,
+            max_auto_live_capital_eur=0.0,
+        )
+    )
+    instances = _Orchestrator().get_instances_snapshot()
+
+    snapshot = manager.build_snapshot(
+        opportunities=[
+            {"symbol": "XXBTZEUR", "score": 85.0, "gross_edge_bps": 140.0, "net_edge_bps": 94.0, "atr_bps": 20.0, "spread_bps": 1.0},
+            {"symbol": "XETHZEUR", "score": 72.0, "gross_edge_bps": 90.0, "net_edge_bps": 60.0, "atr_bps": 18.0, "spread_bps": 1.4},
+        ],
+        instances=instances,
+        capital={"total_capital": 1000.0},
+        paper_mode=True,
+    )
+
+    assert snapshot["implementation_stage"] == "paper_logical_children"
+    assert snapshot["execution"]["execution_mode"] == "logical_children"
+    assert snapshot["runtime"]["active_children_count"] >= 1
+    assigned_ids = {
+        assigned["id"]
+        for child in snapshot["children"]
+        for assigned in child["assigned_instances"]
+    }
+    assert {"inst-btc", "inst-eth"}.issubset(assigned_ids)
+    assert any(child["active"] for child in snapshot["children"])
+
+
 def test_colony_endpoint_returns_control_plane(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("COLONY_TARGET_LIVE_CAPITAL_EUR", "500")
@@ -129,9 +163,10 @@ def test_colony_endpoint_returns_control_plane(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["implementation_stage"] == "paper_control_plane"
+    assert body["implementation_stage"] == "paper_logical_children"
     assert body["paper_mode"] is True
     assert body["autopilot"]["paper_autopilot_enabled"] is True
     assert body["autopilot"]["live_readiness"]["ready"] is False
     assert body["execution"]["auto_live_promotion"] is False
     assert body["children"]
+    assert body["runtime"]["active_children_count"] >= 1
