@@ -21,9 +21,23 @@ interface UniverseStatusResponse {
 }
 
 interface OpportunitiesResponse {
-  enabled: boolean;
+  enabled?: boolean;
   message?: string | null;
-  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+  selected_symbols?: string[];
+  execution_gate?: { mode?: string; selection_applies_to_execution?: boolean };
+  opportunities: Array<{
+    symbol: string;
+    score: number;
+    status?: string;
+    reason?: string;
+    gross_edge_bps?: number;
+    cost_bps?: number;
+    net_edge_bps?: number;
+    atr_bps?: number;
+    spread_bps?: number;
+    blockers?: string[];
+    explain?: Record<string, unknown>;
+  }>;
 }
 
 interface PortfolioAllocationResponse {
@@ -47,9 +61,23 @@ interface UniverseStatusResponse {
 }
 
 interface OpportunitiesResponse {
-  enabled: boolean;
+  enabled?: boolean;
   message?: string | null;
-  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+  selected_symbols?: string[];
+  execution_gate?: { mode?: string; selection_applies_to_execution?: boolean };
+  opportunities: Array<{
+    symbol: string;
+    score: number;
+    status?: string;
+    reason?: string;
+    gross_edge_bps?: number;
+    cost_bps?: number;
+    net_edge_bps?: number;
+    atr_bps?: number;
+    spread_bps?: number;
+    blockers?: string[];
+    explain?: Record<string, unknown>;
+  }>;
 }
 
 interface PortfolioAllocationResponse {
@@ -104,7 +132,7 @@ const Analytics: React.FC = () => {
         const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
           apiFetch(`/api/scaling/status`),
           apiFetch(`/api/universe/status`),
-          apiFetch(`/api/opportunities/top?limit=6`),
+          apiFetch(`/api/opportunities`),
           apiFetch(`/api/portfolio/allocation`),
         ]);
         if (scalingRes.ok) setScalingStatus(await scalingRes.json());
@@ -215,19 +243,34 @@ const Analytics: React.FC = () => {
       </div>
 
       <div className="bg-gray-800 rounded-2xl p-6 mb-8">
-        <h3 className="text-xl font-bold text-emerald-400 mb-4">Top Opportunities</h3>
-        {opportunities?.enabled ? (
+        <h3 className="text-xl font-bold text-emerald-400 mb-4">Opportunites runtime</h3>
+        {opportunities ? (
           <div className="space-y-2 text-sm">
-            {opportunities.opportunities.map((op, idx) => (
-              <div key={`${op.symbol}-${idx}`} className="flex justify-between border-b border-gray-700 pb-2">
-                <span className="text-white">{op.symbol}</span>
-                <span className="text-emerald-400 font-semibold">{op.score.toFixed(2)}</span>
+            <div className="flex flex-wrap justify-between gap-2 border-b border-gray-700 pb-3 text-xs text-gray-400">
+              <span>Mode: {opportunities.execution_gate?.mode || 'paper'}</span>
+              <span>{opportunities.selected_symbols?.length ? `Selection: ${opportunities.selected_symbols.join(', ')}` : 'Aucune paire selectionnee'}</span>
+            </div>
+            {opportunities.opportunities.slice(0, 6).map((op, idx) => (
+              <div key={`${op.symbol}-${idx}`} className="border-b border-gray-700 pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white font-semibold">{op.symbol}</span>
+                  <span className={op.status === 'tradable' ? 'text-emerald-400 font-semibold' : 'text-yellow-400 font-semibold'}>
+                    {op.status === 'tradable' ? 'tradable' : 'non tradable'}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-gray-400">{op.reason || 'En attente de signal'}</div>
+                <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <span className="text-gray-300">Score <span className="text-white">{op.score.toFixed(1)}</span></span>
+                  <span className="text-gray-300">Gross <span className="text-white">{(op.gross_edge_bps ?? 0).toFixed(1)} bps</span></span>
+                  <span className="text-gray-300">Net <span className="text-white">{(op.net_edge_bps ?? 0).toFixed(1)} bps</span></span>
+                  <span className="text-gray-300">ATR <span className="text-white">{(op.atr_bps ?? 0).toFixed(1)} bps</span></span>
+                </div>
               </div>
             ))}
             {opportunities.opportunities.length === 0 && <div className="text-gray-500">Aucune opportunité classée.</div>}
           </div>
         ) : (
-          <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+          <div className="text-gray-500 text-sm">Opportunites indisponibles</div>
         )}
       </div>
 

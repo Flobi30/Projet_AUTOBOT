@@ -59,9 +59,23 @@ interface UniverseStatusResponse {
 }
 
 interface OpportunitiesResponse {
-  enabled: boolean;
+  enabled?: boolean;
   message?: string | null;
-  opportunities: Array<{ symbol: string; score: number; explain?: Record<string, unknown> }>;
+  selected_symbols?: string[];
+  execution_gate?: { mode?: string; selection_applies_to_execution?: boolean };
+  opportunities: Array<{
+    symbol: string;
+    score: number;
+    status?: string;
+    reason?: string;
+    gross_edge_bps?: number;
+    cost_bps?: number;
+    net_edge_bps?: number;
+    atr_bps?: number;
+    spread_bps?: number;
+    blockers?: string[];
+    explain?: Record<string, unknown>;
+  }>;
 }
 
 interface HistoryPoint {
@@ -149,7 +163,7 @@ const LiveTrading: React.FC = () => {
         const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
           apiFetch(`/api/scaling/status`),
           apiFetch(`/api/universe/status`),
-          apiFetch(`/api/opportunities/top?limit=8`),
+          apiFetch(`/api/opportunities`),
           apiFetch(`/api/portfolio/allocation`),
         ]);
 
@@ -302,19 +316,34 @@ const LiveTrading: React.FC = () => {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6 lg:mb-8">
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
-          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Ranked Opportunities</h3>
-          {opportunities?.enabled ? (
+          <h3 className="text-lg lg:text-xl font-bold text-emerald-400 mb-3">Opportunites runtime</h3>
+          {opportunities ? (
             <div className="space-y-2 max-h-56 overflow-auto">
-              {opportunities.opportunities.map((row, idx) => (
-                <div key={`${row.symbol}-${idx}`} className="flex items-center justify-between text-sm border-b border-gray-700/40 pb-2">
-                  <span className="text-white font-medium">{row.symbol}</span>
-                  <span className="text-emerald-400 font-semibold">{row.score.toFixed(2)}</span>
+              <div className="flex flex-wrap justify-between gap-2 border-b border-gray-700/40 pb-2 text-xs text-gray-400">
+                <span>Mode: {opportunities.execution_gate?.mode || 'paper'}</span>
+                <span>{opportunities.selected_symbols?.length ? `Selection: ${opportunities.selected_symbols.join(', ')}` : 'Aucune paire selectionnee'}</span>
+              </div>
+              {opportunities.opportunities.slice(0, 8).map((row, idx) => (
+                <div key={`${row.symbol}-${idx}`} className="text-sm border-b border-gray-700/40 pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-white font-medium">{row.symbol}</span>
+                    <span className={row.status === 'tradable' ? 'text-emerald-400 font-semibold' : 'text-yellow-400 font-semibold'}>
+                      {row.status === 'tradable' ? 'tradable' : 'non tradable'}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-gray-400">{row.reason || 'En attente de signal'}</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <span className="text-gray-300">Score <span className="text-white">{row.score.toFixed(1)}</span></span>
+                    <span className="text-gray-300">Net <span className="text-white">{(row.net_edge_bps ?? 0).toFixed(1)} bps</span></span>
+                    <span className="text-gray-300">Gross <span className="text-white">{(row.gross_edge_bps ?? 0).toFixed(1)} bps</span></span>
+                    <span className="text-gray-300">ATR <span className="text-white">{(row.atr_bps ?? 0).toFixed(1)} bps</span></span>
+                  </div>
                 </div>
               ))}
               {opportunities.opportunities.length === 0 && <div className="text-gray-500 text-sm">Aucune opportunité classée.</div>}
             </div>
           ) : (
-            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+            <div className="text-gray-500 text-sm">Opportunites indisponibles</div>
           )}
         </div>
 
