@@ -62,7 +62,10 @@ def _symbol_key(value: Any) -> str:
 @dataclass(frozen=True)
 class ColonyConfig:
     enabled: bool = True
+    paper_autopilot_enabled: bool = True
     target_live_capital_eur: float = 500.0
+    live_min_kraken_capital_eur: float = 500.0
+    require_human_live_unlock: bool = True
     child_behaviors: tuple[str, ...] = ("core", "momentum", "volatility", "mean_reversion")
     max_paper_children: int = 4
     max_live_children: int = 0
@@ -91,7 +94,10 @@ class ColonyConfig:
         behaviors = tuple(_csv("COLONY_CHILD_BEHAVIORS", "core,momentum,volatility,mean_reversion"))
         return cls(
             enabled=_env_bool("COLONY_MANAGER_ENABLED", True),
+            paper_autopilot_enabled=_env_bool("COLONY_PAPER_AUTOPILOT_ENABLED", True),
             target_live_capital_eur=target,
+            live_min_kraken_capital_eur=_env_float("COLONY_LIVE_MIN_KRAKEN_CAPITAL_EUR", target or 500.0, 0.0, 10_000_000.0),
+            require_human_live_unlock=_env_bool("COLONY_REQUIRE_HUMAN_LIVE_UNLOCK", True),
             child_behaviors=behaviors or cls.child_behaviors,
             max_paper_children=_env_int("COLONY_MAX_PAPER_CHILDREN", 4, 1, 100),
             max_live_children=_env_int("COLONY_MAX_LIVE_CHILDREN", 0, 0, 100),
@@ -223,6 +229,7 @@ class ColonyManager:
 
         assigned: set[str] = set()
         children: list[ColonyChildPlan] = []
+        promotion_ready_children = 0
         for behavior in behaviors:
             profile = self.BEHAVIORS[behavior]
             ranked = self._rank_for_behavior(profile, opps)
@@ -262,7 +269,16 @@ class ColonyManager:
                 split=self._split_state(child_budget),
                 safeguards=self._safeguards(profile),
             )
+            if bool(child.promotion.get("eligible")):
+                promotion_ready_children += 1
             children.append(child)
+
+        autopilot = self._autopilot_state(
+            paper_mode=paper_mode,
+            capital=capital,
+            promotion_ready_children=promotion_ready_children,
+            child_count=len(children),
+        )
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -271,16 +287,19 @@ class ColonyManager:
             "paper_mode": paper_mode,
             "implementation_stage": "paper_control_plane",
             "execution": {
+                "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
                 "auto_live_promotion": cfg.auto_live_promotion,
                 "max_auto_live_capital_eur": round(cfg.max_auto_live_capital_eur, 2),
                 "live_children_allowed": cfg.max_live_children,
-                "live_activation_blocked": (not cfg.auto_live_promotion or cfg.max_auto_live_capital_eur <= 0.0),
+                "live_activation_blocked": not bool(autopilot["live_readiness"]["ready"]),
                 "leverage_enabled": cfg.leverage_enabled,
                 "max_leverage": cfg.max_leverage if cfg.leverage_enabled else 1.0,
             },
+            "autopilot": autopilot,
             "capital_model": {
                 "runtime_capital_eur": round(runtime_capital, 2),
                 "target_live_capital_eur": round(target_capital, 2),
+                "live_min_kraken_capital_eur": round(cfg.live_min_kraken_capital_eur, 2),
                 "planning_capital_eur": round(planning_capital, 2),
                 "reserve_eur": round(reserve_eur, 2),
                 "active_budget_eur": round(active_budget, 2),
@@ -398,6 +417,96 @@ class ColonyManager:
             "max_splits_per_bot": cfg.max_splits_per_bot,
         }
 
+    def _autopilot_state(
+        self,
+        *,
+        paper_mode: bool,
+        capital: Mapping[str, Any],
+        promotion_ready_children: int,
+        child_count: int,
+    ) -> dict[str, Any]:
+        cfg = self.config
+        source = str(capital.get("source") or "")
+        source_status = str(capital.get("source_status") or "")
+        live_capital = 0.0
+        if source == "kraken" and source_status == "ok":
+            live_capital = _safe_float(capital.get("total_capital", capital.get("total_balance")))
+        live_capital_ready = live_capital >= cfg.live_min_kraken_capital_eur > 0.0
+        performance_ready = promotion_ready_children > 0
+        human_unlock_ready = not cfg.require_human_live_unlock
+        live_limits_ready = (
+            cfg.auto_live_promotion
+            and cfg.max_auto_live_capital_eur > 0.0
+            and cfg.max_live_children > 0
+        )
+        live_ready = (
+            not paper_mode
+            and live_capital_ready
+            and performance_ready
+            and human_unlock_ready
+            and live_limits_ready
+        )
+        paper_running = bool(cfg.enabled and cfg.paper_autopilot_enabled and paper_mode)
+        return {
+            "state": "paper_autopilot_running" if paper_running else "blocked",
+            "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
+            "allowed_actions": [
+                "scan_market",
+                "score_opportunities",
+                "assign_grid_children",
+                "rebalance_paper_budgets",
+                "validate_children",
+                "plan_single_split_per_child",
+            ] if paper_running else [],
+            "blocked_actions": [
+                "place_live_orders",
+                "promote_live_children",
+                "enable_leverage",
+            ],
+            "live_readiness": {
+                "ready": live_ready,
+                "paper_mode": paper_mode,
+                "live_capital_eur": round(live_capital, 2),
+                "required_live_capital_eur": round(cfg.live_min_kraken_capital_eur, 2),
+                "live_capital_ready": live_capital_ready,
+                "performance_ready": performance_ready,
+                "promotion_ready_children": promotion_ready_children,
+                "child_count": child_count,
+                "human_unlock_required": cfg.require_human_live_unlock,
+                "human_unlock_ready": human_unlock_ready,
+                "live_limits_ready": live_limits_ready,
+                "blocked_reasons": self._live_blockers(
+                    paper_mode=paper_mode,
+                    live_capital_ready=live_capital_ready,
+                    performance_ready=performance_ready,
+                    human_unlock_ready=human_unlock_ready,
+                    live_limits_ready=live_limits_ready,
+                ),
+            },
+        }
+
+    @staticmethod
+    def _live_blockers(
+        *,
+        paper_mode: bool,
+        live_capital_ready: bool,
+        performance_ready: bool,
+        human_unlock_ready: bool,
+        live_limits_ready: bool,
+    ) -> list[str]:
+        blockers: list[str] = []
+        if paper_mode:
+            blockers.append("paper_mode_active")
+        if not live_capital_ready:
+            blockers.append("live_kraken_capital_not_ready")
+        if not performance_ready:
+            blockers.append("paper_performance_not_validated")
+        if not human_unlock_ready:
+            blockers.append("human_live_unlock_required")
+        if not live_limits_ready:
+            blockers.append("auto_live_limits_disabled")
+        return blockers
+
     def _safeguards(self, profile: BehaviorProfile) -> dict[str, Any]:
         cfg = self.config
         return {
@@ -407,5 +516,5 @@ class ColonyManager:
             "leverage": 1.0 if not cfg.leverage_enabled else cfg.max_leverage,
             "requires_central_order_router": True,
             "requires_global_risk_manager": True,
-            "requires_human_live_unlock": not cfg.auto_live_promotion,
+            "requires_human_live_unlock": cfg.require_human_live_unlock or not cfg.auto_live_promotion,
         }

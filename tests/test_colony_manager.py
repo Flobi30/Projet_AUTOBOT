@@ -110,6 +110,9 @@ def test_colony_manager_builds_paper_children_without_live_promotion():
 
     assert snapshot["mode"] == "paper"
     assert snapshot["execution"]["live_activation_blocked"] is True
+    assert snapshot["autopilot"]["state"] == "paper_autopilot_running"
+    assert "promote_live_children" in snapshot["autopilot"]["blocked_actions"]
+    assert "paper_mode_active" in snapshot["autopilot"]["live_readiness"]["blocked_reasons"]
     assert snapshot["capital_model"]["target_live_capital_eur"] == 500.0
     assert snapshot["children"]
     assert all(child["paper_only"] for child in snapshot["children"])
@@ -128,5 +131,7 @@ def test_colony_endpoint_returns_control_plane(monkeypatch):
     body = response.json()
     assert body["implementation_stage"] == "paper_control_plane"
     assert body["paper_mode"] is True
+    assert body["autopilot"]["paper_autopilot_enabled"] is True
+    assert body["autopilot"]["live_readiness"]["ready"] is False
     assert body["execution"]["auto_live_promotion"] is False
     assert body["children"]
