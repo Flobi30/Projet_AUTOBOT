@@ -12,6 +12,13 @@ interface LogEntry {
 }
 
 interface RuntimeTrace {
+  safety?: {
+    kill_switch?: {
+      tripped?: boolean;
+      reason_code?: string | null;
+      reason?: string | null;
+    };
+  };
   trace?: {
     last_market_tick?: Record<string, unknown> | null;
     last_signal?: Record<string, unknown> | null;
@@ -54,6 +61,13 @@ const LiveLog: React.FC = () => {
         }
         const data: RuntimeTrace = await response.json();
         const nextLogs: LogEntry[] = [];
+        if (data.safety?.kill_switch?.tripped) {
+          nextLogs.push({
+            timestamp: new Date().toISOString(),
+            level: 'RISK',
+            message: `Kill switch actif - ${data.safety.kill_switch.reason_code ?? data.safety.kill_switch.reason ?? 'raison non disponible'}`,
+          });
+        }
         const tick = describeEvent('Dernier tick marche', data.trace?.last_market_tick);
         if (tick) nextLogs.push({ timestamp: eventTimestamp(data.trace?.last_market_tick), level: 'INFO', message: tick });
         const signal = describeEvent('Dernier signal', data.trace?.last_signal);

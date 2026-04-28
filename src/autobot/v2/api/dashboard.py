@@ -22,6 +22,8 @@ import uvicorn
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+
 logger = logging.getLogger(__name__)
 
 # CORRECTION: Sécurité - Token Bearer pour auth
@@ -120,6 +122,67 @@ def _sqlite_health(db_path: Any, required_tables: List[str]) -> Dict[str, Any]:
         result["status"] = "error"
         result["error"] = str(exc)[:240]
     return result
+
+
+def _global_kill_store(orchestrator: Any) -> tuple[Optional[GlobalKillSwitchStore], str]:
+    store = getattr(orchestrator, "_global_kill_store", None)
+    if store is not None and hasattr(store, "get") and hasattr(store, "acknowledge_recovery"):
+        return store, "orchestrator"
+    return GlobalKillSwitchStore(), "default_db"
+
+
+def _global_kill_switch_snapshot(orchestrator: Any) -> Dict[str, Any]:
+    try:
+        store, source = _global_kill_store(orchestrator)
+        if store is None:
+            raise RuntimeError("global kill-switch store unavailable")
+        state = store.get()
+        status = "tripped" if state.tripped else "armed"
+        last_trip = {
+            "reason_code": state.reason_code,
+            "reason": state.reason,
+            "tripped_at": state.tripped_at,
+        } if state.reason_code or state.reason or state.tripped_at else None
+        return {
+            "available": True,
+            "source": source,
+            "status": status,
+            "tripped": bool(state.tripped),
+            "reason_code": state.reason_code if state.tripped else None,
+            "reason": state.reason if state.tripped else None,
+            "tripped_at": state.tripped_at if state.tripped else None,
+            "recovery_required": bool(state.recovery_required),
+            "last_trip": last_trip,
+        }
+    except Exception as exc:
+        logger.warning("Global kill switch state unavailable: %s", exc)
+        return {
+            "available": False,
+            "source": "unavailable",
+            "status": "unknown",
+            "tripped": False,
+            "reason_code": None,
+            "reason": None,
+            "tripped_at": None,
+            "recovery_required": False,
+            "error": str(exc)[:240],
+        }
+
+
+def _acknowledge_runtime_kill_switches(orchestrator: Any, operator_id: str) -> int:
+    acknowledged = 0
+    instances = getattr(orchestrator, "_instances", {}) or {}
+    instance_values = instances.values() if isinstance(instances, dict) else instances
+    for inst in list(instance_values):
+        handler = getattr(inst, "_signal_handler", None)
+        kill_switch = getattr(handler, "_kill_switch", None)
+        if kill_switch is None:
+            continue
+        acknowledge = getattr(kill_switch, "acknowledge_recovery", None)
+        if callable(acknowledge):
+            acknowledge(operator_id)
+            acknowledged += 1
+    return acknowledged
 
 
 def _latest_event(instances: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
@@ -501,6 +564,10 @@ class PositionInfo(BaseModel):
 
 class EmergencyStopRequest(BaseModel):
     confirmation: str  # Doit être "CONFIRM_STOP"
+
+class KillSwitchAcknowledgeRequest(BaseModel):
+    confirmation: str
+    operator_id: Optional[str] = None
 
 class PaperTestSignalRequest(BaseModel):
     confirmation: str
@@ -2052,6 +2119,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         instances_data = orchestrator.get_instances_snapshot()
         paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
         mode = "paper" if paper_mode else "live"
+        kill_switch = _global_kill_switch_snapshot(orchestrator)
         executor = getattr(orchestrator, "order_executor", None)
         persistence = getattr(orchestrator, "persistence", None)
 
@@ -2168,13 +2236,25 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             {"name": "state_database", "ok": bool(state_db.get("accessible")), "status": state_db.get("status")},
             {"name": "paper_database", "ok": bool(paper_db.get("accessible")) if paper_mode else True, "status": paper_db.get("status")},
             {"name": "order_executor", "ok": executor is not None, "status": type(executor).__name__ if executor is not None else "missing"},
+            {
+                "name": "kill_switch",
+                "ok": bool(kill_switch.get("available")) and not bool(kill_switch.get("tripped")),
+                "status": (
+                    f"tripped: {kill_switch.get('reason_code') or 'unknown'}"
+                    if kill_switch.get("tripped")
+                    else str(kill_switch.get("status") or "unknown")
+                ),
+            },
             {"name": "strategies_imported", "ok": len(instances_data) > 0, "status": f"{len(instances_data)} strategies"},
             {"name": "market_tick_received", "ok": last_market_tick is not None, "status": "seen" if last_market_tick else "waiting"},
         ]
 
-        critical_failed = any(not c["ok"] for c in checks if c["name"] in {"orchestrator", "market_websocket", "state_database", "order_executor"})
+        kill_switch_tripped = bool(kill_switch.get("tripped"))
+        critical_failed = any(not c["ok"] for c in checks if c["name"] in {"orchestrator", "market_websocket", "state_database", "order_executor"}) or kill_switch_tripped
         if critical_failed:
             overall_status = "critical"
+        elif not bool(kill_switch.get("available")):
+            overall_status = "warning"
         elif trade_count == 0:
             overall_status = "warning"
         elif recent_errors:
@@ -2183,6 +2263,12 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             overall_status = "healthy"
 
         messages = []
+        if kill_switch_tripped:
+            messages.append(
+                "Kill switch actif: les signaux sont ignores jusqu'au rearmement apres verification."
+            )
+            if kill_switch.get("reason"):
+                messages.append(f"Derniere raison kill switch: {kill_switch.get('reason')}")
         if trade_count == 0:
             messages.append("Bot actif mais aucune execution encore enregistree.")
         if paper_mode:
@@ -2194,6 +2280,9 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             "mode": mode,
             "paper_mode": paper_mode,
             "capital": status.get("capital", {}),
+            "safety": {
+                "kill_switch": kill_switch,
+            },
             "runtime": {
                 "running": bool(status.get("running")),
                 "websocket_connected": bool(status.get("websocket_connected")),
@@ -2235,6 +2324,53 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/kill-switch")
+async def get_kill_switch_status(request: Request, authorized: bool = Depends(verify_token)):
+    """Expose the persistent trading kill-switch state."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "kill_switch": _global_kill_switch_snapshot(orchestrator),
+    }
+
+
+@app.post("/api/kill-switch/acknowledge")
+async def acknowledge_kill_switch(
+    payload: KillSwitchAcknowledgeRequest,
+    request: Request,
+    authorized: bool = Depends(verify_token),
+):
+    """Acknowledge and clear the kill-switch after manual review."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    status = orchestrator.get_status()
+    paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+    expected_confirmation = "ACKNOWLEDGE_PAPER_KILL_SWITCH" if paper_mode else "ACKNOWLEDGE_LIVE_KILL_SWITCH"
+    if payload.confirmation != expected_confirmation:
+        raise HTTPException(status_code=400, detail=f"Confirmation {expected_confirmation} requise")
+
+    if not paper_mode and os.getenv("ALLOW_LIVE_KILL_SWITCH_ACK", "false").lower() not in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=409, detail="Rearmement kill switch live bloque par defaut")
+
+    operator_id = (payload.operator_id or "operator").strip()[:80] or "operator"
+    store, _ = _global_kill_store(orchestrator)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Kill switch store indisponible")
+    store.acknowledge_recovery(operator_id)
+    acknowledged_handlers = _acknowledge_runtime_kill_switches(orchestrator, operator_id)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "acknowledged": True,
+        "paper_mode": paper_mode,
+        "acknowledged_handlers": acknowledged_handlers,
+        "kill_switch": _global_kill_switch_snapshot(orchestrator),
+    }
+
+
 @app.get("/api/trading/debug")
 async def get_trading_debug(
     request: Request,
@@ -2250,6 +2386,7 @@ async def get_trading_debug(
         status = orchestrator.get_status()
         instances_data = orchestrator.get_instances_snapshot()
         paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        kill_switch = _global_kill_switch_snapshot(orchestrator)
         executor = getattr(orchestrator, "order_executor", None)
         paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
         last_trade, filled_trade_count = _latest_filled_paper_trade(paper_db_path) if paper_mode else (None, 0)
@@ -2290,6 +2427,9 @@ async def get_trading_debug(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mode": "paper" if paper_mode else "live",
             "paper_mode": paper_mode,
+            "safety": {
+                "kill_switch": kill_switch,
+            },
             "overall": {
                 "status": debug["status"],
                 "reason": debug["reason"],

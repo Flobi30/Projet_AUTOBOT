@@ -1,10 +1,13 @@
 import sqlite3
+import asyncio
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from autobot.v2.api import dashboard
+from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+from autobot.v2.kill_switch import KillSwitch
 
 
 pytestmark = pytest.mark.integration
@@ -18,8 +21,10 @@ class _Executor:
 class _Orchestrator:
     paper_mode = True
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, kill_store=None):
         self.order_executor = _Executor(db_path)
+        self._global_kill_store = kill_store or GlobalKillSwitchStore(str(db_path.parent / "global_kill_switch.db"))
+        self._instances = {}
 
     def get_status(self):
         return {
@@ -122,3 +127,53 @@ def test_trading_debug_explains_cost_guard_rejection(monkeypatch, tmp_path):
     assert body["pipeline"]["execution"]["reached"] is False
     assert body["pipeline"]["paper_trade"]["filled_trade_count"] == 0
     assert body["cost_edge_model"]["recent_decisions"][0]["atr_bps"] == pytest.approx(10.0)
+
+
+def test_runtime_trace_reports_tripped_kill_switch(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    db_path = tmp_path / "paper_trades.db"
+    _init_paper_db(db_path)
+    kill_store = GlobalKillSwitchStore(str(tmp_path / "global_kill_switch.db"))
+    kill_store.trip("api_failures", "10 consecutive API failures")
+    dashboard.app.state.orchestrator = _Orchestrator(db_path, kill_store)
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/runtime/trace", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] == "critical"
+    assert body["safety"]["kill_switch"]["tripped"] is True
+    assert body["safety"]["kill_switch"]["reason_code"] == "api_failures"
+    assert any(check["name"] == "kill_switch" and check["ok"] is False for check in body["checks"])
+
+
+def test_acknowledge_kill_switch_clears_paper_runtime_handlers(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    db_path = tmp_path / "paper_trades.db"
+    _init_paper_db(db_path)
+    kill_store = GlobalKillSwitchStore(str(tmp_path / "global_kill_switch.db"))
+    kill_switch = KillSwitch(global_store=kill_store)
+    asyncio.run(kill_switch.trigger("api_failures", "10 consecutive API failures"))
+    orchestrator = _Orchestrator(db_path, kill_store)
+    orchestrator._instances = {
+        "inst-eth": type("Inst", (), {"_signal_handler": type("Handler", (), {"_kill_switch": kill_switch})()})()
+    }
+    dashboard.app.state.orchestrator = orchestrator
+    client = TestClient(dashboard.app)
+
+    response = client.post(
+        "/api/kill-switch/acknowledge",
+        json={"confirmation": "ACKNOWLEDGE_PAPER_KILL_SWITCH", "operator_id": "test"},
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["acknowledged"] is True
+    assert body["acknowledged_handlers"] == 1
+    assert body["kill_switch"]["tripped"] is False
+    assert body["kill_switch"]["reason_code"] is None
+    assert body["kill_switch"]["last_trip"]["reason_code"] == "api_failures"
+    assert kill_store.get().tripped is False
+    assert kill_switch.tripped is False

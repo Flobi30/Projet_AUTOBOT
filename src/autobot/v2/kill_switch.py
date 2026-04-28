@@ -60,6 +60,15 @@ class KillSwitch:
     def is_globally_tripped(self) -> bool:
         return self._global_store.get().tripped
 
+    def acknowledge_recovery(self, operator_id: str) -> None:
+        """Clear local and persisted kill-switch state after operator review."""
+        self._tripped = False
+        self._api_failures = 0
+        self._nonce_errors = 0
+        self._partial_started_at.clear()
+        self._last_event = None
+        self._global_store.acknowledge_recovery(operator_id)
+
     async def record_api_failure(self, error_message: str) -> None:
         if self._tripped:
             return

@@ -28,6 +28,13 @@ interface RuntimeTrace {
     active_count: number;
     pairs_watched: string[];
   };
+  safety?: {
+    kill_switch?: {
+      status?: string;
+      tripped?: boolean;
+      reason_code?: string | null;
+    };
+  };
 }
 
 interface SidebarColony {
@@ -213,6 +220,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               <div>Cash: <strong>{formatCurrency(capital?.available_cash)}</strong></div>
               <div>
                 Strategies: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
+              </div>
+              <div>
+                Kill switch:{' '}
+                <strong className={trace?.safety?.kill_switch?.tripped ? 'text-red-300' : undefined}>
+                  {trace?.safety?.kill_switch?.status ?? 'Non disponible'}
+                </strong>
+                {trace?.safety?.kill_switch?.reason_code ? (
+                  <span> ({trace.safety.kill_switch.reason_code})</span>
+                ) : null}
               </div>
               <div>
                 Enfants paper: <strong>{colony?.runtime?.active_children_count ?? 'Non disponible'}</strong>

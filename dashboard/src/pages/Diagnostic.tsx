@@ -72,6 +72,19 @@ interface RuntimeTrace {
     total_capital?: number;
     available_cash?: number;
   };
+  safety?: {
+    kill_switch?: {
+      available?: boolean;
+      source?: string;
+      status?: string;
+      tripped?: boolean;
+      reason_code?: string | null;
+      reason?: string | null;
+      tripped_at?: string | null;
+      recovery_required?: boolean;
+      error?: string | null;
+    };
+  };
   trace: {
     last_market_tick?: Record<string, unknown> | null;
     last_signal?: Record<string, unknown> | null;
@@ -414,6 +427,12 @@ const Diagnostic: React.FC = () => {
   }
 
   const failedChecks = runtimeTrace?.checks.filter((check) => !check.ok) ?? [];
+  const killSwitch = runtimeTrace?.safety?.kill_switch;
+  const killSwitchStatus: 'healthy' | 'warning' | 'critical' = killSwitch?.tripped
+    ? 'critical'
+    : killSwitch?.available === false
+      ? 'warning'
+      : 'healthy';
   const recommendations = [
     ...(runtimeTrace?.messages ?? []),
     ...(failedChecks.length ? ['Verifier les logs backend avant toute relance du bot.'] : ['Aucun blocage critique verifie par les endpoints disponibles.']),
@@ -499,7 +518,7 @@ const Diagnostic: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <ServiceCard
           icon={<Server className="w-6 h-6" />}
           title="Backend / orchestrateur"
@@ -538,6 +557,16 @@ const Diagnostic: React.FC = () => {
             `Executor: ${runtimeTrace?.order_executor.class_name ?? 'Non disponible'}`,
             `Ordres ouverts: ${runtimeTrace?.order_executor.open_orders_count ?? 'Non disponible'}`,
             `Trades enregistres: ${runtimeTrace?.order_executor.recorded_trades_count ?? 'Non disponible'}`,
+          ]}
+        />
+        <ServiceCard
+          icon={<AlertTriangle className="w-6 h-6" />}
+          title="Securite trading"
+          status={killSwitchStatus}
+          details={[
+            `Etat: ${killSwitch?.status ?? 'Non disponible'}`,
+            `Raison: ${killSwitch?.reason_code ?? 'Aucune'}`,
+            `Declenche: ${formatDate(killSwitch?.tripped_at)}`,
           ]}
         />
       </div>
