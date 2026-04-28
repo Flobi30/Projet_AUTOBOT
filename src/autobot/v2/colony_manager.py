@@ -9,6 +9,7 @@ promotion gates, split gates, and paper-only guardrails.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
@@ -218,6 +219,7 @@ class ColonyManager:
         desired_children = max(1, min(len(behaviors), cfg.max_paper_children, max_children_by_capital or 1))
         behaviors = behaviors[:desired_children]
         child_budget = active_budget / max(len(behaviors), 1)
+        symbols_per_child = max(1, min(cfg.max_child_symbols, math.ceil(len(opps) / max(len(behaviors), 1))))
 
         assigned: set[str] = set()
         children: list[ColonyChildPlan] = []
@@ -231,12 +233,12 @@ class ColonyManager:
                 if not symbol:
                     continue
                 key = _symbol_key(symbol)
-                if key in assigned and behavior != "mean_reversion":
+                if key in assigned:
                     continue
                 candidates.append(symbol)
                 assigned.add(key)
                 score_sum += _safe_float(opp.get("score"))
-                if len(candidates) >= cfg.max_child_symbols:
+                if len(candidates) >= symbols_per_child:
                     break
 
             if not candidates and ranked:
