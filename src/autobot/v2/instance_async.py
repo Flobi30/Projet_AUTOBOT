@@ -916,6 +916,7 @@ class TradingInstanceAsync:
             "last_decision": getattr(self, "_last_decision_event", None),
             "last_order": getattr(self, "_last_order_event", None),
             "last_error": getattr(self, "_last_error_event", None),
+            "runtime_events": list(getattr(self, "_runtime_events", []))[-50:],
             "warmup": warmup,
             "blocked_reasons": blocked_reasons,
             "strategy_status": strategy_status,

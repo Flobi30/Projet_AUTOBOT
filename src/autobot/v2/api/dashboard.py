@@ -152,6 +152,53 @@ def _event_is_at_least(event: Optional[Dict[str, Any]], reference: Optional[Dict
     return bool(event_ts and (not reference_ts or event_ts >= reference_ts))
 
 
+def _collect_runtime_events(instances: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    for inst in instances:
+        for event in inst.get("runtime_events", []) or []:
+            if not isinstance(event, dict):
+                continue
+            events.append({
+                **event,
+                "instance_id": event.get("instance_id") or inst.get("id"),
+                "instance_name": inst.get("name"),
+                "symbol": event.get("symbol") or inst.get("symbol") or _infer_symbol_from_instance(inst),
+            })
+    events.sort(key=lambda item: _event_timestamp(item), reverse=True)
+    return events
+
+
+def _cost_edge_event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
+    edge = event.get("edge_context") if isinstance(event.get("edge_context"), dict) else {}
+    return {
+        "timestamp": event.get("timestamp"),
+        "instance_id": event.get("instance_id"),
+        "instance_name": event.get("instance_name"),
+        "symbol": event.get("symbol"),
+        "signal": event.get("side"),
+        "signal_reason": event.get("signal_reason"),
+        "price": event.get("signal_price"),
+        "status": "rejected" if str(event.get("event", "")).endswith("rejected") else "accepted",
+        "event": event.get("event"),
+        "reason": event.get("reason"),
+        "gross_edge_bps": event.get("gross_edge_bps", edge.get("expected_move_bps")),
+        "cost_bps": event.get("cost_bps", edge.get("total_cost_bps")),
+        "fee_bps": edge.get("estimated_fee_bps"),
+        "spread_bps": edge.get("spread_bps"),
+        "slippage_bps": edge.get("estimated_slippage_bps"),
+        "latency_buffer_bps": 0.0,
+        "risk_buffer_bps": edge.get("volatility_component_bps"),
+        "observed_cost_buffer_bps": edge.get("observed_cost_buffer_bps"),
+        "net_edge_bps": event.get("net_edge_bps", edge.get("net_edge_bps")),
+        "min_edge_bps": event.get("min_edge_bps", edge.get("adaptive_min_edge_bps")),
+        "gross_required_bps": event.get("gross_required_bps", edge.get("gross_required_bps")),
+        "edge_shortfall_bps": event.get("edge_shortfall_bps", edge.get("edge_shortfall_bps")),
+        "blocking_condition": event.get("blocking_condition"),
+        "profile": (event.get("risk_params") or {}).get("cost_edge_profile"),
+        "paper_test": event.get("signal_reason") == "paper_test_controlled_debug",
+    }
+
+
 def _latest_filled_paper_trade(db_path: Any) -> tuple[Optional[Dict[str, Any]], int]:
     path = str(db_path) if db_path else ""
     if not path or not os.path.exists(path):
@@ -234,6 +281,16 @@ def _trading_pipeline_debug(
     last_signal = _latest_event(instances_data, "last_signal")
     last_decision = _latest_event(instances_data, "last_decision")
     last_order = _latest_event(instances_data, "last_order")
+    runtime_events = _collect_runtime_events(instances_data)
+    cost_edge_decisions = [
+        _cost_edge_event_summary(event)
+        for event in runtime_events
+        if event.get("reason") == "cost_guard" or event.get("event") in {"buy_rejected", "buy_accepted"}
+    ]
+    natural_cost_edge_rejections = [
+        event for event in cost_edge_decisions
+        if event.get("status") == "rejected" and not event.get("paper_test")
+    ]
 
     status = "waiting_for_signal"
     reason = "no_signal_generated"
@@ -327,6 +384,13 @@ def _trading_pipeline_debug(
         "last_decision": last_decision,
         "last_order": last_order,
         "last_trade": last_trade,
+        "cost_edge_model": {
+            "formula": "gross_edge_bps - (spread_bps + fee_bps + slippage_bps) = net_edge_bps; pass if net_edge_bps >= min_edge_bps",
+            "latency": "hard_filter_only",
+            "risk_buffer": "included in min_edge_bps via volatility_component_bps and configured min_edge_bps",
+            "recent_decisions": cost_edge_decisions[:20],
+            "recent_natural_rejections": natural_cost_edge_rejections[:20],
+        },
     }
 
 

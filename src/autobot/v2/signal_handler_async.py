@@ -14,6 +14,8 @@ import sqlite3
 import time
 import uuid
 import hashlib
+from collections import deque
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -29,20 +31,30 @@ from .market_analyzer import get_market_analyzer
 logger = logging.getLogger(__name__)
 
 
-RISK_REGIME_PRESETS: dict[str, dict[str, dict[str, float]]] = {
-    "balanced": {
-        "RANGE": {"atr_sl_mult": 1.55, "tp_rr": 1.55, "min_edge_bps": 12.0},
-        "TREND": {"atr_sl_mult": 1.95, "tp_rr": 1.75, "min_edge_bps": 14.0},
+DEFAULT_COST_EDGE_PROFILES: dict[str, dict[str, dict[str, float]]] = {
+    "conservative": {
+        "RANGE": {"atr_sl_mult": 1.35, "tp_rr": 1.85, "min_edge_bps": 16.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.35},
+        "TREND": {"atr_sl_mult": 1.70, "tp_rr": 2.10, "min_edge_bps": 18.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.35},
     },
+    "balanced": {
+        "RANGE": {"atr_sl_mult": 1.55, "tp_rr": 1.55, "min_edge_bps": 12.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.25},
+        "TREND": {"atr_sl_mult": 1.95, "tp_rr": 1.75, "min_edge_bps": 14.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.25},
+    },
+    "exploratory_paper": {
+        "RANGE": {"atr_sl_mult": 1.55, "tp_rr": 1.75, "min_edge_bps": 6.0, "cost_buffer_mult": 0.25, "volatility_edge_weight": 0.10},
+        "TREND": {"atr_sl_mult": 1.95, "tp_rr": 1.95, "min_edge_bps": 8.0, "cost_buffer_mult": 0.25, "volatility_edge_weight": 0.10},
+    },
+    # Backward-compatible aliases for existing configs.
     "defensive": {
-        "RANGE": {"atr_sl_mult": 1.35, "tp_rr": 1.85, "min_edge_bps": 16.0},
-        "TREND": {"atr_sl_mult": 1.70, "tp_rr": 2.10, "min_edge_bps": 18.0},
+        "RANGE": {"atr_sl_mult": 1.35, "tp_rr": 1.85, "min_edge_bps": 16.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.35},
+        "TREND": {"atr_sl_mult": 1.70, "tp_rr": 2.10, "min_edge_bps": 18.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.35},
     },
     "offensive": {
-        "RANGE": {"atr_sl_mult": 1.75, "tp_rr": 1.35, "min_edge_bps": 10.0},
-        "TREND": {"atr_sl_mult": 2.20, "tp_rr": 1.55, "min_edge_bps": 12.0},
+        "RANGE": {"atr_sl_mult": 1.75, "tp_rr": 1.35, "min_edge_bps": 10.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.25},
+        "TREND": {"atr_sl_mult": 2.20, "tp_rr": 1.55, "min_edge_bps": 12.0, "cost_buffer_mult": 1.00, "volatility_edge_weight": 0.25},
     },
 }
+RISK_REGIME_PRESETS = DEFAULT_COST_EDGE_PROFILES
 
 
 class SignalHandlerAsync:
@@ -102,6 +114,27 @@ class SignalHandlerAsync:
             minimum=0.50,
             maximum=0.99,
         )
+        self._edge_fallback_fee_bps = self._load_float_in_range(
+            "edge_fallback_fee_bps",
+            "EDGE_FALLBACK_FEE_BPS",
+            40.0,
+            minimum=0.0,
+            maximum=250.0,
+        )
+        self._edge_fallback_slippage_bps = self._load_float_in_range(
+            "edge_fallback_slippage_bps",
+            "EDGE_FALLBACK_SLIPPAGE_BPS",
+            6.0,
+            minimum=0.0,
+            maximum=250.0,
+        )
+        self._edge_slippage_spread_fraction = self._load_float_in_range(
+            "edge_slippage_spread_fraction",
+            "EDGE_SLIPPAGE_SPREAD_FRACTION",
+            0.35,
+            minimum=0.0,
+            maximum=2.0,
+        )
         self._volatility_edge_weight = self._load_float_in_range(
             "volatility_edge_weight",
             "VOLATILITY_EDGE_WEIGHT",
@@ -109,9 +142,21 @@ class SignalHandlerAsync:
             minimum=0.0,
             maximum=5.0,
         )
+        self._edge_cost_buffer_mult = self._load_float_in_range(
+            "edge_cost_buffer_mult",
+            "EDGE_COST_BUFFER_MULT",
+            1.0,
+            minimum=0.0,
+            maximum=3.0,
+        )
         self._risk_regime_preset = str(
-            getattr(getattr(self.instance, "config", None), "risk_regime_preset", os.getenv("RISK_REGIME_PRESET", "balanced"))
+            getattr(
+                getattr(self.instance, "config", None),
+                "cost_edge_profile",
+                os.getenv("COST_EDGE_PROFILE", os.getenv("RISK_REGIME_PRESET", "balanced")),
+            )
         ).strip().lower()
+        self._cost_edge_profiles = self._load_cost_edge_profiles()
         self._validate_risk_parameters()
         self._osm = PersistedOrderStateMachine()
         self._kill_switch = KillSwitch(on_trigger=self._on_kill_switch_triggered)
@@ -119,6 +164,8 @@ class SignalHandlerAsync:
         self._setup_signal_callback()
         self._fee_optimizer: Optional[FeeOptimizer] = getattr(self.instance, "_fee_optimizer", None)
         self._execution_cost_samples: dict[str, list[dict[str, float]]] = {}
+        history_size = self._load_positive_int("cost_edge_audit_history_size", "COST_EDGE_AUDIT_HISTORY_SIZE", 50)
+        self._runtime_event_history: deque[dict[str, Any]] = deque(maxlen=min(500, max(10, history_size)))
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
     def _record_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
@@ -128,9 +175,23 @@ class SignalHandlerAsync:
             "instance_id": getattr(self.instance, "id", None),
             **payload,
         }
+        history = getattr(self, "_runtime_event_history", None)
+        if history is not None:
+            history.append(event)
+            setattr(self.instance, "_runtime_events", list(history))
         setattr(self, attr_name, event)
         setattr(self.instance, attr_name, event)
         return event
+
+    @staticmethod
+    def _serialize_risk_params(params: dict[str, Any]) -> dict[str, Any]:
+        serialized: dict[str, Any] = {}
+        for key, value in params.items():
+            if isinstance(value, (int, float)):
+                serialized[key] = round(float(value), 6)
+            else:
+                serialized[key] = value
+        return serialized
 
     @staticmethod
     async def _maybe_await(value: Any) -> Any:
@@ -154,6 +215,21 @@ class SignalHandlerAsync:
             return default
         return value
 
+    def _load_positive_int(self, config_key: str, env_key: str, default: int) -> int:
+        """Read a positive integer from config/env."""
+        candidate = getattr(getattr(self.instance, "config", None), config_key, default)
+        env_value = os.getenv(env_key)
+        if env_value is not None and str(env_value).strip() != "":
+            candidate = env_value
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            logger.warning("Paramètre invalide %s=%r, default=%d", env_key, candidate, default)
+            return default
+        if value <= 0:
+            logger.warning("Paramètre hors bornes %s=%d (doit être > 0), default=%d", env_key, value, default)
+            return default
+        return value
 
     def _load_float_in_range(
         self,
@@ -167,6 +243,35 @@ class SignalHandlerAsync:
         """Read config/env and clamp to [minimum, maximum]."""
         value = self._load_positive_float(config_key, env_key, default)
         return min(maximum, max(minimum, value))
+
+    def _load_cost_edge_profiles(self) -> dict[str, dict[str, dict[str, float]]]:
+        """Load cost/edge profile defaults, then apply env overrides."""
+        profiles = deepcopy(DEFAULT_COST_EDGE_PROFILES)
+        field_env = {
+            "atr_sl_mult": "ATR_SL_MULT",
+            "tp_rr": "TP_RR",
+            "min_edge_bps": "MIN_EDGE_BPS",
+            "cost_buffer_mult": "COST_BUFFER_MULT",
+            "volatility_edge_weight": "VOLATILITY_EDGE_WEIGHT",
+        }
+        for profile_name, regimes in profiles.items():
+            for regime_name, params in regimes.items():
+                for field, suffix in field_env.items():
+                    env_key = f"COST_EDGE_{profile_name.upper()}_{regime_name}_{suffix}"
+                    raw = os.getenv(env_key)
+                    if raw is None or raw.strip() == "":
+                        continue
+                    try:
+                        params[field] = float(raw)
+                    except ValueError:
+                        logger.warning("Paramètre cost/edge invalide %s=%r ignoré", env_key, raw)
+        return profiles
+
+    def _is_paper_mode(self) -> bool:
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        if getattr(orchestrator, "paper_mode", False):
+            return True
+        return os.getenv("PAPER_TRADING", "false").lower() in {"1", "true", "yes", "on"}
 
     def _validate_risk_parameters(self) -> None:
         """Normalize parameters to safe bounds for risk/cost guards."""
@@ -183,12 +288,15 @@ class SignalHandlerAsync:
         self._base_tp_rr = self._tp_rr
         self._base_atr_sl_mult = self._atr_sl_mult
         self._base_min_edge_bps = self._min_edge_bps
-        if self._risk_regime_preset not in RISK_REGIME_PRESETS:
+        if self._risk_regime_preset not in self._cost_edge_profiles:
             logger.warning(
-                "Preset risque inconnu '%s' (disponibles=%s), fallback=balanced",
+                "Profil cost/edge inconnu '%s' (disponibles=%s), fallback=balanced",
                 self._risk_regime_preset,
-                ",".join(sorted(RISK_REGIME_PRESETS.keys())),
+                ",".join(sorted(self._cost_edge_profiles.keys())),
             )
+            self._risk_regime_preset = "balanced"
+        if self._risk_regime_preset == "exploratory_paper" and not self._is_paper_mode():
+            logger.warning("Profil exploratory_paper interdit hors paper trading, fallback=balanced")
             self._risk_regime_preset = "balanced"
 
     def _setup_signal_callback(self) -> None:
@@ -395,6 +503,10 @@ class SignalHandlerAsync:
                 side="buy",
                 net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
                 min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+                gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
+                cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
+                gross_required_bps=round(float(edge_ctx.get("gross_required_bps", 0.0)), 3),
+                edge_shortfall_bps=round(float(edge_ctx.get("edge_shortfall_bps", 0.0)), 3),
                 blocking_condition=(
                     "net_edge_bps < adaptive_min_edge_bps"
                     if float(edge_ctx.get("net_edge_bps", 0.0)) < float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps))
@@ -404,7 +516,9 @@ class SignalHandlerAsync:
                 volume=float(volume),
                 order_value=round(float(volume * signal.price), 8),
                 available_capital=round(float(available), 8),
-                risk_params={k: round(float(v), 6) for k, v in risk_params.items()},
+                signal_price=float(signal.price),
+                signal_reason=getattr(signal, "reason", None),
+                risk_params=self._serialize_risk_params(risk_params),
                 edge_context=cost_details,
             )
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
@@ -424,11 +538,17 @@ class SignalHandlerAsync:
             side="buy",
             net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
             min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+            gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
+            cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
+            gross_required_bps=round(float(edge_ctx.get("gross_required_bps", 0.0)), 3),
+            edge_shortfall_bps=round(float(edge_ctx.get("edge_shortfall_bps", 0.0)), 3),
             atr_pct=round(float(atr_pct), 8),
             volume=float(volume),
             order_value=round(float(volume * signal.price), 8),
             available_capital=round(float(available), 8),
-            risk_params={k: round(float(v), 6) for k, v in risk_params.items()},
+            signal_price=float(signal.price),
+            signal_reason=getattr(signal, "reason", None),
+            risk_params=self._serialize_risk_params(risk_params),
             edge_context=accepted_edge_details,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
@@ -451,10 +571,15 @@ class SignalHandlerAsync:
                 volume=volume,
                 limit_price=execution_plan["price"],
                 post_only=bool(execution_plan.get("post_only", False)),
-                userref=rec.userref,
+                userref=getattr(rec, "userref", None),
             )
         else:
-            result = await self.order_executor.execute_market_order(symbol, OrderSide.BUY, volume, userref=rec.userref)
+            result = await self.order_executor.execute_market_order(
+                symbol,
+                OrderSide.BUY,
+                volume,
+                userref=getattr(rec, "userref", None),
+            )
 
         if not result.success:
             self._record_runtime_event(
@@ -939,16 +1064,25 @@ class SignalHandlerAsync:
         fee_samples = [s["fee_bps"] for s in observed]
         slip_samples = [s["slippage_bps"] for s in observed]
         cost_samples = [s["total_cost_bps"] for s in observed]
-        fallback_fee_bps = float(metadata.get("fee_bps", 40.0))
-        fallback_slippage_bps = float(metadata.get("slippage_bps", max(6.0, spread_bps * 0.35)))
+        fallback_fee_bps = float(metadata.get("fee_bps", self._edge_fallback_fee_bps))
+        fallback_slippage_bps = float(
+            metadata.get(
+                "slippage_bps",
+                max(self._edge_fallback_slippage_bps, spread_bps * self._edge_slippage_spread_fraction),
+            )
+        )
         estimated_fee_bps = self._percentile(fee_samples, self._edge_percentile_target) if fee_samples else fallback_fee_bps
         estimated_slippage_bps = self._percentile(slip_samples, self._edge_percentile_target) if slip_samples else fallback_slippage_bps
         observed_cost_pctl = self._percentile(cost_samples, self._edge_percentile_target) if cost_samples else (estimated_fee_bps + estimated_slippage_bps)
         expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * params["tp_rr"]))
         total_cost_bps = spread_bps + estimated_fee_bps + estimated_slippage_bps
         net_edge_bps = expected_move_bps - total_cost_bps
-        volatility_component_bps = atr_pct * 10000 * self._volatility_edge_weight
-        adaptive_min_edge_bps = max(params["min_edge_bps"], observed_cost_pctl + volatility_component_bps)
+        volatility_edge_weight = float(params.get("volatility_edge_weight", self._volatility_edge_weight))
+        cost_buffer_mult = float(params.get("cost_buffer_mult", self._edge_cost_buffer_mult))
+        volatility_component_bps = atr_pct * 10000 * volatility_edge_weight
+        observed_cost_buffer_bps = observed_cost_pctl * cost_buffer_mult
+        adaptive_min_edge_bps = max(params["min_edge_bps"], observed_cost_buffer_bps + volatility_component_bps)
+        gross_required_bps = total_cost_bps + adaptive_min_edge_bps
         return {
             "spread_bps": spread_bps,
             "expected_move_bps": expected_move_bps,
@@ -958,6 +1092,10 @@ class SignalHandlerAsync:
             "net_edge_bps": net_edge_bps,
             "adaptive_min_edge_bps": adaptive_min_edge_bps,
             "volatility_component_bps": volatility_component_bps,
+            "observed_cost_buffer_bps": observed_cost_buffer_bps,
+            "cost_buffer_multiplier": cost_buffer_mult,
+            "gross_required_bps": gross_required_bps,
+            "edge_shortfall_bps": max(0.0, gross_required_bps - expected_move_bps),
             "observed_samples": float(len(observed)),
         }
 
@@ -989,7 +1127,7 @@ class SignalHandlerAsync:
         metadata = (signal.metadata if signal else None) or {}
         regime = str(metadata.get("regime", "RANGE")).upper()
         regime_key = "TREND" if "TREND" in regime else "RANGE"
-        preset = RISK_REGIME_PRESETS.get(self._risk_regime_preset, RISK_REGIME_PRESETS["balanced"])
+        preset = self._cost_edge_profiles.get(self._risk_regime_preset, self._cost_edge_profiles["balanced"])
         base = preset[regime_key]
 
         spread_bps = max(0.0, float(metadata.get("spread_bps", 0.0)))
@@ -998,6 +1136,8 @@ class SignalHandlerAsync:
         atr_sl_mult = float(base["atr_sl_mult"])
         tp_rr = float(base["tp_rr"])
         min_edge_bps = float(base["min_edge_bps"])
+        cost_buffer_mult = float(base.get("cost_buffer_mult", self._edge_cost_buffer_mult))
+        volatility_edge_weight = float(base.get("volatility_edge_weight", self._volatility_edge_weight))
 
         if vol_ratio >= 1.35:
             atr_sl_mult *= 1.12
@@ -1015,6 +1155,9 @@ class SignalHandlerAsync:
             "atr_sl_mult": min(6.0, max(0.5, atr_sl_mult)),
             "tp_rr": min(8.0, max(0.5, tp_rr)),
             "min_edge_bps": min(1000.0, max(1.0, min_edge_bps)),
+            "cost_buffer_mult": min(3.0, max(0.0, cost_buffer_mult)),
+            "volatility_edge_weight": min(5.0, max(0.0, volatility_edge_weight)),
+            "cost_edge_profile": self._risk_regime_preset,
         }
 
     def _compute_recent_volatility_ratio(self, atr_pct: float) -> float:
