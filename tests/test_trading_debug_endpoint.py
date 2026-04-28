@@ -55,10 +55,26 @@ class _Orchestrator:
                     "blocking_condition": "net_edge_bps < adaptive_min_edge_bps",
                     "net_edge_bps": -31.5,
                     "min_edge_bps": 48.5,
+                    "atr_pct": 0.001,
+                    "edge_context": {"volatility_component_bps": 2.5},
                 },
                 "last_order": None,
                 "warmup": {"active": False},
                 "blocked_reasons": [],
+                "runtime_events": [
+                    {
+                        "timestamp": "2026-04-28T01:00:01+00:00",
+                        "event": "buy_rejected",
+                        "reason": "cost_guard",
+                        "symbol": "ETHEUR",
+                        "side": "buy",
+                        "blocking_condition": "net_edge_bps < adaptive_min_edge_bps",
+                        "net_edge_bps": -31.5,
+                        "min_edge_bps": 48.5,
+                        "atr_pct": 0.001,
+                        "edge_context": {"volatility_component_bps": 2.5},
+                    }
+                ],
             }
         ]
 
@@ -105,3 +121,4 @@ def test_trading_debug_explains_cost_guard_rejection(monkeypatch, tmp_path):
     assert body["pipeline"]["signal"]["generated"] is True
     assert body["pipeline"]["execution"]["reached"] is False
     assert body["pipeline"]["paper_trade"]["filled_trade_count"] == 0
+    assert body["cost_edge_model"]["recent_decisions"][0]["atr_bps"] == pytest.approx(10.0)

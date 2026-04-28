@@ -170,6 +170,14 @@ def _collect_runtime_events(instances: List[Dict[str, Any]]) -> List[Dict[str, A
 
 def _cost_edge_event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
     edge = event.get("edge_context") if isinstance(event.get("edge_context"), dict) else {}
+    opportunity = event.get("opportunity") if isinstance(event.get("opportunity"), dict) else {}
+    atr_pct = event.get("atr_pct")
+    atr_bps = opportunity.get("atr_bps")
+    if atr_bps is None:
+        try:
+            atr_bps = float(atr_pct) * 10000.0 if atr_pct is not None else None
+        except (TypeError, ValueError):
+            atr_bps = None
     return {
         "timestamp": event.get("timestamp"),
         "instance_id": event.get("instance_id"),
@@ -188,12 +196,18 @@ def _cost_edge_event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
         "slippage_bps": edge.get("estimated_slippage_bps"),
         "latency_buffer_bps": 0.0,
         "risk_buffer_bps": edge.get("volatility_component_bps"),
+        "atr_pct": atr_pct,
+        "atr_bps": atr_bps,
         "observed_cost_buffer_bps": edge.get("observed_cost_buffer_bps"),
         "net_edge_bps": event.get("net_edge_bps", edge.get("net_edge_bps")),
         "min_edge_bps": event.get("min_edge_bps", edge.get("adaptive_min_edge_bps")),
         "gross_required_bps": event.get("gross_required_bps", edge.get("gross_required_bps")),
         "edge_shortfall_bps": event.get("edge_shortfall_bps", edge.get("edge_shortfall_bps")),
         "blocking_condition": event.get("blocking_condition"),
+        "opportunity_score": opportunity.get("score"),
+        "opportunity_status": opportunity.get("status"),
+        "opportunity_reason": opportunity.get("reason"),
+        "opportunity_blockers": opportunity.get("blockers"),
         "profile": (event.get("risk_params") or {}).get("cost_edge_profile"),
         "paper_test": event.get("signal_reason") == "paper_test_controlled_debug",
     }
@@ -276,6 +290,7 @@ def _trading_pipeline_debug(
     last_trade: Optional[Dict[str, Any]],
     trade_count: int,
     paper_mode: bool,
+    decision_limit: int = 20,
 ) -> Dict[str, Any]:
     last_market_tick = _latest_event(instances_data, "last_market_tick")
     last_signal = _latest_event(instances_data, "last_signal")
@@ -388,8 +403,8 @@ def _trading_pipeline_debug(
             "formula": "gross_edge_bps - (spread_bps + fee_bps + slippage_bps) = net_edge_bps; pass if net_edge_bps >= min_edge_bps",
             "latency": "hard_filter_only",
             "risk_buffer": "included in min_edge_bps via volatility_component_bps and configured min_edge_bps",
-            "recent_decisions": cost_edge_decisions[:20],
-            "recent_natural_rejections": natural_cost_edge_rejections[:20],
+            "recent_decisions": cost_edge_decisions[:decision_limit],
+            "recent_natural_rejections": natural_cost_edge_rejections[:decision_limit],
         },
     }
 
@@ -2161,7 +2176,11 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
 
 
 @app.get("/api/trading/debug")
-async def get_trading_debug(request: Request, authorized: bool = Depends(verify_token)):
+async def get_trading_debug(
+    request: Request,
+    decision_limit: int = Query(20, ge=1, le=100),
+    authorized: bool = Depends(verify_token),
+):
     """Explain the latest Market Data -> Signal -> Decision -> Execution state."""
     orchestrator = request.app.state.orchestrator
     if not orchestrator:
@@ -2180,6 +2199,7 @@ async def get_trading_debug(request: Request, authorized: bool = Depends(verify_
             last_trade=last_trade,
             trade_count=filled_trade_count,
             paper_mode=paper_mode,
+            decision_limit=decision_limit,
         )
 
         per_instance = []
@@ -2189,6 +2209,7 @@ async def get_trading_debug(request: Request, authorized: bool = Depends(verify_
                 last_trade=last_trade,
                 trade_count=filled_trade_count,
                 paper_mode=paper_mode,
+                decision_limit=min(decision_limit, 20),
             )
             per_instance.append({
                 "id": inst.get("id"),
