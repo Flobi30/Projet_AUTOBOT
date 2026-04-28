@@ -20,6 +20,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import uvicorn
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -2559,7 +2560,23 @@ if __name__ == "__main__":
     # CORRECTION: Bind localhost par défaut
     uvicorn.run(app, host="127.0.0.1", port=8080)
 
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if (
+                exc.status_code == 404
+                and scope.get("method") in {"GET", "HEAD"}
+                and not path.startswith("api")
+                and path != "health"
+            ):
+                return await super().get_response("index.html", scope)
+            raise
+
+
 # Serve static files from React build (MUST be last to not override API routes)
 static_dir = os.getenv("DASHBOARD_STATIC_DIR", "/app/dashboard/dist")
 if os.path.exists(static_dir):
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+    app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="static")
