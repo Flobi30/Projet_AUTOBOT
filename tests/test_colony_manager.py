@@ -153,6 +153,49 @@ def test_colony_manager_routes_existing_instances_to_active_logical_children():
     assert any(child["active"] for child in snapshot["children"])
 
 
+def test_colony_manager_auto_scales_logical_children_for_larger_watchlists():
+    manager = ColonyManager(
+        ColonyConfig(
+            target_live_capital_eur=500.0,
+            max_paper_children=12,
+            min_child_capital_eur=75.0,
+            min_logical_child_capital_eur=25.0,
+            max_child_symbols=6,
+            auto_scale_paper_children=True,
+            auto_live_promotion=False,
+            max_auto_live_capital_eur=0.0,
+        )
+    )
+    opportunities = [
+        {"symbol": f"PAIR{i:02d}EUR", "score": 80.0 - i, "gross_edge_bps": 80.0, "net_edge_bps": 45.0, "atr_bps": 25.0, "spread_bps": 2.0}
+        for i in range(40)
+    ]
+    instances = [
+        {"id": f"inst-{i:02d}", "name": f"Grid {i:02d}", "symbol": f"PAIR{i:02d}EUR", "status": "running", "capital": 25.0}
+        for i in range(40)
+    ]
+
+    snapshot = manager.build_snapshot(
+        opportunities=opportunities,
+        instances=instances,
+        capital={"total_capital": 1000.0},
+        paper_mode=True,
+    )
+
+    assigned_symbols = {
+        assigned["symbol"]
+        for child in snapshot["children"]
+        for assigned in child["assigned_instances"]
+    }
+    assert len(snapshot["children"]) == 7
+    assert snapshot["runtime"]["active_children_count"] == 7
+    assert snapshot["runtime"]["routing_symbol_count"] == 40
+    assert snapshot["runtime"]["routing_capacity_symbols"] >= 40
+    assert snapshot["runtime"]["unassigned_symbol_count"] == 0
+    assert len(assigned_symbols) == 40
+    assert max(len(child["candidate_symbols"]) for child in snapshot["children"]) <= 6
+
+
 def test_colony_endpoint_returns_control_plane(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("COLONY_TARGET_LIVE_CAPITAL_EUR", "500")

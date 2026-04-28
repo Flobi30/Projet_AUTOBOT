@@ -30,6 +30,19 @@ interface RuntimeTrace {
   };
 }
 
+interface SidebarColony {
+  runtime?: {
+    active_children_count?: number;
+    child_count?: number;
+    routing_symbol_count?: number;
+    unassigned_symbol_count?: number;
+  };
+  execution?: {
+    execution_mode?: string;
+    auto_scale_paper_children?: boolean;
+  };
+}
+
 const formatCurrency = (value?: number) =>
   typeof value === 'number'
     ? value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
@@ -39,17 +52,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const [status, setStatus] = useState<SidebarStatus | null>(null);
   const [capital, setCapital] = useState<SidebarCapital | null>(null);
   const [trace, setTrace] = useState<RuntimeTrace | null>(null);
+  const [colony, setColony] = useState<SidebarColony | null>(null);
 
   const fetchSidebarState = useCallback(async () => {
     try {
-      const [statusRes, capitalRes, traceRes] = await Promise.all([
+      const [statusRes, capitalRes, traceRes, colonyRes] = await Promise.all([
         apiFetch('/api/status'),
         apiFetch('/api/capital'),
         apiFetch('/api/runtime/trace'),
+        apiFetch('/api/colony'),
       ]);
       if (statusRes.ok) setStatus(await statusRes.json());
       if (capitalRes.ok) setCapital(await capitalRes.json());
       if (traceRes.ok) setTrace(await traceRes.json());
+      if (colonyRes.ok) setColony(await colonyRes.json());
     } catch {
       // Keep the last known state; page-level panels show detailed API errors.
     }
@@ -197,6 +213,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               <div>Cash: <strong>{formatCurrency(capital?.available_cash)}</strong></div>
               <div>
                 Strategies: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
+              </div>
+              <div>
+                Enfants paper: <strong>{colony?.runtime?.active_children_count ?? 'Non disponible'}</strong>
+                {typeof colony?.runtime?.child_count === 'number' ? <span> / {colony.runtime.child_count}</span> : null}
+              </div>
+              <div>
+                Routage: <strong>{colony?.runtime?.routing_symbol_count ?? 'Non disponible'}</strong>
+                {typeof colony?.runtime?.unassigned_symbol_count === 'number' && colony.runtime.unassigned_symbol_count > 0 ? (
+                  <span className="text-amber-300"> ({colony.runtime.unassigned_symbol_count} non assignees)</span>
+                ) : null}
               </div>
               {trace?.strategies?.pairs_watched?.length ? (
                 <div>Paires: <strong>{trace.strategies.pairs_watched.join(', ')}</strong></div>

@@ -65,15 +65,17 @@ class ColonyConfig:
     enabled: bool = True
     paper_autopilot_enabled: bool = True
     execution_mode: str = "logical_children"
+    auto_scale_paper_children: bool = True
     target_live_capital_eur: float = 500.0
     live_min_kraken_capital_eur: float = 500.0
     require_human_live_unlock: bool = True
     child_behaviors: tuple[str, ...] = ("core", "momentum", "volatility", "mean_reversion")
-    max_paper_children: int = 4
+    max_paper_children: int = 12
     max_live_children: int = 0
     parent_reserve_pct: float = 35.0
     max_total_active_pct: float = 40.0
     min_child_capital_eur: float = 75.0
+    min_logical_child_capital_eur: float = 25.0
     max_child_symbols: int = 6
     min_validation_trades: int = 50
     min_validation_days: int = 7
@@ -98,15 +100,17 @@ class ColonyConfig:
             enabled=_env_bool("COLONY_MANAGER_ENABLED", True),
             paper_autopilot_enabled=_env_bool("COLONY_PAPER_AUTOPILOT_ENABLED", True),
             execution_mode=os.getenv("COLONY_EXECUTION_MODE", "logical_children").strip() or "logical_children",
+            auto_scale_paper_children=_env_bool("COLONY_AUTO_SCALE_PAPER_CHILDREN", True),
             target_live_capital_eur=target,
             live_min_kraken_capital_eur=_env_float("COLONY_LIVE_MIN_KRAKEN_CAPITAL_EUR", target or 500.0, 0.0, 10_000_000.0),
             require_human_live_unlock=_env_bool("COLONY_REQUIRE_HUMAN_LIVE_UNLOCK", True),
             child_behaviors=behaviors or cls.child_behaviors,
-            max_paper_children=_env_int("COLONY_MAX_PAPER_CHILDREN", 4, 1, 100),
+            max_paper_children=_env_int("COLONY_MAX_PAPER_CHILDREN", 12, 1, 100),
             max_live_children=_env_int("COLONY_MAX_LIVE_CHILDREN", 0, 0, 100),
             parent_reserve_pct=_env_float("COLONY_PARENT_RESERVE_PCT", 35.0, 0.0, 95.0),
             max_total_active_pct=_env_float("COLONY_MAX_TOTAL_ACTIVE_PCT", 40.0, 1.0, 100.0),
             min_child_capital_eur=_env_float("COLONY_MIN_CHILD_CAPITAL_EUR", 75.0, 1.0, 1_000_000.0),
+            min_logical_child_capital_eur=_env_float("COLONY_MIN_LOGICAL_CHILD_CAPITAL_EUR", 25.0, 1.0, 1_000_000.0),
             max_child_symbols=_env_int("COLONY_MAX_CHILD_SYMBOLS", 6, 1, 100),
             min_validation_trades=_env_int("COLONY_MIN_VALIDATION_TRADES", 50, 1, 100_000),
             min_validation_days=_env_int("COLONY_MIN_VALIDATION_DAYS", 7, 1, 3650),
@@ -144,6 +148,8 @@ class ColonyChildPlan:
     candidate_symbols: list[str]
     primary_symbol: str | None
     score: float
+    slot_index: int = 1
+    capacity_symbols: int = 0
     active: bool = False
     execution_mode: str = "logical_children"
     assigned_instances: list[dict[str, Any]] = field(default_factory=list)
@@ -162,6 +168,8 @@ class ColonyChildPlan:
             "candidate_symbols": list(self.candidate_symbols),
             "primary_symbol": self.primary_symbol,
             "score": round(self.score, 2),
+            "slot_index": self.slot_index,
+            "capacity_symbols": self.capacity_symbols,
             "active": self.active,
             "execution_mode": self.execution_mode,
             "assigned_instances": self.assigned_instances,
@@ -216,7 +224,8 @@ class ColonyManager:
         cfg = self.config
         capital = dict(capital or {})
         instances_list = list(instances or [])
-        opps = [dict(opp) for opp in opportunities if isinstance(opp, Mapping)]
+        raw_opps = [dict(opp) for opp in opportunities if isinstance(opp, Mapping)]
+        opps = self._opportunities_with_instances(raw_opps, instances_list)
         runtime_capital = _safe_float(
             capital.get("total_capital", capital.get("total_balance")),
             sum(_safe_float(inst.get("capital")) for inst in instances_list),
@@ -229,19 +238,27 @@ class ColonyManager:
         behaviors = [b for b in cfg.child_behaviors if b in self.BEHAVIORS]
         if not behaviors:
             behaviors = list(self.BEHAVIORS.keys())
-        behaviors = behaviors[: cfg.max_paper_children]
-        max_children_by_capital = int(active_budget // max(cfg.min_child_capital_eur, 1.0))
-        desired_children = max(1, min(len(behaviors), cfg.max_paper_children, max_children_by_capital or 1))
-        behaviors = behaviors[:desired_children]
-        child_budget = active_budget / max(len(behaviors), 1)
-        symbols_per_child = max(1, min(cfg.max_child_symbols, math.ceil(len(opps) / max(len(behaviors), 1))))
+        base_behaviors = behaviors
+        routing_symbol_count = len({_symbol_key(opp.get("symbol") or opp.get("pair")) for opp in opps if (opp.get("symbol") or opp.get("pair"))})
+        min_capital_for_routing = (
+            cfg.min_logical_child_capital_eur
+            if paper_mode and cfg.execution_mode == "logical_children"
+            else cfg.min_child_capital_eur
+        )
+        max_children_by_capital = int(active_budget // max(min_capital_for_routing, 1.0))
+        desired_by_symbols = math.ceil(routing_symbol_count / max(cfg.max_child_symbols, 1)) if cfg.auto_scale_paper_children else len(base_behaviors)
+        desired_children = max(len(base_behaviors), desired_by_symbols, 1)
+        desired_children = min(desired_children, cfg.max_paper_children, max_children_by_capital or 1)
+        behavior_slots = self._behavior_slots(base_behaviors, desired_children)
+        child_budget = active_budget / max(len(behavior_slots), 1)
+        symbols_per_child = max(1, min(cfg.max_child_symbols, math.ceil(routing_symbol_count / max(len(behavior_slots), 1)))) if routing_symbol_count else cfg.max_child_symbols
         instances_by_symbol = self._instances_by_symbol(instances_list)
 
         assigned: set[str] = set()
         children: list[ColonyChildPlan] = []
         promotion_ready_children = 0
         active_children = 0
-        for behavior in behaviors:
+        for behavior, slot_index in behavior_slots:
             profile = self.BEHAVIORS[behavior]
             ranked = self._rank_for_behavior(profile, opps)
             candidates: list[str] = []
@@ -259,11 +276,6 @@ class ColonyManager:
                 if len(candidates) >= symbols_per_child:
                     break
 
-            if not candidates and ranked:
-                symbol = str(ranked[0].get("symbol") or ranked[0].get("pair") or "")
-                candidates = [symbol] if symbol else []
-                score_sum = _safe_float(ranked[0].get("score"))
-
             avg_score = score_sum / max(len(candidates), 1)
             assigned_instances = self._assigned_instances_for_symbols(candidates, instances_by_symbol)
             child_active = (
@@ -277,7 +289,7 @@ class ColonyManager:
                 active_children += 1
             lifecycle = "paper_training" if paper_mode else "live_blocked"
             child = ColonyChildPlan(
-                id=f"grid_{behavior}",
+                id=self._child_id(behavior, slot_index),
                 behavior=behavior,
                 lifecycle=lifecycle,
                 paper_only=paper_mode or not cfg.auto_live_promotion or cfg.max_auto_live_capital_eur <= 0.0,
@@ -286,10 +298,12 @@ class ColonyManager:
                 candidate_symbols=candidates,
                 primary_symbol=candidates[0] if candidates else None,
                 score=avg_score,
+                slot_index=slot_index,
+                capacity_symbols=symbols_per_child,
                 active=child_active,
                 execution_mode=cfg.execution_mode,
                 assigned_instances=[self._summarize_instance(inst) for inst in assigned_instances],
-                promotion=self._promotion_state(behavior, instances_list, paper_mode),
+                promotion=self._promotion_state(behavior, assigned_instances, paper_mode),
                 split=self._split_state(child_budget),
                 safeguards=self._safeguards(profile),
             )
@@ -303,6 +317,12 @@ class ColonyManager:
             promotion_ready_children=promotion_ready_children,
             child_count=len(children),
         )
+        all_routing_symbols = {
+            _symbol_key(opp.get("symbol") or opp.get("pair"))
+            for opp in opps
+            if (opp.get("symbol") or opp.get("pair"))
+        }
+        unassigned_symbols = sorted(symbol for symbol in all_routing_symbols if symbol not in assigned)
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -313,6 +333,7 @@ class ColonyManager:
             "execution": {
                 "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
                 "execution_mode": cfg.execution_mode,
+                "auto_scale_paper_children": cfg.auto_scale_paper_children,
                 "auto_live_promotion": cfg.auto_live_promotion,
                 "max_auto_live_capital_eur": round(cfg.max_auto_live_capital_eur, 2),
                 "live_children_allowed": cfg.max_live_children,
@@ -329,6 +350,7 @@ class ColonyManager:
                 "reserve_eur": round(reserve_eur, 2),
                 "active_budget_eur": round(active_budget, 2),
                 "min_child_capital_eur": round(cfg.min_child_capital_eur, 2),
+                "min_logical_child_capital_eur": round(cfg.min_logical_child_capital_eur, 2),
             },
             "risk_limits": {
                 "parent_reserve_pct": cfg.parent_reserve_pct,
@@ -343,10 +365,64 @@ class ColonyManager:
             "runtime": {
                 "instance_count": len(instances_list),
                 "active_children_count": active_children,
-                "opportunity_count": len(opps),
+                "child_count": len(children),
+                "opportunity_count": len(raw_opps),
+                "routing_symbol_count": routing_symbol_count,
+                "routing_capacity_symbols": len(children) * symbols_per_child,
+                "symbols_per_child": symbols_per_child,
+                "max_paper_children": cfg.max_paper_children,
+                "max_child_symbols": cfg.max_child_symbols,
+                "unassigned_symbol_count": len(unassigned_symbols),
+                "unassigned_symbols": unassigned_symbols,
                 "watchlist_symbols": sorted({_symbol_key(opp.get("symbol") or opp.get("pair")) for opp in opps if (opp.get("symbol") or opp.get("pair"))}),
             },
         }
+
+    def _opportunities_with_instances(
+        self,
+        opportunities: Sequence[Mapping[str, Any]],
+        instances: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        augmented = [dict(opp) for opp in opportunities]
+        seen = {
+            _symbol_key(opp.get("symbol") or opp.get("pair"))
+            for opp in augmented
+            if opp.get("symbol") or opp.get("pair")
+        }
+        for inst in instances:
+            symbol = inst.get("symbol") or inst.get("pair")
+            key = _symbol_key(symbol)
+            if not key or key in seen:
+                continue
+            augmented.append({
+                "symbol": symbol,
+                "score": 0.0,
+                "gross_edge_bps": 0.0,
+                "net_edge_bps": 0.0,
+                "atr_bps": 0.0,
+                "spread_bps": 0.0,
+                "signal_stability": 0.0,
+                "source": "runtime_instance_routing_fallback",
+            })
+            seen.add(key)
+        return augmented
+
+    def _behavior_slots(self, behaviors: Sequence[str], desired_children: int) -> list[tuple[str, int]]:
+        if not behaviors:
+            behaviors = tuple(self.BEHAVIORS.keys())
+        slots: list[tuple[str, int]] = []
+        counts: dict[str, int] = {}
+        for idx in range(max(1, desired_children)):
+            behavior = behaviors[idx % len(behaviors)]
+            counts[behavior] = counts.get(behavior, 0) + 1
+            slots.append((behavior, counts[behavior]))
+        return slots
+
+    @staticmethod
+    def _child_id(behavior: str, slot_index: int) -> str:
+        if slot_index <= 1:
+            return f"grid_{behavior}"
+        return f"grid_{behavior}_{slot_index}"
 
     def _instances_by_symbol(
         self,

@@ -85,6 +85,66 @@ interface RuntimeTrace {
   messages: string[];
 }
 
+interface ColonyInstanceSummary {
+  id?: string;
+  name?: string;
+  symbol?: string;
+  status?: string;
+  capital_eur?: number;
+  profit_pct?: number;
+  open_positions?: number;
+  last_decision?: {
+    reason?: string;
+    gross_edge_bps?: number;
+    net_edge_bps?: number;
+    timestamp?: string;
+  } | null;
+}
+
+interface ColonyChild {
+  id: string;
+  behavior: string;
+  active: boolean;
+  lifecycle: string;
+  score: number;
+  budget_eur: number;
+  max_order_eur: number;
+  candidate_symbols: string[];
+  assigned_instances: ColonyInstanceSummary[];
+  capacity_symbols: number;
+}
+
+interface ColonySnapshot {
+  timestamp: string;
+  mode: 'paper' | 'live';
+  paper_mode: boolean;
+  implementation_stage: string;
+  execution: {
+    execution_mode?: string;
+    auto_scale_paper_children?: boolean;
+    live_activation_blocked?: boolean;
+  };
+  runtime: {
+    instance_count: number;
+    active_children_count: number;
+    child_count: number;
+    routing_symbol_count: number;
+    routing_capacity_symbols: number;
+    symbols_per_child: number;
+    max_paper_children: number;
+    max_child_symbols: number;
+    unassigned_symbol_count: number;
+    unassigned_symbols: string[];
+  };
+  capital_model: {
+    planning_capital_eur?: number;
+    active_budget_eur?: number;
+    reserve_eur?: number;
+    min_logical_child_capital_eur?: number;
+  };
+  children: ColonyChild[];
+}
+
 const statusLabel = {
   healthy: 'Operationnel',
   warning: 'A verifier',
@@ -226,9 +286,62 @@ const TraceRow: React.FC<{ label: string; event?: Record<string, unknown> | null
   );
 };
 
+const ColonyChildCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
+  const activeStyle = child.active
+    ? 'border-emerald-500/30 bg-emerald-500/10'
+    : 'border-gray-700/60 bg-gray-700/20';
+  return (
+    <div className={`rounded-xl border p-4 ${activeStyle}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div className="text-white font-bold">{child.id}</div>
+          <div className="text-gray-400 text-xs uppercase tracking-wide">{child.behavior} / {child.lifecycle}</div>
+        </div>
+        <span className={child.active ? 'text-emerald-300 text-sm font-bold' : 'text-gray-400 text-sm font-bold'}>
+          {child.active ? 'Actif' : 'Inactif'}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+        <div className="bg-gray-900/40 rounded-lg p-2">
+          <div className="text-gray-500">Score</div>
+          <div className="text-white font-bold">{child.score.toFixed(1)}</div>
+        </div>
+        <div className="bg-gray-900/40 rounded-lg p-2">
+          <div className="text-gray-500">Budget</div>
+          <div className="text-white font-bold">{formatCurrency(child.budget_eur)}</div>
+        </div>
+        <div className="bg-gray-900/40 rounded-lg p-2">
+          <div className="text-gray-500">Instances</div>
+          <div className="text-white font-bold">{child.assigned_instances.length}</div>
+        </div>
+        <div className="bg-gray-900/40 rounded-lg p-2">
+          <div className="text-gray-500">Capacite</div>
+          <div className="text-white font-bold">{child.candidate_symbols.length}/{child.capacity_symbols}</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {child.candidate_symbols.map((symbol) => (
+          <span key={symbol} className="px-2 py-1 bg-gray-900/50 text-gray-200 rounded-lg text-xs">
+            {symbol}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {child.assigned_instances.slice(0, 6).map((inst) => (
+          <div key={inst.id} className="flex items-center justify-between gap-3 text-xs bg-gray-900/35 rounded-lg p-2">
+            <span className="text-gray-200">{inst.symbol ?? inst.name ?? inst.id}</span>
+            <span className="text-gray-400">{inst.status ?? 'unknown'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const Diagnostic: React.FC = () => {
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [runtimeTrace, setRuntimeTrace] = useState<RuntimeTrace | null>(null);
+  const [colony, setColony] = useState<ColonySnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,9 +350,10 @@ const Diagnostic: React.FC = () => {
   const fetchDiagnostics = useCallback(async () => {
     try {
       setError(null);
-      const [systemRes, traceRes] = await Promise.all([
+      const [systemRes, traceRes, colonyRes] = await Promise.all([
         apiFetch('/api/system'),
         apiFetch('/api/runtime/trace'),
+        apiFetch('/api/colony'),
       ]);
 
       if (!systemRes.ok) throw new Error(`API system indisponible: ${systemRes.status}`);
@@ -249,6 +363,7 @@ const Diagnostic: React.FC = () => {
       const traceData: RuntimeTrace = await traceRes.json();
       setSystemMetrics(systemData);
       setRuntimeTrace(traceData);
+      setColony(colonyRes.ok ? await colonyRes.json() : null);
 
       const now = new Date();
       const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -425,6 +540,72 @@ const Diagnostic: React.FC = () => {
             `Trades enregistres: ${runtimeTrace?.order_executor.recorded_trades_count ?? 'Non disponible'}`,
           ]}
         />
+      </div>
+
+      <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-6 mb-6 lg:mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+          <div>
+            <h3 className="flex items-center gap-3 text-lg font-bold text-white">
+              <Activity className="w-5 h-5 text-emerald-400" />
+              Colonie paper
+            </h3>
+            <p className="text-gray-400 text-sm mt-1">
+              {colony ? `${colony.runtime.routing_symbol_count} paires routees vers ${colony.runtime.child_count} enfant(s) logique(s)` : 'Non disponible'}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm w-full lg:w-auto">
+            <div className="bg-gray-900/40 rounded-xl p-3">
+              <div className="text-gray-500">Enfants actifs</div>
+              <div className="text-white font-bold">{colony?.runtime.active_children_count ?? 'Non disponible'}</div>
+            </div>
+            <div className="bg-gray-900/40 rounded-xl p-3">
+              <div className="text-gray-500">Instances</div>
+              <div className="text-white font-bold">{colony?.runtime.instance_count ?? 'Non disponible'}</div>
+            </div>
+            <div className="bg-gray-900/40 rounded-xl p-3">
+              <div className="text-gray-500">Capacite</div>
+              <div className="text-white font-bold">
+                {colony ? `${colony.runtime.routing_symbol_count}/${colony.runtime.routing_capacity_symbols}` : 'Non disponible'}
+              </div>
+            </div>
+            <div className="bg-gray-900/40 rounded-xl p-3">
+              <div className="text-gray-500">Non assignees</div>
+              <div className={colony?.runtime.unassigned_symbol_count ? 'text-amber-300 font-bold' : 'text-white font-bold'}>
+                {colony?.runtime.unassigned_symbol_count ?? 'Non disponible'}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
+          {colony?.children?.length ? colony.children.map((child) => (
+            <ColonyChildCard key={child.id} child={child} />
+          )) : (
+            <div className="text-gray-500">Colonie non disponible.</div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Mode execution: </span>
+            <strong className="text-white">{colony?.execution.execution_mode ?? 'Non disponible'}</strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Auto-scale: </span>
+            <strong className="text-white">
+              {typeof colony?.execution.auto_scale_paper_children === 'boolean'
+                ? (colony.execution.auto_scale_paper_children ? 'Actif' : 'Desactive')
+                : 'Non disponible'}
+            </strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Budget actif: </span>
+            <strong className="text-white">{formatCurrency(colony?.capital_model.active_budget_eur)}</strong>
+          </div>
+        </div>
+        {colony?.runtime.unassigned_symbols?.length ? (
+          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-sm">
+            Paires non assignees: {colony.runtime.unassigned_symbols.join(', ')}
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 mb-6 lg:mb-8">
