@@ -790,6 +790,65 @@ async def get_opportunities(
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/colony")
+async def get_colony(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Paper-first Grid colony control plane.
+
+    This endpoint describes how AUTOBOT would allocate logical Grid children,
+    promotion gates and split gates.  It is intentionally read-only: no child is
+    promoted to live and no order is placed from here.
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..colony_manager import ColonyManager
+        from ..opportunity_scoring import OpportunityScorer
+
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = status.get("capital") or {}
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        total_capital = float(capital_snapshot.get("total_capital") or capital_snapshot.get("total_balance") or 0.0)
+        if total_capital <= 0.0:
+            total_capital = sum(float(inst.get("capital", 0.0)) for inst in instances)
+
+        scorer = getattr(orchestrator, "opportunity_scorer", None)
+        if scorer is None:
+            scorer = OpportunityScorer()
+            try:
+                setattr(orchestrator, "opportunity_scorer", scorer)
+            except Exception:
+                pass
+
+        opportunities_snapshot = scorer.build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+        )
+        manager = getattr(orchestrator, "colony_manager", None)
+        if manager is None:
+            manager = ColonyManager()
+            try:
+                setattr(orchestrator, "colony_manager", manager)
+            except Exception:
+                pass
+
+        return manager.build_snapshot(
+            opportunities=opportunities_snapshot.get("opportunities", []),
+            instances=instances,
+            capital=capital_snapshot,
+            paper_mode=paper_mode,
+        )
+    except Exception:
+        logger.exception("Erreur recuperation colony manager")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/opportunities/top")
 async def get_top_opportunities(
     request: Request,

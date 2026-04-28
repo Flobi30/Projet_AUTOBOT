@@ -38,6 +38,12 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
 
 
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    raw = os.getenv(name)
+    value = str(raw if raw not in (None, "") else default).strip().lower()
+    return value if value in allowed else default
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -67,6 +73,9 @@ class OpportunityConfig:
     max_order_eur: float = 25.0
     max_symbol_exposure_pct: float = 20.0
     max_total_exposure_pct: float = 40.0
+    atr_mode: str = "strict"
+    high_net_edge_bps: float = 80.0
+    paper_relaxed_min_atr_bps: float = 5.0
 
     @classmethod
     def from_env(cls) -> "OpportunityConfig":
@@ -87,6 +96,9 @@ class OpportunityConfig:
             max_order_eur=_env_float("OPPORTUNITY_MAX_ORDER_EUR", 25.0, 0.0, 1_000_000.0),
             max_symbol_exposure_pct=_env_float("OPPORTUNITY_MAX_SYMBOL_EXPOSURE_PCT", 20.0, 0.1, 100.0),
             max_total_exposure_pct=_env_float("OPPORTUNITY_MAX_TOTAL_EXPOSURE_PCT", 40.0, 0.1, 100.0),
+            atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "strict", {"strict", "adaptive", "opportunistic"}),
+            high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
+            paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
         )
 
 
@@ -176,6 +188,7 @@ class OpportunityScorer:
         recent_events: Optional[Iterable[Mapping[str, Any]]] = None,
         market_metrics: Optional[Any] = None,
         total_capital: Optional[float] = None,
+        paper_mode: bool = False,
     ) -> OpportunityResult:
         gross_edge = _safe_float(edge_context.get("expected_move_bps"))
         cost_bps = _safe_float(edge_context.get("total_cost_bps"))
@@ -202,6 +215,7 @@ class OpportunityScorer:
             spread_bps=spread_bps,
             stability=stability,
             open_positions=open_positions,
+            paper_mode=paper_mode,
         )
         status = "tradable" if not blockers else "non_tradable"
         reason = "score_ok" if not blockers else blockers[0]
@@ -238,7 +252,7 @@ class OpportunityScorer:
     ) -> dict[str, Any]:
         opportunities: list[OpportunityResult] = []
         for inst in instances:
-            opportunities.append(self.score_instance(inst, total_capital=total_capital))
+            opportunities.append(self.score_instance(inst, total_capital=total_capital, paper_mode=paper_mode))
 
         ranked = sorted(opportunities, key=lambda item: item.score, reverse=True)
         tradable = [item for item in ranked if item.status == "tradable"]
@@ -263,6 +277,9 @@ class OpportunityScorer:
                 "min_atr_bps": self.config.min_atr_bps,
                 "max_spread_bps": self.config.max_spread_bps,
                 "max_active_symbols": self.config.max_active_symbols,
+                "atr_mode": self.config.atr_mode,
+                "high_net_edge_bps": self.config.high_net_edge_bps,
+                "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
             },
             "execution_gate": self.execution_gate(paper_mode=paper_mode),
             "selected_symbols": selected_symbols,
@@ -274,6 +291,7 @@ class OpportunityScorer:
         instance: Mapping[str, Any],
         *,
         total_capital: float = 0.0,
+        paper_mode: bool = False,
     ) -> OpportunityResult:
         symbol = str(instance.get("symbol") or instance.get("pair") or "UNKNOWN")
         warmup = instance.get("warmup") if isinstance(instance.get("warmup"), dict) else {}
@@ -320,6 +338,7 @@ class OpportunityScorer:
             spread_bps=spread_bps,
             stability=stability,
             open_positions=int(_safe_float(instance.get("open_positions"), 0.0)),
+            paper_mode=paper_mode,
         ))
         blockers = list(dict.fromkeys(blockers))
         status = "tradable" if not blockers else "non_tradable"
@@ -396,6 +415,7 @@ class OpportunityScorer:
         spread_bps: float,
         stability: float,
         open_positions: int,
+        paper_mode: bool = False,
     ) -> list[str]:
         cfg = self.config
         blockers: list[str] = []
@@ -403,7 +423,12 @@ class OpportunityScorer:
             blockers.append("gross_edge_below_target")
         if net_edge_bps < cfg.min_net_edge_bps:
             blockers.append("net_edge_below_target")
-        if atr_bps < cfg.min_atr_bps:
+        if atr_bps < cfg.min_atr_bps and not self._paper_atr_override_allowed(
+            paper_mode=paper_mode,
+            gross_edge_bps=gross_edge_bps,
+            net_edge_bps=net_edge_bps,
+            atr_bps=atr_bps,
+        ):
             blockers.append("atr_below_minimum")
         if atr_bps > cfg.max_atr_bps:
             blockers.append("atr_above_maximum")
@@ -416,6 +441,27 @@ class OpportunityScorer:
         if open_positions < 0:
             blockers.append("invalid_position_count")
         return blockers
+
+    def _paper_atr_override_allowed(
+        self,
+        *,
+        paper_mode: bool,
+        gross_edge_bps: float,
+        net_edge_bps: float,
+        atr_bps: float,
+    ) -> bool:
+        cfg = self.config
+        if not paper_mode:
+            return False
+        if cfg.atr_mode not in {"adaptive", "opportunistic"}:
+            return False
+        if net_edge_bps < cfg.high_net_edge_bps:
+            return False
+        if gross_edge_bps < cfg.min_gross_edge_bps:
+            return False
+        if atr_bps < cfg.paper_relaxed_min_atr_bps:
+            return False
+        return True
 
     def _allocation(
         self,

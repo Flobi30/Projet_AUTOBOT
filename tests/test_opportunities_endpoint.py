@@ -112,6 +112,46 @@ def test_opportunity_scorer_marks_high_edge_signal_tradable():
     assert result.recommended_order_eur > 0.0
 
 
+def test_paper_adaptive_atr_allows_high_net_edge_only_in_paper():
+    scorer = OpportunityScorer(
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=18.0,
+            paper_relaxed_min_atr_bps=5.0,
+            high_net_edge_bps=80.0,
+            atr_mode="adaptive",
+            min_stability=0.40,
+        )
+    )
+    edge_context = {
+        "expected_move_bps": 140.0,
+        "total_cost_bps": 46.0,
+        "net_edge_bps": 94.0,
+        "adaptive_min_edge_bps": 48.5,
+        "spread_bps": 1.0,
+    }
+
+    paper_result = scorer.score_signal(
+        symbol="ETHEUR",
+        edge_context=edge_context,
+        atr_pct=0.0008,
+        available_capital=500.0,
+        paper_mode=True,
+    )
+    live_result = scorer.score_signal(
+        symbol="ETHEUR",
+        edge_context=edge_context,
+        atr_pct=0.0008,
+        available_capital=500.0,
+        paper_mode=False,
+    )
+
+    assert "atr_below_minimum" not in paper_result.blockers
+    assert "atr_below_minimum" in live_result.blockers
+
+
 def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     dashboard.app.state.orchestrator = _Orchestrator()
