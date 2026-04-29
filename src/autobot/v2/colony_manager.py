@@ -253,28 +253,23 @@ class ColonyManager:
         child_budget = active_budget / max(len(behavior_slots), 1)
         symbols_per_child = max(1, min(cfg.max_child_symbols, math.ceil(routing_symbol_count / max(len(behavior_slots), 1)))) if routing_symbol_count else cfg.max_child_symbols
         instances_by_symbol = self._instances_by_symbol(instances_list)
+        symbol_routes = self._route_symbols_to_best_slots(opps, behavior_slots, symbols_per_child)
+        symbols_by_slot = symbol_routes["symbols_by_slot"]
+        routing_decisions = symbol_routes["decisions"]
+        assigned = set(symbol_routes["assigned_keys"])
 
-        assigned: set[str] = set()
         children: list[ColonyChildPlan] = []
         promotion_ready_children = 0
         active_children = 0
         for behavior, slot_index in behavior_slots:
             profile = self.BEHAVIORS[behavior]
-            ranked = self._rank_for_behavior(profile, opps)
-            candidates: list[str] = []
-            score_sum = 0.0
-            for opp in ranked:
-                symbol = str(opp.get("symbol") or opp.get("pair") or "")
-                if not symbol:
-                    continue
-                key = _symbol_key(symbol)
-                if key in assigned:
-                    continue
-                candidates.append(symbol)
-                assigned.add(key)
-                score_sum += _safe_float(opp.get("score"))
-                if len(candidates) >= symbols_per_child:
-                    break
+            slot_id = self._child_id(behavior, slot_index)
+            candidates: list[str] = list(symbols_by_slot.get(slot_id, []))
+            score_sum = sum(
+                _safe_float(decision.get("owner_score"))
+                for decision in routing_decisions
+                if decision.get("owner_engine_id") == slot_id
+            )
 
             avg_score = score_sum / max(len(candidates), 1)
             assigned_instances = self._assigned_instances_for_symbols(candidates, instances_by_symbol)
@@ -333,6 +328,7 @@ class ColonyManager:
             "execution": {
                 "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
                 "execution_mode": cfg.execution_mode,
+                "pair_owner_policy": "best_potential_single_owner",
                 "auto_scale_paper_children": cfg.auto_scale_paper_children,
                 "auto_live_promotion": cfg.auto_live_promotion,
                 "max_auto_live_capital_eur": round(cfg.max_auto_live_capital_eur, 2),
@@ -362,6 +358,12 @@ class ColonyManager:
                 "min_split_parent_capital_eur": cfg.min_split_parent_capital_eur,
             },
             "children": [child.to_dict() for child in children],
+            "routing": {
+                "policy": "best_potential_single_owner",
+                "description": "Each pair is scored against every logical engine; the highest-potential engine owns execution.",
+                "decision_count": len(routing_decisions),
+                "decisions": routing_decisions,
+            },
             "runtime": {
                 "instance_count": len(instances_list),
                 "active_children_count": active_children,
@@ -406,6 +408,98 @@ class ColonyManager:
             })
             seen.add(key)
         return augmented
+
+    def _route_symbols_to_best_slots(
+        self,
+        opportunities: Sequence[Mapping[str, Any]],
+        behavior_slots: Sequence[tuple[str, int]],
+        symbols_per_child: int,
+    ) -> dict[str, Any]:
+        """Assign each pair to the logical engine with the strongest behavior score."""
+        slots = [
+            {
+                "id": self._child_id(behavior, slot_index),
+                "behavior": behavior,
+                "slot_index": slot_index,
+                "symbols": [],
+            }
+            for behavior, slot_index in behavior_slots
+            if behavior in self.BEHAVIORS
+        ]
+        unique_behaviors = list(dict.fromkeys(slot["behavior"] for slot in slots))
+        unique_opps: dict[str, Mapping[str, Any]] = {}
+        for opp in opportunities:
+            symbol = str(opp.get("symbol") or opp.get("pair") or "")
+            key = _symbol_key(symbol)
+            if not key:
+                continue
+            if key not in unique_opps or _safe_float(opp.get("score")) > _safe_float(unique_opps[key].get("score")):
+                unique_opps[key] = opp
+
+        ranked_pairs: list[tuple[float, str, str, Mapping[str, Any], dict[str, float]]] = []
+        for key, opp in unique_opps.items():
+            symbol = str(opp.get("symbol") or opp.get("pair") or key)
+            behavior_scores = {
+                behavior: self._behavior_score(self.BEHAVIORS[behavior], opp)
+                for behavior in unique_behaviors
+            }
+            best_score = max(behavior_scores.values(), default=0.0)
+            ranked_pairs.append((best_score, key, symbol, opp, behavior_scores))
+
+        ranked_pairs.sort(key=lambda item: (item[0], _safe_float(item[3].get("score"))), reverse=True)
+        symbols_by_slot: dict[str, list[str]] = {slot["id"]: [] for slot in slots}
+        decisions: list[dict[str, Any]] = []
+        assigned_keys: set[str] = set()
+
+        for _, key, symbol, _opp, behavior_scores in ranked_pairs:
+            candidates = sorted(
+                slots,
+                key=lambda slot: (
+                    -behavior_scores.get(str(slot["behavior"]), 0.0),
+                    len(symbols_by_slot[str(slot["id"])]),
+                    str(slot["id"]),
+                ),
+            )
+            selected = next(
+                (
+                    slot for slot in candidates
+                    if len(symbols_by_slot[str(slot["id"])]) < max(1, symbols_per_child)
+                ),
+                None,
+            )
+            ranked_behaviors = sorted(behavior_scores.items(), key=lambda item: item[1], reverse=True)
+            if selected is None:
+                decisions.append({
+                    "symbol": symbol,
+                    "status": "unassigned",
+                    "owner_engine_id": None,
+                    "owner_behavior": None,
+                    "owner_score": 0.0,
+                    "behavior_scores": {behavior: round(score, 2) for behavior, score in ranked_behaviors},
+                    "reason": "no_engine_capacity",
+                })
+                continue
+
+            slot_id = str(selected["id"])
+            owner_behavior = str(selected["behavior"])
+            owner_score = behavior_scores.get(owner_behavior, 0.0)
+            symbols_by_slot[slot_id].append(symbol)
+            assigned_keys.add(key)
+            decisions.append({
+                "symbol": symbol,
+                "status": "owned",
+                "owner_engine_id": slot_id,
+                "owner_behavior": owner_behavior,
+                "owner_score": round(owner_score, 2),
+                "behavior_scores": {behavior: round(score, 2) for behavior, score in ranked_behaviors},
+                "reason": "highest_potential_engine",
+            })
+
+        return {
+            "symbols_by_slot": symbols_by_slot,
+            "decisions": decisions,
+            "assigned_keys": assigned_keys,
+        }
 
     def _behavior_slots(self, behaviors: Sequence[str], desired_children: int) -> list[tuple[str, int]]:
         if not behaviors:

@@ -196,6 +196,36 @@ def test_colony_manager_auto_scales_logical_children_for_larger_watchlists():
     assert max(len(child["candidate_symbols"]) for child in snapshot["children"]) <= 6
 
 
+def test_colony_routes_each_pair_to_highest_potential_engine():
+    manager = ColonyManager(
+        ColonyConfig(
+            target_live_capital_eur=500.0,
+            max_paper_children=4,
+            min_child_capital_eur=75.0,
+            min_logical_child_capital_eur=25.0,
+            max_child_symbols=2,
+            auto_live_promotion=False,
+            max_auto_live_capital_eur=0.0,
+        )
+    )
+
+    snapshot = manager.build_snapshot(
+        opportunities=[
+            {"symbol": "VOLPAIR", "score": 60.0, "gross_edge_bps": 50.0, "net_edge_bps": 30.0, "atr_bps": 160.0, "spread_bps": 1.0},
+            {"symbol": "MOMPAIR", "score": 60.0, "gross_edge_bps": 200.0, "net_edge_bps": 160.0, "atr_bps": 20.0, "spread_bps": 1.0},
+        ],
+        instances=[],
+        capital={"total_capital": 800.0},
+        paper_mode=True,
+    )
+
+    decisions = {item["symbol"]: item for item in snapshot["routing"]["decisions"]}
+    assert decisions["VOLPAIR"]["owner_behavior"] == "volatility"
+    assert decisions["MOMPAIR"]["owner_behavior"] == "momentum"
+    assert decisions["VOLPAIR"]["behavior_scores"]["volatility"] > decisions["VOLPAIR"]["behavior_scores"]["momentum"]
+    assert decisions["MOMPAIR"]["behavior_scores"]["momentum"] > decisions["MOMPAIR"]["behavior_scores"]["volatility"]
+
+
 def test_colony_endpoint_returns_control_plane(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("COLONY_TARGET_LIVE_CAPITAL_EUR", "500")

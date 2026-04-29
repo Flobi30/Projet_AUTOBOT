@@ -128,6 +128,16 @@ interface ColonyChild {
   capacity_symbols: number;
 }
 
+interface ColonyRoutingDecision {
+  symbol: string;
+  status: string;
+  owner_engine_id?: string | null;
+  owner_behavior?: string | null;
+  owner_score?: number;
+  behavior_scores?: Record<string, number>;
+  reason?: string;
+}
+
 interface ColonySnapshot {
   timestamp: string;
   mode: 'paper' | 'live';
@@ -135,6 +145,7 @@ interface ColonySnapshot {
   implementation_stage: string;
   execution: {
     execution_mode?: string;
+    pair_owner_policy?: string;
     auto_scale_paper_children?: boolean;
     live_activation_blocked?: boolean;
   };
@@ -158,6 +169,12 @@ interface ColonySnapshot {
     min_logical_child_capital_eur?: number;
   };
   children: ColonyChild[];
+  routing?: {
+    policy?: string;
+    description?: string;
+    decision_count?: number;
+    decisions?: ColonyRoutingDecision[];
+  };
 }
 
 const statusLabel = {
@@ -633,6 +650,14 @@ const Diagnostic: React.FC = () => {
             <strong className="text-white">{formatExecutionMode(colony?.execution.execution_mode)}</strong>
           </div>
           <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Proprietaire paire: </span>
+            <strong className="text-white">
+              {colony?.execution.pair_owner_policy === 'best_potential_single_owner'
+                ? 'Meilleur potentiel'
+                : (colony?.execution.pair_owner_policy ?? 'Non disponible')}
+            </strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
             <span className="text-gray-400">Auto-scale: </span>
             <strong className="text-white">
               {typeof colony?.execution.auto_scale_paper_children === 'boolean'
@@ -657,6 +682,42 @@ const Diagnostic: React.FC = () => {
             <strong className="text-white">{formatCurrency(colony?.capital_model.min_logical_child_capital_eur)}</strong>
           </div>
         </div>
+        {colony?.routing?.decisions?.length ? (
+          <div className="mt-4 bg-gray-900/30 border border-gray-700/60 rounded-xl p-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+              <div>
+                <h4 className="text-white font-bold">Routage par potentiel</h4>
+                <p className="text-gray-500 text-xs">
+                  Chaque paire est scoree contre chaque moteur; un seul moteur devient proprietaire d execution.
+                </p>
+              </div>
+              <span className="text-gray-400 text-xs">{colony.routing.decision_count ?? colony.routing.decisions.length} decision(s)</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              {colony.routing.decisions.slice(0, 12).map((decision) => {
+                const scores = Object.entries(decision.behavior_scores || {})
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([behavior, score]) => `${behavior}: ${score.toFixed(1)}`)
+                  .join(' / ');
+                return (
+                  <div key={decision.symbol} className="bg-gray-800/70 rounded-lg p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-white font-bold">{decision.symbol}</span>
+                      <span className={decision.status === 'owned' ? 'text-emerald-300 font-semibold' : 'text-amber-300 font-semibold'}>
+                        {decision.owner_engine_id ?? 'Non assignee'}
+                      </span>
+                    </div>
+                    <div className="text-gray-400 text-xs mt-1">
+                      Score retenu: {typeof decision.owner_score === 'number' ? decision.owner_score.toFixed(1) : 'Non disponible'}
+                    </div>
+                    <div className="text-gray-500 text-xs mt-1">{scores || 'Scores non disponibles'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         {colony?.runtime.unassigned_symbols?.length ? (
           <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-sm">
             Paires non assignees: {colony.runtime.unassigned_symbols.join(', ')}
