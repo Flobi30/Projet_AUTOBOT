@@ -309,6 +309,7 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
   const activeStyle = child.active
     ? 'border-emerald-500/30 bg-emerald-500/10'
     : 'border-gray-700/60 bg-gray-700/20';
+  const assignedCapital = child.assigned_instances.reduce((total, inst) => total + (inst.capital_eur ?? 0), 0);
   return (
     <div className={`rounded-xl border p-4 ${activeStyle}`}>
       <div className="flex items-start justify-between gap-3 mb-3">
@@ -326,8 +327,12 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
           <div className="text-white font-bold">{child.score.toFixed(1)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Budget moteur</div>
+          <div className="text-gray-500">Enveloppe cible</div>
           <div className="text-white font-bold">{formatCurrency(child.budget_eur)}</div>
+        </div>
+        <div className="bg-gray-900/40 rounded-lg p-2">
+          <div className="text-gray-500">Capital instances</div>
+          <div className="text-white font-bold">{formatCurrency(assignedCapital)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
           <div className="text-gray-500">Paires suivies</div>
@@ -346,7 +351,7 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
         ))}
       </div>
       <div className="text-gray-500 text-xs mb-3">
-        Enveloppe de planification du moteur, pas un budget par paire.
+        Enveloppe cible = plan calcule sur le capital de reference. Capital instances = budget paper deja porte par les paires de ce moteur.
       </div>
       <div className="space-y-2">
         {child.assigned_instances.slice(0, 6).map((inst) => (
