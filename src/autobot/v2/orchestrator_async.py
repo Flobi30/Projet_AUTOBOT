@@ -1023,9 +1023,21 @@ class OrchestratorAsync:
         return False
 
     async def _get_available_capital(self) -> float:
-        """Get unallocated cash from the live/paper balance source."""
+        """Get capital available to AUTOBOT, not the full paper wallet."""
         snapshot = await self.get_capital_snapshot()
         return float(snapshot.get("available_cash", 0.0))
+
+    def _paper_reference_capital(self, fallback: float) -> float:
+        """Capital scenario used to keep paper training comparable to planned live size."""
+        for name in ("COLONY_TARGET_LIVE_CAPITAL_EUR", "LIVE_CAPITAL_TARGET_EUR", "INITIAL_CAPITAL"):
+            raw = os.getenv(name)
+            try:
+                value = float(raw) if raw not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0.0:
+                return value
+        return max(0.0, fallback)
 
     async def get_capital_snapshot(self) -> Dict[str, Any]:
         """Return the backend source of truth for dashboard capital values."""
@@ -1052,7 +1064,18 @@ class OrchestratorAsync:
             if self.paper_mode and hasattr(self.order_executor, "get_trade_balance"):
                 trade_balance = await self.order_executor.get_trade_balance("EUR")
                 total_balance = float(trade_balance.get("equivalent_balance", cash_balance))
-            reserve_cash = max(0.0, total_balance - allocated_capital)
+            paper_historical_balance = total_balance if self.paper_mode else None
+            paper_unallocated_reserve = max(0.0, total_balance - allocated_capital) if self.paper_mode else None
+            autobot_trading_capital = allocated_capital
+            autobot_available_capital = max(0.0, autobot_trading_capital - open_position_notional)
+            paper_reference_capital = self._paper_reference_capital(autobot_trading_capital) if self.paper_mode else None
+            display_total_capital = autobot_trading_capital if self.paper_mode else total_balance
+            display_available_cash = autobot_available_capital if self.paper_mode else cash_balance
+            reserve_cash = (
+                float(paper_unallocated_reserve or 0.0)
+                if self.paper_mode
+                else max(0.0, total_balance - allocated_capital)
+            )
             snapshot = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "paper_mode": self.paper_mode,
@@ -1060,14 +1083,19 @@ class OrchestratorAsync:
                 "source_status": "ok",
                 "currency": "EUR",
                 "total_balance": total_balance,
-                "total_capital": total_balance,
+                "total_capital": display_total_capital,
                 "allocated_capital": allocated_capital,
                 "reserve_cash": reserve_cash,
-                "available_cash": reserve_cash,
+                "available_cash": display_available_cash,
                 "cash_balance": cash_balance,
                 "open_position_notional": open_position_notional,
                 "total_profit": total_profit,
                 "total_invested": allocated_capital,
+                "autobot_trading_capital": autobot_trading_capital,
+                "autobot_available_capital": autobot_available_capital,
+                "paper_reference_capital": paper_reference_capital,
+                "paper_historical_balance": paper_historical_balance,
+                "paper_unallocated_reserve": paper_unallocated_reserve,
                 "balances": balances,
             }
         except Exception as exc:
@@ -1087,6 +1115,11 @@ class OrchestratorAsync:
                 "open_position_notional": open_position_notional,
                 "total_profit": total_profit,
                 "total_invested": allocated_capital,
+                "autobot_trading_capital": allocated_capital,
+                "autobot_available_capital": max(0.0, allocated_capital - open_position_notional),
+                "paper_reference_capital": self._paper_reference_capital(allocated_capital) if self.paper_mode else None,
+                "paper_historical_balance": None,
+                "paper_unallocated_reserve": None,
                 "error": str(exc),
             }
         self._last_capital_snapshot = snapshot

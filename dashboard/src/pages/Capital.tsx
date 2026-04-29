@@ -7,7 +7,10 @@ interface AccountView {
   active?: boolean;
   connected?: boolean;
   total_balance?: number | null;
+  trading_capital?: number | null;
   available_cash?: number | null;
+  reference_capital?: number | null;
+  unallocated_reserve?: number | null;
   eur_available?: number | null;
   balances?: Record<string, number>;
   last_sync?: string | null;
@@ -24,6 +27,11 @@ interface CapitalData {
   available_cash: number;
   cash_balance?: number;
   open_position_notional?: number;
+  autobot_trading_capital?: number | null;
+  autobot_available_capital?: number | null;
+  paper_reference_capital?: number | null;
+  paper_historical_balance?: number | null;
+  paper_unallocated_reserve?: number | null;
   source?: string;
   source_status?: string;
   paper_mode?: boolean;
@@ -75,7 +83,7 @@ const Capital: React.FC = () => {
       if (!capitalRes.ok) throw new Error(`API Capital indisponible: ${capitalRes.status}`);
       const data: CapitalData = await capitalRes.json();
       setCapitalData(data);
-      setCapitalTotal(data.total_capital);
+      setCapitalTotal(data.autobot_trading_capital ?? data.allocated_capital ?? data.total_capital);
 
       if (tradesRes.ok) {
         const tradesData = await tradesRes.json();
@@ -125,9 +133,32 @@ const Capital: React.FC = () => {
   const balances = capitalData?.kraken_account?.balances || capitalData?.balances || {};
   const cryptoBalances = Object.entries(balances).filter(([asset, value]) => !['EUR', 'ZEUR'].includes(asset) && value !== 0);
 
-  const paperCapital = capitalData?.paper_account?.total_balance ?? (isPaperMode ? capitalData?.total_capital : null);
-  const paperCash = capitalData?.paper_account?.available_cash ?? (isPaperMode ? capitalData?.available_cash : null);
-  const paperAllocated = isPaperMode ? (capitalData?.allocated_capital ?? capitalData?.total_invested) : null;
+  const paperTradingCapital = (
+    capitalData?.paper_account?.trading_capital
+    ?? capitalData?.autobot_trading_capital
+    ?? (isPaperMode ? capitalData?.total_capital : null)
+  );
+  const paperAvailable = (
+    capitalData?.paper_account?.available_cash
+    ?? capitalData?.autobot_available_capital
+    ?? (isPaperMode ? capitalData?.available_cash : null)
+  );
+  const paperReferenceCapital = (
+    capitalData?.paper_account?.reference_capital
+    ?? capitalData?.paper_reference_capital
+    ?? null
+  );
+  const paperHistoricalCapital = (
+    capitalData?.paper_account?.total_balance
+    ?? capitalData?.paper_historical_balance
+    ?? (isPaperMode ? capitalData?.total_balance : null)
+  );
+  const paperReserve = (
+    capitalData?.paper_account?.unallocated_reserve
+    ?? capitalData?.paper_unallocated_reserve
+    ?? (isPaperMode ? capitalData?.reserve_cash : null)
+  );
+  const paperAllocated = isPaperMode ? (capitalData?.allocated_capital ?? capitalData?.total_invested ?? paperTradingCapital) : null;
   const paperEngaged = isPaperMode ? capitalData?.open_position_notional : null;
   const paperPnl = isPaperMode ? capitalData?.total_profit : null;
 
@@ -207,9 +238,14 @@ const Capital: React.FC = () => {
           [
             { label: 'Statut', value: isPaperMode ? 'Actif' : 'Inactif' },
             {
-              label: 'Portefeuille paper total',
-              value: formatCurrency(paperCapital),
-              hint: 'Valeur totale du portefeuille virtuel persistant.',
+              label: 'Capital paper AUTOBOT',
+              value: formatCurrency(paperTradingCapital),
+              hint: 'Budget actif vraiment utilise pour entrainer les strategies.',
+            },
+            {
+              label: 'Capital de reference',
+              value: formatCurrency(paperReferenceCapital),
+              hint: 'Scenario de test aligne sur le futur capital live vise.',
             },
             {
               label: 'PnL paper realise',
@@ -220,9 +256,9 @@ const Capital: React.FC = () => {
               ),
             },
             {
-              label: 'Reserve paper non allouee',
-              value: formatCurrency(paperCash),
-              hint: 'Part paper non affectee aux strategies. Ce n est pas du capital reel Kraken.',
+              label: 'Disponible pour strategies',
+              value: formatCurrency(paperAvailable),
+              hint: 'Capital paper AUTOBOT non engage dans des positions ouvertes.',
             },
             {
               label: 'Budget paper alloue aux strategies',
@@ -230,6 +266,16 @@ const Capital: React.FC = () => {
               hint: 'Budget actif des instances paper actuellement gerees par AUTOBOT.',
             },
             { label: 'Positions/ordres engages', value: formatCurrency(paperEngaged) },
+            {
+              label: 'Reserve paper non utilisee',
+              value: formatCurrency(paperReserve),
+              hint: 'Solde virtuel historique conserve hors strategie.',
+            },
+            {
+              label: 'Portefeuille paper historique',
+              value: formatCurrency(paperHistoricalCapital),
+              hint: 'Trace du simulateur paper, pas le capital que le bot engage.',
+            },
             { label: 'Strategies / paires', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
           ]
         )}

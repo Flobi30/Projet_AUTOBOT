@@ -43,6 +43,8 @@ interface BotStatus {
 }
 interface CapitalData {
   total_capital: number; available_cash: number; source: string; source_status?: string; paper_mode: boolean;
+  autobot_trading_capital?: number | null; autobot_available_capital?: number | null;
+  paper_historical_balance?: number | null; paper_unallocated_reserve?: number | null;
 }
 const formatUptime = (seconds: number | null): string => {
   if (!seconds) return '—';
@@ -123,10 +125,12 @@ const Performance: React.FC = () => {
       </div>
     );
     const pos = globalPerf.profit_total >= 0;
+    const activePaperCapital = capitalData?.autobot_trading_capital ?? globalPerf.capital_total;
+    const activePaperAvailable = capitalData?.autobot_available_capital ?? capitalData?.available_cash;
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <MetricCard title={capitalData?.paper_mode ? 'Capital paper virtuel' : 'Capital Kraken/AUTOBOT'} value={fmtEur(globalPerf.capital_total)} icon={<Wallet className="w-5 h-5"/>}/>
+          <MetricCard title={capitalData?.paper_mode ? 'Budget paper actif' : 'Capital Kraken/AUTOBOT'} value={fmtEur(capitalData?.paper_mode ? activePaperCapital : globalPerf.capital_total)} icon={<Wallet className="w-5 h-5"/>}/>
           <MetricCard title="Profit Total" value={`${pos?'+':''}${fmtEur(globalPerf.profit_total)}`} change={`${pos?'+':''}${fmt(globalPerf.profit_percent)}%`} isPositive={pos} icon={<TrendingUp className="w-5 h-5"/>}/>
           <MetricCard title="Profit Factor" value={fmt(globalPerf.profit_factor)} icon={<Target className="w-5 h-5"/>}/>
           <MetricCard title="Win Rate" value={`${fmt(globalPerf.win_rate,1)}%`} icon={<BarChart3 className="w-5 h-5"/>}/>

@@ -85,6 +85,22 @@ class _Orchestrator:
         ]
 
 
+class _LargePaperWalletOrchestrator(_Orchestrator):
+    def get_status(self):
+        status = super().get_status()
+        status["capital"] = {
+            "paper_mode": True,
+            "source": "paper",
+            "source_status": "ok",
+            "total_capital": 15_000.0,
+            "total_balance": 15_000.0,
+            "allocated_capital": 800.0,
+            "autobot_trading_capital": 800.0,
+            "paper_unallocated_reserve": 14_200.0,
+        }
+        return status
+
+
 def test_opportunity_scorer_marks_high_edge_signal_tradable():
     scorer = OpportunityScorer(
         OpportunityConfig(
@@ -177,6 +193,19 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     assert "regime_context" in body["opportunities"][0]
     assert not any(str(blocker).startswith("regime_") for blocker in body["opportunities"][0]["blockers"])
     assert "BTCEUR" in {item["symbol"] for item in body["opportunities"]}
+
+
+def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    dashboard.app.state.orchestrator = _LargePaperWalletOrchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/opportunities", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capital"]["total_capital"] == 800.0
+    assert body["opportunities"][0]["allocation_eur"] <= 160.0
 
 
 def test_regime_endpoint_returns_runtime_pairs(monkeypatch):

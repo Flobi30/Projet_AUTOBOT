@@ -71,6 +71,24 @@ def _round_balances(balances: Any) -> Dict[str, float]:
     return result
 
 
+def _autobot_capital_from_snapshot(capital_snapshot: Dict[str, Any], instances: List[Dict[str, Any]]) -> float:
+    """Capital AUTOBOT should mean strategy budget, not the whole paper wallet."""
+    if capital_snapshot.get("paper_mode"):
+        for key in ("autobot_trading_capital", "allocated_capital", "total_capital"):
+            try:
+                value = float(capital_snapshot.get(key, 0.0))
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0.0:
+                return value
+    if capital_snapshot.get("source_status") == "ok":
+        try:
+            return float(capital_snapshot.get("total_capital", 0.0))
+        except (TypeError, ValueError):
+            pass
+    return sum(float(inst.get("capital", 0.0)) for inst in instances if isinstance(inst, dict))
+
+
 def _infer_symbol_from_instance(inst: Dict[str, Any]) -> str:
     symbol = str(inst.get("symbol") or inst.get("pair") or "").strip()
     if symbol:
@@ -702,7 +720,7 @@ async def get_global_status(
         instances = status.get('instances', [])
         capital_snapshot = status.get('capital') or {}
         if capital_snapshot.get("source_status") == "ok":
-            total_capital = float(capital_snapshot.get("total_capital", 0.0))
+            total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
             total_profit = float(capital_snapshot.get("total_profit", 0.0))
         else:
             total_capital = sum(float(inst.get('capital', 0.0)) for inst in instances)
@@ -842,7 +860,7 @@ async def get_opportunities(
         capital_snapshot = status.get("capital") or {}
         paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
         if capital_snapshot.get("source_status") == "ok":
-            total_capital = float(capital_snapshot.get("total_capital", 0.0))
+            total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
         else:
             total_capital = sum(float(inst.get("capital", 0.0)) for inst in instances)
 
@@ -926,7 +944,7 @@ async def get_colony(
         instances = orchestrator.get_instances_snapshot()
         capital_snapshot = status.get("capital") or {}
         paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
-        total_capital = float(capital_snapshot.get("total_capital") or capital_snapshot.get("total_balance") or 0.0)
+        total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
         if total_capital <= 0.0:
             total_capital = sum(float(inst.get("capital", 0.0)) for inst in instances)
 
@@ -1571,6 +1589,17 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         timestamp = snapshot.get("timestamp", datetime.now(timezone.utc).isoformat())
         total_balance = round(float(snapshot.get("total_balance", 0.0)), 2)
         cash_balance = round(float(snapshot.get("cash_balance", 0.0)), 2)
+        autobot_trading_capital = round(
+            float(snapshot.get("autobot_trading_capital", snapshot.get("allocated_capital", 0.0))),
+            2,
+        )
+        autobot_available_capital = round(
+            float(snapshot.get("autobot_available_capital", snapshot.get("available_cash", 0.0))),
+            2,
+        )
+        paper_reference_capital = snapshot.get("paper_reference_capital")
+        paper_historical_balance = snapshot.get("paper_historical_balance")
+        paper_unallocated_reserve = snapshot.get("paper_unallocated_reserve")
 
         return {
             "timestamp": timestamp,
@@ -1583,6 +1612,11 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
             "available_cash": round(float(snapshot.get("available_cash", 0.0)), 2),
             "cash_balance": cash_balance,
             "open_position_notional": round(float(snapshot.get("open_position_notional", 0.0)), 2),
+            "autobot_trading_capital": autobot_trading_capital,
+            "autobot_available_capital": autobot_available_capital,
+            "paper_reference_capital": round(float(paper_reference_capital), 2) if paper_reference_capital is not None else None,
+            "paper_historical_balance": round(float(paper_historical_balance), 2) if paper_historical_balance is not None else None,
+            "paper_unallocated_reserve": round(float(paper_unallocated_reserve), 2) if paper_unallocated_reserve is not None else None,
             "currency": snapshot.get("currency", "EUR"),
             "paper_mode": paper_mode,
             "source": snapshot.get("source", "unknown"),
@@ -1590,10 +1624,13 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
             "balances": balances,
             "paper_account": {
                 "active": paper_mode,
-                "total_balance": total_balance if paper_mode else None,
-                "available_cash": round(float(snapshot.get("available_cash", 0.0)), 2) if paper_mode else None,
+                "total_balance": round(float(paper_historical_balance), 2) if paper_mode and paper_historical_balance is not None else (total_balance if paper_mode else None),
+                "trading_capital": autobot_trading_capital if paper_mode else None,
+                "available_cash": autobot_available_capital if paper_mode else None,
+                "reference_capital": round(float(paper_reference_capital), 2) if paper_mode and paper_reference_capital is not None else None,
+                "unallocated_reserve": round(float(paper_unallocated_reserve), 2) if paper_mode and paper_unallocated_reserve is not None else None,
                 "balances": balances if paper_mode else {},
-                "message": "Capital virtuel persistant du paper trading." if paper_mode else "Paper trading inactif.",
+                "message": "Budget paper AUTOBOT actif, avec portefeuille paper historique conserve en trace." if paper_mode else "Paper trading inactif.",
             },
             "kraken_account": {
                 "connected": (not paper_mode) and snapshot.get("source") == "kraken" and snapshot.get("source_status") == "ok",

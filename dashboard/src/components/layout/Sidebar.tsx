@@ -17,6 +17,9 @@ interface SidebarStatus {
 interface SidebarCapital {
   total_capital: number;
   available_cash: number;
+  autobot_trading_capital?: number | null;
+  autobot_available_capital?: number | null;
+  paper_unallocated_reserve?: number | null;
   paper_mode: boolean;
   source: string;
   source_status: string;
@@ -107,6 +110,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
   const modeLabel = capital ? (capital.paper_mode ? 'PAPER' : 'LIVE') : 'INCONNU';
   const botRunning = status?.running === true;
+  const displayedCapital = capital?.autobot_trading_capital ?? capital?.total_capital;
+  const displayedAvailable = capital?.autobot_available_capital ?? capital?.available_cash;
   const overall = trace?.overall_status ?? (botRunning ? 'healthy' : 'warning');
   const accent =
     overall === 'critical'
@@ -216,8 +221,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             </div>
             <div className="mt-2 space-y-1 text-xs">
               <div>Mode: <strong>{modeLabel}</strong></div>
-              <div>Capital: <strong>{formatCurrency(capital?.total_capital)}</strong></div>
-              <div>Cash: <strong>{formatCurrency(capital?.available_cash)}</strong></div>
+              <div>Capital AUTOBOT: <strong>{formatCurrency(displayedCapital)}</strong></div>
+              <div>Disponible: <strong>{formatCurrency(displayedAvailable)}</strong></div>
+              {capital?.paper_mode ? (
+                <div>Reserve paper: <strong>{formatCurrency(capital?.paper_unallocated_reserve)}</strong></div>
+              ) : null}
               <div>
                 Strategies: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
               </div>
@@ -231,7 +239,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                 ) : null}
               </div>
               <div>
-                Enfants paper: <strong>{colony?.runtime?.active_children_count ?? 'Non disponible'}</strong>
+                Moteurs paper: <strong>{colony?.runtime?.active_children_count ?? 'Non disponible'}</strong>
                 {typeof colony?.runtime?.child_count === 'number' ? <span> / {colony.runtime.child_count}</span> : null}
               </div>
               <div>

@@ -71,6 +71,7 @@ interface RuntimeTrace {
     source_status?: string;
     total_capital?: number;
     available_cash?: number;
+    paper_unallocated_reserve?: number | null;
   };
   safety?: {
     kill_switch?: {
@@ -737,13 +738,19 @@ const Diagnostic: React.FC = () => {
               <span className="text-white font-bold">{runtimeTrace?.capital?.source ?? 'Non disponible'} / {runtimeTrace?.capital?.source_status ?? 'Non disponible'}</span>
             </div>
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
-              <span className="text-gray-400">Capital total</span>
+              <span className="text-gray-400">Capital AUTOBOT</span>
               <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.total_capital)}</span>
             </div>
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
-              <span className="text-gray-400">Cash disponible</span>
+              <span className="text-gray-400">Disponible strategies</span>
               <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.available_cash)}</span>
             </div>
+            {runtimeTrace?.paper_mode ? (
+              <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
+                <span className="text-gray-400">Reserve paper hors strategie</span>
+                <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.paper_unallocated_reserve ?? undefined)}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
               <span className="text-gray-400">Warm-up / blocages</span>
               <span className="text-white font-bold">{runtimeTrace?.strategies.warmup_or_blocked.length ?? 'Non disponible'}</span>
