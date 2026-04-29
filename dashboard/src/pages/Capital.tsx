@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wallet, DollarSign, CreditCard, TrendingUp, TrendingDown, Loader, ExternalLink, ShieldAlert } from 'lucide-react';
-import MetricCard from '../components/ui/MetricCard';
+import { Wallet, TrendingUp, TrendingDown, Loader, ExternalLink, ShieldAlert } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { apiFetch } from '../api/client';
 
@@ -126,6 +125,49 @@ const Capital: React.FC = () => {
   const balances = capitalData?.kraken_account?.balances || capitalData?.balances || {};
   const cryptoBalances = Object.entries(balances).filter(([asset, value]) => !['EUR', 'ZEUR'].includes(asset) && value !== 0);
 
+  const paperCapital = capitalData?.paper_account?.total_balance ?? (isPaperMode ? capitalData?.total_capital : null);
+  const paperCash = capitalData?.paper_account?.available_cash ?? (isPaperMode ? capitalData?.available_cash : null);
+  const paperAllocated = isPaperMode ? (capitalData?.allocated_capital ?? capitalData?.total_invested) : null;
+  const paperEngaged = isPaperMode ? capitalData?.open_position_notional : null;
+  const paperPnl = isPaperMode ? capitalData?.total_profit : null;
+
+  const realTotal = capitalData?.kraken_account?.total_balance ?? (!isPaperMode ? capitalData?.total_capital : null);
+  const realCash = (
+    capitalData?.kraken_account?.eur_available
+    ?? capitalData?.kraken_account?.available_cash
+    ?? (!isPaperMode ? capitalData?.available_cash : null)
+  );
+  const realUsedByAutobot = isPaperMode ? 0 : (capitalData?.allocated_capital ?? capitalData?.total_invested ?? null);
+  const realPnl = isPaperMode ? null : capitalData?.total_profit;
+
+  const renderCapitalTable = (
+    title: string,
+    subtitle: string,
+    rows: Array<{ label: string; value: React.ReactNode; hint?: string }>
+  ) => (
+    <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">
+      <div className="mb-4">
+        <h3 className="text-xl font-bold text-emerald-400">{title}</h3>
+        <p className="text-gray-400 text-sm mt-1">{subtitle}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-gray-700/70">
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td className="py-3 pr-4 text-gray-400 align-top">{row.label}</td>
+                <td className="py-3 text-right align-top">
+                  <div className="text-white font-semibold">{row.value}</div>
+                  {row.hint && <div className="text-gray-500 text-xs mt-1">{row.hint}</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
       <div className="mb-6 lg:mb-8 mt-16 lg:mt-0">
@@ -158,112 +200,65 @@ const Capital: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 lg:gap-6 mb-6 lg:mb-8">
-        <MetricCard
-          title={isPaperMode ? 'Capital paper virtuel' : 'Solde Kraken total'}
-          value={formatCurrency(capitalData?.total_capital)}
-          icon={<DollarSign className="w-5 h-5" />}
-        />
-        <MetricCard
-          title="PnL realise"
-          value={formatCurrency(capitalData?.total_profit)}
-          icon={<TrendingUp className="w-5 h-5" />}
-          isPositive={(capitalData?.total_profit ?? 0) >= 0}
-          change={capitalData && capitalData.total_capital > 0
-            ? `${((capitalData.total_profit / capitalData.total_capital) * 100).toFixed(2)}%`
-            : undefined}
-        />
-        <MetricCard
-          title="Capital alloue AUTOBOT"
-          value={formatCurrency(capitalData?.allocated_capital ?? capitalData?.total_invested)}
-          icon={<CreditCard className="w-5 h-5" />}
-        />
-        <MetricCard
-          title="Cash disponible backend"
-          value={formatCurrency(capitalData?.available_cash)}
-          icon={<Wallet className="w-5 h-5" />}
-        />
-        <MetricCard
-          title="Positions/ordres engages"
-          value={formatCurrency(capitalData?.open_position_notional)}
-          icon={<TrendingDown className="w-5 h-5" />}
-        />
-      </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 mb-6 lg:mb-8">
-        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl">
-          <h3 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6">Compte Kraken reel</h3>
-          <div className="space-y-4 text-sm">
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Connexion compte</span>
-              <span className={capitalData?.kraken_account?.connected ? 'text-emerald-400 font-bold' : 'text-amber-300 font-bold'}>
-                {capitalData?.kraken_account?.connected ? 'Connecte' : 'Non connecte / non utilise'}
-              </span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Solde total Kraken</span>
-              <span className="text-white font-bold">{formatCurrency(capitalData?.kraken_account?.total_balance)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">EUR disponible Kraken</span>
-              <span className="text-white font-bold">{formatCurrency(capitalData?.kraken_account?.eur_available)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Derniere synchro Kraken</span>
-              <span className="text-white font-bold">{formatDate(capitalData?.kraken_account?.last_sync)}</span>
-            </div>
-            <p className="text-gray-400 border-t border-gray-700/50 pt-4">
-              {capitalData?.kraken_account?.message || 'Non disponible.'}
-            </p>
-            <div className="pt-2">
-              <p className="text-gray-400 mb-2">Soldes crypto disponibles</p>
-              {cryptoBalances.length === 0 ? (
-                <p className="text-gray-500">Non disponible ou aucun solde crypto expose par le backend.</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {cryptoBalances.map(([asset, value]) => (
-                    <div key={asset} className="bg-gray-700/40 rounded-lg p-3">
-                      <div className="text-gray-400 text-xs">{asset}</div>
-                      <div className="text-white font-bold">{value}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        {renderCapitalTable(
+          'Paper',
+          'Portefeuille virtuel utilise pour entrainer AUTOBOT.',
+          [
+            { label: 'Statut', value: isPaperMode ? 'Actif' : 'Inactif' },
+            { label: 'Capital paper', value: formatCurrency(paperCapital) },
+            {
+              label: 'PnL paper realise',
+              value: (
+                <span className={(paperPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                  {formatCurrency(paperPnl)}
+                </span>
+              ),
+            },
+            { label: 'Cash paper disponible', value: formatCurrency(paperCash) },
+            { label: 'Capital alloue aux strategies', value: formatCurrency(paperAllocated) },
+            { label: 'Positions/ordres engages', value: formatCurrency(paperEngaged) },
+            { label: 'Strategies / paires', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
+          ]
+        )}
 
-        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl">
-          <h3 className="text-xl lg:text-2xl font-bold text-emerald-400 mb-6">Capital paper AUTOBOT</h3>
-          <div className="space-y-4 text-sm">
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Paper actif</span>
-              <span className={isPaperMode ? 'text-amber-300 font-bold' : 'text-gray-400 font-bold'}>
-                {isPaperMode ? 'Oui' : 'Non'}
-              </span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Capital paper</span>
-              <span className="text-white font-bold">{formatCurrency(capitalData?.paper_account?.total_balance)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Cash paper disponible</span>
-              <span className="text-white font-bold">{formatCurrency(capitalData?.paper_account?.available_cash)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Strategies paper</span>
-              <span className="text-white font-bold">{paperSummary?.paper_instances ?? 'Non disponible'}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-gray-400">Paires surveillees</span>
-              <span className="text-white font-bold">{paperSummary?.pairs_tested ?? 'Non disponible'}</span>
-            </div>
-            <p className="text-gray-400 border-t border-gray-700/50 pt-4">
-              {capitalData?.paper_account?.message || 'Non disponible.'}
-            </p>
+        {renderCapitalTable(
+          'Reel',
+          'Compte Kraken et capital live. En paper, AUTOBOT ne l utilise pas.',
+          [
+            {
+              label: 'Connexion Kraken',
+              value: capitalData?.kraken_account?.connected ? 'Connecte' : 'Non connecte / non utilise',
+            },
+            { label: 'Solde reel Kraken', value: formatCurrency(realTotal) },
+            { label: 'Cash reel EUR disponible', value: formatCurrency(realCash) },
+            {
+              label: 'Capital reel utilise par AUTOBOT',
+              value: formatCurrency(realUsedByAutobot),
+              hint: isPaperMode ? '0 euro engage tant que le mode paper est actif.' : undefined,
+            },
+            {
+              label: 'PnL reel realise',
+              value: isPaperMode ? 'Non utilise en paper' : formatCurrency(realPnl),
+            },
+            { label: 'Derniere synchro Kraken', value: formatDate(capitalData?.kraken_account?.last_sync) },
+          ]
+        )}
+      </div>
+
+      {cryptoBalances.length > 0 && (
+        <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl mb-6 lg:mb-8">
+          <h3 className="text-xl font-bold text-emerald-400 mb-4">Soldes crypto reels Kraken</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {cryptoBalances.map(([asset, value]) => (
+              <div key={asset} className="bg-gray-700/40 rounded-lg p-3">
+                <div className="text-gray-400 text-xs">{asset}</div>
+                <div className="text-white font-bold">{value}</div>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8">
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-8 shadow-2xl">
