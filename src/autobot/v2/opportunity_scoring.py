@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
+from .regime_features import RegimeFeatureEngine, RegimeFeatureResult
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -108,6 +110,7 @@ class OpportunityResult:
     score: float
     status: str
     reason: str
+    base_score: float = 0.0
     gross_edge_bps: float = 0.0
     cost_bps: float = 0.0
     net_edge_bps: float = 0.0
@@ -120,6 +123,9 @@ class OpportunityResult:
     recommended_order_eur: float = 0.0
     components: dict[str, float] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
+    regime_score: float = 50.0
+    regime_adjustment: float = 0.0
+    regime_context: dict[str, Any] = field(default_factory=dict)
     source: str = "runtime"
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -129,6 +135,7 @@ class OpportunityResult:
             "score": round(self.score, 2),
             "status": self.status,
             "reason": self.reason,
+            "base_score": round(self.base_score, 2),
             "gross_edge_bps": round(self.gross_edge_bps, 3),
             "cost_bps": round(self.cost_bps, 3),
             "net_edge_bps": round(self.net_edge_bps, 3),
@@ -141,6 +148,9 @@ class OpportunityResult:
             "recommended_order_eur": round(self.recommended_order_eur, 2),
             "components": {k: round(v, 3) for k, v in self.components.items()},
             "blockers": list(self.blockers),
+            "regime_score": round(self.regime_score, 2),
+            "regime_adjustment": round(self.regime_adjustment, 3),
+            "regime_context": dict(self.regime_context),
             "source": self.source,
             "timestamp": self.timestamp,
         }
@@ -149,8 +159,13 @@ class OpportunityResult:
 class OpportunityScorer:
     """Score trade opportunities from edge, cost, volatility and runtime data."""
 
-    def __init__(self, config: Optional[OpportunityConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[OpportunityConfig] = None,
+        regime_engine: Optional[RegimeFeatureEngine] = None,
+    ) -> None:
         self.config = config or OpportunityConfig.from_env()
+        self.regime_engine = regime_engine or RegimeFeatureEngine()
 
     def execution_gate(self, *, paper_mode: bool) -> dict[str, Any]:
         live_ack = _env_bool("LIVE_TRADING_CONFIRMATION", False)
@@ -189,6 +204,7 @@ class OpportunityScorer:
         market_metrics: Optional[Any] = None,
         total_capital: Optional[float] = None,
         paper_mode: bool = False,
+        price_history: Optional[Iterable[Any]] = None,
     ) -> OpportunityResult:
         gross_edge = _safe_float(edge_context.get("expected_move_bps"))
         cost_bps = _safe_float(edge_context.get("total_cost_bps"))
@@ -198,7 +214,7 @@ class OpportunityScorer:
         atr_bps = max(0.0, _safe_float(atr_pct) * 10000.0)
         liquidity = self._liquidity_score(market_metrics)
         stability = self._signal_stability(symbol, recent_events)
-        score, components = self._score(
+        base_score, components = self._score(
             gross_edge_bps=gross_edge,
             cost_bps=cost_bps,
             net_edge_bps=net_edge,
@@ -207,6 +223,8 @@ class OpportunityScorer:
             liquidity_score=liquidity,
             stability=stability,
         )
+        regime = self._regime_for(symbol, price_history)
+        score = self._score_with_regime(base_score, regime.adjustment)
         blockers = self._blockers(
             score=score,
             gross_edge_bps=gross_edge,
@@ -229,6 +247,7 @@ class OpportunityScorer:
             score=score,
             status=status,
             reason=reason,
+            base_score=base_score,
             gross_edge_bps=gross_edge,
             cost_bps=cost_bps,
             net_edge_bps=net_edge,
@@ -241,6 +260,9 @@ class OpportunityScorer:
             recommended_order_eur=allocation["order_eur"],
             components=components,
             blockers=blockers,
+            regime_score=regime.regime_score,
+            regime_adjustment=regime.adjustment,
+            regime_context=self._regime_context(regime),
         )
 
     def build_snapshot(
@@ -280,6 +302,8 @@ class OpportunityScorer:
                 "atr_mode": self.config.atr_mode,
                 "high_net_edge_bps": self.config.high_net_edge_bps,
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
+                "regime_scoring_enabled": self.regime_engine.config.enabled,
+                "regime_score_weight": self.regime_engine.config.score_weight,
             },
             "execution_gate": self.execution_gate(paper_mode=paper_mode),
             "selected_symbols": selected_symbols,
@@ -316,7 +340,7 @@ class OpportunityScorer:
             if atr_bps <= 0.0:
                 atr_bps = max(0.0, _safe_float(getattr(market_metrics, "volatility_24h", 0.0)) * 100.0)
 
-        score, components = self._score(
+        base_score, components = self._score(
             gross_edge_bps=gross_edge,
             cost_bps=cost_bps,
             net_edge_bps=net_edge,
@@ -325,6 +349,11 @@ class OpportunityScorer:
             liquidity_score=liquidity,
             stability=stability,
         )
+        regime = self._regime_for(
+            symbol,
+            instance.get("price_history_tail") or instance.get("price_history") or [],
+        )
+        score = self._score_with_regime(base_score, regime.adjustment)
         blockers = list(instance.get("blocked_reasons") or [])
         if warmup.get("active"):
             blockers.append("warmup")
@@ -353,6 +382,7 @@ class OpportunityScorer:
             score=score,
             status=status,
             reason=reason,
+            base_score=base_score,
             gross_edge_bps=gross_edge,
             cost_bps=cost_bps,
             net_edge_bps=net_edge,
@@ -365,8 +395,34 @@ class OpportunityScorer:
             recommended_order_eur=allocation["order_eur"],
             components=components,
             blockers=blockers,
+            regime_score=regime.regime_score,
+            regime_adjustment=regime.adjustment,
+            regime_context=self._regime_context(regime),
             source="runtime_instance_snapshot",
         )
+
+    def _regime_for(self, symbol: str, price_history: Optional[Iterable[Any]]) -> RegimeFeatureResult:
+        try:
+            return self.regime_engine.analyze_symbol(symbol, price_history)
+        except Exception:
+            return self.regime_engine.neutral_result(symbol, 0, "regime_unavailable")
+
+    @staticmethod
+    def _score_with_regime(base_score: float, adjustment: float) -> float:
+        return max(0.0, min(100.0, base_score + adjustment))
+
+    @staticmethod
+    def _regime_context(regime: RegimeFeatureResult) -> dict[str, Any]:
+        return {
+            "regime": regime.regime,
+            "confidence": round(regime.confidence, 4),
+            "entropy_norm": round(regime.entropy_norm, 4),
+            "markov_state": regime.markov_state,
+            "persistence_probability": round(regime.persistence_probability, 4),
+            "sample_count": regime.sample_count,
+            "reason": regime.reason,
+            "enabled": regime.enabled,
+        }
 
     def _score(
         self,

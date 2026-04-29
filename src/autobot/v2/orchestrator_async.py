@@ -2806,6 +2806,7 @@ class OrchestratorAsync:
                     "last_order": s.get("last_order"),
                     "last_error": s.get("last_error"),
                     "runtime_events": s.get("runtime_events", []),
+                    "price_history_tail": s.get("price_history_tail", []),
                 })
             except Exception:
                 pass

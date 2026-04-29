@@ -8,6 +8,10 @@ from autobot.v2.opportunity_scoring import OpportunityConfig, OpportunityScorer
 pytestmark = pytest.mark.integration
 
 
+def _range_price_history(start: float = 100.0):
+    return [{"timestamp": f"2026-04-28T00:{i:02d}:00+00:00", "price": start + (i % 6) * 0.02} for i in range(60)]
+
+
 class _Orchestrator:
     paper_mode = True
 
@@ -63,6 +67,7 @@ class _Orchestrator:
                     {"event": "signal_received", "symbol": "ETHEUR", "side": "buy"},
                     {"event": "buy_accepted", "symbol": "ETHEUR", "side": "buy"},
                 ],
+                "price_history_tail": _range_price_history(1955.0),
             },
             {
                 "id": "inst-btc",
@@ -75,6 +80,7 @@ class _Orchestrator:
                 "last_signal": None,
                 "last_decision": None,
                 "runtime_events": [],
+                "price_history_tail": _range_price_history(66500.0),
             },
         ]
 
@@ -109,6 +115,8 @@ def test_opportunity_scorer_marks_high_edge_signal_tradable():
 
     assert result.status == "tradable"
     assert result.score >= 60.0
+    assert result.base_score == result.score
+    assert result.regime_context["regime"] == "unknown"
     assert result.recommended_order_eur > 0.0
 
 
@@ -165,4 +173,22 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     assert body["execution_gate"]["selection_applies_to_execution"] is True
     assert body["opportunities"][0]["symbol"] == "ETHEUR"
     assert body["opportunities"][0]["status"] == "tradable"
+    assert "base_score" in body["opportunities"][0]
+    assert "regime_context" in body["opportunities"][0]
+    assert not any(str(blocker).startswith("regime_") for blocker in body["opportunities"][0]["blockers"])
     assert "BTCEUR" in {item["symbol"] for item in body["opportunities"]}
+
+
+def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/regime", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper"
+    assert body["config"]["enabled"] is True
+    assert {item["symbol"] for item in body["symbols"]} == {"ETHEUR", "BTCEUR"}
+    assert all("entropy_norm" in item for item in body["symbols"])

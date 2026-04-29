@@ -13,6 +13,10 @@ from autobot.v2.kill_switch import KillSwitch
 pytestmark = pytest.mark.integration
 
 
+def _range_price_history(start: float = 100.0):
+    return [{"timestamp": f"2026-04-28T00:{i:02d}:00+00:00", "price": start + (i % 6) * 0.02} for i in range(60)]
+
+
 class _Executor:
     def __init__(self, db_path: Path):
         self.db_path = str(db_path)
@@ -66,6 +70,7 @@ class _Orchestrator:
                 "last_order": None,
                 "warmup": {"active": False},
                 "blocked_reasons": [],
+                "price_history_tail": _range_price_history(1955.0),
                 "runtime_events": [
                     {
                         "timestamp": "2026-04-28T01:00:01+00:00",
@@ -126,6 +131,8 @@ def test_trading_debug_explains_cost_guard_rejection(monkeypatch, tmp_path):
     assert body["pipeline"]["signal"]["generated"] is True
     assert body["pipeline"]["execution"]["reached"] is False
     assert body["pipeline"]["paper_trade"]["filled_trade_count"] == 0
+    assert body["regime"]["symbols"][0]["symbol"] == "ETHEUR"
+    assert body["instances"][0]["regime"]["symbol"] == "ETHEUR"
     assert body["cost_edge_model"]["recent_decisions"][0]["atr_bps"] == pytest.approx(10.0)
 
 

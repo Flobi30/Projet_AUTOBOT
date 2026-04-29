@@ -230,6 +230,7 @@ class SignalHandlerAsync:
             market_metrics=self._get_market_metrics(signal.symbol),
             total_capital=self._estimate_total_runtime_capital(),
             paper_mode=self._is_paper_mode(),
+            price_history=list(getattr(self.instance, "_price_history", [])),
         )
 
     def _opportunity_gate_applies(self) -> dict[str, Any]:

@@ -169,6 +169,19 @@ def _global_kill_switch_snapshot(orchestrator: Any) -> Dict[str, Any]:
         }
 
 
+def _get_regime_feature_engine(orchestrator: Any) -> Any:
+    from ..regime_features import RegimeFeatureEngine
+
+    engine = getattr(orchestrator, "regime_feature_engine", None)
+    if engine is None:
+        engine = RegimeFeatureEngine()
+        try:
+            setattr(orchestrator, "regime_feature_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _acknowledge_runtime_kill_switches(orchestrator: Any, operator_id: str) -> int:
     acknowledged = 0
     instances = getattr(orchestrator, "_instances", {}) or {}
@@ -269,9 +282,13 @@ def _cost_edge_event_summary(event: Dict[str, Any]) -> Dict[str, Any]:
         "edge_shortfall_bps": event.get("edge_shortfall_bps", edge.get("edge_shortfall_bps")),
         "blocking_condition": event.get("blocking_condition"),
         "opportunity_score": opportunity.get("score"),
+        "opportunity_base_score": opportunity.get("base_score"),
         "opportunity_status": opportunity.get("status"),
         "opportunity_reason": opportunity.get("reason"),
         "opportunity_blockers": opportunity.get("blockers"),
+        "regime_score": opportunity.get("regime_score"),
+        "regime_adjustment": opportunity.get("regime_adjustment"),
+        "regime_context": opportunity.get("regime_context"),
         "profile": (event.get("risk_params") or {}).get("cost_edge_profile"),
         "paper_test": event.get("signal_reason") == "paper_test_controlled_debug",
     }
@@ -831,7 +848,7 @@ async def get_opportunities(
 
         scorer = getattr(orchestrator, "opportunity_scorer", None)
         if scorer is None:
-            scorer = OpportunityScorer()
+            scorer = OpportunityScorer(regime_engine=_get_regime_feature_engine(orchestrator))
             try:
                 setattr(orchestrator, "opportunity_scorer", scorer)
             except Exception:
@@ -855,6 +872,34 @@ async def get_opportunities(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation opportunity scoring")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/regime")
+async def get_regime(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Market regime scoring from runtime price history."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = status.get("capital") or {}
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        engine = _get_regime_feature_engine(orchestrator)
+        snapshot = engine.build_snapshot(instances=instances, paper_mode=paper_mode)
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation regime scoring")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
@@ -887,7 +932,7 @@ async def get_colony(
 
         scorer = getattr(orchestrator, "opportunity_scorer", None)
         if scorer is None:
-            scorer = OpportunityScorer()
+            scorer = OpportunityScorer(regime_engine=_get_regime_feature_engine(orchestrator))
             try:
                 setattr(orchestrator, "opportunity_scorer", scorer)
             except Exception:
@@ -2386,6 +2431,17 @@ async def get_trading_debug(
         status = orchestrator.get_status()
         instances_data = orchestrator.get_instances_snapshot()
         paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        regime_snapshot = _get_regime_feature_engine(orchestrator).build_snapshot(
+            instances=instances_data,
+            paper_mode=paper_mode,
+        )
+        regime_by_symbol: Dict[str, Dict[str, Any]] = {}
+        for row in regime_snapshot.get("symbols", []):
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "")
+            regime_by_symbol[symbol] = row
+            regime_by_symbol[_paper_symbol_key(symbol)] = row
         kill_switch = _global_kill_switch_snapshot(orchestrator)
         executor = getattr(orchestrator, "order_executor", None)
         paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
@@ -2415,6 +2471,9 @@ async def get_trading_debug(
                 "status": inst_debug["status"],
                 "reason": inst_debug["reason"],
                 "blocking_condition": inst_debug["blocking_condition"],
+                "regime": regime_by_symbol.get(
+                    str(inst.get("symbol") or _infer_symbol_from_instance(inst))
+                ) or regime_by_symbol.get(_paper_symbol_key(inst.get("symbol") or _infer_symbol_from_instance(inst))),
                 "warmup": inst.get("warmup", {}),
                 "blocked_reasons": inst.get("blocked_reasons", []),
                 "last_price": inst.get("last_price"),
@@ -2436,6 +2495,7 @@ async def get_trading_debug(
                 "blocking_condition": debug["blocking_condition"],
             },
             **debug,
+            "regime": regime_snapshot,
             "instances": per_instance,
             "paper_test_mode": {
                 "enabled": os.getenv("PAPER_TEST_TRADING_ENABLED", "false").lower() in {"1", "true", "yes", "on"},

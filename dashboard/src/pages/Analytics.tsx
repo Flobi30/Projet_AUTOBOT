@@ -1,9 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import MetricCard from '../components/ui/MetricCard';
-import { PieChart, Target, TrendingUp, Shield, BarChart3 } from 'lucide-react';
+import { PieChart, Target, TrendingUp, Shield, BarChart3, Activity } from 'lucide-react';
 import { calculateRendementPercent } from './analyticsMetrics';
 import { apiFetch } from '../api/client';
+
+type RegimeContext = {
+  regime?: string;
+  confidence?: number;
+  entropy_norm?: number;
+  markov_state?: string;
+  persistence_probability?: number;
+  sample_count?: number;
+  reason?: string;
+};
+
+type RegimeRow = RegimeContext & {
+  symbol: string;
+  regime_score?: number;
+  adjustment?: number;
+};
+
+interface RegimeResponse {
+  mode?: string;
+  config?: { enabled?: boolean; score_weight?: number };
+  symbols: RegimeRow[];
+}
 
 
 
@@ -35,6 +57,10 @@ interface OpportunitiesResponse {
     net_edge_bps?: number;
     atr_bps?: number;
     spread_bps?: number;
+    base_score?: number;
+    regime_score?: number;
+    regime_adjustment?: number;
+    regime_context?: RegimeContext;
     blockers?: string[];
     explain?: Record<string, unknown>;
   }>;
@@ -75,6 +101,10 @@ interface OpportunitiesResponse {
     net_edge_bps?: number;
     atr_bps?: number;
     spread_bps?: number;
+    base_score?: number;
+    regime_score?: number;
+    regime_adjustment?: number;
+    regime_context?: RegimeContext;
     blockers?: string[];
     explain?: Record<string, unknown>;
   }>;
@@ -101,6 +131,7 @@ const Analytics: React.FC = () => {
   const [scalingStatus, setScalingStatus] = useState<ScalingStatusResponse | null>(null);
   const [universeStatus, setUniverseStatus] = useState<UniverseStatusResponse | null>(null);
   const [opportunities, setOpportunities] = useState<OpportunitiesResponse | null>(null);
+  const [regime, setRegime] = useState<RegimeResponse | null>(null);
   const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocationResponse | null>(null);
 
   useEffect(() => {
@@ -129,15 +160,17 @@ const Analytics: React.FC = () => {
         }
 
 
-        const [scalingRes, universeRes, opportunitiesRes, allocationRes] = await Promise.all([
+        const [scalingRes, universeRes, opportunitiesRes, regimeRes, allocationRes] = await Promise.all([
           apiFetch(`/api/scaling/status`),
           apiFetch(`/api/universe/status`),
           apiFetch(`/api/opportunities`),
+          apiFetch(`/api/regime`),
           apiFetch(`/api/portfolio/allocation`),
         ]);
         if (scalingRes.ok) setScalingStatus(await scalingRes.json());
         if (universeRes.ok) setUniverseStatus(await universeRes.json());
         if (opportunitiesRes.ok) setOpportunities(await opportunitiesRes.json());
+        if (regimeRes.ok) setRegime(await regimeRes.json());
         if (allocationRes.ok) setPortfolioAllocation(await allocationRes.json());
 
         setIsLoading(false);
@@ -264,6 +297,10 @@ const Analytics: React.FC = () => {
                   <span className="text-gray-300">Gross <span className="text-white">{(op.gross_edge_bps ?? 0).toFixed(1)} bps</span></span>
                   <span className="text-gray-300">Net <span className="text-white">{(op.net_edge_bps ?? 0).toFixed(1)} bps</span></span>
                   <span className="text-gray-300">ATR <span className="text-white">{(op.atr_bps ?? 0).toFixed(1)} bps</span></span>
+                  <span className="text-gray-300">Base <span className="text-white">{(op.base_score ?? op.score).toFixed(1)}</span></span>
+                  <span className="text-gray-300">Regime <span className="text-white">{op.regime_context?.regime || 'unknown'}</span></span>
+                  <span className="text-gray-300">Impact <span className={(op.regime_adjustment ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{(op.regime_adjustment ?? 0).toFixed(1)}</span></span>
+                  <span className="text-gray-300">Entropy <span className="text-white">{((op.regime_context?.entropy_norm ?? 0) * 100).toFixed(0)}%</span></span>
                 </div>
               </div>
             ))}
@@ -271,6 +308,40 @@ const Analytics: React.FC = () => {
           </div>
         ) : (
           <div className="text-gray-500 text-sm">Opportunites indisponibles</div>
+        )}
+      </div>
+
+      <div className="bg-gray-800 rounded-2xl p-6 mb-8">
+        <h3 className="text-xl font-bold text-emerald-400 mb-4 flex items-center space-x-2">
+          <Activity className="w-5 h-5" />
+          <span>Regimes marche</span>
+        </h3>
+        {regime ? (
+          <div className="space-y-2 text-sm">
+            <div className="flex flex-wrap justify-between gap-2 border-b border-gray-700 pb-3 text-xs text-gray-400">
+              <span>Mode: {regime.mode || 'paper'}</span>
+              <span>Capteur contexte Markov/Entropy, pas une prediction certaine</span>
+            </div>
+            {regime.symbols.slice(0, 8).map((row, idx) => (
+              <div key={`${row.symbol}-${idx}`} className="border-b border-gray-700 pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white font-semibold">{row.symbol}</span>
+                  <span className="text-emerald-400 font-semibold">{row.regime || 'unknown'}</span>
+                </div>
+                <div className="mt-1 text-xs text-gray-400">{row.reason || 'En attente de donnees'}</div>
+                <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                  <span className="text-gray-300">Score <span className="text-white">{(row.regime_score ?? 50).toFixed(1)}</span></span>
+                  <span className="text-gray-300">Impact <span className={(row.adjustment ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{(row.adjustment ?? 0).toFixed(1)}</span></span>
+                  <span className="text-gray-300">Entropy <span className="text-white">{((row.entropy_norm ?? 0) * 100).toFixed(0)}%</span></span>
+                  <span className="text-gray-300">Confiance <span className="text-white">{((row.confidence ?? 0) * 100).toFixed(0)}%</span></span>
+                  <span className="text-gray-300">Persist. <span className="text-white">{((row.persistence_probability ?? 0) * 100).toFixed(0)}%</span></span>
+                </div>
+              </div>
+            ))}
+            {regime.symbols.length === 0 && <div className="text-gray-500">Aucun historique de prix disponible.</div>}
+          </div>
+        ) : (
+          <div className="text-gray-500 text-sm">Regimes indisponibles</div>
         )}
       </div>
 

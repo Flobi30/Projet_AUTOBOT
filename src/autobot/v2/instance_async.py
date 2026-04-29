@@ -894,6 +894,24 @@ class TradingInstanceAsync:
                 "price": self._last_price,
                 "source": "websocket_instance_memory",
             }
+        price_history_tail = []
+        for item in list(self._price_history)[-128:]:
+            timestamp = None
+            price = None
+            if isinstance(item, (tuple, list)) and len(item) >= 2:
+                timestamp, price = item[0], item[-1]
+            elif isinstance(item, dict):
+                timestamp, price = item.get("timestamp"), item.get("price")
+            else:
+                price = item
+            try:
+                price_value = float(price)
+            except (TypeError, ValueError):
+                continue
+            price_history_tail.append({
+                "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
+                "price": price_value,
+            })
         return {
             "id": self.id,
             "name": self.config.name,
@@ -917,6 +935,7 @@ class TradingInstanceAsync:
             "last_order": getattr(self, "_last_order_event", None),
             "last_error": getattr(self, "_last_error_event", None),
             "runtime_events": list(getattr(self, "_runtime_events", []))[-50:],
+            "price_history_tail": price_history_tail,
             "warmup": warmup,
             "blocked_reasons": blocked_reasons,
             "strategy_status": strategy_status,
