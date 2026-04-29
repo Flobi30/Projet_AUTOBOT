@@ -114,6 +114,9 @@ def test_colony_manager_builds_paper_children_without_live_promotion():
     assert "promote_live_children" in snapshot["autopilot"]["blocked_actions"]
     assert "paper_mode_active" in snapshot["autopilot"]["live_readiness"]["blocked_reasons"]
     assert snapshot["capital_model"]["target_live_capital_eur"] == 500.0
+    assert snapshot["capital_model"]["capital_basis"] == "active_paper_capital"
+    assert snapshot["capital_model"]["active_budget_eur"] == 1000.0
+    assert snapshot["capital_model"]["reserve_eur"] == 0.0
     assert snapshot["children"]
     assert all(child["paper_only"] for child in snapshot["children"])
     assert all(child["behavior"] != "explorer" for child in snapshot["children"])

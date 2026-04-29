@@ -89,6 +89,22 @@ def _autobot_capital_from_snapshot(capital_snapshot: Dict[str, Any], instances: 
     return sum(float(inst.get("capital", 0.0)) for inst in instances if isinstance(inst, dict))
 
 
+async def _capital_snapshot_from_orchestrator(orchestrator: Any, status: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch the freshest capital snapshot when the orchestrator exposes one."""
+    get_snapshot = getattr(orchestrator, "get_capital_snapshot", None)
+    if callable(get_snapshot):
+        try:
+            snapshot = get_snapshot()
+            if inspect.isawaitable(snapshot):
+                snapshot = await snapshot
+            if isinstance(snapshot, dict):
+                return snapshot
+        except Exception as exc:
+            logger.warning("Capital snapshot unavailable: %s", exc)
+    fallback = status.get("capital", {}) if isinstance(status, dict) else {}
+    return fallback if isinstance(fallback, dict) else {}
+
+
 def _infer_symbol_from_instance(inst: Dict[str, Any]) -> str:
     symbol = str(inst.get("symbol") or inst.get("pair") or "").strip()
     if symbol:
@@ -718,7 +734,7 @@ async def get_global_status(
         # CORRECTION: Utilise méthode thread-safe
         status = orchestrator.get_status()
         instances = status.get('instances', [])
-        capital_snapshot = status.get('capital') or {}
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
         if capital_snapshot.get("source_status") == "ok":
             total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
             total_profit = float(capital_snapshot.get("total_profit", 0.0))
@@ -857,7 +873,7 @@ async def get_opportunities(
 
         status = orchestrator.get_status()
         instances = orchestrator.get_instances_snapshot()
-        capital_snapshot = status.get("capital") or {}
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
         paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
         if capital_snapshot.get("source_status") == "ok":
             total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
@@ -906,7 +922,7 @@ async def get_regime(
     try:
         status = orchestrator.get_status()
         instances = orchestrator.get_instances_snapshot()
-        capital_snapshot = status.get("capital") or {}
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
         paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
         engine = _get_regime_feature_engine(orchestrator)
         snapshot = engine.build_snapshot(instances=instances, paper_mode=paper_mode)
@@ -942,7 +958,7 @@ async def get_colony(
 
         status = orchestrator.get_status()
         instances = orchestrator.get_instances_snapshot()
-        capital_snapshot = status.get("capital") or {}
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
         paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
         total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
         if total_capital <= 0.0:
@@ -969,12 +985,19 @@ async def get_colony(
             except Exception:
                 pass
 
-        return manager.build_snapshot(
+        snapshot = manager.build_snapshot(
             opportunities=opportunities_snapshot.get("opportunities", []),
             instances=instances,
             capital=capital_snapshot,
             paper_mode=paper_mode,
         )
+        get_lineage = getattr(orchestrator, "get_lineage_snapshot", None)
+        if callable(get_lineage):
+            try:
+                snapshot["lineage"] = get_lineage()
+            except Exception as exc:
+                logger.warning("Lineage snapshot unavailable: %s", exc)
+        return snapshot
     except Exception:
         logger.exception("Erreur recuperation colony manager")
         raise HTTPException(status_code=500, detail="Erreur interne")
@@ -1624,13 +1647,13 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
             "balances": balances,
             "paper_account": {
                 "active": paper_mode,
-                "total_balance": round(float(paper_historical_balance), 2) if paper_mode and paper_historical_balance is not None else (total_balance if paper_mode else None),
+                "total_balance": autobot_trading_capital if paper_mode else None,
                 "trading_capital": autobot_trading_capital if paper_mode else None,
                 "available_cash": autobot_available_capital if paper_mode else None,
                 "reference_capital": round(float(paper_reference_capital), 2) if paper_mode and paper_reference_capital is not None else None,
-                "unallocated_reserve": round(float(paper_unallocated_reserve), 2) if paper_mode and paper_unallocated_reserve is not None else None,
+                "unallocated_reserve": None,
                 "balances": balances if paper_mode else {},
-                "message": "Budget paper AUTOBOT actif, avec portefeuille paper historique conserve en trace." if paper_mode else "Paper trading inactif.",
+                "message": "Budget paper actif AUTOBOT. Le solde historique du simulateur n'est pas utilise comme capital." if paper_mode else "Paper trading inactif.",
             },
             "kraken_account": {
                 "connected": (not paper_mode) and snapshot.get("source") == "kraken" and snapshot.get("source_status") == "ok",
@@ -2199,7 +2222,8 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
     try:
         status = orchestrator.get_status()
         instances_data = orchestrator.get_instances_snapshot()
-        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
         mode = "paper" if paper_mode else "live"
         kill_switch = _global_kill_switch_snapshot(orchestrator)
         executor = getattr(orchestrator, "order_executor", None)
@@ -2207,7 +2231,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
 
         state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
         paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
-        state_db = _sqlite_health(state_db_path, ["positions", "instance_state", "trade_ledger"])
+        state_db = _sqlite_health(state_db_path, ["positions", "instance_state", "trade_ledger", "instance_lineage"])
         paper_db = _sqlite_health(paper_db_path, ["trades"]) if paper_mode else {
             "path": str(paper_db_path) if paper_db_path else "",
             "exists": False,
@@ -2361,7 +2385,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             "overall_status": overall_status,
             "mode": mode,
             "paper_mode": paper_mode,
-            "capital": status.get("capital", {}),
+            "capital": capital_snapshot,
             "safety": {
                 "kill_switch": kill_switch,
             },

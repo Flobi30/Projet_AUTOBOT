@@ -887,6 +887,90 @@ class OrchestratorAsync:
     # Spin-off & leverage
     # ------------------------------------------------------------------
 
+    def _lineage_root_id(self, instance_id: str) -> str:
+        seen: set[str] = set()
+        current = instance_id
+        while current in self._child_parent and current not in seen:
+            seen.add(current)
+            current = self._child_parent[current]
+        return current
+
+    def _lineage_generation(self, instance_id: str) -> int:
+        generation = 0
+        seen: set[str] = set()
+        current = instance_id
+        while current in self._child_parent and current not in seen:
+            seen.add(current)
+            generation += 1
+            current = self._child_parent[current]
+        return generation
+
+    async def _record_lineage_event(
+        self,
+        parent: TradingInstanceAsync,
+        child: TradingInstanceAsync,
+        child_capital: float,
+    ) -> None:
+        try:
+            persistence = get_persistence()
+            await persistence.record_instance_lineage(
+                parent_instance_id=parent.id,
+                child_instance_id=child.id,
+                root_instance_id=self._lineage_root_id(parent.id),
+                generation=self._lineage_generation(child.id),
+                child_capital=float(child_capital),
+                parent_capital_after=float(parent.get_current_capital()),
+                symbol=str(getattr(getattr(child, "config", None), "symbol", "")),
+                strategy=str(getattr(getattr(child, "config", None), "strategy", "")),
+                status="active" if child.is_running() else "created",
+            )
+        except Exception as exc:
+            logger.warning("Spin-off lineage persistence failed: %s", exc)
+
+    def get_lineage_snapshot(self) -> Dict[str, Any]:
+        nodes: List[Dict[str, Any]] = []
+        edges: List[Dict[str, Any]] = []
+        for instance_id, instance in self._instances.items():
+            parent_id = self._child_parent.get(instance_id)
+            child_ids = sorted(self._parent_children.get(instance_id, set()))
+            nodes.append({
+                "id": instance_id,
+                "parent_id": parent_id,
+                "root_id": self._lineage_root_id(instance_id),
+                "generation": self._lineage_generation(instance_id),
+                "child_ids": child_ids,
+                "child_count": len(child_ids),
+                "can_split_again": len(child_ids) == 0,
+                "symbol": str(getattr(instance.config, "symbol", "")),
+                "strategy": str(getattr(instance.config, "strategy", "")),
+                "capital_eur": round(float(instance.get_current_capital()), 2),
+                "status": "running" if instance.is_running() else str(getattr(instance, "status", "")),
+            })
+            if parent_id:
+                edges.append({
+                    "parent_id": parent_id,
+                    "child_id": instance_id,
+                    "generation": self._lineage_generation(instance_id),
+                })
+        max_generation = max((int(node["generation"]) for node in nodes), default=0)
+        return {
+            "policy": "single_child_per_parent_cascade",
+            "paper_only": bool(getattr(self, "paper_mode", True)),
+            "root_instance_id": getattr(self, "parent_instance_id", None),
+            "split_ratio_pct": 25.0,
+            "min_child_capital_eur": 400.0,
+            "max_children_per_parent": 1,
+            "nodes": sorted(nodes, key=lambda item: (int(item["generation"]), str(item["id"]))),
+            "edges": edges,
+            "summary": {
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+                "root_count": sum(1 for node in nodes if node.get("parent_id") is None),
+                "max_generation": max_generation,
+                "splittable_node_count": sum(1 for node in nodes if node.get("can_split_again")),
+            },
+        }
+
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
         if self.scalability_guard is not None and self.scalability_guard_state != ScalingState.ALLOW_SCALE_UP:
             logger.info("⏳ Spin-off bloqué par ScalabilityGuard: %s", self.scalability_guard_state.value)
@@ -965,7 +1049,10 @@ class OrchestratorAsync:
                 parent.record_spin_off(float(child_capital))
                 self._child_parent[new.id] = parent.id
                 self._parent_children.setdefault(parent.id, set()).add(new.id)
+                if getattr(self, "running", False) and not new.is_running() and hasattr(new, "start"):
+                    await new.start()
                 self._activate_multi_grid_if_child(new)
+                await self._record_lineage_event(parent, new, float(child_capital))
                 logger.info(
                     "🔄 Spin-off: %s → %s (parent: %.2f€ / child: %.2f€)",
                     parent.id,
@@ -1058,24 +1145,27 @@ class OrchestratorAsync:
 
         source = "paper" if self.paper_mode else "kraken"
         try:
-            balances = await self.order_executor.get_balance()
-            cash_balance = float(balances.get("ZEUR", balances.get("EUR", 0.0)))
-            total_balance = cash_balance
-            if self.paper_mode and hasattr(self.order_executor, "get_trade_balance"):
-                trade_balance = await self.order_executor.get_trade_balance("EUR")
-                total_balance = float(trade_balance.get("equivalent_balance", cash_balance))
-            paper_historical_balance = total_balance if self.paper_mode else None
-            paper_unallocated_reserve = max(0.0, total_balance - allocated_capital) if self.paper_mode else None
+            raw_balances = await self.order_executor.get_balance()
+            executor_cash_balance = float(raw_balances.get("ZEUR", raw_balances.get("EUR", 0.0)))
+            exchange_total_balance = executor_cash_balance
+            if not self.paper_mode:
+                total_balance = exchange_total_balance
+                cash_balance = executor_cash_balance
+                balances = raw_balances
+            else:
+                # In paper mode the dashboard and selectors must use the active
+                # AUTOBOT budget, not an old SQLite simulator wallet balance.
+                total_balance = allocated_capital
+                cash_balance = max(0.0, allocated_capital - open_position_notional)
+                balances = {"EUR": cash_balance}
+            paper_historical_balance = None
+            paper_unallocated_reserve = None
             autobot_trading_capital = allocated_capital
             autobot_available_capital = max(0.0, autobot_trading_capital - open_position_notional)
             paper_reference_capital = self._paper_reference_capital(autobot_trading_capital) if self.paper_mode else None
             display_total_capital = autobot_trading_capital if self.paper_mode else total_balance
             display_available_cash = autobot_available_capital if self.paper_mode else cash_balance
-            reserve_cash = (
-                float(paper_unallocated_reserve or 0.0)
-                if self.paper_mode
-                else max(0.0, total_balance - allocated_capital)
-            )
+            reserve_cash = 0.0 if self.paper_mode else max(0.0, total_balance - allocated_capital)
             snapshot = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "paper_mode": self.paper_mode,
@@ -2765,6 +2855,7 @@ class OrchestratorAsync:
             ),
             "scalability_guard": dict(self._scalability_guard_last),
             "activation": dict(self._activation_last),
+            "lineage": self.get_lineage_snapshot(),
             "portfolio_allocator": {
                 "enabled": self.portfolio_allocator is not None,
                 "plan": {
@@ -2829,6 +2920,10 @@ class OrchestratorAsync:
                     "strategy": s["strategy"],
                     "open_positions": s["open_positions_count"],
                     "initial_capital": s.get("initial_capital"),
+                    "parent_instance_id": self._child_parent.get(inst_id),
+                    "child_instance_ids": sorted(self._parent_children.get(inst_id, set())),
+                    "generation": self._lineage_generation(inst_id),
+                    "root_instance_id": self._lineage_root_id(inst_id),
                     "warmup": s.get("warmup", {}),
                     "blocked_reasons": s.get("blocked_reasons", []),
                     "strategy_status": s.get("strategy_status", {}),

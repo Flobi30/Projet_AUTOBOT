@@ -143,22 +143,6 @@ const Capital: React.FC = () => {
     ?? capitalData?.autobot_available_capital
     ?? (isPaperMode ? capitalData?.available_cash : null)
   );
-  const paperReferenceCapital = (
-    capitalData?.paper_account?.reference_capital
-    ?? capitalData?.paper_reference_capital
-    ?? null
-  );
-  const paperHistoricalCapital = (
-    capitalData?.paper_account?.total_balance
-    ?? capitalData?.paper_historical_balance
-    ?? (isPaperMode ? capitalData?.total_balance : null)
-  );
-  const paperReserve = (
-    capitalData?.paper_account?.unallocated_reserve
-    ?? capitalData?.paper_unallocated_reserve
-    ?? (isPaperMode ? capitalData?.reserve_cash : null)
-  );
-  const paperAllocated = isPaperMode ? (capitalData?.allocated_capital ?? capitalData?.total_invested ?? paperTradingCapital) : null;
   const paperEngaged = isPaperMode ? capitalData?.open_position_notional : null;
   const paperPnl = isPaperMode ? capitalData?.total_profit : null;
 
@@ -225,7 +209,7 @@ const Capital: React.FC = () => {
           <div>
             <h3 className="text-amber-300 font-bold text-lg">Mode Paper Trading actif</h3>
             <p className="text-amber-200/80 text-sm">
-              Le capital affiche est virtuel et persistant cote paper executor. Aucun argent reel Kraken n'est engage par AUTOBOT.
+              Le capital affiche est le budget virtuel actif d'AUTOBOT. Aucun argent reel Kraken n'est engage.
             </p>
           </div>
         </div>
@@ -234,18 +218,13 @@ const Capital: React.FC = () => {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 mb-6 lg:mb-8">
         {renderCapitalTable(
           'Paper',
-          'Portefeuille virtuel utilise pour entrainer AUTOBOT.',
+          'Budget virtuel actif utilise pour entrainer AUTOBOT.',
           [
             { label: 'Statut', value: isPaperMode ? 'Actif' : 'Inactif' },
             {
-              label: 'Capital paper AUTOBOT',
+              label: 'Capital paper actif',
               value: formatCurrency(paperTradingCapital),
-              hint: 'Budget actif vraiment utilise pour entrainer les strategies.',
-            },
-            {
-              label: 'Capital de reference',
-              value: formatCurrency(paperReferenceCapital),
-              hint: 'Scenario de test aligne sur le futur capital live vise.',
+              hint: 'Capital virtuel actuellement pilote par AUTOBOT.',
             },
             {
               label: 'PnL paper realise',
@@ -256,25 +235,14 @@ const Capital: React.FC = () => {
               ),
             },
             {
-              label: 'Disponible pour strategies',
+              label: 'Positions / ordres engages',
+              value: formatCurrency(paperEngaged),
+              hint: 'Part du capital paper deja immobilisee par des positions ou ordres ouverts.',
+            },
+            {
+              label: 'Libre pour nouvelles positions',
               value: formatCurrency(paperAvailable),
-              hint: 'Capital paper AUTOBOT non engage dans des positions ouvertes.',
-            },
-            {
-              label: 'Budget paper alloue aux strategies',
-              value: formatCurrency(paperAllocated),
-              hint: 'Budget actif des instances paper actuellement gerees par AUTOBOT.',
-            },
-            { label: 'Positions/ordres engages', value: formatCurrency(paperEngaged) },
-            {
-              label: 'Reserve paper non utilisee',
-              value: formatCurrency(paperReserve),
-              hint: 'Solde virtuel historique conserve hors strategie.',
-            },
-            {
-              label: 'Portefeuille paper historique',
-              value: formatCurrency(paperHistoricalCapital),
-              hint: 'Trace du simulateur paper, pas le capital que le bot engage.',
+              hint: 'Part du capital paper actif non engagee pour le moment.',
             },
             { label: 'Strategies / paires', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
           ]

@@ -126,7 +126,6 @@ const Performance: React.FC = () => {
     );
     const pos = globalPerf.profit_total >= 0;
     const activePaperCapital = capitalData?.autobot_trading_capital ?? globalPerf.capital_total;
-    const activePaperAvailable = capitalData?.autobot_available_capital ?? capitalData?.available_cash;
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

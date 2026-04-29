@@ -411,6 +411,21 @@ class StatePersistence:
                 )
             """)
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS instance_lineage (
+                    child_instance_id TEXT PRIMARY KEY,
+                    parent_instance_id TEXT NOT NULL,
+                    root_instance_id TEXT NOT NULL,
+                    generation INTEGER NOT NULL,
+                    child_capital REAL NOT NULL,
+                    parent_capital_after REAL NOT NULL,
+                    symbol TEXT,
+                    strategy TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS trades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     position_id TEXT NOT NULL,
@@ -510,6 +525,8 @@ class StatePersistence:
             # Indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_parent ON instance_lineage(parent_instance_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_root ON instance_lineage(root_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_created_at ON trade_ledger(created_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
@@ -587,11 +604,86 @@ class StatePersistence:
                 tuple(active_instance_ids),
             )
             deleted = int(cursor.rowcount or 0)
+            await conn.execute(
+                f"""
+                DELETE FROM instance_lineage
+                WHERE child_instance_id NOT IN ({placeholders})
+                  AND parent_instance_id NOT IN ({placeholders})
+                """,
+                tuple(active_instance_ids) + tuple(active_instance_ids),
+            )
             await conn.commit()
             return deleted
         except Exception as e:
             logger.exception(f"❌ Erreur cleanup_orphaned_instances: {e}")
             return 0
+
+    async def record_instance_lineage(
+        self,
+        *,
+        parent_instance_id: str,
+        child_instance_id: str,
+        root_instance_id: str,
+        generation: int,
+        child_capital: float,
+        parent_capital_after: float,
+        symbol: str = "",
+        strategy: str = "",
+        status: str = "active",
+    ) -> bool:
+        await self.initialize()
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            conn = await self.instance_state.get_conn()
+            await conn.execute(
+                """
+                INSERT INTO instance_lineage
+                (child_instance_id, parent_instance_id, root_instance_id, generation,
+                 child_capital, parent_capital_after, symbol, strategy, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(child_instance_id) DO UPDATE SET
+                    parent_instance_id=excluded.parent_instance_id,
+                    root_instance_id=excluded.root_instance_id,
+                    generation=excluded.generation,
+                    child_capital=excluded.child_capital,
+                    parent_capital_after=excluded.parent_capital_after,
+                    symbol=excluded.symbol,
+                    strategy=excluded.strategy,
+                    status=excluded.status,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    parent_instance_id,
+                    child_instance_id,
+                    root_instance_id,
+                    int(generation),
+                    float(child_capital),
+                    float(parent_capital_after),
+                    symbol,
+                    strategy,
+                    status,
+                    now,
+                    now,
+                ),
+            )
+            await conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"Erreur record_instance_lineage: {e}")
+            return False
+
+    async def get_instance_lineage(self) -> List[Dict[str, Any]]:
+        await self.initialize()
+        try:
+            conn = await self.instance_state.get_conn()
+            async with conn.execute(
+                "SELECT * FROM instance_lineage ORDER BY generation ASC, created_at ASC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.exception(f"Erreur get_instance_lineage: {e}")
+            return []
 
     async def record_trade(self, position_id: str, instance_id: str,
                     side: str, price: float, volume: float,

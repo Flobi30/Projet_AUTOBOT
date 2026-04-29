@@ -70,7 +70,10 @@ interface RuntimeTrace {
     source?: string;
     source_status?: string;
     total_capital?: number;
+    autobot_trading_capital?: number;
+    autobot_available_capital?: number;
     available_cash?: number;
+    open_position_notional?: number;
     paper_unallocated_reserve?: number | null;
   };
   safety?: {
@@ -138,6 +141,29 @@ interface ColonyRoutingDecision {
   reason?: string;
 }
 
+interface ColonyLineage {
+  policy?: string;
+  split_ratio_pct?: number;
+  min_child_capital_eur?: number;
+  max_children_per_parent?: number;
+  summary?: {
+    node_count?: number;
+    edge_count?: number;
+    max_generation?: number;
+    splittable_node_count?: number;
+  };
+  nodes?: Array<{
+    id: string;
+    parent_id?: string | null;
+    generation?: number;
+    symbol?: string;
+    capital_eur?: number;
+    can_split_again?: boolean;
+    child_count?: number;
+    status?: string;
+  }>;
+}
+
 interface ColonySnapshot {
   timestamp: string;
   mode: 'paper' | 'live';
@@ -162,6 +188,7 @@ interface ColonySnapshot {
     unassigned_symbols: string[];
   };
   capital_model: {
+    capital_basis?: string;
     target_live_capital_eur?: number;
     planning_capital_eur?: number;
     active_budget_eur?: number;
@@ -175,6 +202,7 @@ interface ColonySnapshot {
     decision_count?: number;
     decisions?: ColonyRoutingDecision[];
   };
+  lineage?: ColonyLineage;
 }
 
 const statusLabel = {
@@ -345,11 +373,7 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
           <div className="text-white font-bold">{child.score.toFixed(1)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Enveloppe cible</div>
-          <div className="text-white font-bold">{formatCurrency(child.budget_eur)}</div>
-        </div>
-        <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Capital instances</div>
+          <div className="text-gray-500">Capital suivi</div>
           <div className="text-white font-bold">{formatCurrency(assignedCapital)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
@@ -362,14 +386,11 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
         </div>
       </div>
       <div className="flex flex-wrap gap-2 mb-3">
-        {child.candidate_symbols.map((symbol) => (
+        {child.candidate_symbols.slice(0, 8).map((symbol) => (
           <span key={symbol} className="px-2 py-1 bg-gray-900/50 text-gray-200 rounded-lg text-xs">
             {symbol}
           </span>
         ))}
-      </div>
-      <div className="text-gray-500 text-xs mb-3">
-        Enveloppe cible = plan calcule sur le capital de reference. Capital instances = budget paper deja porte par les paires de ce moteur.
       </div>
       <div className="space-y-2">
         {child.assigned_instances.slice(0, 6).map((inst) => (
@@ -611,7 +632,7 @@ const Diagnostic: React.FC = () => {
               Moteurs paper
             </h3>
             <p className="text-gray-400 text-sm mt-1">
-              {colony ? `${colony.runtime.routing_symbol_count} paires surveillees, reparties entre ${colony.runtime.child_count} moteur(s) logique(s)` : 'Non disponible'}
+              {colony ? `${colony.runtime.routing_symbol_count} paires surveillees, routees vers ${colony.runtime.child_count} moteur(s) logique(s)` : 'Non disponible'}
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm w-full lg:w-auto">
@@ -644,7 +665,7 @@ const Diagnostic: React.FC = () => {
             <div className="text-gray-500">Moteurs paper non disponibles.</div>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
           <div className="bg-gray-700/30 rounded-xl p-3">
             <span className="text-gray-400">Mode execution: </span>
             <strong className="text-white">{formatExecutionMode(colony?.execution.execution_mode)}</strong>
@@ -666,22 +687,59 @@ const Diagnostic: React.FC = () => {
             </strong>
           </div>
           <div className="bg-gray-700/30 rounded-xl p-3">
-            <span className="text-gray-400">Budget actif moteurs: </span>
+            <span className="text-gray-400">Capital paper actif: </span>
             <strong className="text-white">{formatCurrency(colony?.capital_model.active_budget_eur)}</strong>
           </div>
-          <div className="bg-gray-700/30 rounded-xl p-3">
-            <span className="text-gray-400">Capital de reference: </span>
-            <strong className="text-white">{formatCurrency(colony?.capital_model.planning_capital_eur)}</strong>
-          </div>
-          <div className="bg-gray-700/30 rounded-xl p-3">
-            <span className="text-gray-400">Reserve paper: </span>
-            <strong className="text-white">{formatCurrency(colony?.capital_model.reserve_eur)}</strong>
-          </div>
-          <div className="bg-gray-700/30 rounded-xl p-3">
-            <span className="text-gray-400">Min. par moteur: </span>
-            <strong className="text-white">{formatCurrency(colony?.capital_model.min_logical_child_capital_eur)}</strong>
-          </div>
         </div>
+        {colony?.lineage ? (
+          <div className="mt-4 bg-gray-900/30 border border-gray-700/60 rounded-xl p-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
+              <div>
+                <h4 className="text-white font-bold">Duplication mere/enfant</h4>
+                <p className="text-gray-500 text-xs">
+                  Une instance peut creer un seul enfant; chaque enfant peut ensuite se diviser a son tour si les seuils sont atteints.
+                </p>
+              </div>
+              <span className="text-gray-400 text-xs">
+                Generation max: {colony.lineage.summary?.max_generation ?? 0}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+              <div className="bg-gray-800/70 rounded-lg p-3">
+                <div className="text-gray-500">Instances</div>
+                <div className="text-white font-bold">{colony.lineage.summary?.node_count ?? 0}</div>
+              </div>
+              <div className="bg-gray-800/70 rounded-lg p-3">
+                <div className="text-gray-500">Relations</div>
+                <div className="text-white font-bold">{colony.lineage.summary?.edge_count ?? 0}</div>
+              </div>
+              <div className="bg-gray-800/70 rounded-lg p-3">
+                <div className="text-gray-500">Peuvent se diviser</div>
+                <div className="text-white font-bold">{colony.lineage.summary?.splittable_node_count ?? 0}</div>
+              </div>
+              <div className="bg-gray-800/70 rounded-lg p-3">
+                <div className="text-gray-500">Split enfant</div>
+                <div className="text-white font-bold">{typeof colony.lineage.split_ratio_pct === 'number' ? `${colony.lineage.split_ratio_pct}%` : 'Non disponible'}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              {(colony.lineage.nodes ?? []).slice(0, 8).map((node) => (
+                <div key={node.id} className="bg-gray-800/70 rounded-lg p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-white font-bold">{node.symbol || node.id}</span>
+                    <span className="text-gray-400">Gen {node.generation ?? 0}</span>
+                  </div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    Parent: {node.parent_id ?? 'racine'} / enfants: {node.child_count ?? 0}
+                  </div>
+                  <div className="text-gray-500 text-xs mt-1">
+                    Capital: {formatCurrency(node.capital_eur)} / {node.can_split_again ? 'peut encore creer un enfant' : 'deja divisee'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {colony?.routing?.decisions?.length ? (
           <div className="mt-4 bg-gray-900/30 border border-gray-700/60 rounded-xl p-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
@@ -800,18 +858,16 @@ const Diagnostic: React.FC = () => {
             </div>
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
               <span className="text-gray-400">Capital AUTOBOT</span>
-              <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.total_capital)}</span>
+              <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.autobot_trading_capital ?? runtimeTrace?.capital?.total_capital)}</span>
             </div>
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
-              <span className="text-gray-400">Disponible strategies</span>
-              <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.available_cash)}</span>
+              <span className="text-gray-400">Positions / ordres engages</span>
+              <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.open_position_notional)}</span>
             </div>
-            {runtimeTrace?.paper_mode ? (
-              <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
-                <span className="text-gray-400">Reserve paper hors strategie</span>
-                <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.paper_unallocated_reserve ?? undefined)}</span>
-              </div>
-            ) : null}
+            <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
+              <span className="text-gray-400">Libre pour nouvelles positions</span>
+              <span className="text-white font-bold">{formatCurrency(runtimeTrace?.capital?.autobot_available_capital ?? runtimeTrace?.capital?.available_cash)}</span>
+            </div>
             <div className="flex justify-between gap-4 p-3 bg-gray-700/30 rounded-xl">
               <span className="text-gray-400">Warm-up / blocages</span>
               <span className="text-white font-bold">{runtimeTrace?.strategies.warmup_or_blocked.length ?? 'Non disponible'}</span>

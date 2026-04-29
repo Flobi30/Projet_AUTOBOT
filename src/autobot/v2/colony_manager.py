@@ -231,8 +231,15 @@ class ColonyManager:
             sum(_safe_float(inst.get("capital")) for inst in instances_list),
         )
         target_capital = cfg.target_live_capital_eur or runtime_capital
-        planning_capital = target_capital if target_capital > 0.0 else runtime_capital
-        reserve_eur = planning_capital * cfg.parent_reserve_pct / 100.0
+        if paper_mode:
+            planning_capital = runtime_capital
+            reserve_pct = 0.0
+            capital_basis = "active_paper_capital"
+        else:
+            planning_capital = target_capital if target_capital > 0.0 else runtime_capital
+            reserve_pct = cfg.parent_reserve_pct
+            capital_basis = "live_capital_target"
+        reserve_eur = planning_capital * reserve_pct / 100.0
         active_budget = max(0.0, planning_capital - reserve_eur)
 
         behaviors = [b for b in cfg.child_behaviors if b in self.BEHAVIORS]
@@ -339,6 +346,7 @@ class ColonyManager:
             },
             "autopilot": autopilot,
             "capital_model": {
+                "capital_basis": capital_basis,
                 "runtime_capital_eur": round(runtime_capital, 2),
                 "target_live_capital_eur": round(target_capital, 2),
                 "live_min_kraken_capital_eur": round(cfg.live_min_kraken_capital_eur, 2),
