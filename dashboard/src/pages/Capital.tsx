@@ -206,7 +206,11 @@ const Capital: React.FC = () => {
           'Portefeuille virtuel utilise pour entrainer AUTOBOT.',
           [
             { label: 'Statut', value: isPaperMode ? 'Actif' : 'Inactif' },
-            { label: 'Capital paper', value: formatCurrency(paperCapital) },
+            {
+              label: 'Portefeuille paper total',
+              value: formatCurrency(paperCapital),
+              hint: 'Valeur totale du portefeuille virtuel persistant.',
+            },
             {
               label: 'PnL paper realise',
               value: (
@@ -215,8 +219,16 @@ const Capital: React.FC = () => {
                 </span>
               ),
             },
-            { label: 'Cash paper disponible', value: formatCurrency(paperCash) },
-            { label: 'Capital alloue aux strategies', value: formatCurrency(paperAllocated) },
+            {
+              label: 'Reserve paper non allouee',
+              value: formatCurrency(paperCash),
+              hint: 'Part paper non affectee aux strategies. Ce n est pas du capital reel Kraken.',
+            },
+            {
+              label: 'Budget paper alloue aux strategies',
+              value: formatCurrency(paperAllocated),
+              hint: 'Budget actif des instances paper actuellement gerees par AUTOBOT.',
+            },
             { label: 'Positions/ordres engages', value: formatCurrency(paperEngaged) },
             { label: 'Strategies / paires', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
           ]

@@ -150,6 +150,7 @@ interface ColonySnapshot {
     unassigned_symbols: string[];
   };
   capital_model: {
+    target_live_capital_eur?: number;
     planning_capital_eur?: number;
     active_budget_eur?: number;
     reserve_eur?: number;
@@ -201,6 +202,11 @@ const formatCurrency = (value?: number) =>
   typeof value === 'number'
     ? value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
     : 'Non disponible';
+
+const formatExecutionMode = (value?: string) => {
+  if (value === 'logical_children') return 'Moteurs logiques paper';
+  return value || 'Non disponible';
+};
 
 const toStatus = (ok?: boolean): 'healthy' | 'warning' | 'critical' => (ok ? 'healthy' : 'critical');
 
@@ -299,7 +305,7 @@ const TraceRow: React.FC<{ label: string; event?: Record<string, unknown> | null
   );
 };
 
-const ColonyChildCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
+const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
   const activeStyle = child.active
     ? 'border-emerald-500/30 bg-emerald-500/10'
     : 'border-gray-700/60 bg-gray-700/20';
@@ -320,11 +326,11 @@ const ColonyChildCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
           <div className="text-white font-bold">{child.score.toFixed(1)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Budget</div>
+          <div className="text-gray-500">Budget moteur</div>
           <div className="text-white font-bold">{formatCurrency(child.budget_eur)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Instances</div>
+          <div className="text-gray-500">Paires suivies</div>
           <div className="text-white font-bold">{child.assigned_instances.length}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
@@ -338,6 +344,9 @@ const ColonyChildCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
             {symbol}
           </span>
         ))}
+      </div>
+      <div className="text-gray-500 text-xs mb-3">
+        Enveloppe de planification du moteur, pas un budget par paire.
       </div>
       <div className="space-y-2">
         {child.assigned_instances.slice(0, 6).map((inst) => (
@@ -576,19 +585,19 @@ const Diagnostic: React.FC = () => {
           <div>
             <h3 className="flex items-center gap-3 text-lg font-bold text-white">
               <Activity className="w-5 h-5 text-emerald-400" />
-              Colonie paper
+              Moteurs paper
             </h3>
             <p className="text-gray-400 text-sm mt-1">
-              {colony ? `${colony.runtime.routing_symbol_count} paires routees vers ${colony.runtime.child_count} enfant(s) logique(s)` : 'Non disponible'}
+              {colony ? `${colony.runtime.routing_symbol_count} paires surveillees, reparties entre ${colony.runtime.child_count} moteur(s) logique(s)` : 'Non disponible'}
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm w-full lg:w-auto">
             <div className="bg-gray-900/40 rounded-xl p-3">
-              <div className="text-gray-500">Enfants actifs</div>
+              <div className="text-gray-500">Moteurs actifs</div>
               <div className="text-white font-bold">{colony?.runtime.active_children_count ?? 'Non disponible'}</div>
             </div>
             <div className="bg-gray-900/40 rounded-xl p-3">
-              <div className="text-gray-500">Instances</div>
+              <div className="text-gray-500">Paires suivies</div>
               <div className="text-white font-bold">{colony?.runtime.instance_count ?? 'Non disponible'}</div>
             </div>
             <div className="bg-gray-900/40 rounded-xl p-3">
@@ -607,15 +616,15 @@ const Diagnostic: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
           {colony?.children?.length ? colony.children.map((child) => (
-            <ColonyChildCard key={child.id} child={child} />
+            <ColonyEngineCard key={child.id} child={child} />
           )) : (
-            <div className="text-gray-500">Colonie non disponible.</div>
+            <div className="text-gray-500">Moteurs paper non disponibles.</div>
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <div className="bg-gray-700/30 rounded-xl p-3">
             <span className="text-gray-400">Mode execution: </span>
-            <strong className="text-white">{colony?.execution.execution_mode ?? 'Non disponible'}</strong>
+            <strong className="text-white">{formatExecutionMode(colony?.execution.execution_mode)}</strong>
           </div>
           <div className="bg-gray-700/30 rounded-xl p-3">
             <span className="text-gray-400">Auto-scale: </span>
@@ -626,8 +635,20 @@ const Diagnostic: React.FC = () => {
             </strong>
           </div>
           <div className="bg-gray-700/30 rounded-xl p-3">
-            <span className="text-gray-400">Budget actif: </span>
+            <span className="text-gray-400">Budget actif moteurs: </span>
             <strong className="text-white">{formatCurrency(colony?.capital_model.active_budget_eur)}</strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Capital de reference: </span>
+            <strong className="text-white">{formatCurrency(colony?.capital_model.planning_capital_eur)}</strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Reserve paper: </span>
+            <strong className="text-white">{formatCurrency(colony?.capital_model.reserve_eur)}</strong>
+          </div>
+          <div className="bg-gray-700/30 rounded-xl p-3">
+            <span className="text-gray-400">Min. par moteur: </span>
+            <strong className="text-white">{formatCurrency(colony?.capital_model.min_logical_child_capital_eur)}</strong>
           </div>
         </div>
         {colony?.runtime.unassigned_symbols?.length ? (
