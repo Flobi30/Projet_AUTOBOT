@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Wallet, Bot, Activity, Menu, X, HeartPulse, ShieldCheck } from 'lucide-react';
+import { Wallet, Bot, Activity, Menu, X, HeartPulse, ShieldCheck, BrainCircuit } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 interface SidebarProps {
@@ -104,6 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       category: 'SYSTEME',
       items: [
         { name: 'Diagnostic', path: '/diagnostic', icon: HeartPulse },
+        { name: 'Validation Quant', path: '/quant-validation', icon: BrainCircuit },
       ],
     },
   ];
@@ -223,9 +224,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               <div>Mode: <strong>{modeLabel}</strong></div>
               <div>Capital AUTOBOT: <strong>{formatCurrency(displayedCapital)}</strong></div>
               <div>Disponible: <strong>{formatCurrency(displayedAvailable)}</strong></div>
-              {capital?.paper_mode ? (
-                <div>Reserve paper: <strong>{formatCurrency(capital?.paper_unallocated_reserve)}</strong></div>
-              ) : null}
               <div>
                 Strategies: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
               </div>

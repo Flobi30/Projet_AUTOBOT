@@ -673,7 +673,7 @@ class OrchestratorAsync:
             logger.info("🕶️ ShadowTradingManager déjà initialisé via ModuleManager")
             return manager
 
-        if not self.paper_mode:
+        if not self.paper_mode and not _env_bool("SHADOW_TRADING_CONTINUE_IN_LIVE", True):
             logger.warning("🕶️ ShadowTradingManager ignoré: PAPER_TRADING=false")
             return None
 
@@ -806,7 +806,7 @@ class OrchestratorAsync:
             getattr(instance, "get_profit_factor_days", lambda _d: 1.0)(30)
         )
 
-        if self.shadow_manager and self.paper_mode:
+        if self.shadow_manager and (self.paper_mode or _env_bool("SHADOW_TRADING_CONTINUE_IN_LIVE", True)):
             try:
                 self.shadow_manager.register_instance(instance_id, "crypto")
                 shadow_pool = float(getattr(self.shadow_manager, "_shadow_capital_pool", 0.0))

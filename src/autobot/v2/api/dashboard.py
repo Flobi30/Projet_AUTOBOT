@@ -216,6 +216,19 @@ def _get_regime_feature_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_quant_validation_engine(orchestrator: Any) -> Any:
+    from ..quant_validation import QuantValidationEngine
+
+    engine = getattr(orchestrator, "quant_validation_engine", None)
+    if engine is None:
+        engine = QuantValidationEngine()
+        try:
+            setattr(orchestrator, "quant_validation_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _acknowledge_runtime_kill_switches(orchestrator: Any, operator_id: str) -> int:
     acknowledged = 0
     instances = getattr(orchestrator, "_instances", {}) or {}
@@ -934,6 +947,80 @@ async def get_regime(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation regime scoring")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/quant/validation")
+async def get_quant_validation(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Paper/shadow quant validation for future live readiness."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..quant_validation import load_paper_trade_observations, load_trade_ledger_observations
+
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        if capital_snapshot.get("source_status") == "ok":
+            capital_base = _autobot_capital_from_snapshot(capital_snapshot, instances)
+        else:
+            capital_base = sum(float(inst.get("capital", 0.0)) for inst in instances)
+
+        executor = getattr(orchestrator, "order_executor", None)
+        persistence = getattr(orchestrator, "persistence", None)
+        paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+
+        ledger_trades = load_trade_ledger_observations(state_db_path)
+        paper_trades = load_paper_trade_observations(paper_db_path)
+        trades = []
+        seen_trade_keys: set[tuple[Any, ...]] = set()
+        for trade in ledger_trades + paper_trades:
+            key = (
+                trade.symbol,
+                trade.side,
+                round(trade.volume, 12),
+                round(trade.price, 8),
+                str(trade.timestamp)[:19],
+            )
+            if key in seen_trade_keys:
+                continue
+            seen_trade_keys.add(key)
+            trades.append(trade)
+
+        engine = _get_quant_validation_engine(orchestrator)
+        snapshot = engine.build_snapshot(
+            instances=instances,
+            trades=trades,
+            paper_mode=paper_mode,
+            capital_base=capital_base,
+        )
+        snapshot["capital"] = {
+            "capital_base": round(float(capital_base), 2),
+            "source": capital_snapshot.get("source"),
+            "source_status": capital_snapshot.get("source_status"),
+        }
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        snapshot["data_sources"] = {
+            "paper_trades_db": str(paper_db_path),
+            "state_db": str(state_db_path),
+            "loaded_paper_executions": len(paper_trades),
+            "loaded_trade_ledger_rows": len(ledger_trades),
+            "deduplicated_observations": len(trades),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation quant validation")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

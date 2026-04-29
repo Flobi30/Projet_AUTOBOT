@@ -8,6 +8,7 @@ import Capital from './pages/Capital';
 
 import Diagnostic from './pages/Diagnostic';
 import Performance from './pages/Performance';
+import QuantValidation from './pages/QuantValidation';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,6 +34,7 @@ function App() {
               <Route path="/performance" element={<Performance />} />
               <Route path="/capital" element={<Capital />} />
               <Route path="/diagnostic" element={<Diagnostic />} />
+              <Route path="/quant-validation" element={<QuantValidation />} />
             </Routes>
           </main>
         </div>
