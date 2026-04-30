@@ -1080,7 +1080,17 @@ class SignalHandlerAsync:
             exchange_total = float(tb.get("equivalent_balance") or 0.0)
         else:
             exchange_total = float(exchange_balance.get("ZEUR", exchange_balance.get("EUR", 0.0)))
-        divergences = self._reconciler.compare_balances(local_total, exchange_total)
+        paper_reconciliation = self._is_paper_reconciliation_mode()
+        if paper_reconciliation:
+            divergences = []
+            logger.info(
+                "Paper reconciliation: balance drift tracked without kill "
+                "(allocated=%.2f paper_equity=%.2f)",
+                local_total,
+                exchange_total,
+            )
+        else:
+            divergences = self._reconciler.compare_balances(local_total, exchange_total)
         # Deeper parity: fees / realized / unrealized PnL aggregates
         exchange_realized = self._to_optional_float(tb.get("n") if isinstance(tb, dict) else None)
         exchange_unrealized = self._to_optional_float(tb.get("u") if isinstance(tb, dict) else None)
@@ -1122,12 +1132,16 @@ class SignalHandlerAsync:
         if self._reconciler.should_kill_switch(divergences):
             await self._kill_switch.trigger("reconciliation_mismatch", divergences[0].message)
 
+    def _is_paper_reconciliation_mode(self) -> bool:
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        return bool(getattr(orchestrator, "paper_mode", False)) or (
+            self.order_executor is not None
+            and self.order_executor.__class__.__name__ == "PaperTradingExecutor"
+        )
+
     def _local_total_for_reconciliation(self) -> float:
         orchestrator = getattr(self.instance, "orchestrator", None)
-        paper_mode = bool(getattr(orchestrator, "paper_mode", False)) or (
-            self.order_executor.__class__.__name__ == "PaperTradingExecutor"
-        )
-        if paper_mode:
+        if self._is_paper_reconciliation_mode():
             total = 0.0
             instances = getattr(orchestrator, "_instances", None)
             if isinstance(instances, dict):

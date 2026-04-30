@@ -192,6 +192,28 @@ async def test_post_trade_reconcile_paper_uses_global_runtime_capital():
 
 
 @pytest.mark.asyncio
+async def test_post_trade_reconcile_paper_allows_mark_to_market_equity_drift():
+    instance = _DummyInstance()
+    instance.get_current_capital = lambda: 800.0
+    instance._persistence = _DummyPersistence(total_fees=1.5)
+    instance.orchestrator = SimpleNamespace(
+        paper_mode=True,
+        _instances={"inst": instance},
+        shadow_manager=SimpleNamespace(_shadow_capital_pool=200.0),
+    )
+    executor = _DummyExecutor(
+        balance_zeur=802.0,
+        trade_balance={"equivalent_balance": 1062.10, "n": 10.0, "u": 1.0, "c": 1.5},
+    )
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._kill_switch = _DummyKillSwitch()
+
+    await handler._post_trade_reconcile()
+
+    assert handler._kill_switch.triggers == []
+
+
+@pytest.mark.asyncio
 async def test_post_trade_reconcile_partial_local_data_logs_incomplete(caplog):
     instance = _DummyInstance()
     instance._last_price = None
