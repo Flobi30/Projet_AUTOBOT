@@ -3,6 +3,7 @@ import pytest
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,10 +15,11 @@ from autobot.v2.strategies import SignalType, TradingSignal
 
 pytestmark = pytest.mark.integration
 
-def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
+@pytest.mark.asyncio
+async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(str(db))
-    p.append_trade_ledger(
+    await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -28,7 +30,7 @@ def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
         realized_pnl=10.0,
         is_closing_leg=True,
     )
-    p.append_trade_ledger(
+    await p.append_trade_ledger(
         trade_id="t2",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -39,7 +41,7 @@ def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
         realized_pnl=-5.0,
         is_closing_leg=True,
     )
-    metrics = p.get_trade_ledger_metrics("i1")
+    metrics = await p.get_trade_ledger_metrics("i1")
     assert metrics["trade_count"] == 2.0
     assert metrics["profit_factor"] == 2.0
     assert metrics["expectancy"] == 2.5
@@ -164,6 +166,29 @@ async def test_post_trade_reconcile_detects_real_divergence():
 
     assert handler._kill_switch.triggers
     assert handler._kill_switch.triggers[0][0] == "reconciliation_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_post_trade_reconcile_paper_uses_global_runtime_capital():
+    instance = _DummyInstance()
+    instance.get_current_capital = lambda: 61.54
+    instance._persistence = _DummyPersistence(total_fees=1.5)
+    sibling = SimpleNamespace(get_current_capital=lambda: 738.46)
+    instance.orchestrator = SimpleNamespace(
+        paper_mode=True,
+        _instances={"inst": instance, "sibling": sibling},
+        shadow_manager=SimpleNamespace(_shadow_capital_pool=200.0),
+    )
+    executor = _DummyExecutor(
+        balance_zeur=1000.0,
+        trade_balance={"equivalent_balance": 1000.0, "n": 10.0, "u": 1.0, "c": 1.5},
+    )
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._kill_switch = _DummyKillSwitch()
+
+    await handler._post_trade_reconcile()
+
+    assert handler._kill_switch.triggers == []
 
 
 @pytest.mark.asyncio

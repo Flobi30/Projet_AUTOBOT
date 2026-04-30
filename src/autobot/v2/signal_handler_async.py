@@ -1074,7 +1074,7 @@ class SignalHandlerAsync:
         exchange_balance = await self.order_executor.get_balance()
         if exchange_balance:
             self._kill_switch.record_balance_freshness(time.time())
-        local_total = self.instance.get_current_capital()
+        local_total = self._local_total_for_reconciliation()
         tb = await self.order_executor.get_trade_balance("EUR")
         if isinstance(tb, dict) and "equivalent_balance" in tb:
             exchange_total = float(tb.get("equivalent_balance") or 0.0)
@@ -1121,6 +1121,29 @@ class SignalHandlerAsync:
         )
         if self._reconciler.should_kill_switch(divergences):
             await self._kill_switch.trigger("reconciliation_mismatch", divergences[0].message)
+
+    def _local_total_for_reconciliation(self) -> float:
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", False)) or (
+            self.order_executor.__class__.__name__ == "PaperTradingExecutor"
+        )
+        if paper_mode:
+            total = 0.0
+            instances = getattr(orchestrator, "_instances", None)
+            if isinstance(instances, dict):
+                for inst in instances.values():
+                    try:
+                        total += max(0.0, float(inst.get_current_capital()))
+                    except Exception:
+                        continue
+            shadow_manager = getattr(orchestrator, "shadow_manager", None)
+            try:
+                total += max(0.0, float(getattr(shadow_manager, "_shadow_capital_pool", 0.0)))
+            except Exception:
+                pass
+            if total > 0.0:
+                return total
+        return float(self.instance.get_current_capital())
 
     async def _on_kill_switch_triggered(self, event) -> None:
         """Automatic hard stop when safety rules are violated."""

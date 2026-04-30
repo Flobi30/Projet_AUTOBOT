@@ -126,25 +126,67 @@ class PaperTradingExecutor:
 
     @staticmethod
     def _asset_for_symbol(symbol: str) -> str:
+        symbol = symbol.upper().replace("/", "").replace("-", "")
         if "ETH" in symbol:
             return "XETH"
         if "BTC" in symbol or "XBT" in symbol:
             return "XXBT"
+        if "LTC" in symbol:
+            return "XLTC"
+        if "XRP" in symbol:
+            return "XXRP"
+        if "XLM" in symbol:
+            return "XXLM"
+        if "DOGE" in symbol or "XDG" in symbol:
+            return "XDG"
         return symbol.replace("ZEUR", "").replace("EUR", "")
 
     @staticmethod
     def _symbol_for_asset(asset: str) -> str:
+        asset = asset.upper()
         if asset == "XETH":
             return "XETHZEUR"
         if asset == "XXBT":
             return "XXBTZEUR"
+        if asset == "XLTC":
+            return "XLTCZEUR"
+        if asset == "XXRP":
+            return "XXRPZEUR"
+        if asset == "XXLM":
+            return "XXLMZEUR"
+        if asset == "XDG":
+            return "XDGEUR"
+        direct_eur_assets = {"SOL", "TRX", "ADA", "DOT", "LINK", "AVAX", "BCH"}
+        if asset in direct_eur_assets:
+            return f"{asset}EUR"
         return f"{asset}ZEUR"
 
     @staticmethod
     def _fallback_price_for_symbol(symbol: str) -> float:
-        if "ETH" in symbol:
-            return 2000.0
-        return 60000.0
+        normalized = symbol.upper().replace("/", "").replace("-", "")
+        fallback_prices = {
+            "XXBTZEUR": 65000.0,
+            "XBTZEUR": 65000.0,
+            "BTCEUR": 65000.0,
+            "XETHZEUR": 2000.0,
+            "ETHEUR": 2000.0,
+            "XLTCZEUR": 90.0,
+            "LTCEUR": 90.0,
+            "XXRPZEUR": 2.0,
+            "XRPEUR": 2.0,
+            "XXLMZEUR": 0.15,
+            "XLMEUR": 0.15,
+            "SOLEUR": 150.0,
+            "TRXEUR": 0.30,
+            "ADAEUR": 0.70,
+            "XDGEUR": 0.20,
+            "DOGEEUR": 0.20,
+            "DOTEUR": 6.0,
+            "LINKEUR": 15.0,
+            "AVAXEUR": 35.0,
+            "BCHEUR": 450.0,
+        }
+        return fallback_prices.get(normalized, 1.0)
 
     @staticmethod
     def _timestamp_to_epoch(timestamp: str) -> float:
