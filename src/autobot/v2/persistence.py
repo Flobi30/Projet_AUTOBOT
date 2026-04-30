@@ -566,8 +566,22 @@ class StatePersistence:
     async def get_execution_fee(self, instance_id: str, exchange_order_id: str) -> Optional[float]:
         return await self.audit.get_execution_fee(instance_id, exchange_order_id)
 
-    async def save_position(self, **kwargs) -> bool:
+    async def save_position(self, *args, **kwargs) -> bool:
         await self.initialize()
+        if args:
+            fields = (
+                "position_id",
+                "instance_id",
+                "buy_price",
+                "volume",
+                "status",
+                "strategy",
+                "metadata",
+            )
+            if len(args) > len(fields):
+                raise TypeError(f"save_position expected at most {len(fields)} positional arguments, got {len(args)}")
+            for key, value in zip(fields, args):
+                kwargs.setdefault(key, value)
         return await self.positions.save_position(**kwargs)
 
     async def update_position_status(self, position_id: str, status: str) -> bool:
