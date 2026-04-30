@@ -27,6 +27,16 @@ class _Config:
     max_position_capital_pct: float = 20.0
 
 
+class _SlottedConfig:
+    __slots__ = ("api_key", "max_positions", "strategy", "symbol")
+
+    def __init__(self):
+        self.api_key = "secret-test-key"
+        self.max_positions = 5
+        self.strategy = "grid"
+        self.symbol = "XXBTZEUR"
+
+
 class _Instance:
     def __init__(self):
         self.id = "inst-unit"
@@ -214,6 +224,19 @@ def test_init_loads_env_and_clamps_invalid_ranges():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def test_config_hash_supports_slotted_configs_and_redacts_secrets():
+    instance = _Instance()
+    instance.config = _SlottedConfig()
+    handler = SignalHandlerAsync(instance=instance, order_executor=None)
+
+    payload = handler._config_payload_for_audit(instance.config)
+
+    assert payload["api_key"] == "<redacted>"
+    assert payload["max_positions"] == 5
+    assert payload["strategy"] == "grid"
+    assert len(handler._config_hash()) == 64
 
 
 async def _noop_reconcile():

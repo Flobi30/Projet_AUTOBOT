@@ -14,8 +14,10 @@ import sqlite3
 import time
 import uuid
 import hashlib
+import json
 from collections import deque
 from copy import deepcopy
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -194,6 +196,74 @@ class SignalHandlerAsync:
             else:
                 serialized[key] = value
         return serialized
+
+    @staticmethod
+    def _is_sensitive_config_key(key: str) -> bool:
+        lowered = key.lower()
+        return any(
+            marker in lowered
+            for marker in ("token", "secret", "password", "api_key", "private_key")
+        )
+
+    @classmethod
+    def _audit_safe_value(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {
+                str(key): (
+                    "<redacted>"
+                    if cls._is_sensitive_config_key(str(key))
+                    else cls._audit_safe_value(item)
+                )
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }
+        if isinstance(value, set):
+            return [cls._audit_safe_value(item) for item in sorted(value, key=repr)]
+        if isinstance(value, (list, tuple)):
+            return [cls._audit_safe_value(item) for item in value]
+        return repr(value)
+
+    @classmethod
+    def _config_payload_for_audit(cls, config: Any) -> dict[str, Any]:
+        if config is None:
+            return {}
+
+        raw_payload: dict[str, Any] = {}
+        if is_dataclass(config):
+            raw_payload = asdict(config)
+        elif isinstance(config, dict):
+            raw_payload = dict(config)
+        else:
+            config_dict = getattr(config, "__dict__", None)
+            if isinstance(config_dict, dict):
+                raw_payload = dict(config_dict)
+            else:
+                slots = getattr(config, "__slots__", ())
+                if isinstance(slots, str):
+                    slots = (slots,)
+                for attr in slots:
+                    if attr.startswith("_"):
+                        continue
+                    try:
+                        raw_payload[attr] = getattr(config, attr)
+                    except AttributeError:
+                        continue
+
+        return {
+            str(key): (
+                "<redacted>"
+                if cls._is_sensitive_config_key(str(key))
+                else cls._audit_safe_value(value)
+            )
+            for key, value in sorted(raw_payload.items(), key=lambda pair: str(pair[0]))
+            if not str(key).startswith("_") and not callable(value)
+        }
+
+    def _config_hash(self) -> str:
+        payload = self._config_payload_for_audit(getattr(self.instance, "config", None))
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=repr)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def _estimate_total_runtime_capital(self) -> float:
         orchestrator = getattr(self.instance, "orchestrator", None)
@@ -845,9 +915,7 @@ class SignalHandlerAsync:
                 ))
             logger.info(f"✅ Position créée: {position.id}")
             # Immutable audit event
-            config_hash = hashlib.sha256(
-                str(vars(self.instance.config)).encode("utf-8")
-            ).hexdigest()
+            config_hash = self._config_hash()
             if persistence is not None and hasattr(persistence, "append_audit_event"):
                 await self._maybe_await(persistence.append_audit_event(
                     event_id=f"evt_{uuid.uuid4().hex}",
