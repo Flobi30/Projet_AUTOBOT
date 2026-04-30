@@ -244,7 +244,7 @@ const Capital: React.FC = () => {
               value: formatCurrency(paperAvailable),
               hint: 'Part du capital paper actif non engagee pour le moment.',
             },
-            { label: 'Strategies / paires', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
+            { label: 'Paires paper actives / surveillees', value: `${paperSummary?.paper_instances ?? 'Non disponible'} / ${paperSummary?.pairs_tested ?? 'Non disponible'}` },
           ]
         )}
 

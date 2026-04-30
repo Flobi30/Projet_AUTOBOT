@@ -225,7 +225,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               <div>Capital AUTOBOT: <strong>{formatCurrency(displayedCapital)}</strong></div>
               <div>Disponible: <strong>{formatCurrency(displayedAvailable)}</strong></div>
               <div>
-                Strategies: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
+                Paires paper actives: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
               </div>
               <div>
                 Kill switch:{' '}
@@ -241,7 +241,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                 {typeof colony?.runtime?.child_count === 'number' ? <span> / {colony.runtime.child_count}</span> : null}
               </div>
               <div>
-                Routage: <strong>{colony?.runtime?.routing_symbol_count ?? 'Non disponible'}</strong>
+                Paires routees: <strong>{colony?.runtime?.routing_symbol_count ?? 'Non disponible'}</strong>
                 {typeof colony?.runtime?.unassigned_symbol_count === 'number' && colony.runtime.unassigned_symbol_count > 0 ? (
                   <span className="text-amber-300"> ({colony.runtime.unassigned_symbol_count} non assignees)</span>
                 ) : null}

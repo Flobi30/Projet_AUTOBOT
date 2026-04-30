@@ -133,7 +133,7 @@ const Performance: React.FC = () => {
           <MetricCard title="Profit Total" value={`${pos?'+':''}${fmtEur(globalPerf.profit_total)}`} change={`${pos?'+':''}${fmt(globalPerf.profit_percent)}%`} isPositive={pos} icon={<TrendingUp className="w-5 h-5"/>}/>
           <MetricCard title="Profit Factor" value={fmt(globalPerf.profit_factor)} icon={<Target className="w-5 h-5"/>}/>
           <MetricCard title="Win Rate" value={`${fmt(globalPerf.win_rate,1)}%`} icon={<BarChart3 className="w-5 h-5"/>}/>
-          <MetricCard title="Strategies actives" value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} trades`} icon={<Activity className="w-5 h-5"/>}/>
+          <MetricCard title={capitalData?.paper_mode ? 'Paires paper actives' : 'Strategies actives'} value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} trades`} icon={<Activity className="w-5 h-5"/>}/>
         </div>
         {globalPerf.history.length > 1 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
@@ -283,8 +283,8 @@ const Performance: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <MetricCard title="Strategies paper actives" value={String(paperSummary.active_instances)} icon={<GraduationCap className="w-5 h-5"/>}/>
-          <MetricCard title="Strategies live" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
+          <MetricCard title="Paires paper actives" value={String(paperSummary.active_instances)} icon={<GraduationCap className="w-5 h-5"/>}/>
+          <MetricCard title="Paires live actives" value={String(paperSummary.live_instances)} icon={<Activity className="w-5 h-5"/>}/>
           <MetricCard title="Paires surveillees" value={String(paperSummary.pairs_tested)} icon={<Layers className="w-5 h-5"/>}/>
         </div>
         {paperSummary.by_pair.length > 0 && (
@@ -295,7 +295,7 @@ const Performance: React.FC = () => {
                 <thead>
                   <tr className="border-b border-gray-700">
                     <th className="text-left py-3 px-4 text-gray-400 font-medium">Paire</th>
-                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Strategies</th>
+                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Logiques sur paire</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Trades</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Profit Moy.</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">PF Moy.</th>
@@ -389,7 +389,7 @@ const Performance: React.FC = () => {
                 {botStatus.websocket_connected ? <Wifi className="w-4 h-4 text-emerald-400"/> : <WifiOff className="w-4 h-4 text-red-400"/>}
                 {botStatus.websocket_connected ? <span className="text-emerald-400 ml-1">Connecté</span> : <span className="text-red-400 ml-1">Déconnecté</span>}
               </span>
-              <span>Strategies : <strong className="text-white">{botStatus.instance_count}</strong></span>
+              <span>Paires paper actives : <strong className="text-white">{botStatus.instance_count}</strong></span>
               <span className="flex items-center gap-1"><Clock className="w-4 h-4"/> Uptime : <strong className="text-white">{formatUptime(botStatus.uptime_seconds)}</strong></span>
             </div>
           </div>

@@ -96,6 +96,23 @@ const formatCurrency = (value?: number) =>
     ? value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
     : 'En attente';
 
+const formatClosedTrades = (quality?: BacktestQuality) =>
+  `${quality?.sample.realized_trade_count ?? 0}/${quality?.sample.min_trades ?? 0}`;
+
+const qualityReason = (
+  kind: 'pbo' | 'dsr',
+  reason: string | undefined,
+  quality?: BacktestQuality
+) => {
+  const closed = quality?.sample.realized_trade_count ?? 0;
+  const required = quality?.sample.min_trades ?? 0;
+  if (!reason || reason === 'not_enough_realized_trades') {
+    return `En attente: ${closed}/${required} trades paper clotures.`;
+  }
+  if (kind === 'pbo') return reason;
+  return reason;
+};
+
 const stateClass = (state?: string) => {
   if (state === 'candidate' || state === 'acceptable' || state === 'normal') return 'text-emerald-400';
   if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme') return 'text-red-400';
@@ -184,14 +201,18 @@ const QuantValidation: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
         <MetricCard title="Mode" value={data?.paper_mode ? 'PAPER' : (data?.mode ?? 'Inconnu').toUpperCase()} icon={<Activity className="w-5 h-5" />} />
         <MetricCard title="Capital observe" value={formatCurrency(data?.capital?.capital_base)} icon={<TrendingUp className="w-5 h-5" />} />
-        <MetricCard title="Trades clotures" value={`${quality?.sample.realized_trade_count ?? 0}/${quality?.sample.min_trades ?? 0}`} icon={<BarChart3 className="w-5 h-5" />} />
+        <MetricCard title="Trades paper clotures" value={formatClosedTrades(quality)} change="minimum validation" icon={<BarChart3 className="w-5 h-5" />} />
         <MetricCard title="PBO / DSR" value={`${formatPct(quality?.pbo.probability, 100)} / ${formatPct(quality?.dsr.probability, 100)}`} icon={<ShieldCheck className="w-5 h-5" />} />
+      </div>
+
+      <div className="mb-6 border border-blue-500/25 bg-blue-500/10 rounded-xl p-4 text-sm text-blue-100/90">
+        <strong className="text-white">Lecture rapide:</strong> ce panneau valide le paper/shadow. PBO et DSR restent en attente tant que le bot n'a pas assez de trades paper termines; ils ne declenchent pas le live automatiquement.
       </div>
 
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6 mb-8">
         <section className="bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
-            <h2 className="text-xl font-bold text-white">Qualite backtest paper</h2>
+            <h2 className="text-xl font-bold text-white">Qualite validation paper</h2>
             <span className={`text-sm font-semibold ${stateClass(quality?.status)}`}>
               {quality?.status ?? 'indisponible'}
             </span>
@@ -229,19 +250,19 @@ const QuantValidation: React.FC = () => {
           <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div className="border border-gray-700 rounded-lg p-3">
               <div className="flex justify-between">
-                <span className="text-gray-400">PBO</span>
+                <span className="text-gray-400">PBO - risque surapprentissage</span>
                 <span className={stateClass(quality?.pbo.status)}>{quality?.pbo.status ?? 'indisponible'}</span>
               </div>
               <div className="text-white font-semibold mt-1">{formatPct(quality?.pbo.probability, 100)}</div>
-              <div className="text-xs text-gray-500 mt-1">{quality?.pbo.reason ?? 'En attente'}</div>
+              <div className="text-xs text-gray-500 mt-1">{qualityReason('pbo', quality?.pbo.reason, quality)}</div>
             </div>
             <div className="border border-gray-700 rounded-lg p-3">
               <div className="flex justify-between">
-                <span className="text-gray-400">DSR</span>
+                <span className="text-gray-400">DSR - Sharpe ajuste</span>
                 <span className={stateClass(quality?.dsr.status)}>{quality?.dsr.status ?? 'indisponible'}</span>
               </div>
               <div className="text-white font-semibold mt-1">{formatPct(quality?.dsr.probability, 100)}</div>
-              <div className="text-xs text-gray-500 mt-1">{quality?.dsr.reason ?? 'En attente'}</div>
+              <div className="text-xs text-gray-500 mt-1">{qualityReason('dsr', quality?.dsr.reason, quality)}</div>
             </div>
           </div>
         </section>

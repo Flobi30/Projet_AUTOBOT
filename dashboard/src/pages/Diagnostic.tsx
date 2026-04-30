@@ -355,7 +355,6 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
   const activeStyle = child.active
     ? 'border-emerald-500/30 bg-emerald-500/10'
     : 'border-gray-700/60 bg-gray-700/20';
-  const assignedCapital = child.assigned_instances.reduce((total, inst) => total + (inst.capital_eur ?? 0), 0);
   return (
     <div className={`rounded-xl border p-4 ${activeStyle}`}>
       <div className="flex items-start justify-between gap-3 mb-3">
@@ -373,15 +372,15 @@ const ColonyEngineCard: React.FC<{ child: ColonyChild }> = ({ child }) => {
           <div className="text-white font-bold">{child.score.toFixed(1)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Capital suivi</div>
-          <div className="text-white font-bold">{formatCurrency(assignedCapital)}</div>
+          <div className="text-gray-500">Budget paper moteur</div>
+          <div className="text-white font-bold">{formatCurrency(child.budget_eur)}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Paires suivies</div>
+          <div className="text-gray-500">Paires assignees</div>
           <div className="text-white font-bold">{child.assigned_instances.length}</div>
         </div>
         <div className="bg-gray-900/40 rounded-lg p-2">
-          <div className="text-gray-500">Capacite</div>
+          <div className="text-gray-500">Slots paires</div>
           <div className="text-white font-bold">{child.candidate_symbols.length}/{child.capacity_symbols}</div>
         </div>
       </div>
@@ -632,7 +631,7 @@ const Diagnostic: React.FC = () => {
               Moteurs paper
             </h3>
             <p className="text-gray-400 text-sm mt-1">
-              {colony ? `${colony.runtime.routing_symbol_count} paires surveillees, routees vers ${colony.runtime.child_count} moteur(s) logique(s)` : 'Non disponible'}
+              {colony ? `${colony.runtime.routing_symbol_count} paires paper actives, reparties vers ${colony.runtime.child_count} moteur(s) logique(s)` : 'Non disponible'}
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm w-full lg:w-auto">
@@ -641,7 +640,7 @@ const Diagnostic: React.FC = () => {
               <div className="text-white font-bold">{colony?.runtime.active_children_count ?? 'Non disponible'}</div>
             </div>
             <div className="bg-gray-900/40 rounded-xl p-3">
-              <div className="text-gray-500">Paires suivies</div>
+              <div className="text-gray-500">Paires paper actives</div>
               <div className="text-white font-bold">{colony?.runtime.instance_count ?? 'Non disponible'}</div>
             </div>
             <div className="bg-gray-900/40 rounded-xl p-3">
@@ -695,9 +694,9 @@ const Diagnostic: React.FC = () => {
           <div className="mt-4 bg-gray-900/30 border border-gray-700/60 rounded-xl p-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
               <div>
-                <h4 className="text-white font-bold">Duplication mere/enfant</h4>
+                <h4 className="text-white font-bold">Plan de duplication paper</h4>
                 <p className="text-gray-500 text-xs">
-                  Une instance peut creer un seul enfant; chaque enfant peut ensuite se diviser a son tour si les seuils sont atteints.
+                  Simulation de croissance: un noeud paper peut creer au maximum un enfant logique; aucune creation live automatique.
                 </p>
               </div>
               <span className="text-gray-400 text-xs">
@@ -706,7 +705,7 @@ const Diagnostic: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
               <div className="bg-gray-800/70 rounded-lg p-3">
-                <div className="text-gray-500">Instances</div>
+                <div className="text-gray-500">Noeuds paper</div>
                 <div className="text-white font-bold">{colony.lineage.summary?.node_count ?? 0}</div>
               </div>
               <div className="bg-gray-800/70 rounded-lg p-3">
@@ -733,7 +732,7 @@ const Diagnostic: React.FC = () => {
                     Parent: {node.parent_id ?? 'racine'} / enfants: {node.child_count ?? 0}
                   </div>
                   <div className="text-gray-500 text-xs mt-1">
-                    Capital: {formatCurrency(node.capital_eur)} / {node.can_split_again ? 'peut encore creer un enfant' : 'deja divisee'}
+                    Budget paper: {formatCurrency(node.capital_eur)} / {node.can_split_again ? 'peut encore creer un enfant paper' : 'deja divisee'}
                   </div>
                 </div>
               ))}
@@ -746,7 +745,7 @@ const Diagnostic: React.FC = () => {
               <div>
                 <h4 className="text-white font-bold">Routage par potentiel</h4>
                 <p className="text-gray-500 text-xs">
-                  Chaque paire est scoree contre chaque moteur; un seul moteur devient proprietaire d execution.
+                  Chaque paire est scoree contre chaque moteur; un seul moteur paper devient proprietaire d execution pour eviter les doublons.
                 </p>
               </div>
               <span className="text-gray-400 text-xs">{colony.routing.decision_count ?? colony.routing.decisions.length} decision(s)</span>

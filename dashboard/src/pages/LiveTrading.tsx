@@ -273,9 +273,9 @@ const LiveTrading: React.FC = () => {
           icon={<TrendingUp className="w-5 h-5" />} 
         />
         <MetricCard 
-          title="Instances Actives" 
+          title="Paires actives" 
           value={globalStatus?.instance_count.toString() || '0'}
-          change={globalStatus ? `${globalStatus.instance_count} stratégie(s)` : undefined}
+          change={globalStatus ? `${globalStatus.instance_count} paire(s)` : undefined}
           icon={<Target className="w-5 h-5" />} 
         />
       </div>
