@@ -627,16 +627,28 @@ class SignalHandlerAsync:
             volume = min(volume, capped_volume)
 
         symbol = self._convert_symbol(signal.symbol)
-        if not self._passes_order_size_guard(
+        volume_before_min_adjustment = volume
+        normalized_volume = self._normalize_buy_volume_for_minimum(
             symbol=symbol,
-            side="buy",
             volume=volume,
             price=signal.price,
             available_capital=available,
+            max_order_value=max_order_value,
             signal_reason=getattr(signal, "reason", None),
             opportunity=opportunity_payload,
-        ):
+        )
+        if normalized_volume is None:
             return
+        volume = normalized_volume
+        order_size_adjustment = None
+        if volume > volume_before_min_adjustment:
+            order_size_adjustment = {
+                "reason": "rounded_to_min_order_volume",
+                "original_volume": round(float(volume_before_min_adjustment), 12),
+                "adjusted_volume": round(float(volume), 12),
+                "original_order_value": round(float(volume_before_min_adjustment * signal.price), 8),
+                "adjusted_order_value": round(float(volume * signal.price), 8),
+            }
         accepted_edge_details = {
             key: round(float(value), 6)
             for key, value in edge_ctx.items()
@@ -664,6 +676,7 @@ class SignalHandlerAsync:
             edge_context=accepted_edge_details,
             opportunity=opportunity_payload,
             opportunity_gate=opportunity_gate,
+            order_size_adjustment=order_size_adjustment,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
@@ -1114,6 +1127,85 @@ class SignalHandlerAsync:
             symbol,
         )
         return False
+
+    def _normalize_buy_volume_for_minimum(
+        self,
+        *,
+        symbol: str,
+        volume: float,
+        price: float,
+        available_capital: float,
+        max_order_value: float,
+        signal_reason: Optional[str] = None,
+        opportunity: Optional[dict[str, Any]] = None,
+    ) -> Optional[float]:
+        min_volume = self._min_order_volume(symbol)
+        if min_volume <= 0.0 or volume >= min_volume:
+            return volume
+
+        min_notional = min_volume * max(0.0, float(price))
+        actual_notional = max(0.0, float(volume)) * max(0.0, float(price))
+        fee_buffer = self._load_float_in_range(
+            "min_order_fee_buffer_mult",
+            "MIN_ORDER_FEE_BUFFER_MULT",
+            1.01,
+            minimum=1.0,
+            maximum=1.10,
+        )
+        required_cash = min_notional * fee_buffer
+        recommended_order = 0.0
+        opportunity_status = None
+        if isinstance(opportunity, dict):
+            opportunity_status = opportunity.get("status")
+            try:
+                recommended_order = float(opportunity.get("recommended_order_eur") or 0.0)
+            except (TypeError, ValueError):
+                recommended_order = 0.0
+
+        can_round_up = (
+            min_notional > 0.0
+            and required_cash <= max(0.0, float(available_capital))
+            and min_notional <= max(0.0, float(max_order_value))
+            and opportunity_status == "tradable"
+            and recommended_order >= min_notional
+        )
+        if can_round_up:
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_size_adjusted",
+                reason="rounded_to_min_order_volume",
+                symbol=symbol,
+                side="buy",
+                original_volume=round(float(volume), 12),
+                adjusted_volume=round(float(min_volume), 12),
+                original_order_value=round(float(actual_notional), 8),
+                adjusted_order_value=round(float(min_notional), 8),
+                min_volume=round(float(min_volume), 12),
+                available_capital=round(float(available_capital), 8),
+                max_order_value=round(float(max_order_value), 8),
+                recommended_order_eur=round(float(recommended_order), 8),
+                signal_price=float(price),
+                signal_reason=signal_reason,
+                opportunity=opportunity,
+            )
+            logger.info(
+                "Signal BUY ajuste au minimum executable: %.12f -> %.12f pour %s",
+                volume,
+                min_volume,
+                symbol,
+            )
+            return min_volume
+
+        self._passes_order_size_guard(
+            symbol=symbol,
+            side="buy",
+            volume=volume,
+            price=price,
+            available_capital=available_capital,
+            signal_reason=signal_reason,
+            opportunity=opportunity,
+        )
+        return None
 
     def _estimate_atr_pct(self, fallback_price: float) -> float:
         """Lightweight ATR proxy from recent close-to-close moves."""

@@ -87,14 +87,19 @@ class _Executor:
     def __init__(self):
         self.market_calls = 0
         self.limit_calls = 0
+        self.volumes = []
 
-    async def execute_market_order(self, *_args, **_kwargs):
+    async def execute_market_order(self, *args, **kwargs):
         self.market_calls += 1
-        return OrderResult(success=True, txid="buy-1", executed_volume=0.2, executed_price=100.0)
+        volume = kwargs.get("volume", args[2] if len(args) > 2 else 0.0)
+        self.volumes.append(float(volume))
+        return OrderResult(success=True, txid="buy-1", executed_volume=float(volume), executed_price=100.0)
 
-    async def execute_limit_order(self, *_args, **_kwargs):
+    async def execute_limit_order(self, *args, **kwargs):
         self.limit_calls += 1
-        return OrderResult(success=True, txid="buy-1", executed_volume=0.2, executed_price=100.0)
+        volume = kwargs.get("volume", args[2] if len(args) > 2 else 0.0)
+        self.volumes.append(float(volume))
+        return OrderResult(success=True, txid="buy-1", executed_volume=float(volume), executed_price=100.0)
 
     async def execute_stop_loss_order(self, *_args, **_kwargs):
         return OrderResult(success=True, txid="sl-1")
@@ -126,7 +131,7 @@ async def test_execute_buy_and_cost_guard_without_external_injection():
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_blocks_order_below_minimum_before_executor():
+async def test_execute_buy_rounds_to_minimum_when_budget_and_opportunity_allow():
     executor = _Executor()
     osm = _CountingOSM()
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
@@ -147,9 +152,39 @@ async def test_execute_buy_blocks_order_below_minimum_before_executor():
 
     await handler._execute_buy(signal)
 
+    assert osm.new_order_calls == 1
+    assert executor.volumes == [0.0001]
+    assert len(handler.instance.opened) == 1
+    assert handler._last_decision_event["reason"] == "all_guards_passed"
+    assert handler._last_decision_event["order_size_adjustment"]["reason"] == "rounded_to_min_order_volume"
+
+
+@pytest.mark.asyncio
+async def test_execute_buy_blocks_order_below_minimum_when_budget_too_small():
+    instance = _Instance()
+    instance.get_available_capital = lambda: 4.0
+    executor = _Executor()
+    osm = _CountingOSM()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = osm
+    handler._post_trade_reconcile = _noop_reconcile
+    handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": False}
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=65_000.0,
+        volume=0.000044,
+        reason="unit below min",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"spread_bps": 1.0, "expected_move_bps": 200.0, "fee_bps": 10.0, "slippage_bps": 2.0},
+    )
+
+    await handler._execute_buy(signal)
+
     assert osm.new_order_calls == 0
-    assert executor.market_calls == 0
-    assert executor.limit_calls == 0
+    assert executor.volumes == []
     assert handler.instance.opened == []
     assert handler._last_decision_event["reason"] == "order_size_below_minimum"
     assert handler._last_decision_event["min_volume"] == 0.0001
