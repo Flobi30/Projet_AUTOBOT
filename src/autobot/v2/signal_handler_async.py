@@ -627,6 +627,16 @@ class SignalHandlerAsync:
             volume = min(volume, capped_volume)
 
         symbol = self._convert_symbol(signal.symbol)
+        if not self._passes_order_size_guard(
+            symbol=symbol,
+            side="buy",
+            volume=volume,
+            price=signal.price,
+            available_capital=available,
+            signal_reason=getattr(signal, "reason", None),
+            opportunity=opportunity_payload,
+        ):
+            return
         accepted_edge_details = {
             key: round(float(value), 6)
             for key, value in edge_ctx.items()
@@ -686,6 +696,7 @@ class SignalHandlerAsync:
             )
 
         if not result.success:
+            local_validation_error = self._is_local_order_validation_error(result.error)
             self._record_runtime_event(
                 "_last_order_event",
                 event="order_rejected",
@@ -699,11 +710,12 @@ class SignalHandlerAsync:
             await self._maybe_await(self._osm.transition(
                 rec.client_order_id,
                 "REJECTED",
-                "exchange_error",
+                "local_order_validation" if local_validation_error else "exchange_error",
                 retries_delta=1,
                 last_error_message=result.error,
             ))
-            await self._kill_switch.record_api_failure(result.error or "unknown")
+            if not local_validation_error:
+                await self._kill_switch.record_api_failure(result.error or "unknown")
             return
         self._kill_switch.record_api_success()
         await self._maybe_await(self._osm.transition(
@@ -879,6 +891,15 @@ class SignalHandlerAsync:
             if not pos_id or vol <= 0:
                 continue
             symbol = self._convert_symbol(pos.get("symbol") or signal.symbol)
+            if not self._passes_order_size_guard(
+                symbol=symbol,
+                side="sell",
+                volume=float(vol),
+                price=float(signal.price),
+                available_capital=0.0,
+                signal_reason=getattr(signal, "reason", None),
+            ):
+                continue
 
             # ROB-01: WAL + Idempotency
             if await self._osm.is_duplicate_active(symbol, "sell"):
@@ -962,7 +983,8 @@ class SignalHandlerAsync:
                     error=(result.error or "unknown")[:240],
                 )
                 logger.error(f"❌ Échec vente: {result.error}")
-                await self._kill_switch.record_api_failure(result.error or "sell failed")
+                if not self._is_local_order_validation_error(result.error):
+                    await self._kill_switch.record_api_failure(result.error or "sell failed")
 
     async def _post_trade_reconcile(self) -> None:
         """Compare local vs exchange balance snapshots and trigger kill switch on critical drift."""
@@ -1034,6 +1056,64 @@ class SignalHandlerAsync:
             "ETH/USD": "XETHZUSD",
         }
         return mapping.get(symbol, symbol.replace("/", ""))
+
+    def _min_order_volume(self, symbol: str) -> float:
+        """Minimum executable volume used by the local executor contract."""
+        normalized = self._convert_symbol(symbol).upper().replace("/", "").replace("-", "_")
+        raw = os.getenv(f"MIN_ORDER_VOLUME_{normalized}", os.getenv("MIN_ORDER_VOLUME", "0.0001"))
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("MIN_ORDER_VOLUME invalide (%r), fallback=0.0001", raw)
+            return 0.0001
+        return max(0.0, value)
+
+    @staticmethod
+    def _is_local_order_validation_error(error: Optional[str]) -> bool:
+        text = str(error or "").lower()
+        return "volume" in text and ("minimum" in text or "min" in text)
+
+    def _passes_order_size_guard(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume: float,
+        price: float,
+        available_capital: float,
+        signal_reason: Optional[str] = None,
+        opportunity: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        min_volume = self._min_order_volume(symbol)
+        if min_volume <= 0.0 or volume >= min_volume:
+            return True
+
+        min_notional = min_volume * max(0.0, float(price))
+        actual_notional = max(0.0, float(volume)) * max(0.0, float(price))
+        self._record_runtime_event(
+            "_last_decision_event",
+            event=f"{side}_rejected",
+            reason="order_size_below_minimum",
+            symbol=symbol,
+            side=side,
+            volume=round(float(volume), 12),
+            min_volume=round(float(min_volume), 12),
+            order_value=round(float(actual_notional), 8),
+            min_order_value=round(float(min_notional), 8),
+            available_capital=round(float(available_capital), 8),
+            signal_price=float(price),
+            signal_reason=signal_reason,
+            opportunity=opportunity,
+            blocking_condition="volume < min_order_volume",
+        )
+        logger.info(
+            "Signal %s ignore: volume %.12f < minimum %.12f pour %s",
+            side.upper(),
+            volume,
+            min_volume,
+            symbol,
+        )
+        return False
 
     def _estimate_atr_pct(self, fallback_price: float) -> float:
         """Lightweight ATR proxy from recent close-to-close moves."""
