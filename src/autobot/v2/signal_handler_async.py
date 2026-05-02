@@ -530,6 +530,25 @@ class SignalHandlerAsync:
                 logger.warning(f"❌ [WAL] Ordre {client_order_id} introuvable sur l'échange -- marquage REJECTED")
                 await self._osm.transition(client_order_id, "REJECTED", "not_found_on_exchange_after_crash")
 
+    async def _execute_market_order_with_price_hint(
+        self,
+        symbol: str,
+        side: OrderSide,
+        volume: float,
+        *,
+        userref: Optional[int],
+        price_hint: Optional[float],
+    ) -> Any:
+        kwargs = {"userref": userref}
+        if (
+            self.order_executor is not None
+            and self.order_executor.__class__.__name__ == "PaperTradingExecutor"
+            and price_hint is not None
+            and price_hint > 0
+        ):
+            kwargs["price_hint"] = float(price_hint)
+        return await self.order_executor.execute_market_order(symbol, side, volume, **kwargs)
+
     async def _execute_buy(self, signal: TradingSignal) -> None:
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
         if await self._maybe_await(self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy")):
@@ -771,11 +790,12 @@ class SignalHandlerAsync:
                 userref=getattr(rec, "userref", None),
             )
         else:
-            result = await self.order_executor.execute_market_order(
+            result = await self._execute_market_order_with_price_hint(
                 symbol,
                 OrderSide.BUY,
                 volume,
                 userref=getattr(rec, "userref", None),
+                price_hint=signal.price,
             )
 
         if not result.success:
@@ -998,7 +1018,13 @@ class SignalHandlerAsync:
             await self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
 
             sl_txid = pos.get("stop_loss_txid")
-            result = await self.order_executor.execute_market_order(symbol, OrderSide.SELL, vol, userref=rec.userref)
+            result = await self._execute_market_order_with_price_hint(
+                symbol,
+                OrderSide.SELL,
+                vol,
+                userref=rec.userref,
+                price_hint=signal.price,
+            )
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)

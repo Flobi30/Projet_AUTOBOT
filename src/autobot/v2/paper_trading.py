@@ -262,6 +262,7 @@ class PaperTradingExecutor:
         side: OrderSide,
         volume: float,
         userref: Optional[int] = None,
+        price_hint: Optional[float] = None,
     ) -> OrderResult:
         """Simule un ordre MARKET avec exécution immédiate."""
         logger.info(f"📊 [PAPER] Ordre MARKET {side.value.upper()} {volume:.6f} {symbol}")
@@ -276,8 +277,12 @@ class PaperTradingExecutor:
         # Récupère le prix actuel du WebSocket
         price = await self._get_current_price(symbol)
         if price is None:
-            price = self._fallback_price_for_symbol(symbol)
-            logger.warning("[PAPER] Prix non disponible pour %s, fallback par symbole %.6f", symbol, price)
+            if price_hint is not None and price_hint > 0:
+                price = float(price_hint)
+                logger.info("[PAPER] Prix WebSocket indisponible pour %s, utilisation prix signal %.6f", symbol, price)
+            else:
+                price = self._fallback_price_for_symbol(symbol)
+                logger.warning("[PAPER] Prix non disponible pour %s, fallback par symbole %.6f", symbol, price)
         
         # Calcule les frais
         notional = volume * price

@@ -49,6 +49,27 @@ async def test_paper_market_order_uses_symbol_specific_fallback(tmp_path, monkey
 
 
 @pytest.mark.asyncio
+async def test_paper_market_order_prefers_signal_price_hint(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+
+    async def no_live_price(_symbol: str):
+        return None
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order(
+        "XETHZEUR",
+        OrderSide.SELL,
+        0.01,
+        userref=1234,
+        price_hint=1969.53,
+    )
+
+    assert result.success is True
+    assert result.executed_price == pytest.approx(1969.53)
+
+
+@pytest.mark.asyncio
 async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
