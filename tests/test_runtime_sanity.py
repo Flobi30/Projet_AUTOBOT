@@ -12,6 +12,7 @@ from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.instance_async import TradingInstanceAsync
 from autobot.v2.modules.black_swan import BlackSwanCatcher
 from autobot.v2.rebalance_manager import RebalanceManager
+from autobot.v2.strategies.grid_async import GridStrategyAsync
 
 
 pytestmark = pytest.mark.integration
@@ -37,6 +38,30 @@ class _FakeInstance:
 
     def get_status(self):
         return {"last_price": self._price}
+
+
+class _FakeGridInstance:
+    def __init__(self, available: float, positions=None):
+        self.config = SimpleNamespace(symbol="XETHZEUR")
+        self.orchestrator = SimpleNamespace(
+            module_manager=_FakeModuleManager({}),
+            ws_client=SimpleNamespace(is_data_fresh=lambda: True),
+        )
+        self._available = available
+        self._positions = positions or []
+        self._trades = []
+
+    def get_available_capital(self):
+        return self._available
+
+    def get_positions_snapshot(self):
+        return self._positions
+
+    def get_current_capital(self):
+        return 100.0
+
+    def get_profit_factor_days(self, _days):
+        return 1.0
 
 
 class _FakePersistence:
@@ -155,3 +180,53 @@ def test_instance_recovery_decodes_json_metadata_and_rebuilds_allocated_capital(
     assert inst._positions["pos-1"].buy_txid == "buy-1"
     assert inst._position_fee_hints["pos-1"]["buy_fee"] == pytest.approx(0.04)
     assert inst._execution_fee_cache["buy-1"]["source"] == "paper"
+
+
+def test_grid_pauses_buy_when_recovered_positions_exhaust_available_capital():
+    inst = _FakeGridInstance(available=-21.21)
+
+    strategy = GridStrategyAsync(
+        inst,
+        {
+            "center_price": 100.0,
+            "max_positions": 10,
+            "enable_dgt": False,
+            "kelly_active": False,
+        },
+    )
+
+    assert strategy._grid_initialized is True
+    assert strategy._runtime_capital_per_level == 0.0
+    assert strategy._calculate_kelly_cpl(100.0) == 0.0
+
+
+def test_grid_reconnects_recovered_positions_to_open_levels():
+    inst = _FakeGridInstance(
+        available=100.0,
+        positions=[
+            {
+                "status": "open",
+                "entry_price": 98.0,
+                "volume": 0.25,
+                "open_time": "2026-05-02T12:00:00+00:00",
+            }
+        ],
+    )
+    strategy = GridStrategyAsync(
+        inst,
+        {
+            "center_price": 100.0,
+            "range_percent": 4.0,
+            "num_levels": 5,
+            "max_positions": 5,
+            "enable_dgt": False,
+            "kelly_active": False,
+        },
+    )
+
+    strategy._sync_open_levels_from_instance_positions()
+
+    nearest = strategy._find_nearest_level(98.0)
+    assert strategy.open_levels[nearest]["entry_price"] == pytest.approx(98.0)
+    assert strategy.open_levels[nearest]["volume"] == pytest.approx(0.25)
+    assert strategy.open_levels[nearest]["recovered"] is True

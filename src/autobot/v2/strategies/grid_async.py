@@ -284,9 +284,25 @@ class GridStrategyAsync(StrategyAsync):
         available = self.instance.get_available_capital()
 
         if available <= 0:
-            raise ValueError(f"Capital invalide: {available:.2f}")
+            self._runtime_capital_per_level = 0.0
+            logger.info(
+                "Grid BUY paused for %s: capital disponible %.2f",
+                getattr(self.instance.config, "symbol", "UNKNOWN"),
+                available,
+            )
+            return
 
         max_buys = max(1, self.max_positions)
+        min_required = max_buys * 5.0 / 0.90
+        if available < min_required:
+            self._runtime_capital_per_level = 0.0
+            logger.info(
+                "Grid BUY paused for %s: capital disponible %.2f < %.2f",
+                getattr(self.instance.config, "symbol", "UNKNOWN"),
+                available,
+                min_required,
+            )
+            return
 
         # V3: Use DynamicGridAllocator if in adaptive mode
         if self._adaptive_mode and self._grid_allocator and self._pair_profile:
@@ -298,10 +314,6 @@ class GridStrategyAsync(StrategyAsync):
             usable = available * 0.90
             dynamic = usable / max_buys
             self._runtime_capital_per_level = max(5.0, min(dynamic, self.max_capital_per_level))
-
-        min_required = max_buys * 5.0 / 0.90
-        if available < min_required:
-            raise ValueError(f"Capital insuffisant: {available:.2f} < {min_required:.2f}")
 
         if self._spec_cache is not None:
             self._precompute_speculative_templates()
@@ -421,6 +433,44 @@ class GridStrategyAsync(StrategyAsync):
             return []
         return [i for i in range(nearest) if i not in self.open_levels]
 
+    def _sync_open_levels_from_instance_positions(self) -> None:
+        if not self.grid_levels or not hasattr(self.instance, "get_positions_snapshot"):
+            return
+        try:
+            positions = self.instance.get_positions_snapshot()
+        except Exception:
+            return
+        for pos in positions:
+            if pos.get("status") != "open":
+                continue
+            try:
+                entry_price = float(pos.get("entry_price") or pos.get("buy_price") or 0.0)
+                volume = float(pos.get("volume") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if entry_price <= 0.0 or volume <= 0.0:
+                continue
+            idx = self._find_nearest_level(entry_price)
+            if idx < 0:
+                continue
+            existing = self.open_levels.get(idx)
+            if existing:
+                old_volume = float(existing.get("volume", 0.0) or 0.0)
+                total_volume = old_volume + volume
+                if total_volume > 0:
+                    existing["entry_price"] = (
+                        (float(existing.get("entry_price", entry_price)) * old_volume)
+                        + (entry_price * volume)
+                    ) / total_volume
+                    existing["volume"] = total_volume
+                continue
+            self.open_levels[idx] = {
+                "entry_price": entry_price,
+                "volume": volume,
+                "opened_at": pos.get("open_time") or datetime.now(timezone.utc),
+                "recovered": True,
+            }
+
     def _build_buy_edge_metadata(self, level_index: int, current_price: float) -> Dict[str, float | str | int]:
         level_price = self.grid_levels[level_index]
         target_price = level_price * (1 + self._sell_threshold_pct / 100.0)
@@ -488,7 +538,9 @@ class GridStrategyAsync(StrategyAsync):
 
     def _calculate_kelly_cpl(self, price: float) -> float:
         """Calcul du capital par niveau ajusté par Kelly + Voter Strength (PF Boost P2)."""
-        base_cpl = float(self._runtime_capital_per_level or self.max_capital_per_level)
+        base_cpl = float(self._runtime_capital_per_level or 0.0)
+        if base_cpl <= 0.0:
+            return 0.0
         if not self.kelly_active or self._kelly is None:
             return base_cpl
 
@@ -588,6 +640,7 @@ class GridStrategyAsync(StrategyAsync):
                 logger.info(f"Grid initialisee au prix: {price:.2f}")
             self._init_grid()
             self._grid_initialized = True
+            self._sync_open_levels_from_instance_positions()
 
             if self._dgt is None and self.config.get("enable_dgt", True):
                 self._init_recentering()
