@@ -267,7 +267,11 @@ class OrchestratorAsync:
         # Modules de protection explicitement branchés (défense en profondeur)
         self.trailing_stops: Dict[str, TrailingStopATR] = {}
         self.pyramiding: Dict[str, PyramidingManager] = {}
+        # Keep isolated Black Swan state per symbol. A single detector shared
+        # across BTC/ETH/XRP prices can create impossible returns and stop all
+        # paper instances on a false flash-pump.
         self.black_swan = BlackSwanCatcher()
+        self._black_swan_by_symbol: Dict[str, BlackSwanCatcher] = {}
         self.volatility_weighter = VolatilityWeighter()
         self.kelly_criterion = KellyCriterion(max_position_pct=0.25)
         self.mean_reversion: Dict[str, MeanReversionStrategy] = {}
@@ -1139,7 +1143,8 @@ class OrchestratorAsync:
             try:
                 for pos in inst.get_positions_snapshot():
                     if pos.get("status") == "open":
-                        open_position_notional += float(pos.get("buy_price", 0.0)) * float(pos.get("volume", 0.0))
+                        entry_price = pos.get("buy_price", pos.get("entry_price", 0.0))
+                        open_position_notional += float(entry_price) * float(pos.get("volume", 0.0))
             except Exception:
                 continue
 
@@ -1768,6 +1773,24 @@ class OrchestratorAsync:
             logger=logger,
         )
 
+    def _get_black_swan_catcher(self, symbol: str) -> BlackSwanCatcher:
+        key = str(symbol or "UNKNOWN").upper()
+        catchers = getattr(self, "_black_swan_by_symbol", None)
+        if catchers is None:
+            catchers = {}
+            self._black_swan_by_symbol = catchers
+        catcher = catchers.get(key)
+        if catcher is None:
+            template = getattr(self, "black_swan", None)
+            catcher = BlackSwanCatcher(
+                lookback=int(getattr(template, "_lookback", 200)),
+                sigma_threshold=float(getattr(template, "_sigma_threshold", 4.0)),
+                volume_spike_ratio=float(getattr(template, "_volume_spike_ratio", 5.0)),
+                cooldown_ticks=int(getattr(template, "_cooldown_ticks", 10)),
+            )
+            catchers[key] = catcher
+        return catcher
+
     async def _run_black_swan_guard(self, instance: TradingInstanceAsync) -> bool:
         """
         Détection Black Swan avant autres traitements.
@@ -1776,26 +1799,39 @@ class OrchestratorAsync:
             last_price = instance.get_status().get("last_price")
             if not last_price or last_price <= 0:
                 return False
-            event = self.black_swan.on_price(price=float(last_price), volume=0.0)
+            symbol = str(getattr(instance.config, "symbol", "") or "UNKNOWN")
+            event = self._get_black_swan_catcher(symbol).on_price(price=float(last_price), volume=0.0)
             if event:
-                logger.critical(
-                    "🦢 Black Swan détecté (%s) sur %s — emergency close all",
-                    event.get("type", "unknown"),
-                    instance.id,
-                )
+                event = {**dict(event), "symbol": symbol}
+                if self.paper_mode:
+                    logger.warning(
+                        "Black Swan paper (%s) sur %s/%s — cycle bloque sans arret global",
+                        event.get("type", "unknown"),
+                        symbol,
+                        instance.id,
+                    )
+                else:
+                    logger.critical(
+                        "🦢 Black Swan détecté (%s) sur %s/%s — emergency close all",
+                        event.get("type", "unknown"),
+                        symbol,
+                        instance.id,
+                    )
                 self._journal_major_decision(
                     decision_type="entry_block_decision",
                     source="black_swan_guard",
-                    symbols=[str(instance.config.symbol)],
+                    symbols=[symbol],
                     reasons=[str(event.get("type", "unknown"))],
                     context={"instance_id": instance.id, "event": dict(event)},
                 )
                 self._journal_rejected_opportunity(
                     reason=REJECTION_REASON_BLACK_SWAN_EMERGENCY_BLOCK,
                     source="black_swan_guard",
-                    symbol=str(instance.config.symbol),
+                    symbol=symbol,
                     context={"instance_id": instance.id, "event": dict(event)},
                 )
+                if self.paper_mode:
+                    return True
                 await self._emergency_close_all()
                 return True
         except Exception as exc:

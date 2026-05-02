@@ -264,6 +264,11 @@ def _latest_event(instances: List[Dict[str, Any]], key: str) -> Optional[Dict[st
     return latest
 
 
+def _is_strategy_running(inst: Dict[str, Any]) -> bool:
+    status = str(inst.get("status") or "").strip().lower()
+    return status in {"running", "active"}
+
+
 def _event_timestamp(event: Optional[Dict[str, Any]]) -> str:
     if not isinstance(event, dict):
         return ""
@@ -2376,6 +2381,10 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         pair_set = {_infer_symbol_from_instance(inst) for inst in instances_data}
         pair_set.discard("UNKNOWN")
         strategy_names = sorted({str(inst.get("strategy") or "unknown") for inst in instances_data})
+        running_instances = [inst for inst in instances_data if _is_strategy_running(inst)]
+        stopped_instances = [inst for inst in instances_data if not _is_strategy_running(inst)]
+        running_count = len(running_instances)
+        configured_count = len(instances_data)
         warmup_instances = [
             {
                 "id": inst.get("id"),
@@ -2430,6 +2439,11 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             {"name": "paper_database", "ok": bool(paper_db.get("accessible")) if paper_mode else True, "status": paper_db.get("status")},
             {"name": "order_executor", "ok": executor is not None, "status": type(executor).__name__ if executor is not None else "missing"},
             {
+                "name": "strategy_runtime",
+                "ok": configured_count == 0 or running_count > 0,
+                "status": f"{running_count}/{configured_count} running" if configured_count else "no_strategies_configured",
+            },
+            {
                 "name": "kill_switch",
                 "ok": bool(kill_switch.get("available")) and not bool(kill_switch.get("tripped")),
                 "status": (
@@ -2443,7 +2457,8 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         ]
 
         kill_switch_tripped = bool(kill_switch.get("tripped"))
-        critical_failed = any(not c["ok"] for c in checks if c["name"] in {"orchestrator", "market_websocket", "state_database", "order_executor"}) or kill_switch_tripped
+        strategy_runtime_stopped = configured_count > 0 and running_count == 0
+        critical_failed = any(not c["ok"] for c in checks if c["name"] in {"orchestrator", "market_websocket", "state_database", "order_executor"}) or kill_switch_tripped or strategy_runtime_stopped
         if critical_failed:
             overall_status = "critical"
         elif not bool(kill_switch.get("available")):
@@ -2464,6 +2479,8 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
                 messages.append(f"Derniere raison kill switch: {kill_switch.get('reason')}")
         if trade_count == 0:
             messages.append("Bot actif mais aucune execution encore enregistree.")
+        if strategy_runtime_stopped:
+            messages.append("Backend actif, mais aucune strategie ne tourne: AUTOBOT ne trade pas actuellement.")
         if paper_mode:
             messages.append("Mode paper: aucun capital reel n'est engage par AUTOBOT.")
 
@@ -2480,12 +2497,24 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
                 "running": bool(status.get("running")),
                 "websocket_connected": bool(status.get("websocket_connected")),
                 "uptime_seconds": status.get("uptime_seconds"),
-                "instance_count": len(instances_data),
+                "instance_count": configured_count,
+                "running_strategy_count": running_count,
             },
             "strategies": {
-                "active_count": len(instances_data),
+                "active_count": running_count,
+                "configured_count": configured_count,
+                "inactive_count": len(stopped_instances),
                 "names": strategy_names,
                 "pairs_watched": sorted(pair_set),
+                "inactive": [
+                    {
+                        "id": inst.get("id"),
+                        "name": inst.get("name"),
+                        "symbol": inst.get("symbol") or _infer_symbol_from_instance(inst),
+                        "status": inst.get("status") or "unknown",
+                    }
+                    for inst in stopped_instances[:20]
+                ],
                 "warmup_or_blocked": warmup_instances,
             },
             "database": {

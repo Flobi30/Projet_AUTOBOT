@@ -43,6 +43,7 @@ class _Orchestrator:
                 "id": "inst-eth",
                 "name": "ETH paper",
                 "symbol": "ETHEUR",
+                "status": "running",
                 "last_price": 1955.72,
                 "last_market_tick": {
                     "timestamp": "2026-04-28T00:59:00+00:00",
@@ -87,6 +88,14 @@ class _Orchestrator:
                 ],
             }
         ]
+
+
+class _StoppedOrchestrator(_Orchestrator):
+    def get_instances_snapshot(self):
+        instances = super().get_instances_snapshot()
+        for inst in instances:
+            inst["status"] = "stopped"
+        return instances
 
 
 def _init_paper_db(db_path: Path):
@@ -153,6 +162,25 @@ def test_runtime_trace_reports_tripped_kill_switch(monkeypatch, tmp_path):
     assert body["safety"]["kill_switch"]["tripped"] is True
     assert body["safety"]["kill_switch"]["reason_code"] == "api_failures"
     assert any(check["name"] == "kill_switch" and check["ok"] is False for check in body["checks"])
+
+
+def test_runtime_trace_reports_stopped_strategies_as_critical(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    db_path = tmp_path / "paper_trades.db"
+    _init_paper_db(db_path)
+    dashboard.app.state.orchestrator = _StoppedOrchestrator(db_path)
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/runtime/trace", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_status"] == "critical"
+    assert body["strategies"]["active_count"] == 0
+    assert body["strategies"]["configured_count"] == 1
+    assert body["strategies"]["inactive_count"] == 1
+    assert any(check["name"] == "strategy_runtime" and check["ok"] is False for check in body["checks"])
+    assert any("aucune strategie ne tourne" in message for message in body["messages"])
 
 
 def test_acknowledge_kill_switch_clears_paper_runtime_handlers(monkeypatch, tmp_path):
