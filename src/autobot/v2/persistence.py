@@ -168,7 +168,11 @@ class OrderRepository(_PersistenceRepositoryBase):
         try:
             conn = await self.get_conn()
             async with conn.execute(
-                "SELECT * FROM orders WHERE status NOT IN ('FILLED', 'CANCELED', 'REJECTED', 'EXPIRED')"
+                """
+                SELECT * FROM orders
+                WHERE status NOT IN ('FILLED', 'CANCELED', 'REJECTED', 'EXPIRED')
+                  AND terminal_at IS NULL
+                """
             ) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(r) for r in rows]

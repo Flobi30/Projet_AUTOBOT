@@ -508,12 +508,14 @@ class SignalHandlerAsync:
             
             found_txid = None
             order_info = None
+            order_status = None
             
             if txid:
                 # We have a TXID, query directly
                 status = await self.order_executor.get_order_status(txid)
                 if status:
                     found_txid = txid
+                    order_status = status
                     # Update info from status if possible
             elif userref:
                 # No TXID, search by userref
@@ -523,12 +525,78 @@ class SignalHandlerAsync:
             
             if found_txid:
                 logger.info(f"✅ [WAL] Ordre trouvé sur l'échange: {found_txid}")
-                # Transition based on exchange state
-                # For now, mark as ACK to trigger reconciliation
-                await self._osm.transition(client_order_id, "ACK", "recovered_from_exchange", exchange_order_id=found_txid)
+                terminal_status = self._terminal_status_from_recovered_order(order_status, order_info)
+                if terminal_status:
+                    await self._osm.transition(
+                        client_order_id,
+                        terminal_status,
+                        "recovered_terminal_from_exchange",
+                        exchange_order_id=found_txid,
+                        filled_qty=self._recovered_order_volume_exec(order_status, order_info),
+                        avg_fill_price=self._recovered_order_avg_price(order_status, order_info),
+                    )
+                else:
+                    await self._osm.transition(
+                        client_order_id,
+                        "ACK",
+                        "recovered_from_exchange",
+                        exchange_order_id=found_txid,
+                    )
             else:
                 logger.warning(f"❌ [WAL] Ordre {client_order_id} introuvable sur l'échange -- marquage REJECTED")
                 await self._osm.transition(client_order_id, "REJECTED", "not_found_on_exchange_after_crash")
+
+    @staticmethod
+    def _terminal_status_from_recovered_order(order_status: Any, order_info: Any) -> Optional[str]:
+        status = ""
+        volume_exec = 0.0
+        if order_status is not None:
+            status = str(getattr(order_status, "status", "") or "").lower()
+            volume_exec = SignalHandlerAsync._recovered_safe_float(getattr(order_status, "volume_exec", 0.0))
+        elif isinstance(order_info, dict):
+            status = str(order_info.get("status") or "").lower()
+            volume_exec = SignalHandlerAsync._recovered_safe_float(order_info.get("vol_exec", order_info.get("volume_exec")))
+
+        if status in {"filled", "closed"} and volume_exec > 0:
+            return "FILLED"
+        if status in {"canceled", "cancelled"}:
+            return "CANCELED"
+        if status == "expired":
+            return "EXPIRED"
+        if status in {"rejected", "failed"}:
+            return "REJECTED"
+        return None
+
+    @staticmethod
+    def _recovered_order_volume_exec(order_status: Any, order_info: Any) -> Optional[float]:
+        if order_status is not None:
+            return SignalHandlerAsync._recovered_safe_optional_float(getattr(order_status, "volume_exec", None))
+        if isinstance(order_info, dict):
+            return SignalHandlerAsync._recovered_safe_optional_float(order_info.get("vol_exec", order_info.get("volume_exec")))
+        return None
+
+    @staticmethod
+    def _recovered_order_avg_price(order_status: Any, order_info: Any) -> Optional[float]:
+        if order_status is not None:
+            return SignalHandlerAsync._recovered_safe_optional_float(getattr(order_status, "avg_price", None) or getattr(order_status, "price", None))
+        if isinstance(order_info, dict):
+            return SignalHandlerAsync._recovered_safe_optional_float(order_info.get("avg_price") or order_info.get("price"))
+        return None
+
+    @staticmethod
+    def _recovered_safe_float(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _recovered_safe_optional_float(value: Any) -> Optional[float]:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result
 
     async def _execute_market_order_with_price_hint(
         self,

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from autobot.v2.order_executor import OrderResult
+from autobot.v2.order_executor import OrderResult, OrderStatus
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
 from autobot.v2.validator import ValidationStatus
@@ -110,6 +110,25 @@ class _DuplicateSellOSM(_OSM):
         return side == "sell"
 
 
+class _RecoverOSM(_OSM):
+    def __init__(self):
+        self.transitions = []
+
+    async def recover_non_terminal(self):
+        return [
+            {
+                "client_order_id": "cid-recover-1",
+                "userref": 123,
+                "exchange_order_id": "PAPER_FILLED",
+                "symbol": "XXRPZEUR",
+            }
+        ]
+
+    async def transition(self, *args, **kwargs):
+        self.transitions.append((args, kwargs))
+        return True
+
+
 class _Executor:
     def __init__(self):
         self.market_calls = 0
@@ -130,6 +149,20 @@ class _Executor:
 
     async def execute_stop_loss_order(self, *_args, **_kwargs):
         return OrderResult(success=True, txid="sl-1")
+
+
+class _RecoverExecutor(_Executor):
+    async def get_order_status(self, txid):
+        assert txid == "PAPER_FILLED"
+        return OrderStatus(
+            txid=txid,
+            status="filled",
+            volume=2.0,
+            volume_exec=2.0,
+            price=1.19,
+            avg_price=1.19,
+            fee=0.01,
+        )
 
 
 @pytest.mark.asyncio
@@ -240,6 +273,22 @@ async def test_execute_sell_records_duplicate_idempotency_rejection():
     assert handler._last_decision_event["event"] == "sell_rejected"
     assert handler._last_decision_event["reason"] == "duplicate_active_order"
     assert handler._last_decision_event["blocking_condition"] == "idempotency_guard"
+
+
+@pytest.mark.asyncio
+async def test_recover_marks_filled_paper_order_terminal_not_ack():
+    osm = _RecoverOSM()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=_RecoverExecutor())
+    handler._osm = osm
+
+    await handler.recover()
+
+    assert len(osm.transitions) == 1
+    args, kwargs = osm.transitions[0]
+    assert args[:3] == ("cid-recover-1", "FILLED", "recovered_terminal_from_exchange")
+    assert kwargs["exchange_order_id"] == "PAPER_FILLED"
+    assert kwargs["filled_qty"] == pytest.approx(2.0)
+    assert kwargs["avg_fill_price"] == pytest.approx(1.19)
 
 
 def test_init_loads_env_and_clamps_invalid_ranges():
