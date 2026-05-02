@@ -189,6 +189,30 @@ class PaperTradingExecutor:
         return fallback_prices.get(normalized, 1.0)
 
     @staticmethod
+    def _ws_symbol_for_symbol(symbol: str) -> str:
+        normalized = symbol.upper().replace("/", "").replace("-", "")
+        aliases = {
+            "XXBTZEUR": "XBT/EUR",
+            "XBTZEUR": "XBT/EUR",
+            "BTCEUR": "XBT/EUR",
+            "XETHZEUR": "ETH/EUR",
+            "ETHEUR": "ETH/EUR",
+            "XLTCZEUR": "LTC/EUR",
+            "LTCEUR": "LTC/EUR",
+            "XXRPZEUR": "XRP/EUR",
+            "XRPEUR": "XRP/EUR",
+            "XXLMZEUR": "XLM/EUR",
+            "XLMEUR": "XLM/EUR",
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+        if normalized.endswith("ZEUR"):
+            return f"{normalized[:-4]}/EUR"
+        if normalized.endswith("EUR"):
+            return f"{normalized[:-3]}/EUR"
+        return symbol
+
+    @staticmethod
     def _timestamp_to_epoch(timestamp: str) -> float:
         try:
             return datetime.fromisoformat(str(timestamp).replace("Z", "+00:00")).timestamp()
@@ -252,8 +276,8 @@ class PaperTradingExecutor:
         # Récupère le prix actuel du WebSocket
         price = await self._get_current_price(symbol)
         if price is None:
-            logger.warning(f"⚠️ [PAPER] Prix non disponible pour {symbol}, utilisation prix fallback 60000")
-            price = 60000.0  # Fallback
+            price = self._fallback_price_for_symbol(symbol)
+            logger.warning("[PAPER] Prix non disponible pour %s, fallback par symbole %.6f", symbol, price)
         
         # Calcule les frais
         notional = volume * price
@@ -406,11 +430,11 @@ class PaperTradingExecutor:
             from .ring_buffer_dispatcher import get_ring_buffer
             rb = get_ring_buffer()
             if rb:
-                # Convertit XXBTZEUR → XBT/EUR pour le ring buffer
-                ws_symbol = symbol.replace("XXBTZ", "XBT/").replace("Z", "/")
-                snapshot = rb.get_snapshot(ws_symbol)
-                if snapshot and len(snapshot) > 0:
-                    return float(snapshot[-1])
+                symbols_to_try = [symbol, self._ws_symbol_for_symbol(symbol)]
+                for ws_symbol in dict.fromkeys(symbols_to_try):
+                    snapshot = rb.get_snapshot(ws_symbol)
+                    if snapshot and len(snapshot) > 0:
+                        return float(snapshot[-1])
         except Exception as e:
             logger.debug(f"Impossible de récupérer prix depuis ring buffer: {e}")
         
@@ -461,6 +485,22 @@ class PaperTradingExecutor:
                 "SELECT * FROM trades WHERE status = 'pending'"
             ).fetchall()
             return {row[1]: self._row_to_kraken_order(row) for row in rows}
+
+    async def find_order_by_userref(self, userref: int) -> Optional[tuple[str, dict]]:
+        """Find a paper order by userref across pending and filled rows."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM trades
+                WHERE userref = ?
+                ORDER BY datetime(timestamp) DESC
+                LIMIT 1
+                """,
+                (userref,),
+            ).fetchone()
+            if not row:
+                return None
+            return row[1], self._row_to_kraken_order(row)
     
     async def cancel_order(self, txid: str) -> bool:
         """Annule un ordre paper pending."""

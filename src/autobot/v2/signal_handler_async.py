@@ -1002,12 +1002,14 @@ class SignalHandlerAsync:
             if result.success:
                 price = result.executed_price or signal.price
                 await self.instance.close_position(pos_id, price, sell_txid=result.txid)
-                await self._osm.transition(rec.client_order_id, "FILLED", "execution_success", 
-                                   exchange_order_id=result.txid, filled_qty=vol, avg_fill_price=price)
-
-            if result.success:
-                price = result.executed_price or signal.price
-                await self.instance.close_position(pos_id, price, sell_txid=result.txid)
+                await self._osm.transition(
+                    rec.client_order_id,
+                    "FILLED",
+                    "execution_success",
+                    exchange_order_id=result.txid,
+                    filled_qty=vol,
+                    avg_fill_price=price,
+                )
                 actual_liquidity = self._normalize_liquidity(result.liquidity)
                 self._record_runtime_event(
                     "_last_order_event",
@@ -1123,6 +1125,9 @@ class SignalHandlerAsync:
             metrics_quality,
             quality_flags,
         )
+        if paper_reconciliation:
+            return
+
         divergences.extend(
             self._reconciler.compare_fills_fees_pnl(
                 self._normalize_metrics_for_reconciliation(local_metrics),
