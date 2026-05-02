@@ -68,6 +68,18 @@ class _Instance:
         return None
 
 
+class _SellInstance(_Instance):
+    def get_positions_snapshot(self):
+        return [
+            {
+                "id": "pos-sell-1",
+                "symbol": "XXRPZEUR",
+                "volume": 2.0,
+                "status": "open",
+            }
+        ]
+
+
 class _Validator:
     def validate(self, *_args, **_kwargs):
         return SimpleNamespace(status=ValidationStatus.GREEN, message="ok")
@@ -91,6 +103,11 @@ class _CountingOSM(_OSM):
     def new_order(self, **_kwargs):
         self.new_order_calls += 1
         return super().new_order(**_kwargs)
+
+
+class _DuplicateSellOSM(_OSM):
+    async def is_duplicate_active(self, _symbol, side):
+        return side == "sell"
 
 
 class _Executor:
@@ -198,6 +215,31 @@ async def test_execute_buy_blocks_order_below_minimum_when_budget_too_small():
     assert handler.instance.opened == []
     assert handler._last_decision_event["reason"] == "order_size_below_minimum"
     assert handler._last_decision_event["min_volume"] == 0.0001
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_records_duplicate_idempotency_rejection():
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=_SellInstance(), order_executor=executor)
+    handler._osm = _DuplicateSellOSM()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=1.19,
+        volume=2.0,
+        reason="unit duplicate sell",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert executor.market_calls == 0
+    assert handler._last_decision_event["event"] == "sell_rejected"
+    assert handler._last_decision_event["reason"] == "duplicate_active_order"
+    assert handler._last_decision_event["blocking_condition"] == "idempotency_guard"
 
 
 def test_init_loads_env_and_clamps_invalid_ranges():

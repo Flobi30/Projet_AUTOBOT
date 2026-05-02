@@ -1004,6 +1004,15 @@ class SignalHandlerAsync:
 
             # ROB-01: WAL + Idempotency
             if await self._osm.is_duplicate_active(symbol, "sell"):
+                self._record_runtime_event(
+                    "_last_decision_event",
+                    event="sell_rejected",
+                    reason="duplicate_active_order",
+                    blocking_condition="idempotency_guard",
+                    symbol=symbol,
+                    side="sell",
+                    position_id=pos_id,
+                )
                 logger.warning(f"🔁 Ordre SELL dupliqué bloqué (idempotency): {symbol}")
                 continue
 
