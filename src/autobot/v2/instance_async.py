@@ -25,6 +25,7 @@ Public API identical to TradingInstance (with async/await).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import uuid
@@ -169,6 +170,20 @@ class TradingInstanceAsync:
     # Recovery & save
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _decode_position_metadata(value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="ignore")
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+                return decoded if isinstance(decoded, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
     async def recover_state(self) -> None:
         """Recover state from SQLite (called at startup)."""
         try:
@@ -180,15 +195,23 @@ class TradingInstanceAsync:
                 )
                 async with self._lock:
                     for pos_data in saved_positions:
-                        metadata = pos_data.get("metadata") or {}
+                        metadata = self._decode_position_metadata(pos_data.get("metadata"))
+                        open_time_raw = pos_data.get("open_time")
+                        try:
+                            open_time = datetime.fromisoformat(str(open_time_raw).replace("Z", "+00:00"))
+                        except Exception:
+                            open_time = datetime.now(timezone.utc)
                         position = Position(
                             id=pos_data["id"],
                             buy_price=pos_data["buy_price"],
                             volume=pos_data["volume"],
                             status="open",
-                            open_time=datetime.fromisoformat(pos_data["open_time"]),
+                            open_time=open_time,
                             stop_loss=metadata.get("stop_loss"),
                             take_profit=metadata.get("take_profit"),
+                            stop_loss_txid=metadata.get("stop_loss_txid"),
+                            buy_txid=metadata.get("buy_txid"),
+                            sell_txid=metadata.get("sell_txid"),
                         )
                         self._positions[position.id] = position
                         self._allocated_capital += position.buy_price * position.volume

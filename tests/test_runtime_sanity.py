@@ -9,6 +9,7 @@ import pytest
 from types import SimpleNamespace
 
 from autobot.v2.orchestrator_async import OrchestratorAsync
+from autobot.v2.instance_async import TradingInstanceAsync
 from autobot.v2.modules.black_swan import BlackSwanCatcher
 from autobot.v2.rebalance_manager import RebalanceManager
 
@@ -36,6 +37,23 @@ class _FakeInstance:
 
     def get_status(self):
         return {"last_price": self._price}
+
+
+class _FakePersistence:
+    async def recover_positions(self, instance_id):
+        return [
+            {
+                "id": "pos-1",
+                "buy_price": 100.0,
+                "volume": 0.25,
+                "status": "open",
+                "open_time": "2026-05-02T12:00:00+00:00",
+                "metadata": '{"buy_txid":"buy-1","buy_fee":0.04,"buy_fee_source":"paper"}',
+            }
+        ]
+
+    async def recover_instance_state(self, instance_id):
+        return {"current_capital": 500.0, "win_count": 2, "loss_count": 1}
 
 
 def test_rebalance_manager_smoke():
@@ -113,3 +131,25 @@ def test_black_swan_paper_event_blocks_cycle_without_global_emergency_stop():
     blocked = asyncio.run(orch._run_black_swan_guard(_FakeInstance("eth", "XETHZEUR", 2000.0)))
 
     assert blocked is True
+
+
+def test_instance_recovery_decodes_json_metadata_and_rebuilds_allocated_capital():
+    inst = object.__new__(TradingInstanceAsync)
+    inst.id = "inst-1"
+    inst._persistence = _FakePersistence()
+    inst._positions = {}
+    inst._allocated_capital = 0.0
+    inst._current_capital = 0.0
+    inst._win_count = 0
+    inst._loss_count = 0
+    inst._position_fee_hints = {}
+    inst._execution_fee_cache = {}
+    inst._lock = asyncio.Lock()
+
+    asyncio.run(inst.recover_state())
+
+    assert inst._current_capital == 500.0
+    assert inst._allocated_capital == pytest.approx(25.0)
+    assert inst._positions["pos-1"].buy_txid == "buy-1"
+    assert inst._position_fee_hints["pos-1"]["buy_fee"] == pytest.approx(0.04)
+    assert inst._execution_fee_cache["buy-1"]["source"] == "paper"
