@@ -40,7 +40,8 @@ class _FakeInstance:
 
 
 class _FakePersistence:
-    async def recover_positions(self, instance_id):
+    async def recover_positions(self, instance_id, symbol=None):
+        assert symbol == "XETHZEUR"
         return [
             {
                 "id": "pos-1",
@@ -136,6 +137,7 @@ def test_black_swan_paper_event_blocks_cycle_without_global_emergency_stop():
 def test_instance_recovery_decodes_json_metadata_and_rebuilds_allocated_capital():
     inst = object.__new__(TradingInstanceAsync)
     inst.id = "inst-1"
+    inst.config = SimpleNamespace(symbol="XETHZEUR")
     inst._persistence = _FakePersistence()
     inst._positions = {}
     inst._allocated_capital = 0.0

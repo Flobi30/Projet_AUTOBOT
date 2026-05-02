@@ -312,10 +312,27 @@ class PositionRepository(_PersistenceRepositoryBase):
             logger.exception(f"❌ Erreur close_position_and_record_trade {position_id}: {e}")
             return False
 
-    async def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
+    async def recover_positions(self, instance_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             conn = await self.get_conn()
-            async with conn.execute("SELECT * FROM positions WHERE instance_id = ? AND status = 'open'", (instance_id,)) as cursor:
+            if symbol:
+                query = """
+                    SELECT DISTINCT p.*
+                    FROM positions p
+                    LEFT JOIN trade_ledger tl
+                      ON tl.position_id = p.id
+                     AND COALESCE(tl.is_opening_leg, 1) = 1
+                    WHERE p.status = 'open'
+                      AND (
+                        p.instance_id = ?
+                        OR UPPER(COALESCE(tl.symbol, '')) = UPPER(?)
+                      )
+                """
+                args = (instance_id, symbol)
+            else:
+                query = "SELECT * FROM positions WHERE instance_id = ? AND status = 'open'"
+                args = (instance_id,)
+            async with conn.execute(query, args) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(r) for r in rows]
         except Exception as e:
@@ -592,9 +609,9 @@ class StatePersistence:
         await self.initialize()
         return await self.positions.close_position_and_record_trade(position_id, trade_data)
 
-    async def recover_positions(self, instance_id: str) -> List[Dict[str, Any]]:
+    async def recover_positions(self, instance_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         await self.initialize()
-        return await self.positions.recover_positions(instance_id)
+        return await self.positions.recover_positions(instance_id, symbol=symbol)
 
     async def save_instance_state(self, *args, **kwargs) -> bool:
         await self.initialize()

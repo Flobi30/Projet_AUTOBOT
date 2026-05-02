@@ -187,7 +187,8 @@ class TradingInstanceAsync:
     async def recover_state(self) -> None:
         """Recover state from SQLite (called at startup)."""
         try:
-            saved_positions = await self._persistence.recover_positions(self.id
+            saved_positions = await self._persistence.recover_positions(self.id,
+                symbol=str(getattr(self.config, "symbol", "") or ""),
             )
             if saved_positions:
                 logger.warning(
