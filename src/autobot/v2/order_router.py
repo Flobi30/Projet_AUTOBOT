@@ -673,12 +673,15 @@ class OrderRouter:
         
         try:
             if order_type == "market":
-                return await self._executor.execute_market_order(
-                    symbol=params["symbol"],
-                    side=OrderSide(params["side"]),
-                    volume=params["volume"],
-                    userref=params.get("userref"),
-                )
+                kwargs = {
+                    "symbol": params["symbol"],
+                    "side": OrderSide(params["side"]),
+                    "volume": params["volume"],
+                    "userref": params.get("userref"),
+                }
+                if self._executor.__class__.__name__ == "PaperTradingExecutor" and params.get("price"):
+                    kwargs["price_hint"] = params.get("price")
+                return await self._executor.execute_market_order(**kwargs)
             elif order_type == "limit":
                 return await self._executor.execute_limit_order(
                     symbol=params["symbol"],

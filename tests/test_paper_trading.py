@@ -33,7 +33,24 @@ def test_paper_ws_symbol_aliases_match_kraken_subscriptions():
 
 
 @pytest.mark.asyncio
-async def test_paper_market_order_uses_symbol_specific_fallback(tmp_path, monkeypatch):
+async def test_paper_market_order_refuses_missing_price_without_hint(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+
+    async def no_live_price(_symbol: str):
+        return None
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order("XETHZEUR", OrderSide.SELL, 0.01, userref=1234)
+
+    assert result.success is False
+    assert "paper_price_unavailable" in str(result.error)
+    assert result.raw_response["price_source"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_paper_market_order_can_use_legacy_synthetic_fallback_when_explicitly_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPER_ALLOW_SYNTHETIC_PRICE_FALLBACK", "true")
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
     async def no_live_price(_symbol: str):
@@ -46,6 +63,7 @@ async def test_paper_market_order_uses_symbol_specific_fallback(tmp_path, monkey
     assert result.success is True
     assert result.executed_price == pytest.approx(2000.0)
     assert result.fees == pytest.approx(0.01 * 2000.0 * executor.fee_rate)
+    assert result.raw_response["price_source"] == "synthetic_fallback"
 
 
 @pytest.mark.asyncio
@@ -67,6 +85,7 @@ async def test_paper_market_order_prefers_signal_price_hint(tmp_path, monkeypatc
 
     assert result.success is True
     assert result.executed_price == pytest.approx(1969.53)
+    assert result.raw_response["price_source"] == "signal"
 
 
 @pytest.mark.asyncio
@@ -77,7 +96,7 @@ async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
         return None
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
-    result = await executor.execute_market_order("XLTCZEUR", OrderSide.BUY, 1.0, userref=9876)
+    result = await executor.execute_market_order("XLTCZEUR", OrderSide.BUY, 1.0, userref=9876, price_hint=91.0)
 
     found = await executor.find_order_by_userref(9876)
 
@@ -119,4 +138,4 @@ async def test_trade_balance_uses_asset_specific_fallbacks(tmp_path, monkeypatch
 
     trade_balance = await executor.get_trade_balance("EUR")
 
-    assert trade_balance["equivalent_balance"] == pytest.approx(990.0)
+    assert trade_balance["equivalent_balance"] == pytest.approx(1000.0)

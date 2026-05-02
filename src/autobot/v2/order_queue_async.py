@@ -152,12 +152,18 @@ class OrderQueueAsync:
         try:
             result = None
             if order.order_type == QueueOrderType.BUY:
+                kwargs = {}
+                if self.order_executor.__class__.__name__ == "PaperTradingExecutor" and order.price:
+                    kwargs["price_hint"] = order.price
                 result = await self.order_executor.execute_market_order(
-                    order.symbol, OrderSide.BUY, order.volume
+                    order.symbol, OrderSide.BUY, order.volume, **kwargs
                 )
             elif order.order_type == QueueOrderType.SELL:
+                kwargs = {}
+                if self.order_executor.__class__.__name__ == "PaperTradingExecutor" and order.price:
+                    kwargs["price_hint"] = order.price
                 result = await self.order_executor.execute_market_order(
-                    order.symbol, OrderSide.SELL, order.volume
+                    order.symbol, OrderSide.SELL, order.volume, **kwargs
                 )
             elif order.order_type == QueueOrderType.STOP_LOSS:
                 result = await self.order_executor.execute_stop_loss_order(

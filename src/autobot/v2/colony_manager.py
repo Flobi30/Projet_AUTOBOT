@@ -325,13 +325,22 @@ class ColonyManager:
             if (opp.get("symbol") or opp.get("pair"))
         }
         unassigned_symbols = sorted(symbol for symbol in all_routing_symbols if symbol not in assigned)
+        children_payload = [child.to_dict() for child in children]
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "enabled": cfg.enabled,
             "mode": "paper" if paper_mode else "live",
             "paper_mode": paper_mode,
-            "implementation_stage": "paper_logical_children",
+            "implementation_stage": "logical_trader_control_plane",
+            "architecture": {
+                "unit_name": "logical_trader",
+                "description": "A logical trader owns a budget, routes multiple symbols, and can be validated before any live promotion.",
+                "symbol_assignment": "dynamic_best_potential_owner",
+                "same_symbol_policy": "single_owner_per_cycle",
+                "paper_shadow_in_live": True,
+                "no_hardcoded_symbols": True,
+            },
             "execution": {
                 "paper_autopilot_enabled": cfg.paper_autopilot_enabled,
                 "execution_mode": cfg.execution_mode,
@@ -365,7 +374,8 @@ class ColonyManager:
                 "split_child_capital_pct": cfg.split_child_capital_pct,
                 "min_split_parent_capital_eur": cfg.min_split_parent_capital_eur,
             },
-            "children": [child.to_dict() for child in children],
+            "children": children_payload,
+            "logical_traders": children_payload,
             "routing": {
                 "policy": "best_potential_single_owner",
                 "description": "Each pair is scored against every logical engine; the highest-potential engine owns execution.",
@@ -376,6 +386,8 @@ class ColonyManager:
                 "instance_count": len(instances_list),
                 "active_children_count": active_children,
                 "child_count": len(children),
+                "logical_trader_count": len(children),
+                "active_logical_trader_count": active_children,
                 "opportunity_count": len(raw_opps),
                 "routing_symbol_count": routing_symbol_count,
                 "routing_capacity_symbols": len(children) * symbols_per_child,

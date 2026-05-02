@@ -28,6 +28,7 @@ Problèmes identifiés et fixes appliqués:
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass, asdict
@@ -38,6 +39,13 @@ from typing import Any, Dict, List, Optional, Callable, Coroutine
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -77,6 +85,10 @@ class PaperTradingExecutor:
         
         self.initial_capital = initial_capital
         self.fee_rate = fee_rate
+        self.allow_synthetic_price_fallback = _env_bool(
+            "PAPER_ALLOW_SYNTHETIC_PRICE_FALLBACK",
+            False,
+        )
         self._lock = asyncio.Lock()
         
         # Circuit breaker (même interface que OrderExecutorAsync)
@@ -163,6 +175,7 @@ class PaperTradingExecutor:
 
     @staticmethod
     def _fallback_price_for_symbol(symbol: str) -> float:
+        """Legacy synthetic prices, disabled by default for market execution."""
         normalized = symbol.upper().replace("/", "").replace("-", "")
         fallback_prices = {
             "XXBTZEUR": 65000.0,
@@ -187,6 +200,10 @@ class PaperTradingExecutor:
             "BCHEUR": 450.0,
         }
         return fallback_prices.get(normalized, 1.0)
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        return symbol.upper().replace("/", "").replace("-", "")
 
     @staticmethod
     def _ws_symbol_for_symbol(symbol: str) -> str:
@@ -275,14 +292,24 @@ class PaperTradingExecutor:
             )
         
         # Récupère le prix actuel du WebSocket
-        price = await self._get_current_price(symbol)
+        price, price_source = await self._resolve_market_price(symbol, price_hint=price_hint)
         if price is None:
-            if price_hint is not None and price_hint > 0:
-                price = float(price_hint)
-                logger.info("[PAPER] Prix WebSocket indisponible pour %s, utilisation prix signal %.6f", symbol, price)
-            else:
-                price = self._fallback_price_for_symbol(symbol)
-                logger.warning("[PAPER] Prix non disponible pour %s, fallback par symbole %.6f", symbol, price)
+            logger.warning(
+                "[PAPER] Ordre refuse pour %s: prix indisponible (websocket absent, signal sans prix fiable)",
+                symbol,
+            )
+            return OrderResult(
+                success=False,
+                error=(
+                    "paper_price_unavailable: aucun prix WebSocket ni prix de signal fiable "
+                    f"pour {symbol}"
+                ),
+                raw_response={
+                    "symbol": symbol,
+                    "price_source": "unavailable",
+                    "price_hint": price_hint,
+                },
+            )
         
         # Calcule les frais
         notional = volume * price
@@ -321,7 +348,7 @@ class PaperTradingExecutor:
             executed_volume=volume,
             executed_price=price,
             fees=fees,
-            raw_response=trade.to_dict(),
+            raw_response={**trade.to_dict(), "price_source": price_source},
         )
 
     async def execute_limit_order(
@@ -444,7 +471,38 @@ class PaperTradingExecutor:
             logger.debug(f"Impossible de récupérer prix depuis ring buffer: {e}")
         
         return None
-    
+
+    async def _resolve_market_price(
+        self,
+        symbol: str,
+        *,
+        price_hint: Optional[float] = None,
+    ) -> tuple[Optional[float], str]:
+        """Resolve a paper execution price without inventing one by default."""
+        price = await self._get_current_price(symbol)
+        if price is not None and price > 0:
+            return float(price), "websocket"
+
+        if price_hint is not None and price_hint > 0:
+            price = float(price_hint)
+            logger.info(
+                "[PAPER] Prix WebSocket indisponible pour %s, utilisation prix signal %.6f",
+                symbol,
+                price,
+            )
+            return price, "signal"
+
+        if self.allow_synthetic_price_fallback:
+            price = self._fallback_price_for_symbol(symbol)
+            logger.warning(
+                "[PAPER] Prix non disponible pour %s, fallback synthetique active %.6f",
+                symbol,
+                price,
+            )
+            return price, "synthetic_fallback"
+
+        return None, "unavailable"
+
     def _save_trade(self, trade: PaperTrade):
         """Sauvegarde un trade dans SQLite."""
         with sqlite3.connect(self.db_path) as conn:
@@ -603,7 +661,17 @@ class PaperTradingExecutor:
             if paper_asset == "ZEUR" or qty == 0:
                 continue
             symbol = self._symbol_for_asset(paper_asset)
-            price = await self._get_current_price(symbol) or self._fallback_price_for_symbol(symbol)
+            price = await self._get_current_price(symbol)
+            if price is None:
+                price = self._last_filled_price_for_symbol(symbol)
+            if price is None and self.allow_synthetic_price_fallback:
+                price = self._fallback_price_for_symbol(symbol)
+            if price is None:
+                logger.warning(
+                    "[PAPER] Valorisation ignoree pour %s: aucun prix WebSocket ni dernier fill",
+                    symbol,
+                )
+                continue
             asset_value += qty * price
         
         return {
@@ -611,6 +679,28 @@ class PaperTradingExecutor:
             "trade_balance": eur,
             "margin": eur + asset_value,
         }
+
+    def _last_filled_price_for_symbol(self, symbol: str) -> Optional[float]:
+        normalized = self._normalize_symbol(symbol)
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol, price
+                FROM trades
+                WHERE status = 'filled'
+                ORDER BY datetime(timestamp) DESC
+                """
+            ).fetchall()
+        for row_symbol, price in rows:
+            if self._normalize_symbol(str(row_symbol or "")) != normalized:
+                continue
+            try:
+                value = float(price)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return None
     
     # ------------------------------------------------------------------
     # Analytics

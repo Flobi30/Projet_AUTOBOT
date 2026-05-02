@@ -144,8 +144,11 @@ def test_colony_manager_routes_existing_instances_to_active_logical_children():
         paper_mode=True,
     )
 
-    assert snapshot["implementation_stage"] == "paper_logical_children"
+    assert snapshot["implementation_stage"] == "logical_trader_control_plane"
     assert snapshot["execution"]["execution_mode"] == "logical_children"
+    assert snapshot["architecture"]["unit_name"] == "logical_trader"
+    assert snapshot["architecture"]["no_hardcoded_symbols"] is True
+    assert snapshot["logical_traders"] == snapshot["children"]
     assert snapshot["runtime"]["active_children_count"] >= 1
     assigned_ids = {
         assigned["id"]
@@ -192,6 +195,8 @@ def test_colony_manager_auto_scales_logical_children_for_larger_watchlists():
     }
     assert len(snapshot["children"]) == 7
     assert snapshot["runtime"]["active_children_count"] == 7
+    assert snapshot["runtime"]["logical_trader_count"] == 7
+    assert snapshot["runtime"]["active_logical_trader_count"] == 7
     assert snapshot["runtime"]["routing_symbol_count"] == 40
     assert snapshot["runtime"]["routing_capacity_symbols"] >= 40
     assert snapshot["runtime"]["unassigned_symbol_count"] == 0
@@ -239,10 +244,12 @@ def test_colony_endpoint_returns_control_plane(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["implementation_stage"] == "paper_logical_children"
+    assert body["implementation_stage"] == "logical_trader_control_plane"
     assert body["paper_mode"] is True
+    assert body["architecture"]["unit_name"] == "logical_trader"
     assert body["autopilot"]["paper_autopilot_enabled"] is True
     assert body["autopilot"]["live_readiness"]["ready"] is False
     assert body["execution"]["auto_live_promotion"] is False
     assert body["children"]
+    assert body["logical_traders"] == body["children"]
     assert body["runtime"]["active_children_count"] >= 1
