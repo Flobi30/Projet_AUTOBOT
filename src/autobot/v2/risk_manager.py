@@ -3,11 +3,35 @@ Risk Manager - Gestion dynamique des risques (SL/TP, levier, exposition)
 """
 
 import logging
+import os
 import threading
 from typing import Dict, Optional, Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, value)
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        value = int(float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, value)
 
 
 @dataclass(slots=True)
@@ -88,6 +112,17 @@ class RiskManager:
         self._validate_configs()
         self._on_sl_triggered: Optional[Callable] = None
         self._on_tp_triggered: Optional[Callable] = None
+        self.pf_circuit_breaker_threshold = _env_float(
+            "RISK_MANAGER_GLOBAL_MIN_PF",
+            self.PF_CIRCUIT_BREAKER_THRESHOLD,
+            0.0,
+        )
+        self.paper_pf_stop_enabled = _env_bool("RISK_MANAGER_PAPER_PF_STOP_ENABLED", False)
+        self.paper_min_closed_trades_for_pf_stop = _env_int(
+            "RISK_MANAGER_PAPER_MIN_CLOSED_TRADES_FOR_PF_STOP",
+            30,
+            0,
+        )
         self._orchestrator = orchestrator  # Référence orchestrator pour disjoncteur
         
         logger.info("🛡️ RiskManager initialisé")
@@ -248,7 +283,36 @@ class RiskManager:
         """Définit la référence vers l'orchestrator (pour disjoncteur)."""
         self._orchestrator = orchestrator
 
-    async def _check_risk_limits(self, global_pf: float) -> bool:
+    def _resolve_paper_mode(self, explicit: Optional[bool] = None) -> bool:
+        if explicit is not None:
+            return bool(explicit)
+        if self._orchestrator is not None and hasattr(self._orchestrator, "paper_mode"):
+            return bool(getattr(self._orchestrator, "paper_mode"))
+        return _env_bool("PAPER_TRADING", True)
+
+    @staticmethod
+    def _count_closed_trade_evidence(instances: list) -> int:
+        total = 0
+        for instance in instances:
+            wins = getattr(instance, "_win_count", None)
+            losses = getattr(instance, "_loss_count", None)
+            if wins is not None or losses is not None:
+                total += int(wins or 0) + int(losses or 0)
+                continue
+            try:
+                status = instance.get_status()
+            except Exception:
+                status = {}
+            total += int(status.get("closed_positions_count") or 0)
+        return total
+
+    async def _check_risk_limits(
+        self,
+        global_pf: float,
+        *,
+        paper_mode: Optional[bool] = None,
+        closed_trade_count: int = 0,
+    ) -> bool:
         """
         Vérifie les limites de risque globales.
 
@@ -261,7 +325,26 @@ class RiskManager:
         # CORRECTION: Ne pas déclencher si pas encore de trades (PF = 0.0)
         if global_pf == 0.0:
             return True
-        if global_pf < self.PF_CIRCUIT_BREAKER_THRESHOLD:
+        if global_pf < self.pf_circuit_breaker_threshold:
+            is_paper = self._resolve_paper_mode(paper_mode)
+            if is_paper and not self.paper_pf_stop_enabled:
+                logger.warning(
+                    "PF global %.2f < %.2f in paper mode; training continues "
+                    "(set RISK_MANAGER_PAPER_PF_STOP_ENABLED=true to hard-stop paper).",
+                    global_pf,
+                    self.pf_circuit_breaker_threshold,
+                )
+                return True
+            if is_paper and closed_trade_count < self.paper_min_closed_trades_for_pf_stop:
+                logger.warning(
+                    "PF global %.2f < %.2f in paper mode, but only %s/%s closed trades; "
+                    "training continues until evidence is sufficient.",
+                    global_pf,
+                    self.pf_circuit_breaker_threshold,
+                    closed_trade_count,
+                    self.paper_min_closed_trades_for_pf_stop,
+                )
+                return True
             await self.circuit_breaker_pf_low(global_pf)
             return False
         return True
@@ -313,7 +396,7 @@ class RiskManager:
             return float("inf") if gross_profit > 0 else 0.0
         return gross_profit / gross_loss
 
-    async def check_global_risk(self, instances: list) -> bool:
+    async def check_global_risk(self, instances: list, paper_mode: Optional[bool] = None) -> bool:
         """
         Point d'entrée pour vérification globale des risques.
         Calcule le PF global et déclenche le disjoncteur si nécessaire.
@@ -328,9 +411,14 @@ class RiskManager:
             return True
 
         global_pf = self.compute_global_profit_factor(instances)
+        closed_trade_count = self._count_closed_trade_evidence(instances)
         logger.debug(f"📊 PF global: {global_pf:.2f}")
 
-        return await self._check_risk_limits(global_pf)
+        return await self._check_risk_limits(
+            global_pf,
+            paper_mode=paper_mode,
+            closed_trade_count=closed_trade_count,
+        )
 
     def get_summary(self, capital: float) -> Dict:
         """Retourne résumé des paramètres de risque"""

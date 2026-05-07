@@ -1751,7 +1751,7 @@ class OrchestratorAsync:
         if active:
             rm = get_risk_manager()
             rm.set_orchestrator(self)
-            await rm.check_global_risk(active)
+            await rm.check_global_risk(active, paper_mode=self.paper_mode)
         if self.hardening_flags.get("enable_trading_health_score", False):
             health = self._compute_health_score()
             if health < HEALTH_SCORE_THRESHOLD:
