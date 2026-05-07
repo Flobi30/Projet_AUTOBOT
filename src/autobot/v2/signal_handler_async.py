@@ -306,6 +306,10 @@ class SignalHandlerAsync:
     def _opportunity_gate_applies(self) -> dict[str, Any]:
         return self._opportunity_scorer.execution_gate(paper_mode=self._is_paper_mode())
 
+    def _paper_opportunity_upsizing_enabled(self) -> bool:
+        config = getattr(getattr(self, "_opportunity_scorer", None), "config", None)
+        return bool(self._is_paper_mode() and getattr(config, "paper_allow_upsize", False))
+
     @staticmethod
     async def _maybe_await(value: Any) -> Any:
         if asyncio.iscoroutine(value) or isinstance(value, asyncio.Future):
@@ -734,6 +738,7 @@ class SignalHandlerAsync:
         )
         opportunity_payload = opportunity.to_dict()
         opportunity_gate = self._opportunity_gate_applies()
+        opportunity_size_adjustment = None
         if opportunity_gate.get("selection_applies_to_execution"):
             if opportunity.status != "tradable" or opportunity.recommended_order_eur <= 0.0:
                 self._record_runtime_event(
@@ -769,8 +774,8 @@ class SignalHandlerAsync:
                 )
                 return
 
-            capped_volume = round(opportunity.recommended_order_eur / signal.price, 6)
-            if capped_volume <= 0.0:
+            target_volume = round(opportunity.recommended_order_eur / signal.price, 6)
+            if target_volume <= 0.0:
                 self._record_runtime_event(
                     "_last_decision_event",
                     event="buy_rejected",
@@ -781,7 +786,27 @@ class SignalHandlerAsync:
                     opportunity_gate=opportunity_gate,
                 )
                 return
-            volume = min(volume, capped_volume)
+            if self._paper_opportunity_upsizing_enabled():
+                original_volume = float(volume)
+                safe_caps = [
+                    target_volume,
+                    (available / signal.price) if signal.price > 0.0 else target_volume,
+                ]
+                if volume_cap > 0.0:
+                    safe_caps.append(volume_cap)
+                volume = min(max(volume, target_volume), *safe_caps)
+                if volume > original_volume:
+                    opportunity_size_adjustment = {
+                        "reason": "paper_opportunity_upsized",
+                        "original_volume": round(original_volume, 12),
+                        "target_volume": round(float(target_volume), 12),
+                        "adjusted_volume": round(float(volume), 12),
+                        "original_order_value": round(original_volume * signal.price, 8),
+                        "target_order_value": round(float(target_volume) * signal.price, 8),
+                        "adjusted_order_value": round(float(volume) * signal.price, 8),
+                    }
+            else:
+                volume = min(volume, target_volume)
 
         symbol = self._convert_symbol(signal.symbol)
         volume_before_min_adjustment = volume
@@ -834,6 +859,7 @@ class SignalHandlerAsync:
             opportunity=opportunity_payload,
             opportunity_gate=opportunity_gate,
             order_size_adjustment=order_size_adjustment,
+            opportunity_size_adjustment=opportunity_size_adjustment,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
@@ -1104,7 +1130,19 @@ class SignalHandlerAsync:
             )
             if result.success:
                 price = result.executed_price or signal.price
-                await self.instance.close_position(pos_id, price, sell_txid=result.txid)
+                realized_pnl = await self.instance.close_position(
+                    pos_id,
+                    price,
+                    sell_txid=result.txid,
+                    sell_fee=result.fees,
+                )
+                if realized_pnl is None:
+                    realized_pnl = self._compute_close_realized_pnl(
+                        pos,
+                        sell_price=price,
+                        sell_fee=float(result.fees or 0.0),
+                        volume=float(vol),
+                    )
                 await self._osm.transition(
                     rec.client_order_id,
                     "FILLED",
@@ -1124,6 +1162,7 @@ class SignalHandlerAsync:
                     executed_volume=float(vol),
                     executed_price=float(price),
                     fees=float(result.fees or 0.0),
+                    realized_pnl=realized_pnl,
                     paper_mode=bool(getattr(getattr(self.instance, "orchestrator", None), "paper_mode", False)),
                 )
                 logger.info(
@@ -1147,7 +1186,7 @@ class SignalHandlerAsync:
                     volume=vol,
                     fees=result.fees,
                     slippage_bps=self._slippage_bps(signal.price, price, "sell"),
-                    realized_pnl=pos.get("profit"),
+                    realized_pnl=realized_pnl,
                     exchange_order_id=result.txid,
                     decision_id=None,
                     signal_id=None,
@@ -1171,6 +1210,36 @@ class SignalHandlerAsync:
                 logger.error(f"❌ Échec vente: {result.error}")
                 if not self._is_local_order_validation_error(result.error):
                     await self._kill_switch.record_api_failure(result.error or "sell failed")
+
+    def _compute_close_realized_pnl(
+        self,
+        position: dict[str, Any],
+        *,
+        sell_price: float,
+        sell_fee: float,
+        volume: float,
+    ) -> Optional[float]:
+        buy_price = self._safe_float(position.get("buy_price") or position.get("price"), 0.0)
+        if buy_price <= 0.0 or sell_price <= 0.0 or volume <= 0.0:
+            return None
+        buy_fee = self._extract_position_buy_fee(position)
+        return ((float(sell_price) - buy_price) * float(volume)) - buy_fee - float(sell_fee or 0.0)
+
+    def _extract_position_buy_fee(self, position: dict[str, Any]) -> float:
+        direct = self._safe_float(position.get("buy_fee"), -1.0)
+        if direct >= 0.0:
+            return direct
+        metadata = position.get("metadata")
+        if isinstance(metadata, str) and metadata.strip():
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
+        if isinstance(metadata, dict):
+            parsed = self._safe_float(metadata.get("buy_fee"), -1.0)
+            if parsed >= 0.0:
+                return parsed
+        return 0.0
 
     async def _post_trade_reconcile(self) -> None:
         """Compare local vs exchange balance snapshots and trigger kill switch on critical drift."""

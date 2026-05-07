@@ -4,6 +4,8 @@ ARCH-03: Migration vers aiosqlite pour éviter les blocages du loop asyncio.
 """
 
 import logging
+import os
+import sqlite3
 import aiosqlite
 import orjson
 import hashlib
@@ -15,26 +17,80 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 class _PersistenceRepositoryBase:
     """Shared helpers for aiosqlite repositories."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, write_lock: Optional[asyncio.Lock] = None):
         self.db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
-        self._lock = asyncio.Lock()
+        self._conn_lock = asyncio.Lock()
+        self._write_lock = write_lock or asyncio.Lock()
+
+    @property
+    def _busy_timeout_ms(self) -> int:
+        return _env_int("SQLITE_BUSY_TIMEOUT_MS", 30_000, 1_000, 300_000)
+
+    @property
+    def _write_retries(self) -> int:
+        return _env_int("SQLITE_WRITE_RETRIES", 5, 0, 50)
+
+    @property
+    def _retry_base_delay_ms(self) -> int:
+        return _env_int("SQLITE_RETRY_BASE_DELAY_MS", 50, 1, 10_000)
 
     async def get_conn(self) -> aiosqlite.Connection:
-        async with self._lock:
+        async with self._conn_lock:
             if self._conn is None:
-                self._conn = await aiosqlite.connect(str(self.db_path))
+                self._conn = await aiosqlite.connect(
+                    str(self.db_path),
+                    timeout=self._busy_timeout_ms / 1000.0,
+                )
                 self._conn.row_factory = aiosqlite.Row
                 await self._conn.execute("PRAGMA journal_mode=WAL")
-                await self._conn.execute("PRAGMA busy_timeout=5000")
+                await self._conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
                 await self._conn.execute("PRAGMA synchronous=NORMAL")
             return self._conn
 
+    @staticmethod
+    def _is_busy_error(exc: Exception) -> bool:
+        if not isinstance(exc, sqlite3.OperationalError):
+            return False
+        message = str(exc).lower()
+        return "database is locked" in message or "database is busy" in message
+
+    async def _with_write_retries(self, label: str, operation):
+        last_exc: Optional[Exception] = None
+        for attempt in range(self._write_retries + 1):
+            try:
+                async with self._write_lock:
+                    return await operation()
+            except Exception as exc:
+                if not self._is_busy_error(exc) or attempt >= self._write_retries:
+                    raise
+                last_exc = exc
+                delay = (self._retry_base_delay_ms / 1000.0) * (2 ** attempt)
+                logger.warning(
+                    "SQLite busy during %s; retry %s/%s in %.3fs",
+                    label,
+                    attempt + 1,
+                    self._write_retries,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+        if last_exc is not None:
+            raise last_exc
+
     async def close(self):
-        async with self._lock:
+        async with self._conn_lock:
             if self._conn:
                 await self._conn.close()
                 self._conn = None
@@ -392,10 +448,12 @@ class StatePersistence:
     def __init__(self, db_path: str = "data/autobot_state.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.orders = OrderRepository(self.db_path)
-        self.audit = AuditRepository(self.db_path)
-        self.positions = PositionRepository(self.db_path)
-        self.instance_state = InstanceStateRepository(self.db_path)
+        self._write_lock = asyncio.Lock()
+        self._init_lock = asyncio.Lock()
+        self.orders = OrderRepository(self.db_path, self._write_lock)
+        self.audit = AuditRepository(self.db_path, self._write_lock)
+        self.positions = PositionRepository(self.db_path, self._write_lock)
+        self.instance_state = InstanceStateRepository(self.db_path, self._write_lock)
         self._initialized = False
 
     async def initialize(self):
@@ -403,9 +461,10 @@ class StatePersistence:
         if self._initialized:
             return
         
-        async with aiosqlite.connect(str(self.db_path)) as conn:
+        busy_timeout_ms = _env_int("SQLITE_BUSY_TIMEOUT_MS", 30_000, 1_000, 300_000)
+        async with aiosqlite.connect(str(self.db_path), timeout=busy_timeout_ms / 1000.0) as conn:
             await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("PRAGMA busy_timeout=5000")
+            await conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
             
             # Create tables
             await conn.execute("""

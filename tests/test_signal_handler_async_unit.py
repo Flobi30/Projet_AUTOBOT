@@ -80,6 +80,38 @@ class _SellInstance(_Instance):
         ]
 
 
+class _LedgerPersistence:
+    def __init__(self):
+        self.ledger_rows = []
+
+    async def append_trade_ledger(self, **kwargs):
+        self.ledger_rows.append(kwargs)
+        return True
+
+
+class _SuccessfulSellInstance(_Instance):
+    def __init__(self):
+        super().__init__()
+        self._persistence = _LedgerPersistence()
+        self.close_calls = []
+
+    def get_positions_snapshot(self):
+        return [
+            {
+                "id": "pos-sell-1",
+                "symbol": "XXRPZEUR",
+                "buy_price": 100.0,
+                "volume": 2.0,
+                "status": "open",
+                "metadata": {"buy_fee": 0.4},
+            }
+        ]
+
+    async def close_position(self, *args, **kwargs):
+        self.close_calls.append((args, kwargs))
+        return 3.4
+
+
 class _Validator:
     def validate(self, *_args, **_kwargs):
         return SimpleNamespace(status=ValidationStatus.GREEN, message="ok")
@@ -129,6 +161,17 @@ class _RecoverOSM(_OSM):
         return True
 
 
+class _SuccessfulSellOSM(_OSM):
+    async def is_duplicate_active(self, *_args, **_kwargs):
+        return False
+
+    async def new_order(self, **_kwargs):
+        return SimpleNamespace(client_order_id="cid-sell-1", userref=4242)
+
+    async def transition(self, *_args, **_kwargs):
+        return True
+
+
 class _Executor:
     def __init__(self):
         self.market_calls = 0
@@ -149,6 +192,21 @@ class _Executor:
 
     async def execute_stop_loss_order(self, *_args, **_kwargs):
         return OrderResult(success=True, txid="sl-1")
+
+
+class _SellExecutor(_Executor):
+    async def execute_market_order(self, *args, **kwargs):
+        self.market_calls += 1
+        volume = kwargs.get("volume", args[2] if len(args) > 2 else 0.0)
+        self.volumes.append(float(volume))
+        return OrderResult(
+            success=True,
+            txid="sell-1",
+            executed_volume=float(volume),
+            executed_price=102.0,
+            fees=0.2,
+            liquidity="taker",
+        )
 
 
 class _RecoverExecutor(_Executor):
@@ -220,6 +278,41 @@ async def test_execute_buy_rounds_to_minimum_when_budget_and_opportunity_allow()
 
 
 @pytest.mark.asyncio
+async def test_execute_buy_can_upsize_small_paper_signal_to_opportunity_budget():
+    executor = _Executor()
+    osm = _CountingOSM()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = osm
+    handler._post_trade_reconcile = _noop_reconcile
+    handler._is_paper_mode = lambda: True
+    handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": True}
+    handler._build_opportunity_result = lambda *_args, **_kwargs: SimpleNamespace(
+        status="tradable",
+        recommended_order_eur=40.0,
+        reason="score_ok",
+        score=90.0,
+        to_dict=lambda: {"recommended_order_eur": 40.0, "score": 90.0, "status": "tradable"},
+    )
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=100.0,
+        volume=0.01,
+        reason="unit tiny paper signal",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"spread_bps": 1.0, "expected_move_bps": 200.0, "fee_bps": 10.0, "slippage_bps": 2.0},
+    )
+
+    await handler._execute_buy(signal)
+
+    assert osm.new_order_calls == 1
+    assert executor.volumes == [0.4]
+    assert handler._last_decision_event["opportunity_size_adjustment"]["reason"] == "paper_opportunity_upsized"
+
+
+@pytest.mark.asyncio
 async def test_execute_buy_blocks_order_below_minimum_when_budget_too_small():
     instance = _Instance()
     instance.get_available_capital = lambda: 4.0
@@ -273,6 +366,45 @@ async def test_execute_sell_records_duplicate_idempotency_rejection():
     assert handler._last_decision_event["event"] == "sell_rejected"
     assert handler._last_decision_event["reason"] == "duplicate_active_order"
     assert handler._last_decision_event["blocking_condition"] == "idempotency_guard"
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_records_realized_pnl_from_close_result():
+    instance = _SuccessfulSellInstance()
+    executor = _SellExecutor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._osm = _SuccessfulSellOSM()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+    handler._post_trade_reconcile = _noop_reconcile
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit close",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert instance.close_calls[0][1]["sell_fee"] == pytest.approx(0.2)
+    assert instance._persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
+    assert handler._last_order_event["realized_pnl"] == pytest.approx(3.4)
+
+
+def test_compute_close_realized_pnl_fallback_uses_position_metadata_fee():
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=None)
+
+    pnl = handler._compute_close_realized_pnl(
+        {"buy_price": 100.0, "volume": 2.0, "metadata": {"buy_fee": 0.4}},
+        sell_price=102.0,
+        sell_fee=0.2,
+        volume=2.0,
+    )
+
+    assert pnl == pytest.approx(3.4)
 
 
 @pytest.mark.asyncio

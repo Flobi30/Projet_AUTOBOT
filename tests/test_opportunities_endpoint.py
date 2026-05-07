@@ -176,6 +176,41 @@ def test_paper_adaptive_atr_allows_high_net_edge_only_in_paper():
     assert "atr_below_minimum" in live_result.blockers
 
 
+def test_paper_allocation_can_train_with_larger_bounded_orders():
+    scorer = OpportunityScorer(
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=18.0,
+            min_stability=0.40,
+            paper_min_order_eur=7.5,
+            paper_max_order_eur=40.0,
+            paper_order_capital_pct=18.0,
+            paper_max_total_exposure_pct=70.0,
+        )
+    )
+    edge_context = {
+        "expected_move_bps": 160.0,
+        "total_cost_bps": 30.0,
+        "net_edge_bps": 130.0,
+        "adaptive_min_edge_bps": 48.5,
+        "spread_bps": 1.0,
+    }
+
+    result = scorer.score_signal(
+        symbol="ETHEUR",
+        edge_context=edge_context,
+        atr_pct=0.003,
+        available_capital=800.0,
+        total_capital=800.0,
+        paper_mode=True,
+    )
+
+    assert result.status == "tradable"
+    assert 35.0 <= result.recommended_order_eur <= 40.0
+
+
 def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     dashboard.app.state.orchestrator = _Orchestrator()
@@ -205,7 +240,7 @@ def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatc
     assert response.status_code == 200
     body = response.json()
     assert body["capital"]["total_capital"] == 800.0
-    assert body["opportunities"][0]["allocation_eur"] <= 160.0
+    assert body["opportunities"][0]["allocation_eur"] <= 200.0
 
 
 def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
