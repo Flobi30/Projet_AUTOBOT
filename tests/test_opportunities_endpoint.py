@@ -1,3 +1,6 @@
+import sqlite3
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -256,3 +259,64 @@ def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
     assert body["config"]["enabled"] is True
     assert {item["symbol"] for item in body["symbols"]} == {"ETHEUR", "BTCEUR"}
     assert all("entropy_norm" in item for item in body["symbols"])
+
+
+def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trades (
+                txid TEXT,
+                symbol TEXT,
+                side TEXT,
+                volume REAL,
+                price REAL,
+                fees REAL,
+                timestamp TEXT,
+                status TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("buy-1", "TESTEUR", "buy", 1.0, 100.0, 0.1, "2026-05-07T00:00:00+00:00", "filled", "2026-05-07T00:00:00+00:00"),
+        )
+        conn.execute(
+            "INSERT INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("sell-1", "TESTEUR", "sell", 1.0, 102.0, 0.1, "2026-05-07T00:01:00+00:00", "filled", "2026-05-07T00:01:00+00:00"),
+        )
+
+    class _PaperSummaryOrchestrator(_Orchestrator):
+        order_executor = SimpleNamespace(db_path=str(db_path))
+
+        def get_instances_snapshot(self):
+            return [
+                {
+                    "id": "inst-test",
+                    "symbol": "TESTEUR",
+                    "capital": 100.0,
+                    "initial_capital": 100.0,
+                    "profit": 0.0,
+                    "warmup": {"active": False},
+                    "blocked_reasons": [],
+                    "trades_history": [],
+                }
+            ]
+
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("PAPER_TRADING", "true")
+    dashboard.app.state.orchestrator = _PaperSummaryOrchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/paper-trading/summary", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    pair = response.json()["by_pair"][0]
+    assert pair["symbol"] == "TESTEUR"
+    assert pair["closed_trades"] == 1
+    assert pair["net_pnl_eur"] == pytest.approx(1.8)
+    assert pair["avg_pf"] == 999.99
+    assert pair["win_rate"] == 100.0
+    assert pair["pnl_source"] == "paper_trades_db_fifo"

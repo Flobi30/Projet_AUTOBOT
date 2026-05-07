@@ -2192,6 +2192,34 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             _filled_paper_trade_counts_by_symbol(getattr(executor, "db_path", "data/paper_trades.db"))
             if is_paper_mode else {}
         )
+        paper_realized_stats: Dict[str, Dict[str, float]] = {}
+        if is_paper_mode:
+            try:
+                from ..quant_validation import BacktestQualityEngine, load_paper_trade_observations
+
+                observations = load_paper_trade_observations(getattr(executor, "db_path", "data/paper_trades.db"))
+                realized = BacktestQualityEngine()._realized_results(observations)
+                for item in realized:
+                    key = _paper_symbol_key(item.symbol)
+                    stats = paper_realized_stats.setdefault(
+                        key,
+                        {
+                            "trade_count": 0.0,
+                            "wins": 0.0,
+                            "gross_profit": 0.0,
+                            "gross_loss": 0.0,
+                            "net_pnl": 0.0,
+                        },
+                    )
+                    stats["trade_count"] += 1.0
+                    stats["net_pnl"] += float(item.pnl_eur)
+                    if item.pnl_eur > 0.0:
+                        stats["wins"] += 1.0
+                        stats["gross_profit"] += float(item.pnl_eur)
+                    elif item.pnl_eur < 0.0:
+                        stats["gross_loss"] += abs(float(item.pnl_eur))
+            except Exception:
+                logger.debug("Paper realized stats unavailable for summary", exc_info=True)
 
         # Group by symbol
         by_pair = []
@@ -2199,9 +2227,12 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
         for symbol, instances in pair_map.items():
             profits_pct = []
             total_trades = 0
+            closed_trades = 0
             winning_trades = 0
             gross_profit = 0.0
             gross_loss = 0.0
+            net_pnl = 0.0
+            pnl_source = "instance_memory"
             warmup_active = 0
             blocked_reasons = set()
 
@@ -2220,6 +2251,8 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 for trade in trades:
                     pnl = trade.get("profit", 0) or 0
                     total_trades += 1
+                    closed_trades += 1
+                    net_pnl += pnl
                     if pnl > 0:
                         gross_profit += pnl
                         winning_trades += 1
@@ -2231,23 +2264,32 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                     wc = inst.get("win_count", 0)
                     lc = inst.get("loss_count", 0)
                     total_trades += wc + lc
+                    closed_trades += wc + lc
                     winning_trades += wc
 
             paper_filled_trades = paper_trade_counts.get(_paper_symbol_key(symbol), 0)
             total_trades = max(total_trades, paper_filled_trades)
+            realized_stats = paper_realized_stats.get(_paper_symbol_key(symbol))
+            if realized_stats and realized_stats.get("trade_count", 0.0) > 0.0:
+                closed_trades = max(closed_trades, int(realized_stats["trade_count"]))
+                winning_trades = int(realized_stats["wins"])
+                gross_profit = float(realized_stats["gross_profit"])
+                gross_loss = float(realized_stats["gross_loss"])
+                net_pnl = float(realized_stats["net_pnl"])
+                pnl_source = "paper_trades_db_fifo"
 
             avg_profit_pct = (sum(profits_pct) / len(profits_pct)) if profits_pct else 0.0
             pair_pf = (gross_profit / gross_loss) if gross_loss > 0 else (
                 999.99 if gross_profit > 0 else 0.0
             )
-            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+            win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0.0
 
             # Recommendation logic (REAL)
-            if pair_pf > 1.5 and win_rate > 55 and total_trades >= 20:
+            if pair_pf > 1.5 and win_rate > 55 and closed_trades >= 20:
                 recommendation = "promote_to_live"
-            elif pair_pf > 1.0 and total_trades < 20:
+            elif pair_pf > 1.0 and closed_trades < 20:
                 recommendation = "continue_paper"
-            elif pair_pf <= 1.0 and total_trades >= 10:
+            elif pair_pf <= 1.0 and closed_trades >= 10:
                 recommendation = "stop"
             else:
                 recommendation = "continue_paper"
@@ -2256,6 +2298,8 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 "symbol": symbol,
                 "instance_count": len(instances),
                 "total_trades": total_trades,
+                "closed_trades": closed_trades,
+                "net_pnl_eur": round(net_pnl, 4),
                 "avg_profit_percent": round(avg_profit_pct, 2),
                 "avg_pf": round(pair_pf, 2),
                 "win_rate": round(win_rate, 2),
@@ -2264,6 +2308,7 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 "blocked_reasons": sorted(blocked_reasons),
                 "paper_filled_trades": paper_filled_trades,
                 "trade_count_source": "paper_trades_db" if paper_filled_trades else "instance_memory",
+                "pnl_source": pnl_source,
             })
 
         return {
