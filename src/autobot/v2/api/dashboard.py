@@ -2178,6 +2178,8 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
         else:
             paper_count = 0
             live_count = total_instances
+        promotion_min_closed_trades = max(1, int(float(os.getenv("PAPER_PROMOTION_MIN_CLOSED_TRADES", "30"))))
+        promotion_min_net_pnl_eur = max(0.0, float(os.getenv("PAPER_PROMOTION_MIN_NET_PNL_EUR", "10.0")))
         
         # Build pair map
         pair_map = {}
@@ -2285,7 +2287,12 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0.0
 
             # Recommendation logic (REAL)
-            if pair_pf > 1.5 and win_rate > 55 and closed_trades >= 20:
+            if (
+                pair_pf > 1.5
+                and win_rate > 55
+                and closed_trades >= promotion_min_closed_trades
+                and net_pnl >= promotion_min_net_pnl_eur
+            ):
                 recommendation = "promote_to_live"
             elif pair_pf > 1.0 and closed_trades < 20:
                 recommendation = "continue_paper"

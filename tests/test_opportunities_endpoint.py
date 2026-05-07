@@ -320,3 +320,4 @@ def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp
     assert pair["avg_pf"] == 999.99
     assert pair["win_rate"] == 100.0
     assert pair["pnl_source"] == "paper_trades_db_fifo"
+    assert pair["recommendation"] == "continue_paper"
