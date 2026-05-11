@@ -31,7 +31,7 @@ from .modules.order_flow_imbalance import OrderFlowImbalance
 from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
-from .order_executor_async import OrderExecutorAsync, get_order_executor_async
+from .order_executor_async import OrderExecutorAsync, OrderSide, get_order_executor_async
 try:
     from .paper_trading import PaperTradingExecutor
 except ImportError:
@@ -1604,7 +1604,7 @@ class OrchestratorAsync:
             self._set_last_decision(
                 inst.id,
                 action="EXIT",
-                reason=f"trailing_stop_closed={exits_count}",
+                reason=f"position_exit_closed={exits_count}",
             )
             logger.info(
                 "🧭 DecisionBus: exit-priority appliquée pour %s (%d fermeture(s))",
@@ -2323,15 +2323,20 @@ class OrchestratorAsync:
         try:
             closed_count = 0
             trailing = self.trailing_stops.get(instance.id)
-            if not trailing:
-                return 0
             status = instance.get_status()
             current_price = status.get("last_price")
             if not current_price or current_price <= 0:
                 return 0
+            current_price = float(current_price)
+            tpsl_enabled = _env_bool("POSITION_EXIT_TPSL_ENABLED", True)
+            live_tpsl_enabled = (
+                not self.paper_mode
+                and _env_bool("POSITION_EXIT_TPSL_LIVE_ENABLED", False)
+                and _env_bool("LIVE_TRADING_CONFIRMATION", False)
+            )
 
             # ATR indisponible dans ce contexte -> approximation conservatrice 1% du prix
-            atr = max(float(current_price) * 0.01, 1e-8)
+            atr = max(current_price * 0.01, 1e-8)
 
             for pos in instance.get_positions_snapshot():
                 if pos.get("status") != "open":
@@ -2339,30 +2344,189 @@ class OrchestratorAsync:
                 entry_price = float(pos.get("entry_price") or 0.0)
                 if entry_price <= 0:
                     continue
-                profit_pct = ((float(current_price) - entry_price) / entry_price) * 100.0
+                if tpsl_enabled and (self.paper_mode or live_tpsl_enabled):
+                    take_profit = self._safe_positive_float(pos.get("take_profit"))
+                    stop_loss = self._safe_positive_float(pos.get("stop_loss"))
+                    if take_profit is not None and current_price >= take_profit:
+                        if await self._execute_position_exit(
+                            instance,
+                            pos,
+                            current_price,
+                            reason="take_profit",
+                            trigger_price=take_profit,
+                        ):
+                            closed_count += 1
+                            self._repeated_auto_actions[instance.id] = 0
+                        continue
+                    if stop_loss is not None and current_price <= stop_loss:
+                        if await self._execute_position_exit(
+                            instance,
+                            pos,
+                            current_price,
+                            reason="stop_loss",
+                            trigger_price=stop_loss,
+                        ):
+                            closed_count += 1
+                            self._repeated_auto_actions[instance.id] = 0
+                        continue
+                elif tpsl_enabled and not self.paper_mode:
+                    logger.debug(
+                        "TP/SL live ignored for %s/%s: POSITION_EXIT_TPSL_LIVE_ENABLED=false",
+                        instance.id,
+                        pos.get("id"),
+                    )
+
+                if not trailing:
+                    continue
+                profit_pct = ((current_price - entry_price) / entry_price) * 100.0
                 if profit_pct <= 1.5:
                     continue
 
                 stop_price = trailing.update(
-                    price=float(current_price),
+                    price=current_price,
                     atr=atr,
                     entry_price=entry_price,
                 )
-                if float(current_price) <= stop_price:
+                if current_price <= stop_price:
                     logger.warning(
                         "🛡️ Trailing stop hit: inst=%s pos=%s price=%.4f stop=%.4f",
                         instance.id,
                         pos.get("id"),
-                        float(current_price),
+                        current_price,
                         float(stop_price),
                     )
-                    await instance.close_position(str(pos.get("id")), float(current_price))
-                    closed_count += 1
-                    self._repeated_auto_actions[instance.id] = 0
+                    if await self._execute_position_exit(
+                        instance,
+                        pos,
+                        current_price,
+                        reason="trailing_stop",
+                        trigger_price=float(stop_price),
+                    ):
+                        closed_count += 1
+                        self._repeated_auto_actions[instance.id] = 0
         except Exception as exc:
-            logger.warning("Trailing stop check erreur (isolée): %s", exc)
+            logger.warning("Exit condition check error (isolated): %s", exc)
             return 0
         return closed_count
+
+    async def _execute_position_exit(
+        self,
+        instance: TradingInstanceAsync,
+        position: Dict[str, Any],
+        current_price: float,
+        *,
+        reason: str,
+        trigger_price: float,
+    ) -> bool:
+        pos_id = str(position.get("id") or "")
+        symbol = str(position.get("symbol") or position.get("pair") or getattr(instance.config, "symbol", ""))
+        volume = self._safe_positive_float(position.get("volume") or position.get("size"))
+        if not pos_id or not symbol or volume is None or current_price <= 0:
+            logger.warning(
+                "Exit ignored: invalid position inst=%s pos=%s symbol=%s volume=%s",
+                instance.id,
+                pos_id,
+                symbol,
+                position.get("volume") or position.get("size"),
+            )
+            return False
+
+        kwargs: Dict[str, Any] = {}
+        if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+            kwargs["price_hint"] = float(current_price)
+
+        result = await self.order_executor.execute_market_order(
+            symbol,
+            OrderSide.SELL,
+            float(volume),
+            **kwargs,
+        )
+        if not getattr(result, "success", False):
+            logger.warning(
+                "Exit %s rejected: inst=%s pos=%s symbol=%s error=%s",
+                reason,
+                instance.id,
+                pos_id,
+                symbol,
+                getattr(result, "error", None),
+            )
+            return False
+
+        executed_price = float(getattr(result, "executed_price", 0.0) or current_price)
+        realized_pnl = await instance.close_position(
+            pos_id,
+            executed_price,
+            sell_txid=getattr(result, "txid", None),
+            sell_fee=float(getattr(result, "fees", 0.0) or 0.0),
+        )
+        if realized_pnl is None:
+            logger.warning(
+                "Exit %s executed but position already closed: inst=%s pos=%s",
+                reason,
+                instance.id,
+                pos_id,
+            )
+            return False
+
+        sl_txid = position.get("stop_loss_txid")
+        if sl_txid and hasattr(self.order_executor, "cancel_order"):
+            try:
+                await self.order_executor.cancel_order(str(sl_txid))
+            except Exception as exc:
+                logger.debug("Paper stop-loss cancel ignored (%s): %s", sl_txid, exc)
+
+        persistence = getattr(instance, "_persistence", None)
+        if persistence is not None and hasattr(persistence, "append_trade_ledger"):
+            try:
+                await persistence.append_trade_ledger(
+                    trade_id=f"trd_{uuid.uuid4().hex}",
+                    position_id=pos_id,
+                    instance_id=instance.id,
+                    symbol=symbol,
+                    side="sell",
+                    expected_price=float(trigger_price),
+                    executed_price=executed_price,
+                    volume=float(volume),
+                    fees=float(getattr(result, "fees", 0.0) or 0.0),
+                    slippage_bps=self._sell_slippage_bps(float(trigger_price), executed_price),
+                    realized_pnl=realized_pnl,
+                    exchange_order_id=getattr(result, "txid", None),
+                    decision_id=None,
+                    signal_id=None,
+                    is_opening_leg=False,
+                    is_closing_leg=True,
+                    execution_liquidity=getattr(result, "liquidity", "unknown"),
+                )
+            except Exception as exc:
+                logger.warning("Close ledger append ignored for %s: %s", pos_id, exc)
+
+        logger.info(
+            "Position closed by %s: inst=%s pos=%s symbol=%s price=%.8f trigger=%.8f pnl=%.6f",
+            reason,
+            instance.id,
+            pos_id,
+            symbol,
+            executed_price,
+            float(trigger_price),
+            float(realized_pnl),
+        )
+        return True
+
+    @staticmethod
+    def _safe_positive_float(value: Any) -> Optional[float]:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        if result <= 0:
+            return None
+        return result
+
+    @staticmethod
+    def _sell_slippage_bps(expected_price: float, executed_price: float) -> float:
+        if expected_price <= 0:
+            return 0.0
+        return float(-((executed_price - expected_price) / expected_price) * 10000.0)
 
     def _calculate_position_size(
         self,

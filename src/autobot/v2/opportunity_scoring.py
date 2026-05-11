@@ -76,12 +76,15 @@ class OpportunityConfig:
     max_symbol_exposure_pct: float = 20.0
     max_total_exposure_pct: float = 40.0
     paper_allow_upsize: bool = True
-    paper_min_order_eur: float = 7.5
-    paper_max_order_eur: float = 40.0
-    paper_order_capital_pct: float = 18.0
+    paper_min_order_eur: float = 10.0
+    paper_max_order_eur: float = 80.0
+    paper_order_capital_pct: float = 38.0
     paper_max_symbol_exposure_pct: float = 25.0
-    paper_max_total_exposure_pct: float = 70.0
+    paper_max_total_exposure_pct: float = 80.0
     paper_allow_min_order_floor: bool = True
+    paper_dynamic_allocation_enabled: bool = True
+    paper_min_order_capital_pct: float = 12.0
+    paper_edge_boost_bps: float = 140.0
     atr_mode: str = "strict"
     high_net_edge_bps: float = 80.0
     paper_relaxed_min_atr_bps: float = 5.0
@@ -106,12 +109,15 @@ class OpportunityConfig:
             max_symbol_exposure_pct=_env_float("OPPORTUNITY_MAX_SYMBOL_EXPOSURE_PCT", 20.0, 0.1, 100.0),
             max_total_exposure_pct=_env_float("OPPORTUNITY_MAX_TOTAL_EXPOSURE_PCT", 40.0, 0.1, 100.0),
             paper_allow_upsize=_env_bool("OPPORTUNITY_PAPER_ALLOW_UPSIZE", True),
-            paper_min_order_eur=_env_float("OPPORTUNITY_PAPER_MIN_ORDER_EUR", 7.5, 0.0, 10_000.0),
-            paper_max_order_eur=_env_float("OPPORTUNITY_PAPER_MAX_ORDER_EUR", 40.0, 0.0, 1_000_000.0),
-            paper_order_capital_pct=_env_float("OPPORTUNITY_PAPER_ORDER_CAPITAL_PCT", 18.0, 0.1, 100.0),
+            paper_min_order_eur=_env_float("OPPORTUNITY_PAPER_MIN_ORDER_EUR", 10.0, 0.0, 10_000.0),
+            paper_max_order_eur=_env_float("OPPORTUNITY_PAPER_MAX_ORDER_EUR", 80.0, 0.0, 1_000_000.0),
+            paper_order_capital_pct=_env_float("OPPORTUNITY_PAPER_ORDER_CAPITAL_PCT", 38.0, 0.1, 100.0),
             paper_max_symbol_exposure_pct=_env_float("OPPORTUNITY_PAPER_MAX_SYMBOL_EXPOSURE_PCT", 25.0, 0.1, 100.0),
-            paper_max_total_exposure_pct=_env_float("OPPORTUNITY_PAPER_MAX_TOTAL_EXPOSURE_PCT", 70.0, 0.1, 100.0),
+            paper_max_total_exposure_pct=_env_float("OPPORTUNITY_PAPER_MAX_TOTAL_EXPOSURE_PCT", 80.0, 0.1, 100.0),
             paper_allow_min_order_floor=_env_bool("OPPORTUNITY_PAPER_ALLOW_MIN_ORDER_FLOOR", True),
+            paper_dynamic_allocation_enabled=_env_bool("OPPORTUNITY_PAPER_DYNAMIC_ALLOCATION_ENABLED", True),
+            paper_min_order_capital_pct=_env_float("OPPORTUNITY_PAPER_MIN_ORDER_CAPITAL_PCT", 12.0, 0.1, 100.0),
+            paper_edge_boost_bps=_env_float("OPPORTUNITY_PAPER_EDGE_BOOST_BPS", 140.0, 1.0, 5000.0),
             atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "strict", {"strict", "adaptive", "opportunistic"}),
             high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
             paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
@@ -135,6 +141,7 @@ class OpportunityResult:
     signal_stability: float = 0.0
     allocation_eur: float = 0.0
     recommended_order_eur: float = 0.0
+    allocation_capital_pct: float = 0.0
     allocation_reason: str = "ok"
     components: dict[str, float] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
@@ -161,6 +168,7 @@ class OpportunityResult:
             "signal_stability": round(self.signal_stability, 3),
             "allocation_eur": round(self.allocation_eur, 2),
             "recommended_order_eur": round(self.recommended_order_eur, 2),
+            "allocation_capital_pct": round(self.allocation_capital_pct, 3),
             "allocation_reason": self.allocation_reason,
             "components": {k: round(v, 3) for k, v in self.components.items()},
             "blockers": list(self.blockers),
@@ -258,6 +266,8 @@ class OpportunityScorer:
             available_capital=available_capital,
             total_capital=total_capital,
             paper_mode=paper_mode,
+            net_edge_bps=net_edge,
+            min_edge_bps=min_edge,
         )
         return OpportunityResult(
             symbol=symbol,
@@ -275,6 +285,7 @@ class OpportunityScorer:
             signal_stability=stability,
             allocation_eur=allocation["symbol_cap_eur"],
             recommended_order_eur=allocation["order_eur"],
+            allocation_capital_pct=allocation["capital_pct"],
             allocation_reason=allocation["reason"],
             components=components,
             blockers=blockers,
@@ -328,6 +339,9 @@ class OpportunityScorer:
                 "paper_max_symbol_exposure_pct": self.config.paper_max_symbol_exposure_pct,
                 "paper_max_total_exposure_pct": self.config.paper_max_total_exposure_pct,
                 "paper_allow_min_order_floor": self.config.paper_allow_min_order_floor,
+                "paper_dynamic_allocation_enabled": self.config.paper_dynamic_allocation_enabled,
+                "paper_min_order_capital_pct": self.config.paper_min_order_capital_pct,
+                "paper_edge_boost_bps": self.config.paper_edge_boost_bps,
                 "atr_mode": self.config.atr_mode,
                 "high_net_edge_bps": self.config.high_net_edge_bps,
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
@@ -406,6 +420,8 @@ class OpportunityScorer:
             available_capital=_safe_float(instance.get("capital"), 0.0),
             total_capital=total_capital,
             paper_mode=paper_mode,
+            net_edge_bps=net_edge,
+            min_edge_bps=min_edge,
         )
         return OpportunityResult(
             symbol=symbol,
@@ -423,6 +439,7 @@ class OpportunityScorer:
             signal_stability=stability,
             allocation_eur=allocation["symbol_cap_eur"],
             recommended_order_eur=allocation["order_eur"],
+            allocation_capital_pct=allocation["capital_pct"],
             allocation_reason=allocation["reason"],
             components=components,
             blockers=blockers,
@@ -557,6 +574,8 @@ class OpportunityScorer:
         available_capital: float,
         total_capital: Optional[float],
         paper_mode: bool = False,
+        net_edge_bps: float = 0.0,
+        min_edge_bps: float = 0.0,
     ) -> dict[str, float]:
         cfg = self.config
         available = max(0.0, float(available_capital))
@@ -565,11 +584,15 @@ class OpportunityScorer:
         total_pct = cfg.paper_max_total_exposure_pct if paper_mode else cfg.max_total_exposure_pct
         min_order = cfg.paper_min_order_eur if paper_mode else cfg.min_order_eur
         max_order = cfg.paper_max_order_eur if paper_mode else cfg.max_order_eur
-        order_capital_pct = cfg.paper_order_capital_pct if paper_mode else 15.0
+        order_capital_pct = self._order_capital_pct(
+            score=score,
+            paper_mode=paper_mode,
+            net_edge_bps=net_edge_bps,
+            min_edge_bps=min_edge_bps,
+        )
         symbol_cap = total * symbol_pct / 100.0 if total > 0.0 else available
         total_cap = total * total_pct / 100.0 if total > 0.0 else available
-        score_mult = _clamp(score / 100.0)
-        raw_order = available * (order_capital_pct / 100.0) * score_mult
+        raw_order = available * (order_capital_pct / 100.0)
         order = min(raw_order, max_order, symbol_cap, total_cap, available)
         reason = "ok"
         if order < min_order:
@@ -598,8 +621,32 @@ class OpportunityScorer:
         return {
             "symbol_cap_eur": max(0.0, min(symbol_cap, total_cap)),
             "order_eur": max(0.0, order),
+            "capital_pct": max(0.0, order_capital_pct),
             "reason": reason,
         }
+
+    def _order_capital_pct(
+        self,
+        *,
+        score: float,
+        paper_mode: bool,
+        net_edge_bps: float,
+        min_edge_bps: float,
+    ) -> float:
+        cfg = self.config
+        if not paper_mode or not cfg.paper_dynamic_allocation_enabled:
+            base_pct = cfg.paper_order_capital_pct if paper_mode else 15.0
+            return base_pct * _clamp(score / 100.0)
+
+        target_pct = max(cfg.paper_min_order_capital_pct, cfg.paper_order_capital_pct)
+        floor_pct = min(cfg.paper_min_order_capital_pct, target_pct)
+        score_floor = max(0.0, min(99.0, cfg.min_score))
+        score_quality = _clamp((score - score_floor) / max(1.0, 100.0 - score_floor))
+        edge_threshold = max(cfg.min_net_edge_bps, min_edge_bps)
+        edge_surplus = max(0.0, float(net_edge_bps) - edge_threshold)
+        edge_quality = _clamp(edge_surplus / max(1.0, cfg.paper_edge_boost_bps))
+        conviction = _clamp((score_quality * 0.55) + (edge_quality * 0.45))
+        return floor_pct + ((target_pct - floor_pct) * conviction)
 
     def _signal_stability(
         self,

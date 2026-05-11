@@ -873,6 +873,7 @@ class TradingInstanceAsync:
             snapshot.append({
                 "id": pos_id,
                 "pair": self.config.symbol,
+                "symbol": self.config.symbol,
                 "side": "LONG",
                 "size": f"{pos.volume:.6f}",
                 "volume": pos.volume,
@@ -881,6 +882,9 @@ class TradingInstanceAsync:
                 "pnl": pnl,
                 "pnl_percent": pnl_pct,
                 "status": pos.status,
+                "open_time": pos.open_time.isoformat() if pos.open_time else None,
+                "stop_loss": pos.stop_loss,
+                "take_profit": pos.take_profit,
                 "buy_txid": pos.buy_txid,
                 "txid": pos.buy_txid,
                 "stop_loss_txid": pos.stop_loss_txid,
