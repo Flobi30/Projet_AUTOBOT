@@ -27,7 +27,7 @@ async def test_save_position_accepts_legacy_positional_call(tmp_path):
     assert ok is True
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT id, instance_id, buy_price, volume, status, strategy, metadata FROM positions WHERE id = ?",
+            "SELECT id, instance_id, buy_price, volume, status, strategy, metadata, symbol FROM positions WHERE id = ?",
             ("pos-1",),
         ).fetchone()
 
@@ -39,6 +39,35 @@ async def test_save_position_accepts_legacy_positional_call(tmp_path):
     assert row[4] == "open"
     assert row[5] == "grid"
     assert "paper-1" in row[6]
+    assert row[7] is None
+
+
+@pytest.mark.asyncio
+async def test_save_position_persists_symbol_from_metadata(tmp_path):
+    db_path = tmp_path / "state.db"
+    persistence = StatePersistence(str(db_path))
+
+    ok = await persistence.save_position(
+        position_id="pos-symbol",
+        instance_id="inst-1",
+        buy_price=100.0,
+        volume=0.25,
+        status="open",
+        strategy="grid",
+        metadata={"symbol": "XETHZEUR", "buy_txid": "paper-1"},
+    )
+    await persistence.close()
+
+    assert ok is True
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT symbol, metadata FROM positions WHERE id = ?",
+            ("pos-symbol",),
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == "XETHZEUR"
+    assert "XETHZEUR" in row[1]
 
 
 @pytest.mark.asyncio

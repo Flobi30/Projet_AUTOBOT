@@ -741,17 +741,28 @@ class SignalHandlerAsync:
         opportunity_size_adjustment = None
         if opportunity_gate.get("selection_applies_to_execution"):
             if opportunity.status != "tradable" or opportunity.recommended_order_eur <= 0.0:
+                allocation_reason = opportunity_payload.get("allocation_reason")
+                rejection_reason = (
+                    "opportunity_allocation"
+                    if opportunity.status == "tradable" and opportunity.recommended_order_eur <= 0.0
+                    else "opportunity_selection"
+                )
+                blocking_condition = (
+                    allocation_reason
+                    if rejection_reason == "opportunity_allocation" and allocation_reason
+                    else opportunity.reason
+                )
                 self._record_runtime_event(
                     "_last_decision_event",
                     event="buy_rejected",
-                    reason="opportunity_score",
+                    reason=rejection_reason,
                     symbol=signal.symbol,
                     side="buy",
                     net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
                     min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
                     gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
                     cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
-                    blocking_condition=opportunity.reason,
+                    blocking_condition=blocking_condition,
                     atr_pct=round(float(atr_pct), 8),
                     volume=float(volume),
                     order_value=round(float(volume * signal.price), 8),
@@ -768,8 +779,9 @@ class SignalHandlerAsync:
                     opportunity_gate=opportunity_gate,
                 )
                 logger.info(
-                    "⛔ Signal BUY ignoré: opportunité insuffisante (%s, score %.1f)",
-                    opportunity.reason,
+                    "⛔ Signal BUY ignoré: %s (%s, score %.1f)",
+                    rejection_reason,
+                    blocking_condition,
                     opportunity.score,
                 )
                 return
@@ -788,12 +800,15 @@ class SignalHandlerAsync:
                 return
             if self._paper_opportunity_upsizing_enabled():
                 original_volume = float(volume)
+                effective_volume_cap = volume_cap
+                if self._is_paper_mode() and target_volume > 0.0:
+                    effective_volume_cap = max(effective_volume_cap, target_volume)
                 safe_caps = [
                     target_volume,
                     (available / signal.price) if signal.price > 0.0 else target_volume,
                 ]
-                if volume_cap > 0.0:
-                    safe_caps.append(volume_cap)
+                if effective_volume_cap > 0.0:
+                    safe_caps.append(effective_volume_cap)
                 volume = min(max(volume, target_volume), *safe_caps)
                 if volume > original_volume:
                     opportunity_size_adjustment = {
@@ -815,7 +830,11 @@ class SignalHandlerAsync:
             volume=volume,
             price=signal.price,
             available_capital=available,
-            max_order_value=max_order_value,
+            max_order_value=(
+                max(max_order_value, opportunity.recommended_order_eur)
+                if self._is_paper_mode()
+                else max_order_value
+            ),
             signal_reason=getattr(signal, "reason", None),
             opportunity=opportunity_payload,
         )
@@ -1003,6 +1022,7 @@ class SignalHandlerAsync:
             buy_txid=result.txid,
             buy_fee=result.fees,
             buy_fee_source="order_result" if result.fees is not None else None,
+            symbol=symbol,
         )
 
         if position:

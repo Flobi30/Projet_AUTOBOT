@@ -158,6 +158,192 @@ def _sqlite_health(db_path: Any, required_tables: List[str]) -> Dict[str, Any]:
     return result
 
 
+def _positions_audit_from_state_db(db_path: Any, *, recent_limit: int = 10) -> Dict[str, Any]:
+    """Summarize real paper/live position persistence without inventing PnL."""
+    path = str(db_path) if db_path else ""
+    result: Dict[str, Any] = {
+        "path": path,
+        "available": False,
+        "status": "missing",
+        "totals": {
+            "positions": 0,
+            "open_positions": 0,
+            "closed_positions": 0,
+            "open_entry_notional": 0.0,
+            "realized_pnl": 0.0,
+            "fees": 0.0,
+        },
+        "open_by_symbol": [],
+        "recent_closes": [],
+        "daily_realized_pnl": [],
+    }
+    if not path or not os.path.exists(path):
+        return result
+
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            table_names = {
+                row["name"]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            if "positions" not in table_names:
+                result["status"] = "positions_table_missing"
+                return result
+
+            position_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(positions)")
+            }
+            symbol_expr = "p.symbol" if "symbol" in position_columns else "NULL"
+            metadata_symbol_expr = (
+                "json_extract(p.metadata, '$.symbol')"
+                if "metadata" in position_columns
+                else "NULL"
+            )
+            ledger_symbol_expr = (
+                """
+                (
+                    SELECT tl.symbol
+                    FROM trade_ledger tl
+                    WHERE tl.position_id = p.id AND tl.symbol IS NOT NULL
+                    ORDER BY tl.created_at DESC
+                    LIMIT 1
+                )
+                """
+                if "trade_ledger" in table_names
+                else "NULL"
+            )
+            instance_symbol_expr = (
+                """
+                (
+                    SELECT tl.symbol
+                    FROM trade_ledger tl
+                    WHERE tl.instance_id = p.instance_id AND tl.symbol IS NOT NULL
+                    ORDER BY tl.created_at DESC
+                    LIMIT 1
+                )
+                """
+                if "trade_ledger" in table_names
+                else "NULL"
+            )
+            inferred_symbol = (
+                f"COALESCE({symbol_expr}, {metadata_symbol_expr}, "
+                f"{ledger_symbol_expr}, {instance_symbol_expr}, 'UNKNOWN')"
+            )
+
+            totals = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS positions,
+                    SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_positions,
+                    SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed_positions,
+                    COALESCE(SUM(CASE WHEN status = 'open' THEN buy_price * volume ELSE 0 END), 0) AS open_entry_notional
+                FROM positions
+                """
+            ).fetchone()
+            result["totals"].update({
+                "positions": int(totals["positions"] or 0),
+                "open_positions": int(totals["open_positions"] or 0),
+                "closed_positions": int(totals["closed_positions"] or 0),
+                "open_entry_notional": round(float(totals["open_entry_notional"] or 0.0), 6),
+            })
+
+            if "trade_ledger" in table_names:
+                ledger_totals = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(CASE WHEN is_closing_leg = 1 THEN COALESCE(realized_pnl, 0) ELSE 0 END), 0) AS realized_pnl,
+                        COALESCE(SUM(fees), 0) AS fees
+                    FROM trade_ledger
+                    """
+                ).fetchone()
+                result["totals"]["realized_pnl"] = round(float(ledger_totals["realized_pnl"] or 0.0), 6)
+                result["totals"]["fees"] = round(float(ledger_totals["fees"] or 0.0), 6)
+
+            result["open_by_symbol"] = [
+                {
+                    "symbol": str(row["symbol"]),
+                    "open_positions": int(row["open_positions"] or 0),
+                    "entry_notional": round(float(row["entry_notional"] or 0.0), 6),
+                    "oldest_open": row["oldest_open"],
+                    "newest_open": row["newest_open"],
+                }
+                for row in conn.execute(
+                    f"""
+                    SELECT
+                        {inferred_symbol} AS symbol,
+                        COUNT(*) AS open_positions,
+                        COALESCE(SUM(p.buy_price * p.volume), 0) AS entry_notional,
+                        MIN(p.open_time) AS oldest_open,
+                        MAX(p.open_time) AS newest_open
+                    FROM positions p
+                    WHERE p.status = 'open'
+                    GROUP BY {inferred_symbol}
+                    ORDER BY entry_notional DESC
+                    """
+                ).fetchall()
+            ]
+
+            if "trade_ledger" in table_names:
+                result["recent_closes"] = [
+                    {
+                        "timestamp": row["created_at"],
+                        "symbol": row["symbol"],
+                        "position_id": row["position_id"],
+                        "executed_price": row["executed_price"],
+                        "volume": row["volume"],
+                        "realized_pnl": round(float(row["realized_pnl"] or 0.0), 6),
+                        "fees": round(float(row["fees"] or 0.0), 6),
+                    }
+                    for row in conn.execute(
+                        """
+                        SELECT created_at, symbol, position_id, executed_price, volume, realized_pnl, fees
+                        FROM trade_ledger
+                        WHERE is_closing_leg = 1
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                        """,
+                        (max(1, min(100, int(recent_limit))),),
+                    ).fetchall()
+                ]
+                result["daily_realized_pnl"] = [
+                    {
+                        "day": row["day"],
+                        "openings": int(row["openings"] or 0),
+                        "closings": int(row["closings"] or 0),
+                        "realized_pnl": round(float(row["realized_pnl"] or 0.0), 6),
+                        "fees": round(float(row["fees"] or 0.0), 6),
+                    }
+                    for row in conn.execute(
+                        """
+                        SELECT
+                            substr(created_at, 1, 10) AS day,
+                            SUM(CASE WHEN is_opening_leg = 1 THEN 1 ELSE 0 END) AS openings,
+                            SUM(CASE WHEN is_closing_leg = 1 THEN 1 ELSE 0 END) AS closings,
+                            COALESCE(SUM(CASE WHEN is_closing_leg = 1 THEN COALESCE(realized_pnl, 0) ELSE 0 END), 0) AS realized_pnl,
+                            COALESCE(SUM(fees), 0) AS fees
+                        FROM trade_ledger
+                        GROUP BY substr(created_at, 1, 10)
+                        ORDER BY day DESC
+                        LIMIT 14
+                        """
+                    ).fetchall()
+                ]
+
+            result["available"] = True
+            result["status"] = "ok"
+            return result
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Positions audit unavailable: %s", exc)
+        result["status"] = "error"
+        result["error"] = str(exc)[:240]
+        return result
+
+
 def _global_kill_store(orchestrator: Any) -> tuple[Optional[GlobalKillSwitchStore], str]:
     store = getattr(orchestrator, "_global_kill_store", None)
     if store is not None and hasattr(store, "get") and hasattr(store, "acknowledge_recovery"):
@@ -2376,6 +2562,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
         paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
         state_db = _sqlite_health(state_db_path, ["positions", "instance_state", "trade_ledger", "instance_lineage"])
+        positions_audit = _positions_audit_from_state_db(state_db_path, recent_limit=10)
         paper_db = _sqlite_health(paper_db_path, ["trades"]) if paper_mode else {
             "path": str(paper_db_path) if paper_db_path else "",
             "exists": False,
@@ -2573,6 +2760,7 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
                 "state": state_db,
                 "paper": paper_db,
             },
+            "positions": positions_audit,
             "order_executor": {
                 "class_name": type(executor).__name__ if executor is not None else None,
                 "open_orders_status": open_orders_status,
@@ -2595,6 +2783,43 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         raise
     except Exception:
         logger.exception("Erreur runtime trace")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/positions/audit")
+async def get_positions_audit(
+    request: Request,
+    recent_limit: int = Query(10, ge=1, le=100),
+    authorized: bool = Depends(verify_token),
+):
+    """Operational paper/live position audit from persisted state."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "paper" if bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False))) else "live",
+            "paper_mode": bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False))),
+            "capital": {
+                "total_capital": round(float(capital_snapshot.get("total_capital", 0.0)), 2),
+                "available_cash": round(float(capital_snapshot.get("available_cash", 0.0)), 2),
+                "open_position_notional": round(float(capital_snapshot.get("open_position_notional", 0.0)), 2),
+                "total_profit": round(float(capital_snapshot.get("total_profit", 0.0)), 2),
+                "source": capital_snapshot.get("source"),
+                "source_status": capital_snapshot.get("source_status"),
+            },
+            "audit": _positions_audit_from_state_db(state_db_path, recent_limit=recent_limit),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur audit positions")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

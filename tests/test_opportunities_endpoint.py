@@ -214,6 +214,75 @@ def test_paper_allocation_can_train_with_larger_bounded_orders():
     assert 35.0 <= result.recommended_order_eur <= 40.0
 
 
+def test_paper_allocation_can_floor_to_min_order_when_score_is_good():
+    scorer = OpportunityScorer(
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=5.0,
+            min_stability=0.40,
+            paper_min_order_eur=7.5,
+            paper_max_order_eur=40.0,
+            paper_order_capital_pct=18.0,
+            paper_max_total_exposure_pct=70.0,
+            paper_allow_min_order_floor=True,
+        )
+    )
+
+    result = scorer.score_signal(
+        symbol="BTCEUR",
+        edge_context={
+            "expected_move_bps": 140.0,
+            "total_cost_bps": 46.0,
+            "net_edge_bps": 94.0,
+            "adaptive_min_edge_bps": 48.5,
+            "spread_bps": 1.0,
+        },
+        atr_pct=0.001,
+        available_capital=37.0,
+        total_capital=800.0,
+        paper_mode=True,
+    )
+
+    assert result.status == "tradable"
+    assert result.recommended_order_eur == pytest.approx(7.5)
+    assert result.allocation_reason == "paper_min_order_floor"
+
+
+def test_live_allocation_does_not_floor_to_paper_min_order():
+    scorer = OpportunityScorer(
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=5.0,
+            min_stability=0.40,
+            min_order_eur=7.5,
+            max_order_eur=40.0,
+        )
+    )
+
+    result = scorer.score_signal(
+        symbol="BTCEUR",
+        edge_context={
+            "expected_move_bps": 140.0,
+            "total_cost_bps": 46.0,
+            "net_edge_bps": 94.0,
+            "adaptive_min_edge_bps": 48.5,
+            "spread_bps": 1.0,
+        },
+        atr_pct=0.001,
+        available_capital=37.0,
+        total_capital=800.0,
+        paper_mode=False,
+    )
+
+    assert result.status == "tradable"
+    assert result.recommended_order_eur == 0.0
+    assert result.allocation_reason == "raw_order_below_min_order"
+
+
 def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     dashboard.app.state.orchestrator = _Orchestrator()

@@ -81,6 +81,7 @@ class OpportunityConfig:
     paper_order_capital_pct: float = 18.0
     paper_max_symbol_exposure_pct: float = 25.0
     paper_max_total_exposure_pct: float = 70.0
+    paper_allow_min_order_floor: bool = True
     atr_mode: str = "strict"
     high_net_edge_bps: float = 80.0
     paper_relaxed_min_atr_bps: float = 5.0
@@ -110,6 +111,7 @@ class OpportunityConfig:
             paper_order_capital_pct=_env_float("OPPORTUNITY_PAPER_ORDER_CAPITAL_PCT", 18.0, 0.1, 100.0),
             paper_max_symbol_exposure_pct=_env_float("OPPORTUNITY_PAPER_MAX_SYMBOL_EXPOSURE_PCT", 25.0, 0.1, 100.0),
             paper_max_total_exposure_pct=_env_float("OPPORTUNITY_PAPER_MAX_TOTAL_EXPOSURE_PCT", 70.0, 0.1, 100.0),
+            paper_allow_min_order_floor=_env_bool("OPPORTUNITY_PAPER_ALLOW_MIN_ORDER_FLOOR", True),
             atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "strict", {"strict", "adaptive", "opportunistic"}),
             high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
             paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
@@ -133,6 +135,7 @@ class OpportunityResult:
     signal_stability: float = 0.0
     allocation_eur: float = 0.0
     recommended_order_eur: float = 0.0
+    allocation_reason: str = "ok"
     components: dict[str, float] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
     regime_score: float = 50.0
@@ -158,6 +161,7 @@ class OpportunityResult:
             "signal_stability": round(self.signal_stability, 3),
             "allocation_eur": round(self.allocation_eur, 2),
             "recommended_order_eur": round(self.recommended_order_eur, 2),
+            "allocation_reason": self.allocation_reason,
             "components": {k: round(v, 3) for k, v in self.components.items()},
             "blockers": list(self.blockers),
             "regime_score": round(self.regime_score, 2),
@@ -271,6 +275,7 @@ class OpportunityScorer:
             signal_stability=stability,
             allocation_eur=allocation["symbol_cap_eur"],
             recommended_order_eur=allocation["order_eur"],
+            allocation_reason=allocation["reason"],
             components=components,
             blockers=blockers,
             regime_score=regime.regime_score,
@@ -322,6 +327,7 @@ class OpportunityScorer:
                 "paper_order_capital_pct": self.config.paper_order_capital_pct,
                 "paper_max_symbol_exposure_pct": self.config.paper_max_symbol_exposure_pct,
                 "paper_max_total_exposure_pct": self.config.paper_max_total_exposure_pct,
+                "paper_allow_min_order_floor": self.config.paper_allow_min_order_floor,
                 "atr_mode": self.config.atr_mode,
                 "high_net_edge_bps": self.config.high_net_edge_bps,
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
@@ -417,6 +423,7 @@ class OpportunityScorer:
             signal_stability=stability,
             allocation_eur=allocation["symbol_cap_eur"],
             recommended_order_eur=allocation["order_eur"],
+            allocation_reason=allocation["reason"],
             components=components,
             blockers=blockers,
             regime_score=regime.regime_score,
@@ -562,13 +569,36 @@ class OpportunityScorer:
         symbol_cap = total * symbol_pct / 100.0 if total > 0.0 else available
         total_cap = total * total_pct / 100.0 if total > 0.0 else available
         score_mult = _clamp(score / 100.0)
-        order = available * (order_capital_pct / 100.0) * score_mult
-        order = min(order, max_order, symbol_cap, total_cap, available)
+        raw_order = available * (order_capital_pct / 100.0) * score_mult
+        order = min(raw_order, max_order, symbol_cap, total_cap, available)
+        reason = "ok"
         if order < min_order:
-            order = 0.0
+            can_floor_paper_order = (
+                paper_mode
+                and cfg.paper_allow_min_order_floor
+                and score >= cfg.min_score
+                and min_order > 0.0
+                and available >= min_order
+                and min_order <= max_order
+                and min_order <= symbol_cap
+                and min_order <= total_cap
+            )
+            if can_floor_paper_order:
+                order = min_order
+                reason = "paper_min_order_floor"
+            else:
+                reason = (
+                    "available_below_min_order"
+                    if available < min_order
+                    else "exposure_cap_below_min_order"
+                    if min(symbol_cap, total_cap, max_order) < min_order
+                    else "raw_order_below_min_order"
+                )
+                order = 0.0
         return {
             "symbol_cap_eur": max(0.0, min(symbol_cap, total_cap)),
             "order_eur": max(0.0, order),
+            "reason": reason,
         }
 
     def _signal_stability(

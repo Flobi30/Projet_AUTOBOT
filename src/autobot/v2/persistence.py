@@ -322,17 +322,24 @@ class PositionRepository(_PersistenceRepositoryBase):
     async def save_position(self, position_id: str, instance_id: str,
                       buy_price: float, volume: float,
                       status: str = "open", strategy: str = "",
-                      metadata: Optional[Dict] = None) -> bool:
+                      metadata: Optional[Dict] = None,
+                      symbol: Optional[str] = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
             conn = await self.get_conn()
+            metadata = dict(metadata or {})
+            if symbol is None:
+                symbol = metadata.get("symbol")
+            elif "symbol" not in metadata:
+                metadata["symbol"] = symbol
+            normalized_symbol = str(symbol or "").strip().upper() or None
             meta_json = orjson.dumps(metadata).decode() if metadata else None
             await conn.execute(
                 """
-                INSERT INTO positions (id, instance_id, buy_price, volume, status, open_time, strategy, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO positions (id, instance_id, symbol, buy_price, volume, status, open_time, strategy, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (position_id, instance_id, buy_price, volume, status, now, strategy, meta_json)
+                (position_id, instance_id, normalized_symbol, buy_price, volume, status, now, strategy, meta_json)
             )
             await conn.commit()
             return True
@@ -385,10 +392,12 @@ class PositionRepository(_PersistenceRepositoryBase):
                     WHERE p.status = 'open'
                       AND (
                         p.instance_id = ?
+                        OR UPPER(COALESCE(p.symbol, '')) = UPPER(?)
+                        OR UPPER(COALESCE(json_extract(p.metadata, '$.symbol'), '')) = UPPER(?)
                         OR UPPER(COALESCE(tl.symbol, '')) = UPPER(?)
                       )
                 """
-                args = (instance_id, symbol)
+                args = (instance_id, symbol, symbol, symbol)
             else:
                 query = "SELECT * FROM positions WHERE instance_id = ? AND status = 'open'"
                 args = (instance_id,)
@@ -471,6 +480,7 @@ class StatePersistence:
                 CREATE TABLE IF NOT EXISTS positions (
                     id TEXT PRIMARY KEY,
                     instance_id TEXT NOT NULL,
+                    symbol TEXT,
                     buy_price REAL NOT NULL,
                     volume REAL NOT NULL,
                     status TEXT DEFAULT 'open',
@@ -479,6 +489,10 @@ class StatePersistence:
                     metadata TEXT
                 )
             """)
+            async with conn.execute("PRAGMA table_info(positions)") as cursor:
+                position_columns = {row[1] for row in await cursor.fetchall()}
+            if "symbol" not in position_columns:
+                await conn.execute("ALTER TABLE positions ADD COLUMN symbol TEXT")
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS instance_state (
                     instance_id TEXT PRIMARY KEY,
@@ -605,6 +619,7 @@ class StatePersistence:
             # Indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_parent ON instance_lineage(parent_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_root ON instance_lineage(root_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")

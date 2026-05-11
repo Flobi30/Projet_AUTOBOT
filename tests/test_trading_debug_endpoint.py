@@ -1,6 +1,7 @@
 import sqlite3
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -98,6 +99,25 @@ class _StoppedOrchestrator(_Orchestrator):
         return instances
 
 
+class _OrchestratorWithState(_Orchestrator):
+    def __init__(self, paper_db_path: Path, state_db_path: Path):
+        super().__init__(paper_db_path)
+        self.persistence = SimpleNamespace(db_path=str(state_db_path))
+
+    def get_status(self):
+        status = super().get_status()
+        status["capital"] = {
+            "paper_mode": True,
+            "source": "paper",
+            "source_status": "ok",
+            "total_capital": 800.0,
+            "available_cash": 700.0,
+            "open_position_notional": 100.0,
+            "total_profit": -3.0,
+        }
+        return status
+
+
 def _init_paper_db(db_path: Path):
     conn = sqlite3.connect(db_path)
     try:
@@ -116,6 +136,73 @@ def _init_paper_db(db_path: Path):
                 userref INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _init_state_db(db_path: Path):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE positions (
+                id TEXT PRIMARY KEY,
+                instance_id TEXT NOT NULL,
+                symbol TEXT,
+                buy_price REAL NOT NULL,
+                volume REAL NOT NULL,
+                status TEXT DEFAULT 'open',
+                open_time TEXT NOT NULL,
+                strategy TEXT,
+                metadata TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE trade_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                position_id TEXT,
+                instance_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                expected_price REAL,
+                executed_price REAL NOT NULL,
+                volume REAL NOT NULL,
+                fees REAL DEFAULT 0,
+                slippage_bps REAL,
+                realized_pnl REAL,
+                is_opening_leg INTEGER DEFAULT 0,
+                is_closing_leg INTEGER DEFAULT 0,
+                exchange_order_id TEXT,
+                decision_id TEXT,
+                signal_id TEXT,
+                execution_liquidity TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO positions
+            (id, instance_id, symbol, buy_price, volume, status, open_time, strategy, metadata)
+            VALUES
+            ('pos-open-eth', 'inst-eth', 'XETHZEUR', 2000.0, 0.01, 'open', '2026-05-10T00:00:00+00:00', 'grid', '{"symbol":"XETHZEUR"}'),
+            ('pos-open-legacy', 'inst-legacy', NULL, 100.0, 0.2, 'open', '2026-05-09T00:00:00+00:00', 'grid', '{}'),
+            ('pos-closed', 'inst-eth', 'XETHZEUR', 1990.0, 0.01, 'closed', '2026-05-08T00:00:00+00:00', 'grid', '{"symbol":"XETHZEUR"}')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, executed_price, volume, fees, realized_pnl, is_opening_leg, is_closing_leg, created_at)
+            VALUES
+            ('open-legacy', 'pos-open-legacy', 'inst-legacy', 'ADAEUR', 'buy', 100.0, 0.2, 0.01, NULL, 1, 0, '2026-05-09T00:00:00+00:00'),
+            ('close-eth', 'pos-closed', 'inst-eth', 'XETHZEUR', 'sell', 2010.0, 0.01, 0.02, 0.18, 0, 1, '2026-05-10T01:00:00+00:00')
             """
         )
         conn.commit()
@@ -181,6 +268,30 @@ def test_runtime_trace_reports_stopped_strategies_as_critical(monkeypatch, tmp_p
     assert body["strategies"]["inactive_count"] == 1
     assert any(check["name"] == "strategy_runtime" and check["ok"] is False for check in body["checks"])
     assert any("aucune strategie ne tourne" in message for message in body["messages"])
+
+
+def test_positions_audit_endpoint_summarizes_open_positions(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    paper_db_path = tmp_path / "paper_trades.db"
+    state_db_path = tmp_path / "autobot_state.db"
+    _init_paper_db(paper_db_path)
+    _init_state_db(state_db_path)
+    dashboard.app.state.orchestrator = _OrchestratorWithState(paper_db_path, state_db_path)
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/positions/audit", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["paper_mode"] is True
+    assert body["audit"]["status"] == "ok"
+    assert body["audit"]["totals"]["positions"] == 3
+    assert body["audit"]["totals"]["open_positions"] == 2
+    assert body["audit"]["totals"]["closed_positions"] == 1
+    assert body["audit"]["totals"]["realized_pnl"] == pytest.approx(0.18)
+    open_by_symbol = {row["symbol"]: row for row in body["audit"]["open_by_symbol"]}
+    assert open_by_symbol["XETHZEUR"]["open_positions"] == 1
+    assert open_by_symbol["ADAEUR"]["open_positions"] == 1
 
 
 def test_acknowledge_kill_switch_clears_paper_runtime_handlers(monkeypatch, tmp_path):

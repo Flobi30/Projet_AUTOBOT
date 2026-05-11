@@ -516,6 +516,7 @@ class TradingInstanceAsync:
         buy_txid: Optional[str] = None,
         buy_fee: Optional[float] = None,
         buy_fee_source: Optional[str] = None,
+        symbol: Optional[str] = None,
     ) -> Optional[Position]:
         """Open a position (atomic check+create under lock)."""
         order_value = price * volume
@@ -555,20 +556,24 @@ class TradingInstanceAsync:
         )
 
         # Persistence (non-blocking)
-        await self._persistence.save_position(position_id,
-            self.id,
-            price,
-            volume,
-            "open",
-            self.config.strategy,
-            {
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "stop_loss_txid": stop_loss_txid,
-                "buy_txid": buy_txid,
-                "buy_fee": float(buy_fee) if buy_fee is not None else None,
-                "buy_fee_source": buy_fee_source or ("order_result" if buy_fee is not None else None),
-            },
+        position_metadata = {
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "stop_loss_txid": stop_loss_txid,
+            "buy_txid": buy_txid,
+            "buy_fee": float(buy_fee) if buy_fee is not None else None,
+            "buy_fee_source": buy_fee_source or ("order_result" if buy_fee is not None else None),
+            "symbol": symbol or getattr(self.config, "symbol", None),
+        }
+        await self._persistence.save_position(
+            position_id=position_id,
+            instance_id=self.id,
+            buy_price=price,
+            volume=volume,
+            status="open",
+            strategy=self.config.strategy,
+            metadata=position_metadata,
+            symbol=position_metadata.get("symbol"),
         )
 
         if self._on_position_open:
