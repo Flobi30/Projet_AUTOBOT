@@ -1360,6 +1360,7 @@ async def get_portfolio_allocation(
             "enabled": bool(alloc.get("enabled", False)),
             "message": None if bool(alloc.get("enabled", False)) else "Feature disabled by configuration",
             "allocation": alloc.get("plan"),
+            "paper_capital_rebalance": status.get("paper_capital_rebalance"),
             "constraints": ((alloc.get("plan") or {}).get("explain") if alloc.get("plan") else None),
         }
     except Exception:

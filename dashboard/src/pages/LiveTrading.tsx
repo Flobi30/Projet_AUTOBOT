@@ -83,6 +83,30 @@ interface HistoryPoint {
   value: number;
 }
 
+type PaperCapitalRebalance = {
+  enabled?: boolean;
+  applied?: boolean;
+  reason?: string;
+  total_capital?: number;
+  investable_capital?: number;
+  reserve_cash?: number;
+  transfers?: Array<{
+    from_instance_id: string;
+    to_instance_id: string;
+    amount: number;
+    reason?: string;
+  }>;
+  targets?: Array<{
+    instance_id: string;
+    symbol: string;
+    current_capital: number;
+    target_capital: number;
+    delta: number;
+    score: number;
+    weight: number;
+  }>;
+};
+
 interface PortfolioAllocationResponse {
   enabled: boolean;
   message?: string | null;
@@ -94,6 +118,7 @@ interface PortfolioAllocationResponse {
     reasons: Record<string, string>;
     explain: Record<string, number>;
   };
+  paper_capital_rebalance?: PaperCapitalRebalance | null;
 }
 
 
@@ -194,6 +219,7 @@ const LiveTrading: React.FC = () => {
   const pnlPercent = globalStatus?.total_capital && globalStatus.total_capital > 0
     ? (totalPnl / globalStatus.total_capital) * 100 
     : 0;
+  const paperRebalance = portfolioAllocation?.paper_capital_rebalance;
 
   
   if (isLoading) {
@@ -294,8 +320,30 @@ const LiveTrading: React.FC = () => {
               <div className="text-gray-400">Raisons: {(scalingStatus.guard.reasons || []).join(', ') || '—'}</div>
             </div>
           ) : (
-            <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
+            <div className="text-gray-500 text-sm">Portfolio allocator disabled</div>
           )}
+          {paperRebalance ? (
+            <div className="mt-4 border-t border-gray-700/60 pt-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-gray-300">Budget paper dynamique</span>
+                <span className={paperRebalance.enabled ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>
+                  {paperRebalance.enabled ? 'actif' : 'inactif'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <span className="text-gray-400">Total <span className="text-white">{(paperRebalance.total_capital ?? 0).toFixed(2)}â‚¬</span></span>
+                <span className="text-gray-400">Investissable <span className="text-white">{(paperRebalance.investable_capital ?? 0).toFixed(2)}â‚¬</span></span>
+                <span className="text-gray-400">Transferts <span className="text-white">{paperRebalance.transfers?.length ?? 0}</span></span>
+                <span className="text-gray-400">Etat <span className="text-white">{paperRebalance.reason || 'en attente'}</span></span>
+              </div>
+              {(paperRebalance.targets || []).slice(0, 4).map((target) => (
+                <div key={target.instance_id} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-gray-300">{target.symbol}</span>
+                  <span className="text-white">{target.current_capital.toFixed(2)}â‚¬ -&gt; {target.target_capital.toFixed(2)}â‚¬</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 border border-gray-700/50 rounded-2xl p-4 lg:p-6 shadow-2xl">

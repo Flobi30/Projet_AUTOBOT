@@ -27,6 +27,73 @@ interface RegimeResponse {
   symbols: RegimeRow[];
 }
 
+type PaperCapitalRebalance = {
+  enabled?: boolean;
+  applied?: boolean;
+  reason?: string;
+  total_capital?: number;
+  investable_capital?: number;
+  reserve_cash?: number;
+  transfers?: Array<{
+    from_instance_id: string;
+    to_instance_id: string;
+    amount: number;
+    reason?: string;
+  }>;
+  targets?: Array<{
+    instance_id: string;
+    symbol: string;
+    current_capital: number;
+    target_capital: number;
+    delta: number;
+    score: number;
+    weight: number;
+  }>;
+};
+
+interface ScalingStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  guard: { state: string; reasons: string[] };
+  activation: { action: string; target_instances: number; target_tier: number; reason: string };
+}
+
+interface UniverseStatusResponse {
+  enabled: boolean;
+  message?: string | null;
+  counts: { supported: number; eligible: number; ranked: number; websocket_active: number; actively_traded: number; };
+}
+
+interface OpportunitiesResponse {
+  enabled?: boolean;
+  message?: string | null;
+  selected_symbols?: string[];
+  execution_gate?: { mode?: string; selection_applies_to_execution?: boolean };
+  opportunities: Array<{
+    symbol: string;
+    score: number;
+    status?: string;
+    reason?: string;
+    gross_edge_bps?: number;
+    cost_bps?: number;
+    net_edge_bps?: number;
+    atr_bps?: number;
+    spread_bps?: number;
+    base_score?: number;
+    regime_score?: number;
+    regime_adjustment?: number;
+    regime_context?: RegimeContext;
+    blockers?: string[];
+    explain?: Record<string, unknown>;
+  }>;
+}
+
+interface PortfolioAllocationResponse {
+  enabled: boolean;
+  message?: string | null;
+  allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
+  paper_capital_rebalance?: PaperCapitalRebalance | null;
+}
 
 
 interface ScalingStatusResponse {
@@ -70,50 +137,7 @@ interface PortfolioAllocationResponse {
   enabled: boolean;
   message?: string | null;
   allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
-}
-
-
-interface ScalingStatusResponse {
-  enabled: boolean;
-  message?: string | null;
-  guard: { state: string; reasons: string[] };
-  activation: { action: string; target_instances: number; target_tier: number; reason: string };
-}
-
-interface UniverseStatusResponse {
-  enabled: boolean;
-  message?: string | null;
-  counts: { supported: number; eligible: number; ranked: number; websocket_active: number; actively_traded: number; };
-}
-
-interface OpportunitiesResponse {
-  enabled?: boolean;
-  message?: string | null;
-  selected_symbols?: string[];
-  execution_gate?: { mode?: string; selection_applies_to_execution?: boolean };
-  opportunities: Array<{
-    symbol: string;
-    score: number;
-    status?: string;
-    reason?: string;
-    gross_edge_bps?: number;
-    cost_bps?: number;
-    net_edge_bps?: number;
-    atr_bps?: number;
-    spread_bps?: number;
-    base_score?: number;
-    regime_score?: number;
-    regime_adjustment?: number;
-    regime_context?: RegimeContext;
-    blockers?: string[];
-    explain?: Record<string, unknown>;
-  }>;
-}
-
-interface PortfolioAllocationResponse {
-  enabled: boolean;
-  message?: string | null;
-  allocation: null | { total_allocated: number; reserve_cash: number; risk_budget_remaining: number; explain: Record<string, number> };
+  paper_capital_rebalance?: PaperCapitalRebalance | null;
 }
 
 const Analytics: React.FC = () => {
@@ -133,6 +157,7 @@ const Analytics: React.FC = () => {
   const [opportunities, setOpportunities] = useState<OpportunitiesResponse | null>(null);
   const [regime, setRegime] = useState<RegimeResponse | null>(null);
   const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocationResponse | null>(null);
+  const paperRebalance = portfolioAllocation?.paper_capital_rebalance;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -267,7 +292,29 @@ const Analytics: React.FC = () => {
                   <div className="text-gray-300">Allocated: <span className="text-white">{portfolioAllocation.allocation.total_allocated.toFixed(2)}€</span></div>
                   <div className="text-gray-300">Reserve cash: <span className="text-white">{portfolioAllocation.allocation.reserve_cash.toFixed(2)}€</span></div>
                 </>
-              ) : <div className="text-gray-500">Feature disabled by configuration</div>}
+              ) : <div className="text-gray-500">Portfolio allocator disabled</div>}
+              {paperRebalance ? (
+                <div className="mt-4 border-t border-gray-700 pt-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-300">Budget paper dynamique</span>
+                    <span className={paperRebalance.enabled ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>
+                      {paperRebalance.enabled ? 'actif' : 'inactif'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <span className="text-gray-400">Total <span className="text-white">{(paperRebalance.total_capital ?? 0).toFixed(2)}â‚¬</span></span>
+                    <span className="text-gray-400">Reserve <span className="text-white">{(paperRebalance.reserve_cash ?? 0).toFixed(2)}â‚¬</span></span>
+                    <span className="text-gray-400">Transferts <span className="text-white">{paperRebalance.transfers?.length ?? 0}</span></span>
+                    <span className="text-gray-400">Etat <span className="text-white">{paperRebalance.reason || 'en attente'}</span></span>
+                  </div>
+                  {(paperRebalance.targets || []).slice(0, 3).map((target) => (
+                    <div key={target.instance_id} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-gray-300">{target.symbol}</span>
+                      <span className="text-white">{target.current_capital.toFixed(2)}â‚¬ -&gt; {target.target_capital.toFixed(2)}â‚¬</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="text-gray-500 text-sm">Feature disabled by configuration</div>
