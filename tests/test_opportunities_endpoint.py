@@ -386,7 +386,89 @@ def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp
     assert pair["symbol"] == "TESTEUR"
     assert pair["closed_trades"] == 1
     assert pair["net_pnl_eur"] == pytest.approx(1.8)
-    assert pair["avg_pf"] == 999.99
+    assert pair["avg_pf"] is None
+    assert pair["profit_factor_status"] == "no_losses_yet"
     assert pair["win_rate"] == 100.0
     assert pair["pnl_source"] == "paper_trades_db_fifo"
     assert pair["recommendation"] == "continue_paper"
+
+
+def test_performance_endpoints_use_traceable_trade_ledger(tmp_path, monkeypatch):
+    db_path = tmp_path / "autobot_state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trade_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT,
+                position_id TEXT,
+                instance_id TEXT,
+                symbol TEXT,
+                side TEXT,
+                expected_price REAL,
+                executed_price REAL,
+                volume REAL,
+                fees REAL,
+                slippage_bps REAL,
+                realized_pnl REAL,
+                is_opening_leg INTEGER,
+                is_closing_leg INTEGER,
+                exchange_order_id TEXT,
+                decision_id TEXT,
+                signal_id TEXT,
+                execution_liquidity TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        rows = [
+            ("t1", "p1", "btc", "XXBTZEUR", "sell", 100.0, 101.0, 1.0, 0.1, 2.0, 1, "2026-05-11T00:00:00+00:00"),
+            ("t2", "p2", "btc", "XXBTZEUR", "sell", 100.0, 99.0, 1.0, 0.1, -1.0, 1, "2026-05-11T00:01:00+00:00"),
+            ("t3", "p3", "eth", "XETHZEUR", "sell", 100.0, 103.0, 1.0, 0.1, 3.0, 1, "2026-05-11T00:02:00+00:00"),
+        ]
+        conn.executemany(
+            """
+            INSERT INTO trade_ledger (
+                trade_id, position_id, instance_id, symbol, side, expected_price,
+                executed_price, volume, fees, realized_pnl, is_closing_leg, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+    class _PerformanceOrchestrator(_Orchestrator):
+        paper_mode = True
+        persistence = SimpleNamespace(db_path=str(db_path))
+
+        def get_instances_snapshot(self):
+            return [
+                {"id": "btc", "symbol": "XXBTZEUR", "capital": 400.0, "initial_capital": 400.0, "profit": -99.0, "trades_history": []},
+                {"id": "eth", "symbol": "XETHZEUR", "capital": 400.0, "initial_capital": 400.0, "profit": -99.0, "trades_history": []},
+            ]
+
+        def get_instances_snapshot_extended(self):
+            return self.get_instances_snapshot()
+
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("PAPER_TRADING", "true")
+    dashboard.app.state.orchestrator = _PerformanceOrchestrator()
+    client = TestClient(dashboard.app)
+    headers = {"Authorization": "Bearer tok"}
+
+    global_response = client.get("/api/performance/global", headers=headers)
+    pairs_response = client.get("/api/performance/by-pair", headers=headers)
+
+    assert global_response.status_code == 200
+    global_body = global_response.json()
+    assert global_body["profit_total"] == pytest.approx(4.0)
+    assert global_body["total_trades"] == 3
+    assert global_body["profit_factor"] == pytest.approx(5.0)
+    assert global_body["metric_scope"] == "paper_realized_closed_positions"
+
+    assert pairs_response.status_code == 200
+    pairs = {item["symbol"]: item for item in pairs_response.json()["pairs"]}
+    assert pairs["XXBTZEUR"]["profit_total"] == pytest.approx(1.0)
+    assert pairs["XXBTZEUR"]["profit_factor"] == pytest.approx(2.0)
+    assert pairs["XETHZEUR"]["profit_total"] == pytest.approx(3.0)
+    assert pairs["XETHZEUR"]["profit_factor"] is None
+    assert pairs["XETHZEUR"]["profit_factor_status"] == "no_losses_yet"

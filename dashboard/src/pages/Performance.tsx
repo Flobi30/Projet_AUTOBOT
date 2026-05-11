@@ -8,15 +8,17 @@ import { apiFetch } from '../api/client';
 
 interface GlobalPerf {
   capital_total: number; capital_initial: number; profit_total: number;
-  profit_percent: number; profit_factor: number; win_rate: number;
+  profit_percent: number; profit_factor: number | null; profit_factor_status?: string; win_rate: number;
   total_trades: number; instances_count: number;
   by_strategy: { strategy: string; instances_count: number; capital_total: number; profit_total: number }[];
   history: { timestamp: string; capital: number; profit: number }[];
+  metric_scope?: string; pnl_source?: string;
 }
 interface PairPerf {
   symbol: string; instances_count: number; capital_total: number;
-  profit_total: number; profit_percent: number; profit_factor: number;
-  win_rate: number; total_trades: number; max_drawdown: number; status: string;
+  profit_total: number; profit_percent: number; profit_factor: number | null; profit_factor_status?: string;
+  win_rate: number; total_trades: number; closed_trades?: number; max_drawdown: number; status: string;
+  metric_scope?: string; pnl_source?: string;
   instances: {
     id: string; name: string; capital: number; profit: number; strategy: string; status: string;
     warmup?: { active?: boolean; blocked_reasons?: string[]; price_samples?: number; required_samples?: number };
@@ -24,9 +26,11 @@ interface PairPerf {
   }[];
 }
 interface PaperPair {
-  symbol: string; instance_count: number; total_trades: number;
-  avg_profit_percent: number; avg_pf: number; win_rate: number;
+  symbol: string; instance_count: number; total_trades: number; closed_trades: number;
+  net_pnl_eur: number; avg_profit_eur?: number; avg_profit_percent: number;
+  avg_pf: number | null; profit_factor_status?: string; win_rate: number;
   recommendation: string; warmup_active?: number; blocked_reasons?: string[];
+  paper_filled_trades?: number; pnl_source?: string;
 }
 interface PaperSummary { active_instances: number; live_instances: number; pairs_tested: number; is_paper_mode: boolean; by_pair: PaperPair[]; }
 interface RebEvent { timestamp: string; instance_id: string; instance_name: string; action: string; amount: number; reason: string; }
@@ -54,7 +58,8 @@ const formatUptime = (seconds: number | null): string => {
 };
 const fmt = (n: number, d=2) => n.toLocaleString('fr-FR', {minimumFractionDigits:d, maximumFractionDigits:d});
 const fmtEur = (n: number) => `${fmt(n)}€`;
-const pfColor = (pf: number) => pf>=2?'text-emerald-400':pf>=1.5?'text-green-400':pf>=1?'text-yellow-400':'text-red-400';
+const fmtMaybe = (n: number | null | undefined, d=2) => typeof n === 'number' && Number.isFinite(n) ? fmt(n, d) : 'Non dispo';
+const pfColor = (pf: number | null | undefined) => typeof pf !== 'number'?'text-gray-400':pf>=2?'text-emerald-400':pf>=1.5?'text-green-400':pf>=1?'text-yellow-400':'text-red-400';
 const profitColor = (n: number) => n>=0?'text-emerald-400':'text-red-400';
 const stratLabel = (s: string): string => {
   const m: Record<string,string> = {grid:'Grid Trading',trend:'Trend Following',breakout:'Breakout',dca:'DCA'};
@@ -71,7 +76,9 @@ async function apiFetchJson<T>(path: string): Promise<T|null> {
 }
 
 const RecBadge: React.FC<{rec:string}> = ({rec}) => {
-  if (rec==='promote_to_live') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"><CheckCircle className="w-3 h-3"/>Pret pour revue live</span>;
+  if (rec==='review_candidate') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"><CheckCircle className="w-3 h-3"/>Candidat a analyser</span>;
+  if (rec==='adjust_parameters') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"><AlertTriangle className="w-3 h-3"/>Ajuster</span>;
+  if (rec==='need_more_data') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-gray-500/20 text-gray-300 border border-gray-500/30"><Clock className="w-3 h-3"/>Pas assez de donnees</span>;
   if (rec==='stop') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30"><XCircle className="w-3 h-3"/>Arrêter</span>;
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30"><RefreshCw className="w-3 h-3"/>Continuer Paper</span>;
 };
@@ -130,10 +137,10 @@ const Performance: React.FC = () => {
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <MetricCard title={capitalData?.paper_mode ? 'Budget paper actif' : 'Capital Kraken/AUTOBOT'} value={fmtEur(capitalData?.paper_mode ? activePaperCapital : globalPerf.capital_total)} icon={<Wallet className="w-5 h-5"/>}/>
-          <MetricCard title="Profit Total" value={`${pos?'+':''}${fmtEur(globalPerf.profit_total)}`} change={`${pos?'+':''}${fmt(globalPerf.profit_percent)}%`} isPositive={pos} icon={<TrendingUp className="w-5 h-5"/>}/>
-          <MetricCard title="Profit Factor" value={fmt(globalPerf.profit_factor)} icon={<Target className="w-5 h-5"/>}/>
+          <MetricCard title={capitalData?.paper_mode ? 'PnL paper realise' : 'Profit Total'} value={`${pos?'+':''}${fmtEur(globalPerf.profit_total)}`} change={`${pos?'+':''}${fmt(globalPerf.profit_percent)}%`} isPositive={pos} icon={<TrendingUp className="w-5 h-5"/>}/>
+          <MetricCard title="Profit Factor" value={fmtMaybe(globalPerf.profit_factor)} icon={<Target className="w-5 h-5"/>}/>
           <MetricCard title="Win Rate" value={`${fmt(globalPerf.win_rate,1)}%`} icon={<BarChart3 className="w-5 h-5"/>}/>
-          <MetricCard title={capitalData?.paper_mode ? 'Paires paper actives' : 'Strategies actives'} value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} trades`} icon={<Activity className="w-5 h-5"/>}/>
+          <MetricCard title={capitalData?.paper_mode ? 'Paires paper actives' : 'Strategies actives'} value={String(globalPerf.instances_count)} change={`${globalPerf.total_trades} clotures`} icon={<Activity className="w-5 h-5"/>}/>
         </div>
         {globalPerf.history.length > 1 && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700/50">
@@ -218,15 +225,15 @@ const Performance: React.FC = () => {
                   </div>
                   <div className="text-right">
                     <p className="text-gray-400 text-xs">PF</p>
-                    <p className={`font-bold ${pfColor(pair.profit_factor)}`}>{fmt(pair.profit_factor)}</p>
+                    <p className={`font-bold ${pfColor(pair.profit_factor)}`}>{fmtMaybe(pair.profit_factor)}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-gray-400 text-xs">Win Rate</p>
                     <p className="text-white font-bold">{fmt(pair.win_rate,1)}%</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-gray-400 text-xs">Trades</p>
-                    <p className="text-white font-bold">{pair.total_trades}</p>
+                    <p className="text-gray-400 text-xs">Clotures</p>
+                    <p className="text-white font-bold">{pair.closed_trades ?? pair.total_trades}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-gray-400 text-xs">Max DD</p>
@@ -296,8 +303,8 @@ const Performance: React.FC = () => {
                   <tr className="border-b border-gray-700">
                     <th className="text-left py-3 px-4 text-gray-400 font-medium">Paire</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Logiques sur paire</th>
-                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Trades</th>
-                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Profit Moy.</th>
+                    <th className="text-right py-3 px-4 text-gray-400 font-medium">Clotures</th>
+                    <th className="text-right py-3 px-4 text-gray-400 font-medium">PnL moyen</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">PF Moy.</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Win Rate</th>
                     <th className="text-right py-3 px-4 text-gray-400 font-medium">Recommandation</th>
@@ -308,9 +315,12 @@ const Performance: React.FC = () => {
                     <tr key={p.symbol} className="border-b border-gray-700/50 hover:bg-gray-700/20">
                       <td className="py-3 px-4 text-white font-medium">{p.symbol}</td>
                       <td className="py-3 px-4 text-right text-gray-300">{p.instance_count}</td>
-                      <td className="py-3 px-4 text-right text-gray-300">{p.total_trades}</td>
-                      <td className={`py-3 px-4 text-right font-bold ${profitColor(p.avg_profit_percent)}`}>{p.avg_profit_percent>=0?'+':''}{fmt(p.avg_profit_percent)}%</td>
-                      <td className={`py-3 px-4 text-right font-bold ${pfColor(p.avg_pf)}`}>{fmt(p.avg_pf)}</td>
+                      <td className="py-3 px-4 text-right text-gray-300">
+                        <div>{p.closed_trades}</div>
+                        {typeof p.paper_filled_trades === 'number' && <div className="text-xs text-gray-500">{p.paper_filled_trades} ordres</div>}
+                      </td>
+                      <td className={`py-3 px-4 text-right font-bold ${profitColor(p.avg_profit_eur ?? 0)}`}>{(p.avg_profit_eur ?? 0)>=0?'+':''}{fmtEur(p.avg_profit_eur ?? 0)}</td>
+                      <td className={`py-3 px-4 text-right font-bold ${pfColor(p.avg_pf)}`}>{fmtMaybe(p.avg_pf)}</td>
                       <td className="py-3 px-4 text-right text-gray-300">{fmt(p.win_rate,1)}%</td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex flex-col items-end gap-1">

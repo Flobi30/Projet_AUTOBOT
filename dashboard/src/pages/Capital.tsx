@@ -29,6 +29,11 @@ interface CapitalData {
   open_position_notional?: number;
   autobot_trading_capital?: number | null;
   autobot_available_capital?: number | null;
+  paper_realized_pnl?: number | null;
+  paper_closed_trades?: number | null;
+  paper_performance_source?: string | null;
+  paper_profit_factor?: number | null;
+  paper_profit_factor_status?: string | null;
   paper_reference_capital?: number | null;
   paper_historical_balance?: number | null;
   paper_unallocated_reserve?: number | null;
@@ -144,7 +149,7 @@ const Capital: React.FC = () => {
     ?? (isPaperMode ? capitalData?.available_cash : null)
   );
   const paperEngaged = isPaperMode ? capitalData?.open_position_notional : null;
-  const paperPnl = isPaperMode ? capitalData?.total_profit : null;
+  const paperPnl = isPaperMode ? (capitalData?.paper_realized_pnl ?? null) : null;
 
   const realTotal = capitalData?.kraken_account?.total_balance ?? (!isPaperMode ? capitalData?.total_capital : null);
   const realCash = (
@@ -233,6 +238,7 @@ const Capital: React.FC = () => {
                   {formatCurrency(paperPnl)}
                 </span>
               ),
+              hint: `${capitalData?.paper_closed_trades ?? 0} positions cloturees. Source: ${capitalData?.paper_performance_source ?? 'non disponible'}.`,
             },
             {
               label: 'Positions / ordres engages',

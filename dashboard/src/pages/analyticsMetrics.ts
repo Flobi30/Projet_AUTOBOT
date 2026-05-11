@@ -1,5 +1,7 @@
 interface CapitalSnapshot {
   total_profit?: number | null;
+  paper_realized_pnl?: number | null;
+  paper_mode?: boolean | null;
   total_invested?: number | null;
 }
 
@@ -10,7 +12,11 @@ export function calculateRendementPercent(
   fallback: string = DEFAULT_RENDEMENT_FALLBACK
 ): string {
   const totalInvested = Number(capitalData?.total_invested ?? 0);
-  const totalProfit = Number(capitalData?.total_profit ?? 0);
+  const totalProfit = Number(
+    capitalData?.paper_mode
+      ? (capitalData?.paper_realized_pnl ?? capitalData?.total_profit ?? 0)
+      : (capitalData?.total_profit ?? 0)
+  );
 
   if (!Number.isFinite(totalInvested) || totalInvested <= 0) {
     return fallback;

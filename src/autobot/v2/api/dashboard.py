@@ -603,6 +603,216 @@ def _filled_paper_trade_counts_by_symbol(db_path: Any) -> Dict[str, int]:
         return {}
 
 
+def _profit_factor_context(gross_profit: float, gross_loss: float, closed_trades: int) -> tuple[Optional[float], str]:
+    """Return a finite profit factor when it is statistically meaningful."""
+    if closed_trades <= 0:
+        return None, "no_closed_trades"
+    if gross_loss > 0.0:
+        return gross_profit / gross_loss, "ok"
+    if gross_profit > 0.0:
+        return None, "no_losses_yet"
+    return None, "no_gross_profit"
+
+
+def _round_optional(value: Optional[float], digits: int = 2) -> Optional[float]:
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def _paper_realized_performance_from_state_db(db_path: Any) -> Dict[str, Any]:
+    """Build traceable paper PnL metrics from the state database.
+
+    The trade ledger is preferred because it carries symbol attribution and fees.
+    The legacy trades table is kept only as an audit fallback/source comparison.
+    """
+    path = str(db_path) if db_path else ""
+    empty_global = {
+        "closed_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "gross_profit": 0.0,
+        "gross_loss": 0.0,
+        "net_pnl": 0.0,
+        "fees": 0.0,
+        "profit_factor": None,
+        "profit_factor_status": "no_closed_trades",
+        "win_rate": 0.0,
+        "first_close": None,
+        "last_close": None,
+    }
+    result: Dict[str, Any] = {
+        "available": False,
+        "status": "missing",
+        "source": "none",
+        "path": path,
+        "global": dict(empty_global),
+        "by_symbol": {},
+        "legacy": None,
+    }
+    if not path or not os.path.exists(path):
+        return result
+
+    def _stats_from_row(row: sqlite3.Row, *, source: str) -> Dict[str, Any]:
+        closed_trades = int(row["closed_trades"] or 0)
+        gross_profit = float(row["gross_profit"] or 0.0)
+        gross_loss = float(row["gross_loss"] or 0.0)
+        net_pnl = float(row["net_pnl"] or 0.0)
+        winning_trades = int(row["winning_trades"] or 0)
+        losing_trades = int(row["losing_trades"] or 0)
+        fees = float(row["fees"] or 0.0) if "fees" in row.keys() else 0.0
+        profit_factor, pf_status = _profit_factor_context(gross_profit, gross_loss, closed_trades)
+        return {
+            "closed_trades": closed_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "gross_profit": gross_profit,
+            "gross_loss": gross_loss,
+            "net_pnl": net_pnl,
+            "fees": fees,
+            "profit_factor": profit_factor,
+            "profit_factor_status": pf_status,
+            "win_rate": (winning_trades / closed_trades * 100.0) if closed_trades > 0 else 0.0,
+            "first_close": row["first_close"] if "first_close" in row.keys() else None,
+            "last_close": row["last_close"] if "last_close" in row.keys() else None,
+            "source": source,
+        }
+
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            table_names = {
+                row["name"]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+
+            if "trades" in table_names:
+                position_columns = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(positions)")
+                } if "positions" in table_names else set()
+                symbol_expr = "p.symbol" if "symbol" in position_columns else "NULL"
+                metadata_symbol_expr = (
+                    "json_extract(p.metadata, '$.symbol')"
+                    if "metadata" in position_columns
+                    else "NULL"
+                )
+                legacy_symbol_expr = f"COALESCE({symbol_expr}, {metadata_symbol_expr}, 'UNKNOWN')"
+                legacy_global = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS closed_trades,
+                        SUM(CASE WHEN COALESCE(t.profit, 0) > 0 THEN 1 ELSE 0 END) AS winning_trades,
+                        SUM(CASE WHEN COALESCE(t.profit, 0) < 0 THEN 1 ELSE 0 END) AS losing_trades,
+                        COALESCE(SUM(CASE WHEN COALESCE(t.profit, 0) > 0 THEN t.profit ELSE 0 END), 0) AS gross_profit,
+                        COALESCE(SUM(CASE WHEN COALESCE(t.profit, 0) < 0 THEN -t.profit ELSE 0 END), 0) AS gross_loss,
+                        COALESCE(SUM(COALESCE(t.profit, 0)), 0) AS net_pnl,
+                        0.0 AS fees,
+                        MIN(t.timestamp) AS first_close,
+                        MAX(t.timestamp) AS last_close
+                    FROM trades t
+                    """
+                ).fetchone()
+                legacy_by_symbol = {}
+                if "positions" in table_names:
+                    rows = conn.execute(
+                        f"""
+                        SELECT
+                            {legacy_symbol_expr} AS symbol,
+                            COUNT(*) AS closed_trades,
+                            SUM(CASE WHEN COALESCE(t.profit, 0) > 0 THEN 1 ELSE 0 END) AS winning_trades,
+                            SUM(CASE WHEN COALESCE(t.profit, 0) < 0 THEN 1 ELSE 0 END) AS losing_trades,
+                            COALESCE(SUM(CASE WHEN COALESCE(t.profit, 0) > 0 THEN t.profit ELSE 0 END), 0) AS gross_profit,
+                            COALESCE(SUM(CASE WHEN COALESCE(t.profit, 0) < 0 THEN -t.profit ELSE 0 END), 0) AS gross_loss,
+                            COALESCE(SUM(COALESCE(t.profit, 0)), 0) AS net_pnl,
+                            0.0 AS fees,
+                            MIN(t.timestamp) AS first_close,
+                            MAX(t.timestamp) AS last_close
+                        FROM trades t
+                        LEFT JOIN positions p ON p.id = t.position_id
+                        GROUP BY {legacy_symbol_expr}
+                        """
+                    ).fetchall()
+                    legacy_by_symbol = {
+                        _paper_symbol_key(row["symbol"]): {
+                            **_stats_from_row(row, source="state_trades_legacy"),
+                            "symbol": str(row["symbol"]),
+                        }
+                        for row in rows
+                    }
+                result["legacy"] = {
+                    "global": _stats_from_row(legacy_global, source="state_trades_legacy") if legacy_global else dict(empty_global),
+                    "by_symbol": legacy_by_symbol,
+                    "note": "Legacy closes may include rows without reliable symbol attribution.",
+                }
+
+            if "trade_ledger" not in table_names:
+                result["status"] = "trade_ledger_missing"
+                if result["legacy"] and result["legacy"]["global"]["closed_trades"] > 0:
+                    result["available"] = True
+                    result["source"] = "state_trades_legacy"
+                    result["global"] = result["legacy"]["global"]
+                    result["by_symbol"] = result["legacy"]["by_symbol"]
+                    result["status"] = "legacy_only"
+                return result
+
+            ledger_global = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS closed_trades,
+                    SUM(CASE WHEN COALESCE(realized_pnl, 0) > 0 THEN 1 ELSE 0 END) AS winning_trades,
+                    SUM(CASE WHEN COALESCE(realized_pnl, 0) < 0 THEN 1 ELSE 0 END) AS losing_trades,
+                    COALESCE(SUM(CASE WHEN COALESCE(realized_pnl, 0) > 0 THEN realized_pnl ELSE 0 END), 0) AS gross_profit,
+                    COALESCE(SUM(CASE WHEN COALESCE(realized_pnl, 0) < 0 THEN -realized_pnl ELSE 0 END), 0) AS gross_loss,
+                    COALESCE(SUM(COALESCE(realized_pnl, 0)), 0) AS net_pnl,
+                    COALESCE(SUM(COALESCE(fees, 0)), 0) AS fees,
+                    MIN(created_at) AS first_close,
+                    MAX(created_at) AS last_close
+                FROM trade_ledger
+                WHERE is_closing_leg = 1
+                """
+            ).fetchone()
+            ledger_stats = _stats_from_row(ledger_global, source="trade_ledger") if ledger_global else dict(empty_global)
+            ledger_rows = conn.execute(
+                """
+                SELECT
+                    symbol AS symbol,
+                    COUNT(*) AS closed_trades,
+                    SUM(CASE WHEN COALESCE(realized_pnl, 0) > 0 THEN 1 ELSE 0 END) AS winning_trades,
+                    SUM(CASE WHEN COALESCE(realized_pnl, 0) < 0 THEN 1 ELSE 0 END) AS losing_trades,
+                    COALESCE(SUM(CASE WHEN COALESCE(realized_pnl, 0) > 0 THEN realized_pnl ELSE 0 END), 0) AS gross_profit,
+                    COALESCE(SUM(CASE WHEN COALESCE(realized_pnl, 0) < 0 THEN -realized_pnl ELSE 0 END), 0) AS gross_loss,
+                    COALESCE(SUM(COALESCE(realized_pnl, 0)), 0) AS net_pnl,
+                    COALESCE(SUM(COALESCE(fees, 0)), 0) AS fees,
+                    MIN(created_at) AS first_close,
+                    MAX(created_at) AS last_close
+                FROM trade_ledger
+                WHERE is_closing_leg = 1
+                GROUP BY symbol
+                """
+            ).fetchall()
+            result["by_symbol"] = {
+                _paper_symbol_key(row["symbol"]): {
+                    **_stats_from_row(row, source="trade_ledger"),
+                    "symbol": str(row["symbol"]),
+                }
+                for row in ledger_rows
+            }
+            result["global"] = ledger_stats
+            result["available"] = ledger_stats["closed_trades"] > 0
+            result["status"] = "ok" if result["available"] else "no_closed_trades"
+            result["source"] = "trade_ledger"
+            return result
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Paper realized performance unavailable: %s", exc)
+        result["status"] = "error"
+        result["error"] = str(exc)[:240]
+        return result
+
+
 def _trading_pipeline_debug(
     *,
     instances_data: List[Dict[str, Any]],
@@ -1902,6 +2112,12 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
         paper_reference_capital = snapshot.get("paper_reference_capital")
         paper_historical_balance = snapshot.get("paper_historical_balance")
         paper_unallocated_reserve = snapshot.get("paper_unallocated_reserve")
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_perf = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+        paper_global = paper_perf.get("global", {}) if isinstance(paper_perf, dict) else {}
+        paper_realized_pnl = paper_global.get("net_pnl")
+        paper_closed_trades = paper_global.get("closed_trades")
 
         return {
             "timestamp": timestamp,
@@ -1916,6 +2132,11 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
             "open_position_notional": round(float(snapshot.get("open_position_notional", 0.0)), 2),
             "autobot_trading_capital": autobot_trading_capital,
             "autobot_available_capital": autobot_available_capital,
+            "paper_realized_pnl": round(float(paper_realized_pnl), 2) if paper_realized_pnl is not None else None,
+            "paper_closed_trades": int(paper_closed_trades or 0) if paper_mode else None,
+            "paper_performance_source": paper_perf.get("source") if paper_mode else None,
+            "paper_profit_factor": _round_optional(paper_global.get("profit_factor")),
+            "paper_profit_factor_status": paper_global.get("profit_factor_status") if paper_mode else None,
             "paper_reference_capital": round(float(paper_reference_capital), 2) if paper_reference_capital is not None else None,
             "paper_historical_balance": round(float(paper_historical_balance), 2) if paper_historical_balance is not None else None,
             "paper_unallocated_reserve": round(float(paper_unallocated_reserve), 2) if paper_unallocated_reserve is not None else None,
@@ -1931,6 +2152,9 @@ async def get_capital_detail(request: Request, authorized: bool = Depends(verify
                 "available_cash": autobot_available_capital if paper_mode else None,
                 "reference_capital": round(float(paper_reference_capital), 2) if paper_mode and paper_reference_capital is not None else None,
                 "unallocated_reserve": None,
+                "realized_pnl": round(float(paper_realized_pnl), 2) if paper_mode and paper_realized_pnl is not None else None,
+                "closed_trades": int(paper_closed_trades or 0) if paper_mode else None,
+                "performance_source": paper_perf.get("source") if paper_mode else None,
                 "balances": balances if paper_mode else {},
                 "message": "Budget paper actif AUTOBOT. Le solde historique du simulateur n'est pas utilise comme capital." if paper_mode else "Paper trading inactif.",
             },
@@ -2111,7 +2335,8 @@ async def get_global_performance(request: Request, authorized: bool = Depends(ve
                 "capital_initial": 0.0,
                 "profit_total": 0.0,
                 "profit_percent": 0.0,
-                "profit_factor": 0.0,
+                "profit_factor": None,
+                "profit_factor_status": "no_closed_trades",
                 "win_rate": 0.0,
                 "total_trades": 0,
                 "instances_count": 0,
@@ -2119,13 +2344,24 @@ async def get_global_performance(request: Request, authorized: bool = Depends(ve
                 "history": [],
             }
 
+        paper_mode = bool(getattr(orchestrator, "paper_mode", False)) or os.getenv("PAPER_TRADING", "false").lower() == "true"
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_perf = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+        paper_global = paper_perf.get("global", {}) if isinstance(paper_perf, dict) else {}
+        use_paper_realized = paper_mode and int(paper_global.get("closed_trades") or 0) > 0
+
         # 1. Capital calculations (REAL)
         capital_total = sum(inst.get("capital", 0) for inst in instances_data)
         capital_initial = sum(
             inst.get("initial_capital", inst.get("capital", 0))
             for inst in instances_data
         )
-        profit_total = sum(inst.get("profit", 0) for inst in instances_data)
+        profit_total = (
+            float(paper_global.get("net_pnl", 0.0))
+            if use_paper_realized
+            else sum(inst.get("profit", 0) for inst in instances_data)
+        )
         profit_percent = (profit_total / capital_initial * 100) if capital_initial > 0 else 0.0
 
         # 2. Profit Factor & Win Rate (REAL — computed from actual trades)
@@ -2133,34 +2369,41 @@ async def get_global_performance(request: Request, authorized: bool = Depends(ve
         gross_loss = 0.0
         total_trades = 0
         winning_trades = 0
+        profit_factor: Optional[float] = None
+        profit_factor_status = "no_closed_trades"
 
-        for inst in instances_data:
-            trades = inst.get("trades_history", [])
-            for trade in trades:
-                pnl = trade.get("profit", 0) or 0
-                total_trades += 1
-                if pnl > 0:
-                    gross_profit += pnl
-                    winning_trades += 1
-                elif pnl < 0:
-                    gross_loss += abs(pnl)
-
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (
-            float("inf") if gross_profit > 0 else 0.0
-        )
-        # Clamp infinite PF for JSON serialization
-        if profit_factor == float("inf"):
-            profit_factor = 999.99
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-
-        # 3. If no trades from extended snapshot, fallback to win/loss counts
-        if total_trades == 0:
+        if use_paper_realized:
+            gross_profit = float(paper_global.get("gross_profit", 0.0))
+            gross_loss = float(paper_global.get("gross_loss", 0.0))
+            total_trades = int(paper_global.get("closed_trades") or 0)
+            winning_trades = int(paper_global.get("winning_trades") or 0)
+            profit_factor = paper_global.get("profit_factor")
+            profit_factor_status = str(paper_global.get("profit_factor_status") or "unknown")
+            win_rate = float(paper_global.get("win_rate", 0.0))
+        else:
             for inst in instances_data:
-                wc = inst.get("win_count", 0)
-                lc = inst.get("loss_count", 0)
-                total_trades += wc + lc
-                winning_trades += wc
+                trades = inst.get("trades_history", [])
+                for trade in trades:
+                    pnl = trade.get("profit", 0) or 0
+                    total_trades += 1
+                    if pnl > 0:
+                        gross_profit += pnl
+                        winning_trades += 1
+                    elif pnl < 0:
+                        gross_loss += abs(pnl)
+
+            profit_factor, profit_factor_status = _profit_factor_context(gross_profit, gross_loss, total_trades)
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+            # 3. If no trades from extended snapshot, fallback to win/loss counts
+            if total_trades == 0:
+                for inst in instances_data:
+                    wc = inst.get("win_count", 0)
+                    lc = inst.get("loss_count", 0)
+                    total_trades += wc + lc
+                    winning_trades += wc
+                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+                profit_factor, profit_factor_status = _profit_factor_context(gross_profit, gross_loss, total_trades)
 
         # 4. By strategy breakdown (REAL)
         strategy_map: Dict[str, Dict] = {}
@@ -2204,12 +2447,15 @@ async def get_global_performance(request: Request, authorized: bool = Depends(ve
             "capital_initial": round(capital_initial, 2),
             "profit_total": round(profit_total, 2),
             "profit_percent": round(profit_percent, 2),
-            "profit_factor": round(profit_factor, 2),
+            "profit_factor": _round_optional(profit_factor),
+            "profit_factor_status": profit_factor_status,
             "win_rate": round(win_rate, 2),
             "total_trades": total_trades,
             "instances_count": len(instances_data),
             "by_strategy": by_strategy,
             "history": history,
+            "metric_scope": "paper_realized_closed_positions" if use_paper_realized else "instance_memory",
+            "pnl_source": paper_perf.get("source") if use_paper_realized else "instance_memory",
         }
     except Exception:
         logger.exception("Erreur récupération performance globale")
@@ -2239,6 +2485,12 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
         if not instances_data:
             return {"timestamp": datetime.now(timezone.utc).isoformat(), "pairs": []}
 
+        paper_mode = bool(getattr(orchestrator, "paper_mode", False)) or os.getenv("PAPER_TRADING", "false").lower() == "true"
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_perf = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+        paper_by_symbol = paper_perf.get("by_symbol", {}) if isinstance(paper_perf, dict) else {}
+
         # Group instances by symbol
         pair_map: Dict[str, list] = {}
         for inst in instances_data:
@@ -2262,7 +2514,10 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
             gross_loss = 0.0
             total_trades = 0
             winning_trades = 0
-            trading_mode = "paper" if bool(getattr(orchestrator, "paper_mode", False)) else "live"
+            trading_mode = "paper" if paper_mode else "live"
+            pf: Optional[float] = None
+            pf_status = "no_closed_trades"
+            pnl_source = "instance_memory"
 
             for inst in instances:
                 mode = inst.get("trading_mode", trading_mode)
@@ -2287,10 +2542,21 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
                     total_trades += wc + lc
                     winning_trades += wc
 
-            pf = (gross_profit / gross_loss) if gross_loss > 0 else (
-                999.99 if gross_profit > 0 else 0.0
-            )
-            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+            realized_stats = paper_by_symbol.get(_paper_symbol_key(symbol)) if paper_mode else None
+            if realized_stats and int(realized_stats.get("closed_trades") or 0) > 0:
+                profit_total = float(realized_stats.get("net_pnl", 0.0))
+                profit_percent = (profit_total / capital_initial * 100) if capital_initial > 0 else 0.0
+                gross_profit = float(realized_stats.get("gross_profit", 0.0))
+                gross_loss = float(realized_stats.get("gross_loss", 0.0))
+                total_trades = int(realized_stats.get("closed_trades") or 0)
+                winning_trades = int(realized_stats.get("winning_trades") or 0)
+                pf = realized_stats.get("profit_factor")
+                pf_status = str(realized_stats.get("profit_factor_status") or "unknown")
+                win_rate = float(realized_stats.get("win_rate", 0.0))
+                pnl_source = str(realized_stats.get("source") or paper_perf.get("source") or "trade_ledger")
+            else:
+                pf, pf_status = _profit_factor_context(gross_profit, gross_loss, total_trades)
+                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
 
             # Max drawdown across instances in this pair
             max_dd = max(
@@ -2305,9 +2571,13 @@ async def get_performance_by_pair(request: Request, authorized: bool = Depends(v
                 "capital_initial": round(capital_initial, 2),
                 "profit_total": round(profit_total, 2),
                 "profit_percent": round(profit_percent, 2),
-                "profit_factor": round(pf, 2),
+                "profit_factor": _round_optional(pf),
+                "profit_factor_status": pf_status,
                 "win_rate": round(win_rate, 2),
                 "total_trades": total_trades,
+                "closed_trades": total_trades,
+                "pnl_source": pnl_source,
+                "metric_scope": "paper_realized_closed_positions" if pnl_source != "instance_memory" else "instance_memory",
                 "max_drawdown": round(max_dd * 100, 2),
                 "status": trading_mode,
                 "instances": [
@@ -2381,32 +2651,41 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             _filled_paper_trade_counts_by_symbol(getattr(executor, "db_path", "data/paper_trades.db"))
             if is_paper_mode else {}
         )
-        paper_realized_stats: Dict[str, Dict[str, float]] = {}
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_perf = _paper_realized_performance_from_state_db(state_db_path) if is_paper_mode else {}
+        paper_realized_stats: Dict[str, Dict[str, Any]] = (
+            dict(paper_perf.get("by_symbol", {}))
+            if isinstance(paper_perf, dict) and paper_perf.get("by_symbol")
+            else {}
+        )
         if is_paper_mode:
             try:
                 from ..quant_validation import BacktestQualityEngine, load_paper_trade_observations
 
-                observations = load_paper_trade_observations(getattr(executor, "db_path", "data/paper_trades.db"))
-                realized = BacktestQualityEngine()._realized_results(observations)
-                for item in realized:
-                    key = _paper_symbol_key(item.symbol)
-                    stats = paper_realized_stats.setdefault(
-                        key,
-                        {
-                            "trade_count": 0.0,
-                            "wins": 0.0,
-                            "gross_profit": 0.0,
-                            "gross_loss": 0.0,
-                            "net_pnl": 0.0,
-                        },
-                    )
-                    stats["trade_count"] += 1.0
-                    stats["net_pnl"] += float(item.pnl_eur)
-                    if item.pnl_eur > 0.0:
-                        stats["wins"] += 1.0
-                        stats["gross_profit"] += float(item.pnl_eur)
-                    elif item.pnl_eur < 0.0:
-                        stats["gross_loss"] += abs(float(item.pnl_eur))
+                if not paper_realized_stats:
+                    observations = load_paper_trade_observations(getattr(executor, "db_path", "data/paper_trades.db"))
+                    realized = BacktestQualityEngine()._realized_results(observations)
+                    for item in realized:
+                        key = _paper_symbol_key(item.symbol)
+                        stats = paper_realized_stats.setdefault(
+                            key,
+                            {
+                                "closed_trades": 0,
+                                "winning_trades": 0,
+                                "gross_profit": 0.0,
+                                "gross_loss": 0.0,
+                                "net_pnl": 0.0,
+                                "source": "paper_trades_db_fifo",
+                            },
+                        )
+                        stats["closed_trades"] += 1
+                        stats["net_pnl"] += float(item.pnl_eur)
+                        if item.pnl_eur > 0.0:
+                            stats["winning_trades"] += 1
+                            stats["gross_profit"] += float(item.pnl_eur)
+                        elif item.pnl_eur < 0.0:
+                            stats["gross_loss"] += abs(float(item.pnl_eur))
             except Exception:
                 logger.debug("Paper realized stats unavailable for summary", exc_info=True)
 
@@ -2459,32 +2738,35 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             paper_filled_trades = paper_trade_counts.get(_paper_symbol_key(symbol), 0)
             total_trades = max(total_trades, paper_filled_trades)
             realized_stats = paper_realized_stats.get(_paper_symbol_key(symbol))
-            if realized_stats and realized_stats.get("trade_count", 0.0) > 0.0:
-                closed_trades = max(closed_trades, int(realized_stats["trade_count"]))
-                winning_trades = int(realized_stats["wins"])
+            if realized_stats and int(realized_stats.get("closed_trades") or 0) > 0:
+                closed_trades = int(realized_stats["closed_trades"])
+                winning_trades = int(realized_stats.get("winning_trades", 0))
                 gross_profit = float(realized_stats["gross_profit"])
                 gross_loss = float(realized_stats["gross_loss"])
                 net_pnl = float(realized_stats["net_pnl"])
-                pnl_source = "paper_trades_db_fifo"
+                pnl_source = str(realized_stats.get("source") or "trade_ledger")
 
             avg_profit_pct = (sum(profits_pct) / len(profits_pct)) if profits_pct else 0.0
-            pair_pf = (gross_profit / gross_loss) if gross_loss > 0 else (
-                999.99 if gross_profit > 0 else 0.0
-            )
+            avg_profit_eur = (net_pnl / closed_trades) if closed_trades > 0 else 0.0
+            pair_pf, pf_status = _profit_factor_context(gross_profit, gross_loss, closed_trades)
             win_rate = (winning_trades / closed_trades * 100) if closed_trades > 0 else 0.0
 
-            # Recommendation logic (REAL)
+            # Recommendation logic: never promotes live automatically; it only marks review candidates.
             if (
-                pair_pf > 1.5
+                pair_pf is not None
+                and pair_pf > 1.5
                 and win_rate > 55
                 and closed_trades >= promotion_min_closed_trades
                 and net_pnl >= promotion_min_net_pnl_eur
+                and avg_profit_eur > 0.0
             ):
-                recommendation = "promote_to_live"
-            elif pair_pf > 1.0 and closed_trades < 20:
+                recommendation = "review_candidate"
+            elif closed_trades == 0:
+                recommendation = "need_more_data"
+            elif pair_pf is not None and pair_pf > 1.0 and closed_trades < promotion_min_closed_trades:
                 recommendation = "continue_paper"
-            elif pair_pf <= 1.0 and closed_trades >= 10:
-                recommendation = "stop"
+            elif net_pnl <= 0.0 and closed_trades >= 10:
+                recommendation = "adjust_parameters"
             else:
                 recommendation = "continue_paper"
 
@@ -2494,8 +2776,10 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
                 "total_trades": total_trades,
                 "closed_trades": closed_trades,
                 "net_pnl_eur": round(net_pnl, 4),
+                "avg_profit_eur": round(avg_profit_eur, 4),
                 "avg_profit_percent": round(avg_profit_pct, 2),
-                "avg_pf": round(pair_pf, 2),
+                "avg_pf": _round_optional(pair_pf),
+                "profit_factor_status": pf_status,
                 "win_rate": round(win_rate, 2),
                 "recommendation": recommendation,
                 "warmup_active": warmup_active,
@@ -2512,6 +2796,7 @@ async def get_paper_trading_summary(request: Request, authorized: bool = Depends
             "is_paper_mode": is_paper_mode,
             "live_instances": live_count,
             "pairs_tested": pairs_tested,
+            "performance_source": paper_perf.get("source") if isinstance(paper_perf, dict) else None,
             "by_pair": by_pair,
         }
     except Exception:
