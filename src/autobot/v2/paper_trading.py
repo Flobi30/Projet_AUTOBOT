@@ -168,7 +168,7 @@ class PaperTradingExecutor:
             return "XXLMZEUR"
         if asset == "XDG":
             return "XDGEUR"
-        direct_eur_assets = {"SOL", "TRX", "ADA", "DOT", "LINK", "AVAX", "BCH"}
+        direct_eur_assets = {"SOL", "TRX", "ADA", "DOT", "LINK", "AVAX", "BCH", "AAVE", "ATOM"}
         if asset in direct_eur_assets:
             return f"{asset}EUR"
         return f"{asset}ZEUR"
@@ -660,7 +660,7 @@ class PaperTradingExecutor:
         for paper_asset, qty in balance.items():
             if paper_asset == "ZEUR" or qty == 0:
                 continue
-            symbol = self._symbol_for_asset(paper_asset)
+            symbol = self._last_filled_symbol_for_asset(paper_asset) or self._symbol_for_asset(paper_asset)
             price = await self._get_current_price(symbol)
             if price is None:
                 price = self._last_filled_price_for_symbol(symbol)
@@ -700,6 +700,24 @@ class PaperTradingExecutor:
                 continue
             if value > 0:
                 return value
+        return None
+
+    def _last_filled_symbol_for_asset(self, asset: str) -> Optional[str]:
+        normalized_asset = self._asset_for_symbol(asset)
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol
+                FROM trades
+                WHERE status = 'filled' AND symbol IS NOT NULL
+                ORDER BY datetime(timestamp) DESC
+                """
+            ).fetchall()
+
+        for (symbol,) in rows:
+            candidate = str(symbol or "")
+            if candidate and self._asset_for_symbol(candidate) == normalized_asset:
+                return candidate
         return None
     
     # ------------------------------------------------------------------

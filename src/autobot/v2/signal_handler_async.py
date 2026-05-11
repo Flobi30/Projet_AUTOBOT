@@ -310,6 +310,55 @@ class SignalHandlerAsync:
         config = getattr(getattr(self, "_opportunity_scorer", None), "config", None)
         return bool(self._is_paper_mode() and getattr(config, "paper_allow_upsize", False))
 
+    async def _try_paper_signal_budget_top_up(
+        self,
+        *,
+        symbol: str,
+        price: float,
+        opportunity: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        """Ask the paper orchestrator for one safe local budget top-up.
+
+        The top-up is deliberately only used after opportunity scoring says the
+        signal is tradable but the receiving engine lacks enough free paper cash
+        for the minimum order.
+        """
+        if not self._is_paper_mode():
+            return None
+        if str(opportunity.get("allocation_reason") or "") != "available_below_min_order":
+            return None
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        request_top_up = getattr(orchestrator, "request_paper_signal_budget_top_up", None)
+        if not callable(request_top_up):
+            return None
+
+        cfg = getattr(getattr(self, "_opportunity_scorer", None), "config", None)
+        paper_min_order = float(getattr(cfg, "paper_min_order_eur", 10.0) or 10.0)
+        paper_max_order = float(getattr(cfg, "paper_max_order_eur", paper_min_order) or paper_min_order)
+        fee_buffer = self._load_float_in_range(
+            "min_order_fee_buffer_mult",
+            "MIN_ORDER_FEE_BUFFER_MULT",
+            1.01,
+            minimum=1.0,
+            maximum=1.10,
+        )
+        min_notional = self._min_order_volume(symbol) * max(0.0, float(price))
+        min_available = max(paper_min_order, min_notional * fee_buffer)
+        preferred = min(max(min_available, paper_min_order), paper_max_order)
+        try:
+            result = await request_top_up(
+                self.instance.id,
+                min_available,
+                preferred_transfer_eur=preferred,
+                reason="paper_signal_budget_top_up",
+            )
+        except Exception as exc:
+            logger.warning("Paper signal budget top-up unavailable for %s: %s", symbol, exc)
+            return {"applied": False, "reason": "top_up_error", "error": str(exc)[:180]}
+        if isinstance(result, dict):
+            return result
+        return None
+
     @staticmethod
     async def _maybe_await(value: Any) -> Any:
         if asyncio.iscoroutine(value) or isinstance(value, asyncio.Future):
@@ -739,7 +788,29 @@ class SignalHandlerAsync:
         opportunity_payload = opportunity.to_dict()
         opportunity_gate = self._opportunity_gate_applies()
         opportunity_size_adjustment = None
+        paper_budget_top_up = None
         if opportunity_gate.get("selection_applies_to_execution"):
+            if (
+                opportunity.status == "tradable"
+                and opportunity.recommended_order_eur <= 0.0
+                and opportunity_payload.get("allocation_reason") == "available_below_min_order"
+            ):
+                paper_budget_top_up = await self._try_paper_signal_budget_top_up(
+                    symbol=self._convert_symbol(signal.symbol),
+                    price=signal.price,
+                    opportunity=opportunity_payload,
+                )
+                if paper_budget_top_up and paper_budget_top_up.get("applied"):
+                    available = self.instance.get_available_capital()
+                    opportunity = self._build_opportunity_result(
+                        signal,
+                        edge_ctx,
+                        atr_pct,
+                        available,
+                        open_positions_count,
+                    )
+                    opportunity_payload = opportunity.to_dict()
+
             if opportunity.status != "tradable" or opportunity.recommended_order_eur <= 0.0:
                 allocation_reason = opportunity_payload.get("allocation_reason")
                 rejection_reason = (
@@ -777,6 +848,7 @@ class SignalHandlerAsync:
                     },
                     opportunity=opportunity_payload,
                     opportunity_gate=opportunity_gate,
+                    paper_budget_top_up=paper_budget_top_up,
                 )
                 logger.info(
                     "⛔ Signal BUY ignoré: %s (%s, score %.1f)",
@@ -877,6 +949,7 @@ class SignalHandlerAsync:
             edge_context=accepted_edge_details,
             opportunity=opportunity_payload,
             opportunity_gate=opportunity_gate,
+            paper_budget_top_up=paper_budget_top_up,
             order_size_adjustment=order_size_adjustment,
             opportunity_size_adjustment=opportunity_size_adjustment,
         )

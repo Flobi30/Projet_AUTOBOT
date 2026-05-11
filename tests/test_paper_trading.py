@@ -19,6 +19,8 @@ def test_paper_symbol_asset_roundtrip_for_altcoins():
         "XXLMZEUR": "XXLM",
         "SOLEUR": "SOL",
         "TRXEUR": "TRX",
+        "AAVEEUR": "AAVE",
+        "ATOMEUR": "ATOM",
     }
 
     for symbol, asset in pairs.items():
@@ -30,6 +32,8 @@ def test_paper_ws_symbol_aliases_match_kraken_subscriptions():
     assert PaperTradingExecutor._ws_symbol_for_symbol("XXBTZEUR") == "XBT/EUR"
     assert PaperTradingExecutor._ws_symbol_for_symbol("XETHZEUR") == "ETH/EUR"
     assert PaperTradingExecutor._ws_symbol_for_symbol("SOLEUR") == "SOL/EUR"
+    assert PaperTradingExecutor._ws_symbol_for_symbol("AAVEEUR") == "AAVE/EUR"
+    assert PaperTradingExecutor._ws_symbol_for_symbol("ATOMEUR") == "ATOM/EUR"
 
 
 @pytest.mark.asyncio
@@ -139,3 +143,40 @@ async def test_trade_balance_uses_asset_specific_fallbacks(tmp_path, monkeypatch
     trade_balance = await executor.get_trade_balance("EUR")
 
     assert trade_balance["equivalent_balance"] == pytest.approx(1000.0)
+
+
+@pytest.mark.asyncio
+async def test_trade_balance_reuses_observed_symbol_for_unmapped_altcoins(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    requested_symbols = []
+
+    async def price_for_observed_symbol(symbol: str):
+        requested_symbols.append(symbol)
+        return 1.75 if symbol == "ATOMEUR" else None
+
+    monkeypatch.setattr(executor, "_get_current_price", price_for_observed_symbol)
+    with sqlite3.connect(executor.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trades (id, txid, symbol, side, volume, price, fees, timestamp, status, userref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trade-atom",
+                "PAPER_LMT_atom",
+                "ATOMEUR",
+                "buy",
+                10.0,
+                1.70,
+                0.0,
+                datetime.now(timezone.utc).isoformat(),
+                "filled",
+                None,
+            ),
+        )
+        conn.commit()
+
+    trade_balance = await executor.get_trade_balance("EUR")
+
+    assert requested_symbols == ["ATOMEUR"]
+    assert trade_balance["equivalent_balance"] == pytest.approx(1000.0 + 0.5)

@@ -1625,6 +1625,124 @@ class OrchestratorAsync:
                         context=final_plan.to_dict(),
                     )
 
+    async def request_paper_signal_budget_top_up(
+        self,
+        receiver_instance_id: str,
+        min_available_eur: float,
+        *,
+        preferred_transfer_eur: Optional[float] = None,
+        reason: str = "paper_signal_budget_top_up",
+    ) -> Dict[str, Any]:
+        """Move free paper budget to a strong signal's engine when it is short of one order.
+
+        This is paper-only and never withdraws allocated/open-position capital.
+        """
+        if not getattr(self, "paper_mode", False):
+            return {"applied": False, "reason": "live_mode_disabled"}
+        reallocator = getattr(self, "paper_capital_reallocator", None)
+        if reallocator is None or not reallocator.config.enabled:
+            return {"applied": False, "reason": "reallocator_disabled"}
+
+        requested_min = max(0.0, float(min_available_eur or 0.0))
+        if requested_min <= 0.0:
+            return {"applied": False, "reason": "invalid_min_available"}
+
+        async with self._capital_ops_lock:
+            receiver = self._instances.get(receiver_instance_id)
+            if receiver is None or not receiver.is_running():
+                return {"applied": False, "reason": "receiver_unavailable"}
+
+            current_available = max(0.0, float(receiver.get_available_capital()))
+            deficit = max(0.0, requested_min - current_available)
+            if deficit <= 1e-9:
+                return {
+                    "applied": False,
+                    "reason": "already_available",
+                    "available_capital": round(current_available, 8),
+                }
+
+            cfg = reallocator.config
+            target_transfer = max(deficit, min(float(preferred_transfer_eur or 0.0), requested_min * 2.0))
+            if cfg.min_transfer_eur > 0.0:
+                target_transfer = max(target_transfer, min(cfg.min_transfer_eur, requested_min))
+            target_transfer = max(0.0, target_transfer)
+
+            donors: list[tuple[float, TradingInstanceAsync]] = []
+            for donor in self._instances.values():
+                if donor.id == receiver_instance_id or not donor.is_running():
+                    continue
+                donor_current = max(0.0, float(donor.get_current_capital()))
+                donor_available = max(0.0, float(donor.get_available_capital()))
+                donor_allocated = max(0.0, donor_current - donor_available)
+                protected = max(donor_allocated, cfg.min_instance_eur)
+                reducible = max(0.0, min(donor_available, donor_current - protected))
+                cycle_cap = donor_current * (cfg.max_move_pct / 100.0)
+                reducible = min(reducible, cycle_cap)
+                if cfg.min_transfer_eur > 0.0 and reducible + 1e-9 < cfg.min_transfer_eur:
+                    continue
+                if reducible > 0.0:
+                    donors.append((reducible, donor))
+
+            donors.sort(key=lambda item: item[0], reverse=True)
+            remaining = target_transfer
+            applied: list[PaperCapitalTransfer] = []
+            for reducible, donor in donors:
+                if remaining <= 1e-9:
+                    break
+                amount = min(reducible, remaining)
+                if amount <= 0.0:
+                    continue
+                debit = await donor.adjust_paper_budget(
+                    -amount,
+                    reason=f"{reason}:to:{receiver.id}",
+                )
+                debit_amount = abs(float(debit))
+                if debit_amount <= 0.0:
+                    continue
+                credit = await receiver.adjust_paper_budget(
+                    debit_amount,
+                    reason=f"{reason}:from:{donor.id}",
+                )
+                credit_amount = max(0.0, float(credit))
+                if credit_amount + 1e-9 < debit_amount:
+                    await donor.adjust_paper_budget(
+                        debit_amount - credit_amount,
+                        reason=f"{reason}:refund",
+                    )
+                moved = min(debit_amount, credit_amount)
+                if moved <= 0.0:
+                    continue
+                remaining = max(0.0, remaining - moved)
+                applied.append(
+                    PaperCapitalTransfer(
+                        from_instance_id=donor.id,
+                        to_instance_id=receiver.id,
+                        amount=moved,
+                        reason=reason,
+                    )
+                )
+
+            receiver_available = max(0.0, float(receiver.get_available_capital()))
+            payload = {
+                "applied": bool(applied),
+                "reason": "applied" if applied else "no_free_donor_budget",
+                "requested_min_available": round(requested_min, 8),
+                "available_before": round(current_available, 8),
+                "available_after": round(receiver_available, 8),
+                "transfers": [transfer.to_dict() for transfer in applied],
+            }
+            if applied:
+                last = dict(getattr(self, "_paper_capital_rebalance_last", {}) or {})
+                last["last_signal_top_up"] = payload
+                self._paper_capital_rebalance_last = last
+                logger.info(
+                    "Paper signal budget top-up: %s -> %s %.2f€",
+                    applied[0].from_instance_id,
+                    receiver.id,
+                    sum(transfer.amount for transfer in applied),
+                )
+            return payload
+
     async def _apply_force_reduce_once(self) -> None:
         """Conservative scale-down when guard is in FORCE_REDUCE state."""
         removable = [

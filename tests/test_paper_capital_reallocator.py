@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.instance_async import TradingInstanceAsync
+from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.paper_capital_reallocator import (
     PaperCapitalReallocator,
     PaperCapitalRebalanceConfig,
@@ -39,6 +40,29 @@ def _capital_instance(*, current=120.0, initial=100.0, allocated=0.0):
     inst._lock = asyncio.Lock()
     inst._persistence = _Persistence()
     return inst
+
+
+class _BudgetInstance:
+    def __init__(self, instance_id: str, *, current: float, allocated: float = 0.0):
+        self.id = instance_id
+        self._current = current
+        self._allocated = allocated
+
+    def is_running(self):
+        return True
+
+    def get_current_capital(self):
+        return self._current
+
+    def get_available_capital(self):
+        return self._current - self._allocated
+
+    async def adjust_paper_budget(self, delta: float, reason: str = "unit_test"):
+        if delta < 0:
+            free = max(0.0, self.get_available_capital())
+            delta = -min(abs(delta), free)
+        self._current = max(0.0, self._current + delta)
+        return delta
 
 
 def test_reallocator_moves_budget_toward_best_scored_engine():
@@ -112,3 +136,65 @@ def test_adjust_paper_budget_never_withdraws_allocated_capital():
     assert moved == pytest.approx(-5.0)
     assert inst.get_current_capital() == pytest.approx(95.0)
     assert inst.get_available_capital() == pytest.approx(0.0)
+
+
+def test_orchestrator_paper_signal_top_up_moves_only_free_budget():
+    donor = _BudgetInstance("donor", current=100.0, allocated=0.0)
+    receiver = _BudgetInstance("receiver", current=50.0, allocated=45.0)
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch._instances = {"donor": donor, "receiver": receiver}
+    orch._capital_ops_lock = asyncio.Lock()
+    orch.paper_capital_reallocator = PaperCapitalReallocator(
+        PaperCapitalRebalanceConfig(
+            min_instance_eur=25.0,
+            min_transfer_eur=5.0,
+            max_move_pct=50.0,
+            reserve_cash_pct=0.0,
+        )
+    )
+    orch._paper_capital_rebalance_last = {}
+
+    result = asyncio.run(
+        orch.request_paper_signal_budget_top_up(
+            "receiver",
+            10.0,
+            preferred_transfer_eur=10.0,
+        )
+    )
+
+    assert result["applied"] is True
+    assert donor.get_current_capital() == pytest.approx(90.0)
+    assert receiver.get_current_capital() == pytest.approx(60.0)
+    assert receiver.get_available_capital() == pytest.approx(15.0)
+    assert orch._paper_capital_rebalance_last["last_signal_top_up"]["applied"] is True
+
+
+def test_orchestrator_paper_signal_top_up_does_not_take_allocated_budget():
+    donor = _BudgetInstance("donor", current=100.0, allocated=98.0)
+    receiver = _BudgetInstance("receiver", current=50.0, allocated=45.0)
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch._instances = {"donor": donor, "receiver": receiver}
+    orch._capital_ops_lock = asyncio.Lock()
+    orch.paper_capital_reallocator = PaperCapitalReallocator(
+        PaperCapitalRebalanceConfig(
+            min_instance_eur=25.0,
+            min_transfer_eur=5.0,
+            max_move_pct=100.0,
+            reserve_cash_pct=0.0,
+        )
+    )
+
+    result = asyncio.run(
+        orch.request_paper_signal_budget_top_up(
+            "receiver",
+            10.0,
+            preferred_transfer_eur=10.0,
+        )
+    )
+
+    assert result["applied"] is False
+    assert result["reason"] == "no_free_donor_budget"
+    assert donor.get_current_capital() == pytest.approx(100.0)
+    assert receiver.get_current_capital() == pytest.approx(50.0)
