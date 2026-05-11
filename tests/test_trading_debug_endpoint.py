@@ -294,6 +294,29 @@ def test_positions_audit_endpoint_summarizes_open_positions(monkeypatch, tmp_pat
     assert open_by_symbol["ADAEUR"]["open_positions"] == 1
 
 
+def test_performance_persisted_awaits_trade_ledger_metrics(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+
+    class _Persistence:
+        async def get_trade_ledger_metrics(self):
+            return {
+                "closed_trades": 12,
+                "profit_factor": 1.23,
+                "expectancy_eur": 0.08,
+            }
+
+    monkeypatch.setattr("autobot.v2.persistence.get_persistence", lambda: _Persistence())
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/performance/persisted", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "trade_ledger"
+    assert body["metrics"]["closed_trades"] == 12
+    assert body["metrics"]["profit_factor"] == pytest.approx(1.23)
+
+
 def test_acknowledge_kill_switch_clears_paper_runtime_handlers(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     db_path = tmp_path / "paper_trades.db"

@@ -1548,7 +1548,7 @@ async def get_performance_persisted(authorized: bool = Depends(verify_token)):
     try:
         from ..persistence import get_persistence
 
-        metrics = get_persistence().get_trade_ledger_metrics()
+        metrics = await get_persistence().get_trade_ledger_metrics()
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "trade_ledger",
