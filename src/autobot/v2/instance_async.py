@@ -234,7 +234,20 @@ class TradingInstanceAsync:
             )
             if saved_state:
                 async with self._lock:
-                    self._current_capital = saved_state["current_capital"]
+                    self._current_capital = float(saved_state["current_capital"])
+                    initial_capital = saved_state.get("initial_capital")
+                    if initial_capital is not None:
+                        self._initial_capital = float(initial_capital)
+                        try:
+                            self.config.initial_capital = self._initial_capital
+                        except Exception:
+                            pass
+                    elif not hasattr(self, "_initial_capital"):
+                        self._initial_capital = self._current_capital
+                    if not hasattr(self, "_peak_capital"):
+                        self._peak_capital = self._current_capital
+                    else:
+                        self._peak_capital = max(float(self._peak_capital), self._current_capital)
                     self._win_count = saved_state.get("win_count", 0)
                     self._loss_count = saved_state.get("loss_count", 0)
         except Exception as exc:
@@ -249,6 +262,7 @@ class TradingInstanceAsync:
                 wc = self._win_count
                 lc = self._loss_count
                 st = self.status.value
+                ic = self._initial_capital
 
             await self._persistence.save_instance_state(self.id,
                 st,
@@ -256,6 +270,7 @@ class TradingInstanceAsync:
                 ac,
                 wc,
                 lc,
+                initial_capital=ic,
             )
             return True
         except Exception as exc:
@@ -692,6 +707,62 @@ class TradingInstanceAsync:
     def record_spin_off(self, amount: float) -> None:
         # This is called rarely; we can use sync-ish pattern here
         self._current_capital -= amount
+
+    async def adjust_paper_budget(self, delta: float, reason: str = "paper_rebalance") -> float:
+        """Move virtual paper budget without manufacturing realized P&L."""
+        try:
+            requested = float(delta)
+        except (TypeError, ValueError):
+            return 0.0
+        if abs(requested) <= 1e-9:
+            return 0.0
+
+        async with self._lock:
+            current = float(self._current_capital)
+            allocated = float(self._allocated_capital)
+            if requested < 0.0:
+                free_capital = max(0.0, current - allocated)
+                max_reduction = min(abs(requested), free_capital)
+                if max_reduction <= 0.0:
+                    return 0.0
+                actual = -max_reduction
+            else:
+                actual = requested
+
+            previous_peak = float(self._peak_capital)
+            self._current_capital = max(0.0, self._current_capital + actual)
+            self._initial_capital = max(0.0, self._initial_capital + actual)
+            try:
+                self.config.initial_capital = self._initial_capital
+            except Exception:
+                pass
+            self._peak_capital = max(self._current_capital, previous_peak + actual)
+
+            cc = self._current_capital
+            ac = self._allocated_capital
+            wc = self._win_count
+            lc = self._loss_count
+            st = self.status.value
+            ic = self._initial_capital
+
+        await self._persistence.save_instance_state(
+            self.id,
+            st,
+            cc,
+            ac,
+            wc,
+            lc,
+            initial_capital=ic,
+        )
+        logger.info(
+            "Paper budget adjusted %s: delta=%.2f reason=%s current=%.2f initial=%.2f",
+            self.id,
+            actual,
+            reason,
+            cc,
+            ic,
+        )
+        return actual
 
     # ------------------------------------------------------------------
     # Leverage (sync — pure computation, no I/O)

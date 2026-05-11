@@ -138,6 +138,13 @@ from .portfolio_allocator import (
     AllocationPlan,
     PortfolioAllocator,
 )
+from .opportunity_scoring import OpportunityScorer
+from .paper_capital_reallocator import (
+    PaperCapitalReallocator,
+    PaperCapitalRebalanceConfig,
+    PaperCapitalTransfer,
+    PaperInstanceCapital,
+)
 from .orchestrator_services import (
     ActivationContext,
     BackgroundTasksService,
@@ -510,6 +517,15 @@ class OrchestratorAsync:
 
         self.portfolio_allocator: Optional[PortfolioAllocator] = None
         self._portfolio_plan: Optional[AllocationPlan] = None
+        self.opportunity_scorer = OpportunityScorer()
+        self.paper_capital_reallocator = PaperCapitalReallocator(
+            PaperCapitalRebalanceConfig.from_env()
+        )
+        self._last_paper_capital_rebalance_ts = 0.0
+        self._journal_last_paper_rebalance_fp: Optional[str] = None
+        self._paper_capital_rebalance_last = self.paper_capital_reallocator.disabled_plan(
+            "not_run"
+        ).to_dict()
         if ENABLE_PORTFOLIO_ALLOCATOR:
             self.portfolio_allocator = PortfolioAllocator(
                 AllocationConstraints(
@@ -1474,6 +1490,141 @@ class OrchestratorAsync:
                     },
                 )
 
+    async def _apply_paper_dynamic_capital_rebalance(self) -> None:
+        """Reallocate paper budget toward the strongest running engines."""
+        reallocator = getattr(self, "paper_capital_reallocator", None)
+        if reallocator is None:
+            return
+        cfg = reallocator.config
+        if not cfg.enabled:
+            self._paper_capital_rebalance_last = reallocator.disabled_plan("disabled").to_dict()
+            return
+        if not getattr(self, "paper_mode", False):
+            self._paper_capital_rebalance_last = reallocator.disabled_plan("live_mode_disabled").to_dict()
+            return
+
+        now = perf_counter()
+        if (
+            self._last_paper_capital_rebalance_ts > 0.0
+            and now - self._last_paper_capital_rebalance_ts < cfg.interval_seconds
+        ):
+            return
+        self._last_paper_capital_rebalance_ts = now
+
+        async with self._capital_ops_lock:
+            active_instances = [inst for inst in self._instances.values() if inst.is_running()]
+            if len(active_instances) < 2:
+                plan = reallocator.build_plan([])
+                self._paper_capital_rebalance_last = plan.to_dict()
+                return
+
+            total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances)
+            opportunity_by_symbol: Dict[str, Dict[str, Any]] = {}
+            try:
+                scorer = getattr(self, "opportunity_scorer", None)
+                if scorer is None:
+                    scorer = OpportunityScorer()
+                    self.opportunity_scorer = scorer
+                opportunities = scorer.build_snapshot(
+                    instances=self.get_instances_snapshot(),
+                    paper_mode=True,
+                    total_capital=total_capital,
+                )
+                for item in opportunities.get("opportunities", []):
+                    if isinstance(item, dict):
+                        opportunity_by_symbol[str(item.get("symbol", "")).upper()] = item
+            except Exception as exc:
+                logger.warning("Paper capital rebalance: opportunity snapshot unavailable: %s", exc)
+
+            inputs: list[PaperInstanceCapital] = []
+            for inst in active_instances:
+                symbol = str(inst.config.symbol)
+                current = max(0.0, float(inst.get_current_capital()))
+                available = max(0.0, float(inst.get_available_capital()))
+                allocated = max(0.0, current - available)
+                opportunity = opportunity_by_symbol.get(symbol.upper(), {})
+                try:
+                    pf_30 = float(inst.get_profit_factor_days(30))
+                except Exception:
+                    pf_30 = 1.0
+                try:
+                    drawdown = float(inst.get_drawdown())
+                except Exception:
+                    drawdown = 0.0
+                try:
+                    open_positions = len(inst.get_open_position_ids())
+                except Exception:
+                    open_positions = 0
+                inputs.append(
+                    PaperInstanceCapital(
+                        instance_id=inst.id,
+                        symbol=symbol,
+                        current_capital=current,
+                        allocated_capital=allocated,
+                        available_capital=available,
+                        opportunity_score=float(opportunity.get("score", 50.0)),
+                        profit_factor=pf_30,
+                        drawdown=drawdown,
+                        open_positions=open_positions,
+                        status="running",
+                    )
+                )
+
+            plan = reallocator.build_plan(inputs)
+            instance_by_id = {inst.id: inst for inst in active_instances}
+            applied: list[PaperCapitalTransfer] = []
+            for transfer in plan.transfers:
+                donor = instance_by_id.get(transfer.from_instance_id)
+                receiver = instance_by_id.get(transfer.to_instance_id)
+                if donor is None or receiver is None:
+                    continue
+                debit = await donor.adjust_paper_budget(
+                    -float(transfer.amount),
+                    reason=f"{transfer.reason}:to:{receiver.id}",
+                )
+                debit_amount = abs(float(debit))
+                if debit_amount < cfg.min_transfer_eur:
+                    continue
+                credit = await receiver.adjust_paper_budget(
+                    debit_amount,
+                    reason=f"{transfer.reason}:from:{donor.id}",
+                )
+                credit_amount = max(0.0, float(credit))
+                if credit_amount + 1e-9 < debit_amount:
+                    await donor.adjust_paper_budget(
+                        debit_amount - credit_amount,
+                        reason="paper_score_rebalance_refund",
+                    )
+                applied_amount = min(debit_amount, credit_amount)
+                if applied_amount >= cfg.min_transfer_eur:
+                    applied.append(
+                        PaperCapitalTransfer(
+                            from_instance_id=donor.id,
+                            to_instance_id=receiver.id,
+                            amount=applied_amount,
+                            reason=transfer.reason,
+                        )
+                    )
+
+            final_plan = reallocator.with_applied_transfers(plan, applied)
+            self._paper_capital_rebalance_last = final_plan.to_dict()
+            if applied:
+                fp = self._fingerprint(
+                    {
+                        "transfers": [item.to_dict() for item in applied],
+                        "targets": [target.to_dict() for target in plan.targets],
+                    }
+                )
+                if fp != self._journal_last_paper_rebalance_fp:
+                    self._journal_last_paper_rebalance_fp = fp
+                    self._journal_major_decision(
+                        decision_type="paper_capital_rebalance",
+                        source="paper_capital_reallocator",
+                        symbols=[str(target.symbol) for target in plan.targets[: journal_symbol_cap()]],
+                        reasons=["paper_score_weighted_budget_transfer"],
+                        context=final_plan.to_dict(),
+                    )
+
     async def _apply_force_reduce_once(self) -> None:
         """Conservative scale-down when guard is in FORCE_REDUCE state."""
         removable = [
@@ -1532,6 +1683,7 @@ class OrchestratorAsync:
                 await self._evaluate_scalability_guard()
                 await self._apply_instance_activation_policy()
                 self._refresh_portfolio_allocation_plan()
+                await self._apply_paper_dynamic_capital_rebalance()
                 if self.scalability_guard_state == ScalingState.FORCE_REDUCE:
                     await self._apply_force_reduce_once()
                 instances = self.decision.select_instances_for_cycle()
@@ -3067,6 +3219,7 @@ class OrchestratorAsync:
                     "explain": dict(self._portfolio_plan.explain),
                 } if self._portfolio_plan else None,
             },
+            "paper_capital_rebalance": dict(getattr(self, "_paper_capital_rebalance_last", {})),
             "capital": dict(self._last_capital_snapshot),
             "safety": {
                 "emergency_mode": self.safety_guard.emergency_mode,

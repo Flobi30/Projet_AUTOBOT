@@ -414,23 +414,25 @@ class InstanceStateRepository(_PersistenceRepositoryBase):
 
     async def save_instance_state(self, instance_id: str, status: str,
                             current_capital: float, allocated_capital: float,
-                            win_count: int, loss_count: int) -> bool:
+                            win_count: int, loss_count: int,
+                            initial_capital: Optional[float] = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
             conn = await self.get_conn()
             await conn.execute(
                 """
-                INSERT INTO instance_state (instance_id, status, current_capital, allocated_capital, win_count, loss_count, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO instance_state (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(instance_id) DO UPDATE SET
                     status=excluded.status,
                     current_capital=excluded.current_capital,
                     allocated_capital=excluded.allocated_capital,
                     win_count=excluded.win_count,
                     loss_count=excluded.loss_count,
+                    initial_capital=COALESCE(excluded.initial_capital, instance_state.initial_capital),
                     updated_at=excluded.updated_at
                 """,
-                (instance_id, status, current_capital, allocated_capital, win_count, loss_count, now)
+                (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, now)
             )
             await conn.commit()
             return True
@@ -501,9 +503,14 @@ class StatePersistence:
                     allocated_capital REAL NOT NULL,
                     win_count INTEGER DEFAULT 0,
                     loss_count INTEGER DEFAULT 0,
+                    initial_capital REAL,
                     updated_at TEXT NOT NULL
                 )
             """)
+            async with conn.execute("PRAGMA table_info(instance_state)") as cursor:
+                instance_state_columns = {row[1] for row in await cursor.fetchall()}
+            if "initial_capital" not in instance_state_columns:
+                await conn.execute("ALTER TABLE instance_state ADD COLUMN initial_capital REAL")
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS instance_lineage (
                     child_instance_id TEXT PRIMARY KEY,

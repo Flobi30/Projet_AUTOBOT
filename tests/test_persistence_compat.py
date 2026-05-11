@@ -101,3 +101,26 @@ async def test_recover_positions_can_match_orphan_by_ledger_symbol(tmp_path):
     await persistence.close()
 
     assert [row["id"] for row in recovered] == ["pos-legacy"]
+
+
+@pytest.mark.asyncio
+async def test_instance_state_persists_initial_capital(tmp_path):
+    db_path = tmp_path / "state.db"
+    persistence = StatePersistence(str(db_path))
+
+    ok = await persistence.save_instance_state(
+        "inst-1",
+        "running",
+        125.0,
+        25.0,
+        3,
+        1,
+        initial_capital=100.0,
+    )
+    recovered = await persistence.recover_instance_state("inst-1")
+    await persistence.close()
+
+    assert ok is True
+    assert recovered is not None
+    assert recovered["current_capital"] == pytest.approx(125.0)
+    assert recovered["initial_capital"] == pytest.approx(100.0)
