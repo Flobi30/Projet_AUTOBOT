@@ -1,3 +1,4 @@
 -r api.in
+httpx
 pytest
 pytest-asyncio
