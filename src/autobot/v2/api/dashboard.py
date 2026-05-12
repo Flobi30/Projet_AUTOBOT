@@ -415,6 +415,28 @@ def _get_quant_validation_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_pair_strategy_health_engine(orchestrator: Any) -> Any:
+    from ..pair_strategy_health import PairStrategyHealthEngine
+
+    engine = getattr(orchestrator, "pair_strategy_health_engine", None)
+    if engine is None:
+        engine = PairStrategyHealthEngine()
+        try:
+            setattr(orchestrator, "pair_strategy_health_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
+def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
+    engine = _get_pair_strategy_health_engine(orchestrator)
+    try:
+        return engine.build_snapshot_from_state_db(state_db_path, paper_mode=paper_mode)
+    except Exception:
+        logger.exception("Pair strategy health unavailable")
+        return {"by_symbol": {}, "enabled": False, "applies_to_scoring": False}
+
+
 def _acknowledge_runtime_kill_switches(orchestrator: Any, operator_id: str) -> int:
     acknowledged = 0
     instances = getattr(orchestrator, "_instances", {}) or {}
@@ -1293,6 +1315,10 @@ async def get_opportunities(
             total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
         else:
             total_capital = sum(float(inst.get("capital", 0.0)) for inst in instances)
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        pair_health = _pair_health_snapshot(orchestrator, state_db_path, paper_mode=paper_mode)
+        health_by_symbol = pair_health.get("by_symbol", {}) if isinstance(pair_health, dict) else {}
 
         scorer = getattr(orchestrator, "opportunity_scorer", None)
         if scorer is None:
@@ -1306,11 +1332,18 @@ async def get_opportunities(
             instances=instances,
             paper_mode=paper_mode,
             total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
         )
         snapshot["capital"] = {
             "total_capital": round(total_capital, 2),
             "source": capital_snapshot.get("source"),
             "source_status": capital_snapshot.get("source_status"),
+        }
+        snapshot["pair_health"] = {
+            "enabled": pair_health.get("enabled"),
+            "applies_to_scoring": pair_health.get("applies_to_scoring"),
+            "source": "trade_ledger",
+            "ranked": pair_health.get("ranked", [])[:10],
         }
         snapshot["runtime"] = {
             "running": bool(status.get("running")),
@@ -1380,20 +1413,15 @@ async def get_quant_validation(
 
         ledger_trades = load_trade_ledger_observations(state_db_path)
         paper_trades = load_paper_trade_observations(paper_db_path)
-        trades = []
-        seen_trade_keys: set[tuple[Any, ...]] = set()
-        for trade in ledger_trades + paper_trades:
-            key = (
-                trade.symbol,
-                trade.side,
-                round(trade.volume, 12),
-                round(trade.price, 8),
-                str(trade.timestamp)[:19],
-            )
-            if key in seen_trade_keys:
-                continue
-            seen_trade_keys.add(key)
-            trades.append(trade)
+        ledger_closing_trades = [
+            trade for trade in ledger_trades if trade.is_closing_leg and trade.realized_pnl is not None
+        ]
+        if ledger_closing_trades:
+            trades = ledger_closing_trades
+            validation_source = "trade_ledger_closing_legs"
+        else:
+            trades = paper_trades
+            validation_source = "paper_trades_db_fifo_fallback"
 
         engine = _get_quant_validation_engine(orchestrator)
         snapshot = engine.build_snapshot(
@@ -1417,7 +1445,9 @@ async def get_quant_validation(
             "state_db": str(state_db_path),
             "loaded_paper_executions": len(paper_trades),
             "loaded_trade_ledger_rows": len(ledger_trades),
-            "deduplicated_observations": len(trades),
+            "loaded_trade_ledger_closing_rows": len(ledger_closing_trades),
+            "selected_observation_source": validation_source,
+            "selected_observations": len(trades),
         }
         return snapshot
     except Exception:
@@ -1451,6 +1481,10 @@ async def get_colony(
         total_capital = _autobot_capital_from_snapshot(capital_snapshot, instances)
         if total_capital <= 0.0:
             total_capital = sum(float(inst.get("capital", 0.0)) for inst in instances)
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        pair_health = _pair_health_snapshot(orchestrator, state_db_path, paper_mode=paper_mode)
+        health_by_symbol = pair_health.get("by_symbol", {}) if isinstance(pair_health, dict) else {}
 
         scorer = getattr(orchestrator, "opportunity_scorer", None)
         if scorer is None:
@@ -1464,6 +1498,7 @@ async def get_colony(
             instances=instances,
             paper_mode=paper_mode,
             total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
         )
         manager = getattr(orchestrator, "colony_manager", None)
         if manager is None:

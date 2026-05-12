@@ -301,7 +301,32 @@ class SignalHandlerAsync:
             total_capital=self._estimate_total_runtime_capital(),
             paper_mode=self._is_paper_mode(),
             price_history=list(getattr(self.instance, "_price_history", [])),
+            performance_context=self._get_pair_health_context(signal.symbol),
         )
+
+    def _get_pair_health_context(self, symbol: str) -> Optional[dict[str, Any]]:
+        """Return paper-only realized health context for opportunity sizing."""
+        if not self._is_paper_mode():
+            return None
+        try:
+            from .pair_strategy_health import PairStrategyHealthEngine, symbol_key
+
+            orchestrator = getattr(self.instance, "orchestrator", None)
+            if orchestrator is None:
+                return None
+            engine = getattr(orchestrator, "pair_strategy_health_engine", None)
+            if engine is None:
+                engine = PairStrategyHealthEngine()
+                setattr(orchestrator, "pair_strategy_health_engine", engine)
+            persistence = getattr(orchestrator, "persistence", None)
+            state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+            snapshot = engine.build_snapshot_from_state_db(state_db_path, paper_mode=True)
+            by_symbol = snapshot.get("by_symbol", {}) if isinstance(snapshot, dict) else {}
+            context = by_symbol.get(symbol_key(symbol))
+            return context if isinstance(context, dict) else None
+        except Exception as exc:
+            logger.debug("Pair health context unavailable for %s: %s", symbol, exc)
+            return None
 
     def _opportunity_gate_applies(self) -> dict[str, Any]:
         return self._opportunity_scorer.execution_gate(paper_mode=self._is_paper_mode())

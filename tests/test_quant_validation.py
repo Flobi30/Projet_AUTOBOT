@@ -1,4 +1,5 @@
 import math
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -152,3 +153,67 @@ def test_quant_validation_endpoint_returns_volatility_and_quality(monkeypatch):
     assert body["live_shadow_policy"]["live_execution_enabled"] is False
     assert body["volatility"]["symbols"][0]["symbol"] == "ETHEUR"
     assert body["backtest_quality"]["sample"]["realized_trade_count"] == 0
+
+
+def test_quant_validation_endpoint_prefers_trade_ledger_when_available(monkeypatch, tmp_path):
+    state_db = tmp_path / "state.db"
+    paper_db = tmp_path / "paper.db"
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trade_ledger (
+                symbol TEXT,
+                side TEXT,
+                volume REAL,
+                executed_price REAL,
+                fees REAL,
+                realized_pnl REAL,
+                is_closing_leg INTEGER,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO trade_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("ETHEUR", "sell", 1.0, 100.0, 0.1, -2.0, 1, "2026-05-12T00:00:00+00:00"),
+                ("ETHEUR", "sell", 1.0, 100.0, 0.1, -1.0, 1, "2026-05-12T00:01:00+00:00"),
+            ],
+        )
+    with sqlite3.connect(paper_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trades (
+                symbol TEXT,
+                side TEXT,
+                volume REAL,
+                price REAL,
+                fees REAL,
+                timestamp TEXT,
+                status TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("ETHEUR", "buy", 1.0, 100.0, 0.1, "2026-05-12T00:00:00+00:00", "filled", "2026-05-12T00:00:00+00:00"),
+                ("ETHEUR", "sell", 1.0, 120.0, 0.1, "2026-05-12T00:01:00+00:00", "filled", "2026-05-12T00:01:00+00:00"),
+            ],
+        )
+
+    class _LedgerOrchestrator(_Orchestrator):
+        order_executor = type("Executor", (), {"db_path": str(paper_db)})()
+        persistence = type("Persistence", (), {"db_path": str(state_db)})()
+
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    dashboard.app.state.orchestrator = _LedgerOrchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/quant/validation", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data_sources"]["selected_observation_source"] == "trade_ledger_closing_legs"
+    assert body["backtest_quality"]["metrics"]["net_pnl_eur"] == pytest.approx(-3.0)

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
+from .pair_strategy_health import symbol_key
 from .regime_features import RegimeFeatureEngine, RegimeFeatureResult
 
 
@@ -148,6 +149,9 @@ class OpportunityResult:
     regime_score: float = 50.0
     regime_adjustment: float = 0.0
     regime_context: dict[str, Any] = field(default_factory=dict)
+    health_score: float = 50.0
+    health_adjustment: float = 0.0
+    health_context: dict[str, Any] = field(default_factory=dict)
     source: str = "runtime"
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -175,6 +179,9 @@ class OpportunityResult:
             "regime_score": round(self.regime_score, 2),
             "regime_adjustment": round(self.regime_adjustment, 3),
             "regime_context": dict(self.regime_context),
+            "health_score": round(self.health_score, 2),
+            "health_adjustment": round(self.health_adjustment, 3),
+            "health_context": dict(self.health_context),
             "source": self.source,
             "timestamp": self.timestamp,
         }
@@ -229,6 +236,7 @@ class OpportunityScorer:
         total_capital: Optional[float] = None,
         paper_mode: bool = False,
         price_history: Optional[Iterable[Any]] = None,
+        performance_context: Optional[Mapping[str, Any]] = None,
     ) -> OpportunityResult:
         gross_edge = _safe_float(edge_context.get("expected_move_bps"))
         cost_bps = _safe_float(edge_context.get("total_cost_bps"))
@@ -248,7 +256,8 @@ class OpportunityScorer:
             stability=stability,
         )
         regime = self._regime_for(symbol, price_history)
-        score = self._score_with_regime(base_score, regime.adjustment)
+        health = self._health_for(symbol, performance_context)
+        score = self._score_with_adjustments(base_score, regime.adjustment, health["adjustment"])
         blockers = self._blockers(
             score=score,
             gross_edge_bps=gross_edge,
@@ -292,6 +301,9 @@ class OpportunityScorer:
             regime_score=regime.regime_score,
             regime_adjustment=regime.adjustment,
             regime_context=self._regime_context(regime),
+            health_score=health["health_score"],
+            health_adjustment=health["adjustment"],
+            health_context=health["context"],
         )
 
     def build_snapshot(
@@ -300,10 +312,18 @@ class OpportunityScorer:
         instances: Iterable[Mapping[str, Any]],
         paper_mode: bool,
         total_capital: float = 0.0,
+        health_by_symbol: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> dict[str, Any]:
         opportunities: list[OpportunityResult] = []
         for inst in instances:
-            opportunities.append(self.score_instance(inst, total_capital=total_capital, paper_mode=paper_mode))
+            opportunities.append(
+                self.score_instance(
+                    inst,
+                    total_capital=total_capital,
+                    paper_mode=paper_mode,
+                    health_by_symbol=health_by_symbol,
+                )
+            )
 
         ranked = sorted(opportunities, key=lambda item: item.score, reverse=True)
         tradable = [item for item in ranked if item.status == "tradable"]
@@ -347,6 +367,7 @@ class OpportunityScorer:
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
                 "regime_scoring_enabled": self.regime_engine.config.enabled,
                 "regime_score_weight": self.regime_engine.config.score_weight,
+                "pair_health_scoring": bool(health_by_symbol is not None),
             },
             "execution_gate": self.execution_gate(paper_mode=paper_mode),
             "selected_symbols": selected_symbols,
@@ -359,6 +380,7 @@ class OpportunityScorer:
         *,
         total_capital: float = 0.0,
         paper_mode: bool = False,
+        health_by_symbol: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> OpportunityResult:
         symbol = str(instance.get("symbol") or instance.get("pair") or "UNKNOWN")
         warmup = instance.get("warmup") if isinstance(instance.get("warmup"), dict) else {}
@@ -396,7 +418,13 @@ class OpportunityScorer:
             symbol,
             instance.get("price_history_tail") or instance.get("price_history") or [],
         )
-        score = self._score_with_regime(base_score, regime.adjustment)
+        performance_context = None
+        if health_by_symbol is not None:
+            performance_context = health_by_symbol.get(symbol_key(symbol))
+        if performance_context is None and isinstance(instance.get("pair_health"), Mapping):
+            performance_context = instance.get("pair_health")
+        health = self._health_for(symbol, performance_context)
+        score = self._score_with_adjustments(base_score, regime.adjustment, health["adjustment"])
         blockers = list(instance.get("blocked_reasons") or [])
         if warmup.get("active"):
             blockers.append("warmup")
@@ -446,6 +474,9 @@ class OpportunityScorer:
             regime_score=regime.regime_score,
             regime_adjustment=regime.adjustment,
             regime_context=self._regime_context(regime),
+            health_score=health["health_score"],
+            health_adjustment=health["adjustment"],
+            health_context=health["context"],
             source="runtime_instance_snapshot",
         )
 
@@ -456,8 +487,8 @@ class OpportunityScorer:
             return self.regime_engine.neutral_result(symbol, 0, "regime_unavailable")
 
     @staticmethod
-    def _score_with_regime(base_score: float, adjustment: float) -> float:
-        return max(0.0, min(100.0, base_score + adjustment))
+    def _score_with_adjustments(base_score: float, regime_adjustment: float, health_adjustment: float) -> float:
+        return max(0.0, min(100.0, base_score + regime_adjustment + health_adjustment))
 
     @staticmethod
     def _regime_context(regime: RegimeFeatureResult) -> dict[str, Any]:
@@ -470,6 +501,39 @@ class OpportunityScorer:
             "sample_count": regime.sample_count,
             "reason": regime.reason,
             "enabled": regime.enabled,
+        }
+
+    @staticmethod
+    def _health_for(symbol: str, context: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+        if not context:
+            return {
+                "health_score": 50.0,
+                "adjustment": 0.0,
+                "context": {
+                    "symbol": symbol_key(symbol),
+                    "status": "unknown",
+                    "reason": "no_health_context",
+                    "closed_trades": 0,
+                    "enabled": False,
+                },
+            }
+        health_score = _safe_float(context.get("health_score"), 50.0)
+        adjustment = _safe_float(context.get("adjustment"), 0.0)
+        return {
+            "health_score": health_score,
+            "adjustment": adjustment,
+            "context": {
+                "symbol": symbol_key(context.get("symbol", symbol)),
+                "status": context.get("status", "unknown"),
+                "reason": context.get("reason", "unknown"),
+                "closed_trades": int(_safe_float(context.get("closed_trades"), 0.0)),
+                "net_pnl_eur": _safe_float(context.get("net_pnl_eur"), 0.0),
+                "profit_factor": context.get("profit_factor"),
+                "win_rate": _safe_float(context.get("win_rate"), 0.0),
+                "avg_return_bps": _safe_float(context.get("avg_return_bps"), 0.0),
+                "max_drawdown_eur": _safe_float(context.get("max_drawdown_eur"), 0.0),
+                "enabled": bool(context.get("enabled", True)),
+            },
         }
 
     def _score(
