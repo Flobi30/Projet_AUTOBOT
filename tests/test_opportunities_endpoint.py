@@ -359,6 +359,7 @@ def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp
 
     class _PaperSummaryOrchestrator(_Orchestrator):
         order_executor = SimpleNamespace(db_path=str(db_path))
+        persistence = SimpleNamespace(db_path=str(tmp_path / "missing_state.db"))
 
         def get_instances_snapshot(self):
             return [
