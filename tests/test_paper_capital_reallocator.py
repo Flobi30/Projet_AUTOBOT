@@ -91,6 +91,60 @@ def test_reallocator_moves_budget_toward_best_scored_engine():
     assert plan.transfers[0].to_instance_id == "strong"
 
 
+def test_reallocator_realized_health_overrides_stale_profit_factor():
+    reallocator = PaperCapitalReallocator(
+        PaperCapitalRebalanceConfig(
+            min_instance_eur=25.0,
+            min_transfer_eur=5.0,
+            max_move_pct=50.0,
+            min_weight=0.05,
+            max_weight=0.70,
+            reserve_cash_pct=0.0,
+            health_weight_pct=35.0,
+            min_health_closed_trades=20,
+            weak_health_multiplier=0.45,
+        )
+    )
+
+    plan = reallocator.build_plan(
+        [
+            PaperInstanceCapital(
+                "stale_pf",
+                "XXLMZEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=95.0,
+                profit_factor=999.99,
+                health_score=8.0,
+                health_status="weak",
+                health_closed_trades=42,
+                health_net_pnl_eur=-2.6,
+            ),
+            PaperInstanceCapital(
+                "realized_winner",
+                "TRXEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=60.0,
+                profit_factor=1.1,
+                health_score=90.0,
+                health_status="healthy",
+                health_closed_trades=23,
+                health_net_pnl_eur=1.9,
+            ),
+        ]
+    )
+
+    targets = {target.instance_id: target for target in plan.targets}
+    assert targets["realized_winner"].score > targets["stale_pf"].score
+    assert targets["realized_winner"].target_capital > targets["stale_pf"].target_capital
+    assert plan.transfers
+    assert plan.transfers[0].from_instance_id == "stale_pf"
+    assert plan.transfers[0].to_instance_id == "realized_winner"
+
+
 def test_reallocator_does_not_take_allocated_or_minimum_budget():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(

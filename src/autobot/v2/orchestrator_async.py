@@ -1490,6 +1490,23 @@ class OrchestratorAsync:
                     },
                 )
 
+    def _pair_strategy_health_by_symbol(self, *, paper_mode: bool) -> Dict[str, Dict[str, Any]]:
+        try:
+            from .pair_strategy_health import PairStrategyHealthEngine
+
+            engine = getattr(self, "pair_strategy_health_engine", None)
+            if engine is None:
+                engine = PairStrategyHealthEngine()
+                self.pair_strategy_health_engine = engine
+            persistence = get_persistence()
+            db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+            snapshot = engine.build_snapshot_from_state_db(db_path, paper_mode=paper_mode)
+            by_symbol = snapshot.get("by_symbol", {}) if isinstance(snapshot, dict) else {}
+            return by_symbol if isinstance(by_symbol, dict) else {}
+        except Exception as exc:
+            logger.debug("Pair strategy health unavailable for paper rebalance: %s", exc)
+            return {}
+
     async def _apply_paper_dynamic_capital_rebalance(self) -> None:
         """Reallocate paper budget toward the strongest running engines."""
         reallocator = getattr(self, "paper_capital_reallocator", None)
@@ -1520,7 +1537,10 @@ class OrchestratorAsync:
 
             total_capital = sum(max(0.0, float(inst.get_current_capital())) for inst in active_instances)
             opportunity_by_symbol: Dict[str, Dict[str, Any]] = {}
+            health_by_symbol = self._pair_strategy_health_by_symbol(paper_mode=True)
             try:
+                from .pair_strategy_health import symbol_key
+
                 scorer = getattr(self, "opportunity_scorer", None)
                 if scorer is None:
                     scorer = OpportunityScorer()
@@ -1529,12 +1549,14 @@ class OrchestratorAsync:
                     instances=self.get_instances_snapshot(),
                     paper_mode=True,
                     total_capital=total_capital,
+                    health_by_symbol=health_by_symbol,
                 )
                 for item in opportunities.get("opportunities", []):
                     if isinstance(item, dict):
-                        opportunity_by_symbol[str(item.get("symbol", "")).upper()] = item
+                        opportunity_by_symbol[symbol_key(item.get("symbol", ""))] = item
             except Exception as exc:
                 logger.warning("Paper capital rebalance: opportunity snapshot unavailable: %s", exc)
+                symbol_key = lambda value: str(value or "").upper().replace("/", "").strip()
 
             inputs: list[PaperInstanceCapital] = []
             for inst in active_instances:
@@ -1542,19 +1564,49 @@ class OrchestratorAsync:
                 current = max(0.0, float(inst.get_current_capital()))
                 available = max(0.0, float(inst.get_available_capital()))
                 allocated = max(0.0, current - available)
-                opportunity = opportunity_by_symbol.get(symbol.upper(), {})
+                symbol_health = health_by_symbol.get(symbol_key(symbol), {})
+                opportunity = opportunity_by_symbol.get(symbol_key(symbol), {})
                 try:
-                    pf_30 = float(inst.get_profit_factor_days(30))
+                    health_pf = symbol_health.get("profit_factor") if isinstance(symbol_health, dict) else None
+                    health_closed = int(float(symbol_health.get("closed_trades", 0))) if isinstance(symbol_health, dict) else 0
+                    if health_pf is not None and health_closed >= cfg.min_health_closed_trades:
+                        pf_30 = float(health_pf)
+                    else:
+                        pf_30 = float(inst.get_profit_factor_days(30))
                 except Exception:
                     pf_30 = 1.0
                 try:
                     drawdown = float(inst.get_drawdown())
                 except Exception:
                     drawdown = 0.0
+                if isinstance(symbol_health, dict) and current > 0.0:
+                    try:
+                        realized_drawdown = max(0.0, float(symbol_health.get("max_drawdown_eur", 0.0))) / current
+                        drawdown = max(drawdown, realized_drawdown)
+                    except Exception:
+                        pass
                 try:
                     open_positions = len(inst.get_open_position_ids())
                 except Exception:
                     open_positions = 0
+                health_score = None
+                health_status = "unknown"
+                health_closed_trades = 0
+                health_net_pnl_eur = 0.0
+                if isinstance(symbol_health, dict) and symbol_health:
+                    try:
+                        health_score = float(symbol_health.get("health_score"))
+                    except Exception:
+                        health_score = None
+                    health_status = str(symbol_health.get("status") or "unknown")
+                    try:
+                        health_closed_trades = int(float(symbol_health.get("closed_trades", 0)))
+                    except Exception:
+                        health_closed_trades = 0
+                    try:
+                        health_net_pnl_eur = float(symbol_health.get("net_pnl_eur", 0.0))
+                    except Exception:
+                        health_net_pnl_eur = 0.0
                 inputs.append(
                     PaperInstanceCapital(
                         instance_id=inst.id,
@@ -1567,6 +1619,10 @@ class OrchestratorAsync:
                         drawdown=drawdown,
                         open_positions=open_positions,
                         status="running",
+                        health_score=health_score,
+                        health_status=health_status,
+                        health_closed_trades=health_closed_trades,
+                        health_net_pnl_eur=health_net_pnl_eur,
                     )
                 )
 

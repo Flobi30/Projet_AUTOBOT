@@ -53,6 +53,9 @@ class PaperCapitalRebalanceConfig:
     max_weight: float = 0.30
     reserve_cash_pct: float = 0.0
     max_drawdown_pct: float = 20.0
+    health_weight_pct: float = 35.0
+    min_health_closed_trades: int = 20
+    weak_health_multiplier: float = 0.45
 
     @classmethod
     def from_env(cls) -> "PaperCapitalRebalanceConfig":
@@ -66,6 +69,9 @@ class PaperCapitalRebalanceConfig:
             max_weight=_env_float("PAPER_DYNAMIC_REBALANCE_MAX_WEIGHT", 0.30, 0.001, 1.0),
             reserve_cash_pct=_env_float("PAPER_DYNAMIC_REBALANCE_RESERVE_PCT", 0.0, 0.0, 95.0),
             max_drawdown_pct=_env_float("PAPER_DYNAMIC_REBALANCE_MAX_DRAWDOWN_PCT", 20.0, 1.0, 95.0),
+            health_weight_pct=_env_float("PAPER_DYNAMIC_REBALANCE_HEALTH_WEIGHT_PCT", 35.0, 0.0, 90.0),
+            min_health_closed_trades=_env_int("PAPER_DYNAMIC_REBALANCE_MIN_HEALTH_CLOSED_TRADES", 20, 1, 10_000),
+            weak_health_multiplier=_env_float("PAPER_DYNAMIC_REBALANCE_WEAK_HEALTH_MULTIPLIER", 0.45, 0.0, 1.0),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -79,6 +85,9 @@ class PaperCapitalRebalanceConfig:
             "max_weight": self.max_weight,
             "reserve_cash_pct": self.reserve_cash_pct,
             "max_drawdown_pct": self.max_drawdown_pct,
+            "health_weight_pct": self.health_weight_pct,
+            "min_health_closed_trades": self.min_health_closed_trades,
+            "weak_health_multiplier": self.weak_health_multiplier,
         }
 
 
@@ -94,6 +103,10 @@ class PaperInstanceCapital:
     drawdown: float = 0.0
     open_positions: int = 0
     status: str = "running"
+    health_score: float | None = None
+    health_status: str = "unknown"
+    health_closed_trades: int = 0
+    health_net_pnl_eur: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -109,6 +122,9 @@ class PaperCapitalTarget:
     delta: float
     reducible_capital: float
     reason: str
+    health_score: float | None = None
+    health_status: str = "unknown"
+    health_closed_trades: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -123,6 +139,9 @@ class PaperCapitalTarget:
             "delta": round(self.delta, 2),
             "reducible_capital": round(self.reducible_capital, 2),
             "reason": self.reason,
+            "health_score": round(self.health_score, 2) if self.health_score is not None else None,
+            "health_status": self.health_status,
+            "health_closed_trades": int(self.health_closed_trades),
         }
 
 
@@ -223,6 +242,9 @@ class PaperCapitalReallocator:
                     delta=delta,
                     reducible_capital=reducible,
                     reason=reason,
+                    health_score=item.health_score,
+                    health_status=item.health_status,
+                    health_closed_trades=item.health_closed_trades,
                 )
             )
 
@@ -294,7 +316,16 @@ class PaperCapitalReallocator:
         drawdown_pct = max(0.0, item.drawdown * 100.0)
         dd_score = _clamp(100.0 - (drawdown_pct / max(self.config.max_drawdown_pct, 1e-9) * 100.0), 0.0, 100.0)
         activity_bonus = 5.0 if item.open_positions > 0 else 0.0
-        return _clamp((opportunity * 0.55) + (pf_score * 0.25) + (dd_score * 0.20) + activity_bonus, 0.0, 100.0)
+        runtime_score = _clamp((opportunity * 0.55) + (pf_score * 0.25) + (dd_score * 0.20) + activity_bonus, 0.0, 100.0)
+        if item.health_score is None or item.health_closed_trades < self.config.min_health_closed_trades:
+            return runtime_score
+
+        health_score = _clamp(float(item.health_score), 0.0, 100.0)
+        health_weight = self.config.health_weight_pct / 100.0
+        score = (runtime_score * (1.0 - health_weight)) + (health_score * health_weight)
+        if item.health_status == "weak" or (item.health_net_pnl_eur < 0.0 and health_score < 35.0):
+            score *= self.config.weak_health_multiplier
+        return _clamp(score, 0.0, 100.0)
 
     def _normalize_with_bounds(self, scores: Mapping[str, float]) -> dict[str, float]:
         if not scores:
