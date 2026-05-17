@@ -55,6 +55,7 @@ class PaperCapitalRebalanceConfig:
     max_drawdown_pct: float = 20.0
     health_weight_pct: float = 35.0
     min_health_closed_trades: int = 20
+    early_weak_health_min_closed_trades: int = 8
     weak_health_multiplier: float = 0.45
 
     @classmethod
@@ -71,6 +72,7 @@ class PaperCapitalRebalanceConfig:
             max_drawdown_pct=_env_float("PAPER_DYNAMIC_REBALANCE_MAX_DRAWDOWN_PCT", 20.0, 1.0, 95.0),
             health_weight_pct=_env_float("PAPER_DYNAMIC_REBALANCE_HEALTH_WEIGHT_PCT", 35.0, 0.0, 90.0),
             min_health_closed_trades=_env_int("PAPER_DYNAMIC_REBALANCE_MIN_HEALTH_CLOSED_TRADES", 20, 1, 10_000),
+            early_weak_health_min_closed_trades=_env_int("PAPER_DYNAMIC_REBALANCE_EARLY_WEAK_HEALTH_MIN_CLOSED_TRADES", 8, 1, 10_000),
             weak_health_multiplier=_env_float("PAPER_DYNAMIC_REBALANCE_WEAK_HEALTH_MULTIPLIER", 0.45, 0.0, 1.0),
         )
 
@@ -87,6 +89,7 @@ class PaperCapitalRebalanceConfig:
             "max_drawdown_pct": self.max_drawdown_pct,
             "health_weight_pct": self.health_weight_pct,
             "min_health_closed_trades": self.min_health_closed_trades,
+            "early_weak_health_min_closed_trades": self.early_weak_health_min_closed_trades,
             "weak_health_multiplier": self.weak_health_multiplier,
         }
 
@@ -317,13 +320,19 @@ class PaperCapitalReallocator:
         dd_score = _clamp(100.0 - (drawdown_pct / max(self.config.max_drawdown_pct, 1e-9) * 100.0), 0.0, 100.0)
         activity_bonus = 5.0 if item.open_positions > 0 else 0.0
         runtime_score = _clamp((opportunity * 0.55) + (pf_score * 0.25) + (dd_score * 0.20) + activity_bonus, 0.0, 100.0)
-        if item.health_score is None or item.health_closed_trades < self.config.min_health_closed_trades:
+        health_status = str(item.health_status or "unknown").lower()
+        has_confirmed_health = item.health_closed_trades >= self.config.min_health_closed_trades
+        has_early_weak_health = (
+            health_status == "early_weak"
+            and item.health_closed_trades >= self.config.early_weak_health_min_closed_trades
+        )
+        if item.health_score is None or not (has_confirmed_health or has_early_weak_health):
             return runtime_score
 
         health_score = _clamp(float(item.health_score), 0.0, 100.0)
         health_weight = self.config.health_weight_pct / 100.0
         score = (runtime_score * (1.0 - health_weight)) + (health_score * health_weight)
-        if item.health_status == "weak" or (item.health_net_pnl_eur < 0.0 and health_score < 35.0):
+        if health_status in {"weak", "early_weak"} or (item.health_net_pnl_eur < 0.0 and health_score < 35.0):
             score *= self.config.weak_health_multiplier
         return _clamp(score, 0.0, 100.0)
 

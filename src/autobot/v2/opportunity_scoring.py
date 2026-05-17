@@ -89,6 +89,11 @@ class OpportunityConfig:
     atr_mode: str = "strict"
     high_net_edge_bps: float = 80.0
     paper_relaxed_min_atr_bps: float = 5.0
+    pair_health_guard_enabled: bool = True
+    pair_health_guard_min_closed_trades: int = 20
+    pair_health_guard_early_min_closed_trades: int = 8
+    pair_health_guard_score_max: float = 35.0
+    pair_health_guard_pf_max: float = 0.80
 
     @classmethod
     def from_env(cls) -> "OpportunityConfig":
@@ -122,6 +127,11 @@ class OpportunityConfig:
             atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "strict", {"strict", "adaptive", "opportunistic"}),
             high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
             paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
+            pair_health_guard_enabled=_env_bool("OPPORTUNITY_PAIR_HEALTH_GUARD_ENABLED", True),
+            pair_health_guard_min_closed_trades=_env_int("OPPORTUNITY_PAIR_HEALTH_GUARD_MIN_CLOSED_TRADES", 20, 1, 10_000),
+            pair_health_guard_early_min_closed_trades=_env_int("OPPORTUNITY_PAIR_HEALTH_GUARD_EARLY_MIN_CLOSED_TRADES", 8, 1, 10_000),
+            pair_health_guard_score_max=_env_float("OPPORTUNITY_PAIR_HEALTH_GUARD_SCORE_MAX", 35.0, 0.0, 100.0),
+            pair_health_guard_pf_max=_env_float("OPPORTUNITY_PAIR_HEALTH_GUARD_PF_MAX", 0.80, 0.0, 10.0),
         )
 
 
@@ -267,6 +277,7 @@ class OpportunityScorer:
             stability=stability,
             open_positions=open_positions,
             paper_mode=paper_mode,
+            health=health,
         )
         status = "tradable" if not blockers else "non_tradable"
         reason = "score_ok" if not blockers else blockers[0]
@@ -365,6 +376,9 @@ class OpportunityScorer:
                 "atr_mode": self.config.atr_mode,
                 "high_net_edge_bps": self.config.high_net_edge_bps,
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
+                "pair_health_guard_enabled": self.config.pair_health_guard_enabled,
+                "pair_health_guard_min_closed_trades": self.config.pair_health_guard_min_closed_trades,
+                "pair_health_guard_early_min_closed_trades": self.config.pair_health_guard_early_min_closed_trades,
                 "regime_scoring_enabled": self.regime_engine.config.enabled,
                 "regime_score_weight": self.regime_engine.config.score_weight,
                 "pair_health_scoring": bool(health_by_symbol is not None),
@@ -439,6 +453,7 @@ class OpportunityScorer:
             stability=stability,
             open_positions=int(_safe_float(instance.get("open_positions"), 0.0)),
             paper_mode=paper_mode,
+            health=health,
         ))
         blockers = list(dict.fromkeys(blockers))
         status = "tradable" if not blockers else "non_tradable"
@@ -584,6 +599,7 @@ class OpportunityScorer:
         stability: float,
         open_positions: int,
         paper_mode: bool = False,
+        health: Optional[Mapping[str, Any]] = None,
     ) -> list[str]:
         cfg = self.config
         blockers: list[str] = []
@@ -606,9 +622,41 @@ class OpportunityScorer:
             blockers.append("signal_not_stable")
         if score < cfg.min_score:
             blockers.append("score_below_threshold")
+        blockers.extend(self._health_blockers(health, paper_mode=paper_mode))
         if open_positions < 0:
             blockers.append("invalid_position_count")
         return blockers
+
+    def _health_blockers(
+        self,
+        health: Optional[Mapping[str, Any]],
+        *,
+        paper_mode: bool,
+    ) -> list[str]:
+        cfg = self.config
+        if not paper_mode or not cfg.pair_health_guard_enabled or not health:
+            return []
+        context = health.get("context") if isinstance(health.get("context"), Mapping) else {}
+        status = str(context.get("status") or "").lower()
+        closed = int(_safe_float(context.get("closed_trades"), 0.0))
+        net_pnl = _safe_float(context.get("net_pnl_eur"), 0.0)
+        health_score = _safe_float(health.get("health_score"), _safe_float(context.get("health_score"), 50.0))
+        pf_raw = context.get("profit_factor")
+        profit_factor = _safe_float(pf_raw, 0.0 if pf_raw is None else 1.0)
+
+        if status == "weak" and closed >= cfg.pair_health_guard_min_closed_trades:
+            return ["pair_health_weak"]
+        if status == "early_weak" and closed >= cfg.pair_health_guard_early_min_closed_trades:
+            return ["pair_health_early_weak"]
+        if (
+            status == "learning"
+            and closed >= cfg.pair_health_guard_early_min_closed_trades
+            and net_pnl < 0.0
+            and health_score <= cfg.pair_health_guard_score_max
+            and profit_factor <= cfg.pair_health_guard_pf_max
+        ):
+            return ["pair_health_early_weak"]
+        return []
 
     def _paper_atr_override_allowed(
         self,

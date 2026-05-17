@@ -63,6 +63,10 @@ class PairStrategyHealthConfig:
     enabled: bool = True
     live_enabled: bool = False
     min_closed_trades: int = 20
+    early_weak_min_closed_trades: int = 8
+    early_weak_score_max: float = 35.0
+    early_weak_pf_max: float = 0.80
+    early_weak_penalty_multiplier: float = 0.75
     lookback_closed_trades: int = 80
     max_bonus: float = 8.0
     max_penalty: float = 28.0
@@ -77,6 +81,10 @@ class PairStrategyHealthConfig:
             enabled=_env_bool("PAIR_HEALTH_SCORING_ENABLED", True),
             live_enabled=_env_bool("PAIR_HEALTH_LIVE_ENABLED", False),
             min_closed_trades=_env_int("PAIR_HEALTH_MIN_CLOSED_TRADES", 20, 1, 10_000),
+            early_weak_min_closed_trades=_env_int("PAIR_HEALTH_EARLY_WEAK_MIN_CLOSED_TRADES", 8, 1, 10_000),
+            early_weak_score_max=_env_float("PAIR_HEALTH_EARLY_WEAK_SCORE_MAX", 35.0, 0.0, 100.0),
+            early_weak_pf_max=_env_float("PAIR_HEALTH_EARLY_WEAK_PF_MAX", 0.80, 0.0, 10.0),
+            early_weak_penalty_multiplier=_env_float("PAIR_HEALTH_EARLY_WEAK_PENALTY_MULTIPLIER", 0.75, 0.0, 1.0),
             lookback_closed_trades=_env_int("PAIR_HEALTH_LOOKBACK_CLOSED_TRADES", 80, 1, 10_000),
             max_bonus=_env_float("PAIR_HEALTH_MAX_BONUS", 8.0, 0.0, 50.0),
             max_penalty=_env_float("PAIR_HEALTH_MAX_PENALTY", 28.0, 0.0, 80.0),
@@ -91,6 +99,10 @@ class PairStrategyHealthConfig:
             "enabled": self.enabled,
             "live_enabled": self.live_enabled,
             "min_closed_trades": self.min_closed_trades,
+            "early_weak_min_closed_trades": self.early_weak_min_closed_trades,
+            "early_weak_score_max": self.early_weak_score_max,
+            "early_weak_pf_max": self.early_weak_pf_max,
+            "early_weak_penalty_multiplier": self.early_weak_penalty_multiplier,
             "lookback_closed_trades": self.lookback_closed_trades,
             "max_bonus": self.max_bonus,
             "max_penalty": self.max_penalty,
@@ -266,16 +278,26 @@ class PairStrategyHealthEngine:
             + (win_component * 0.10)
             + (dd_component * 0.10)
         )
+        early_weak = self._is_early_weak(
+            closed=closed,
+            score=score,
+            net_pnl=net_pnl,
+            profit_factor=profit_factor,
+        )
         if closed < self.config.min_closed_trades:
             evidence_quality = closed / max(self.config.min_closed_trades, 1)
             score = (50.0 * (1.0 - evidence_quality)) + (score * evidence_quality)
-            reason = "insufficient_closed_trades"
-            status = "learning"
+            if early_weak:
+                reason = "early_negative_evidence"
+                status = "early_weak"
+            else:
+                reason = "insufficient_closed_trades"
+                status = "learning"
         else:
             reason = "realized_health"
             status = self._status(score, net_pnl, profit_factor)
 
-        adjustment = self._adjustment(score, closed)
+        adjustment = self._adjustment(score, closed, early_weak=early_weak)
         return PairStrategyHealth(
             symbol=symbol_key(symbol),
             status=status,
@@ -326,8 +348,33 @@ class PairStrategyHealthEngine:
         scale = max(gross_profit + gross_loss, 1e-9)
         return _clamp(1.0 - (max_drawdown / scale))
 
-    def _adjustment(self, score: float, closed_trades: int) -> float:
+    def _is_early_weak(
+        self,
+        *,
+        closed: int,
+        score: float,
+        net_pnl: float,
+        profit_factor: Optional[float],
+    ) -> bool:
+        if closed < self.config.early_weak_min_closed_trades:
+            return False
+        if net_pnl >= 0.0:
+            return False
+        pf = profit_factor if profit_factor is not None else 0.0
+        return score <= self.config.early_weak_score_max and pf <= self.config.early_weak_pf_max
+
+    def _adjustment(self, score: float, closed_trades: int, *, early_weak: bool = False) -> float:
         if closed_trades < self.config.min_closed_trades:
+            if early_weak:
+                centered = max(0.0, (50.0 - float(score)) / 50.0)
+                evidence = _clamp(closed_trades / max(self.config.min_closed_trades, 1))
+                return -min(
+                    self.config.max_penalty,
+                    self.config.max_penalty
+                    * centered
+                    * evidence
+                    * self.config.early_weak_penalty_multiplier,
+                )
             return 0.0
         centered = (float(score) - 50.0) / 50.0
         if centered >= 0.0:

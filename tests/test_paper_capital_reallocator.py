@@ -145,6 +145,58 @@ def test_reallocator_realized_health_overrides_stale_profit_factor():
     assert plan.transfers[0].to_instance_id == "realized_winner"
 
 
+def test_reallocator_penalizes_early_weak_learning_before_full_sample():
+    reallocator = PaperCapitalReallocator(
+        PaperCapitalRebalanceConfig(
+            min_instance_eur=25.0,
+            min_transfer_eur=5.0,
+            max_move_pct=50.0,
+            min_weight=0.05,
+            max_weight=0.70,
+            reserve_cash_pct=0.0,
+            health_weight_pct=35.0,
+            min_health_closed_trades=20,
+            early_weak_health_min_closed_trades=8,
+            weak_health_multiplier=0.45,
+        )
+    )
+
+    plan = reallocator.build_plan(
+        [
+            PaperInstanceCapital(
+                "early_bad",
+                "AVAXEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=95.0,
+                profit_factor=1.0,
+                health_score=30.0,
+                health_status="early_weak",
+                health_closed_trades=10,
+                health_net_pnl_eur=-0.36,
+            ),
+            PaperInstanceCapital(
+                "neutral",
+                "XXBTZEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=65.0,
+                profit_factor=1.1,
+                health_score=52.0,
+                health_status="neutral",
+                health_closed_trades=25,
+                health_net_pnl_eur=0.05,
+            ),
+        ]
+    )
+
+    targets = {target.instance_id: target for target in plan.targets}
+    assert targets["neutral"].score > targets["early_bad"].score
+    assert targets["neutral"].target_capital > targets["early_bad"].target_capital
+
+
 def test_reallocator_does_not_take_allocated_or_minimum_budget():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(

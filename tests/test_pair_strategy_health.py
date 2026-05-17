@@ -74,7 +74,25 @@ def test_pair_health_learning_data_does_not_penalize_yet(tmp_path):
     assert ada["adjustment"] == 0.0
 
 
-def test_opportunity_score_uses_health_without_health_blocker():
+def test_pair_health_marks_early_weak_when_learning_is_already_bad(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_ledger(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO trade_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [("DOTEUR", "sell", 10.0, 1.0, 0.01, -0.12, 1, f"2026-05-12T00:{i:02d}:00+00:00") for i in range(10)],
+        )
+
+    engine = PairStrategyHealthEngine(PairStrategyHealthConfig(min_closed_trades=20, early_weak_min_closed_trades=8))
+    snapshot = engine.build_snapshot_from_state_db(db_path, paper_mode=True)
+
+    dot = snapshot["by_symbol"]["DOTEUR"]
+    assert dot["status"] == "early_weak"
+    assert dot["reason"] == "early_negative_evidence"
+    assert dot["adjustment"] < 0.0
+
+
+def test_opportunity_score_uses_health_as_paper_guard():
     scorer = OpportunityScorer(
         OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
     )
@@ -118,4 +136,41 @@ def test_opportunity_score_uses_health_without_health_blocker():
     assert weak.score < neutral.score
     assert weak.health_adjustment < 0.0
     assert weak.health_context["status"] == "weak"
-    assert not any(blocker.startswith("health_") for blocker in weak.blockers)
+    assert "pair_health_weak" in weak.blockers
+
+
+def test_opportunity_score_blocks_early_weak_learning_in_paper():
+    scorer = OpportunityScorer(
+        OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
+    )
+
+    result = scorer.score_signal(
+        symbol="AVAXEUR",
+        edge_context={
+            "expected_move_bps": 140.0,
+            "total_cost_bps": 16.0,
+            "net_edge_bps": 124.0,
+            "adaptive_min_edge_bps": 18.0,
+            "spread_bps": 1.0,
+        },
+        atr_pct=0.002,
+        available_capital=500.0,
+        paper_mode=True,
+        performance_context={
+            "symbol": "AVAXEUR",
+            "status": "early_weak",
+            "reason": "early_negative_evidence",
+            "health_score": 32.0,
+            "adjustment": -4.0,
+            "closed_trades": 10,
+            "net_pnl_eur": -0.36,
+            "profit_factor": 0.66,
+            "win_rate": 0.1,
+            "avg_return_bps": -49.0,
+            "max_drawdown_eur": 1.1,
+            "enabled": True,
+        },
+    )
+
+    assert result.status == "non_tradable"
+    assert "pair_health_early_weak" in result.blockers
