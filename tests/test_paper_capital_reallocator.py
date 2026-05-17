@@ -197,6 +197,58 @@ def test_reallocator_penalizes_early_weak_learning_before_full_sample():
     assert targets["neutral"].target_capital > targets["early_bad"].target_capital
 
 
+def test_reallocator_penalizes_underperforming_confirmed_health():
+    reallocator = PaperCapitalReallocator(
+        PaperCapitalRebalanceConfig(
+            min_instance_eur=25.0,
+            min_transfer_eur=5.0,
+            max_move_pct=50.0,
+            min_weight=0.05,
+            max_weight=0.70,
+            reserve_cash_pct=0.0,
+            health_weight_pct=35.0,
+            min_health_closed_trades=20,
+            early_weak_health_min_closed_trades=8,
+            weak_health_multiplier=0.45,
+        )
+    )
+
+    plan = reallocator.build_plan(
+        [
+            PaperInstanceCapital(
+                "underperforming",
+                "XXBTZEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=92.0,
+                profit_factor=0.98,
+                health_score=52.0,
+                health_status="underperforming",
+                health_closed_trades=46,
+                health_net_pnl_eur=-0.04,
+            ),
+            PaperInstanceCapital(
+                "winner",
+                "TRXEUR",
+                100.0,
+                0.0,
+                100.0,
+                opportunity_score=75.0,
+                profit_factor=3.0,
+                health_score=94.0,
+                health_status="healthy",
+                health_closed_trades=33,
+                health_net_pnl_eur=2.28,
+            ),
+        ]
+    )
+
+    targets = {target.instance_id: target for target in plan.targets}
+    assert targets["winner"].score > targets["underperforming"].score
+    assert targets["winner"].target_capital > targets["underperforming"].target_capital
+
+
 def test_reallocator_does_not_take_allocated_or_minimum_budget():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(

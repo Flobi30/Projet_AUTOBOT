@@ -92,6 +92,29 @@ def test_pair_health_marks_early_weak_when_learning_is_already_bad(tmp_path):
     assert dot["adjustment"] < 0.0
 
 
+def test_pair_health_marks_confirmed_negative_pf_as_underperforming(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_ledger(db_path)
+    rows = []
+    for idx in range(24):
+        pnl = 0.03 if idx < 13 else -0.04
+        rows.append(("XXBTZEUR", "sell", 1.0, 100.0, 0.01, pnl, 1, f"2026-05-12T00:{idx:02d}:00+00:00"))
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany("INSERT INTO trade_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+
+    engine = PairStrategyHealthEngine(
+        PairStrategyHealthConfig(min_closed_trades=20, active_pf_floor=1.0)
+    )
+    snapshot = engine.build_snapshot_from_state_db(db_path, paper_mode=True)
+
+    btc = snapshot["by_symbol"]["XXBTZEUR"]
+    assert btc["status"] == "underperforming"
+    assert btc["reason"] == "realized_underperforming"
+    assert btc["net_pnl_eur"] < 0.0
+    assert btc["profit_factor"] < 1.0
+    assert btc["adjustment"] <= 0.0
+
+
 def test_opportunity_score_uses_health_as_paper_guard():
     scorer = OpportunityScorer(
         OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
@@ -137,6 +160,43 @@ def test_opportunity_score_uses_health_as_paper_guard():
     assert weak.health_adjustment < 0.0
     assert weak.health_context["status"] == "weak"
     assert "pair_health_weak" in weak.blockers
+
+
+def test_opportunity_score_blocks_underperforming_pf_in_paper():
+    scorer = OpportunityScorer(
+        OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
+    )
+
+    result = scorer.score_signal(
+        symbol="XXBTZEUR",
+        edge_context={
+            "expected_move_bps": 140.0,
+            "total_cost_bps": 16.0,
+            "net_edge_bps": 124.0,
+            "adaptive_min_edge_bps": 18.0,
+            "spread_bps": 1.0,
+        },
+        atr_pct=0.002,
+        available_capital=500.0,
+        paper_mode=True,
+        performance_context={
+            "symbol": "XXBTZEUR",
+            "status": "underperforming",
+            "reason": "realized_underperforming",
+            "health_score": 52.0,
+            "adjustment": -0.5,
+            "closed_trades": 46,
+            "net_pnl_eur": -0.04,
+            "profit_factor": 0.98,
+            "win_rate": 0.43,
+            "avg_return_bps": 24.0,
+            "max_drawdown_eur": 2.1,
+            "enabled": True,
+        },
+    )
+
+    assert result.status == "non_tradable"
+    assert "pair_health_underperforming" in result.blockers
 
 
 def test_opportunity_score_blocks_early_weak_learning_in_paper():

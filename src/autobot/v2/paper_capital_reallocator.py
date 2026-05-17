@@ -323,7 +323,7 @@ class PaperCapitalReallocator:
         health_status = str(item.health_status or "unknown").lower()
         has_confirmed_health = item.health_closed_trades >= self.config.min_health_closed_trades
         has_early_weak_health = (
-            health_status == "early_weak"
+            health_status in {"early_weak", "underperforming"}
             and item.health_closed_trades >= self.config.early_weak_health_min_closed_trades
         )
         if item.health_score is None or not (has_confirmed_health or has_early_weak_health):
@@ -332,7 +332,7 @@ class PaperCapitalReallocator:
         health_score = _clamp(float(item.health_score), 0.0, 100.0)
         health_weight = self.config.health_weight_pct / 100.0
         score = (runtime_score * (1.0 - health_weight)) + (health_score * health_weight)
-        if health_status in {"weak", "early_weak"} or (item.health_net_pnl_eur < 0.0 and health_score < 35.0):
+        if health_status in {"weak", "early_weak", "underperforming"} or (item.health_net_pnl_eur < 0.0 and health_score < 35.0):
             score *= self.config.weak_health_multiplier
         return _clamp(score, 0.0, 100.0)
 

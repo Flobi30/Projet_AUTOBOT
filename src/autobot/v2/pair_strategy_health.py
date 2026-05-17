@@ -73,6 +73,7 @@ class PairStrategyHealthConfig:
     cache_seconds: int = 30
     pf_floor: float = 0.75
     pf_target: float = 1.35
+    active_pf_floor: float = 1.0
     avg_return_target_bps: float = 35.0
 
     @classmethod
@@ -91,6 +92,7 @@ class PairStrategyHealthConfig:
             cache_seconds=_env_int("PAIR_HEALTH_CACHE_SECONDS", 30, 0, 86_400),
             pf_floor=_env_float("PAIR_HEALTH_PF_FLOOR", 0.75, 0.0, 10.0),
             pf_target=_env_float("PAIR_HEALTH_PF_TARGET", 1.35, 0.01, 100.0),
+            active_pf_floor=_env_float("PAIR_HEALTH_ACTIVE_PF_FLOOR", 1.0, 0.0, 10.0),
             avg_return_target_bps=_env_float("PAIR_HEALTH_AVG_RETURN_TARGET_BPS", 35.0, 1.0, 10_000.0),
         )
 
@@ -109,6 +111,7 @@ class PairStrategyHealthConfig:
             "cache_seconds": self.cache_seconds,
             "pf_floor": self.pf_floor,
             "pf_target": self.pf_target,
+            "active_pf_floor": self.active_pf_floor,
             "avg_return_target_bps": self.avg_return_target_bps,
         }
 
@@ -296,8 +299,18 @@ class PairStrategyHealthEngine:
         else:
             reason = "realized_health"
             status = self._status(score, net_pnl, profit_factor)
+            if self._is_confirmed_underperforming(net_pnl, profit_factor):
+                status = "underperforming"
+                reason = "realized_underperforming"
 
         adjustment = self._adjustment(score, closed, early_weak=early_weak)
+        if self._is_confirmed_underperforming(net_pnl, profit_factor) and adjustment > 0.0:
+            adjustment = -min(
+                self.config.max_penalty,
+                self.config.max_penalty
+                * _clamp((self.config.active_pf_floor - float(profit_factor or 0.0)) / max(self.config.active_pf_floor, 1e-9))
+                * 0.35,
+            )
         return PairStrategyHealth(
             symbol=symbol_key(symbol),
             status=status,
@@ -362,6 +375,14 @@ class PairStrategyHealthEngine:
             return False
         pf = profit_factor if profit_factor is not None else 0.0
         return score <= self.config.early_weak_score_max and pf <= self.config.early_weak_pf_max
+
+    def _is_confirmed_underperforming(
+        self,
+        net_pnl: float,
+        profit_factor: Optional[float],
+    ) -> bool:
+        pf = profit_factor if profit_factor is not None else (0.0 if net_pnl < 0.0 else self.config.active_pf_floor)
+        return net_pnl < 0.0 and pf < self.config.active_pf_floor
 
     def _adjustment(self, score: float, closed_trades: int, *, early_weak: bool = False) -> float:
         if closed_trades < self.config.min_closed_trades:

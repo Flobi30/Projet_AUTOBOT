@@ -84,6 +84,12 @@ class SignalHandlerAsync:
             "MAX_POSITION_CAPITAL_PCT",
             15.0,
         )
+        if os.getenv("MAX_POSITION_CAPITAL_PCT") in (None, "") and os.getenv("MAX_POSITION_SIZE_PCT") not in (None, ""):
+            self._max_position_capital_pct = self._load_positive_float(
+                "max_position_capital_pct",
+                "MAX_POSITION_SIZE_PCT",
+                self._max_position_capital_pct,
+            )
         self._atr_sl_mult = self._load_positive_float("atr_sl_mult", "ATR_SL_MULT", 1.8)
         self._tp_rr = self._load_positive_float("tp_rr", "TP_RR", 1.6)
         self._base_atr_sl_mult = self._atr_sl_mult

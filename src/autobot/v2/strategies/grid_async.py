@@ -104,6 +104,18 @@ class GridStrategyAsync(StrategyAsync):
         self.voter_filter_active = self.config.get("voter_filter_active", True)
         self.kelly_active = self.config.get("kelly_active", True)
         self.trailing_tp_active = self.config.get("trailing_tp_active", True)
+        self._block_underperforming_health = self._read_bool_config(
+            "block_underperforming_health",
+            "GRID_BLOCK_UNDERPERFORMING_HEALTH",
+            True,
+        )
+        self._kelly_zero_fallback_mult = self._read_float_config(
+            "kelly_zero_fallback_mult",
+            "GRID_KELLY_ZERO_FALLBACK_MULT",
+            0.25,
+            0.0,
+            1.0,
+        )
         self.trailing_stops: Dict[int, TrailingStopATR] = {}
         self._atr_tracker = ATRFilter(period=14)
 
@@ -187,6 +199,12 @@ class GridStrategyAsync(StrategyAsync):
         except (TypeError, ValueError):
             value = default
         return max(minimum, min(maximum, value))
+
+    def _read_bool_config(self, config_key: str, env_key: str, default: bool) -> bool:
+        raw = self.config.get(config_key, os.getenv(env_key, default))
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
     # ------------------------------------------------------------------
     # V3: Initialization helpers
@@ -519,6 +537,14 @@ class GridStrategyAsync(StrategyAsync):
     def _can_open_position(self, available_capital: float, price: float) -> bool:
         if len(self.open_levels) >= self.max_positions:
             return False
+        blocked, reason = self._realized_health_blocks_entry()
+        if blocked:
+            logger.info(
+                "Grid BUY paused for %s: realized health gate (%s)",
+                getattr(self.instance.config, "symbol", "UNKNOWN"),
+                reason,
+            )
+            return False
         cpl = self._calculate_kelly_cpl(price)
         return cpl > 0 and available_capital >= cpl
 
@@ -566,7 +592,9 @@ class GridStrategyAsync(StrategyAsync):
             )
             
             if kelly_size <= 0:
-                return base_cpl * 0.5 
+                if total <= 0:
+                    return base_cpl * self._kelly_zero_fallback_mult
+                return 0.0
 
             # 3) Voter Strength Weighting
             voter_mult = 1.0
@@ -585,6 +613,39 @@ class GridStrategyAsync(StrategyAsync):
         except Exception as e:
             logger.error(f"Error in Kelly sizing: {e}")
             return base_cpl
+
+    def _realized_health_blocks_entry(self) -> tuple[bool, str]:
+        """Block new paper grid entries for pairs with poor realized health."""
+        if not self._block_underperforming_health:
+            return False, "disabled"
+        try:
+            orchestrator = getattr(self.instance, "orchestrator", None)
+            if orchestrator is None or not getattr(orchestrator, "paper_mode", False):
+                return False, "not_paper"
+            from ..pair_strategy_health import PairStrategyHealthEngine, symbol_key
+
+            engine = getattr(orchestrator, "pair_strategy_health_engine", None)
+            if engine is None:
+                engine = PairStrategyHealthEngine()
+                setattr(orchestrator, "pair_strategy_health_engine", engine)
+            persistence = getattr(orchestrator, "persistence", None)
+            db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+            snapshot = engine.build_snapshot_from_state_db(db_path, paper_mode=True)
+            by_symbol = snapshot.get("by_symbol", {}) if isinstance(snapshot, dict) else {}
+            context = by_symbol.get(symbol_key(getattr(self.instance.config, "symbol", None)))
+            if not isinstance(context, dict):
+                return False, "no_health_context"
+            status = str(context.get("status") or "").lower()
+            closed = int(float(context.get("closed_trades") or 0))
+            if status == "weak" and closed >= int(engine.config.min_closed_trades):
+                return True, "pair_health_weak"
+            if status == "underperforming" and closed >= int(engine.config.min_closed_trades):
+                return True, "pair_health_underperforming"
+            if status == "early_weak" and closed >= int(engine.config.early_weak_min_closed_trades):
+                return True, "pair_health_early_weak"
+        except Exception as exc:
+            logger.debug("Grid health gate unavailable: %s", exc)
+        return False, "ok"
 
     def _get_active_trailing_sells(self, current_price: float, symbol: str) -> List[int]:
         """Gère la logique de Trailing Take-Profit (Phase 3)."""

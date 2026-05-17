@@ -646,6 +646,8 @@ class OpportunityScorer:
 
         if status == "weak" and closed >= cfg.pair_health_guard_min_closed_trades:
             return ["pair_health_weak"]
+        if status == "underperforming" and closed >= cfg.pair_health_guard_min_closed_trades:
+            return ["pair_health_underperforming"]
         if status == "early_weak" and closed >= cfg.pair_health_guard_early_min_closed_trades:
             return ["pair_health_early_weak"]
         if (
