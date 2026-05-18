@@ -85,6 +85,38 @@ type QuantValidationResponse = {
   };
 };
 
+type SetupAuditRow = {
+  symbol: string;
+  strategy: string;
+  closed_trades: number;
+  net_pnl_eur: number;
+  profit_factor: number | null;
+  win_rate: number;
+  verdict: string;
+  recommended_action: string;
+  root_causes: string[];
+  opportunity_score?: number | null;
+};
+
+type SetupAuditResponse = {
+  global_verdict: string;
+  live_promotion_allowed: boolean;
+  global: {
+    closed_trades: number;
+    net_pnl_eur: number;
+    profit_factor: number | null;
+    win_rate: number;
+    source?: string;
+  };
+  thresholds: {
+    min_closed_trades: number;
+    candidate_profit_factor: number;
+    candidate_min_net_pnl_eur: number;
+  };
+  setups: SetupAuditRow[];
+  message: string;
+};
+
 const formatBps = (value?: number) =>
   typeof value === 'number' ? `${value.toFixed(1)} bps` : 'En attente';
 
@@ -114,27 +146,32 @@ const qualityReason = (
 };
 
 const stateClass = (state?: string) => {
-  if (state === 'candidate' || state === 'acceptable' || state === 'normal') return 'text-emerald-400';
+  if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review') return 'text-emerald-400';
   if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme') return 'text-red-400';
-  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising') return 'text-amber-400';
+  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch') return 'text-amber-400';
   return 'text-gray-300';
 };
 
 const QuantValidation: React.FC = () => {
   const [data, setData] = useState<QuantValidationResponse | null>(null);
+  const [setupAudit, setSetupAudit] = useState<SetupAuditResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await apiFetch('/api/quant/validation');
+        const [response, setupResponse] = await Promise.all([
+          apiFetch('/api/quant/validation'),
+          apiFetch('/api/performance/setup-audit'),
+        ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
           setIsLoading(false);
           return;
         }
         setData(await response.json());
+        setSetupAudit(setupResponse.ok ? await setupResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -162,6 +199,7 @@ const QuantValidation: React.FC = () => {
   const quality = data?.backtest_quality;
   const policy = data?.live_shadow_policy;
   const volatilityRows = data?.volatility.symbols ?? [];
+  const setupRows = setupAudit?.setups ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -208,6 +246,71 @@ const QuantValidation: React.FC = () => {
       <div className="mb-6 border border-blue-500/25 bg-blue-500/10 rounded-xl p-4 text-sm text-blue-100/90">
         <strong className="text-white">Lecture rapide:</strong> ce panneau valide le paper/shadow. PBO et DSR restent en attente tant que le bot n'a pas assez de trades paper termines; ils ne declenchent pas le live automatiquement.
       </div>
+
+      {setupAudit ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">Audit des setups</h2>
+              <p className="text-sm text-gray-400 mt-1">{setupAudit.message}</p>
+            </div>
+            <span className={`text-sm font-semibold ${stateClass(setupAudit.global_verdict)}`}>
+              {setupAudit.global_verdict}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PnL setup global</div>
+              <div className={setupAudit.global.net_pnl_eur >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{formatCurrency(setupAudit.global.net_pnl_eur)}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PF global</div>
+              <div className="text-white font-semibold">{setupAudit.global.profit_factor?.toFixed(2) ?? 'En attente'}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Clotures</div>
+              <div className="text-white font-semibold">{setupAudit.global.closed_trades}/{setupAudit.thresholds.min_closed_trades}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Live auto</div>
+              <div className="text-white font-semibold">{setupAudit.live_promotion_allowed ? 'Autorise' : 'Bloque'}</div>
+            </div>
+          </div>
+          {setupRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Setup</th>
+                    <th className="text-right py-2">Trades</th>
+                    <th className="text-right py-2">PnL</th>
+                    <th className="text-right py-2">PF</th>
+                    <th className="text-right py-2">Score</th>
+                    <th className="text-left py-2 pl-4">Verdict</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {setupRows.slice(0, 12).map((row) => (
+                    <tr key={`${row.symbol}-${row.strategy}`} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol} <span className="text-gray-500">/ {row.strategy}</span></td>
+                      <td className="py-2 text-right text-gray-300">{row.closed_trades}</td>
+                      <td className={`py-2 text-right ${row.net_pnl_eur >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(row.net_pnl_eur)}</td>
+                      <td className="py-2 text-right text-gray-300">{row.profit_factor?.toFixed(2) ?? 'En attente'}</td>
+                      <td className="py-2 text-right text-gray-300">{row.opportunity_score?.toFixed(1) ?? 'En attente'}</td>
+                      <td className="py-2 pl-4">
+                        <div className={`font-semibold ${stateClass(row.verdict)}`}>{row.verdict}</div>
+                        <div className="text-xs text-gray-500">{row.root_causes.slice(0, 2).join(', ') || row.recommended_action}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucun setup auditable pour le moment.</div>
+          )}
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6 mb-8">
         <section className="bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">

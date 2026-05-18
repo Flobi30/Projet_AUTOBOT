@@ -625,6 +625,95 @@ def _filled_paper_trade_counts_by_symbol(db_path: Any) -> Dict[str, int]:
         return {}
 
 
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _read_trade_ledger_trades(
+    db_path: Any,
+    *,
+    limit: int,
+    offset: int,
+    scope: str = "all",
+) -> Dict[str, Any]:
+    """Read traceable trade rows directly from the state trade ledger."""
+    path = str(db_path) if db_path else ""
+    empty = {"count": 0, "trades": [], "source": "trade_ledger"}
+    if not path or not os.path.exists(path):
+        return empty
+
+    where = ""
+    if scope == "closed":
+        where = "WHERE COALESCE(is_closing_leg, 0) = 1"
+    elif scope == "opening":
+        where = "WHERE COALESCE(is_opening_leg, 0) = 1"
+
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            if not _table_exists(conn, "trade_ledger"):
+                return empty
+            total = int(conn.execute(f"SELECT COUNT(*) FROM trade_ledger {where}").fetchone()[0])
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id, trade_id, position_id, instance_id, symbol, side,
+                    executed_price, volume, fees, realized_pnl,
+                    is_opening_leg, is_closing_leg, exchange_order_id,
+                    decision_id, signal_id, execution_liquidity, created_at
+                FROM trade_ledger
+                {where}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Trade ledger page unavailable: %s", exc)
+        return empty
+
+    trades = []
+    for row in rows:
+        is_closing = bool(row["is_closing_leg"])
+        is_opening = bool(row["is_opening_leg"])
+        pnl = float(row["realized_pnl"] or 0.0) if is_closing else 0.0
+        trades.append(
+            {
+                "id": row["trade_id"] or str(row["id"]),
+                "position_id": row["position_id"],
+                "instance_id": row["instance_id"],
+                "instance_name": row["instance_id"],
+                "pair": row["symbol"],
+                "symbol": row["symbol"],
+                "side": str(row["side"] or "").upper(),
+                "amount": float(row["volume"] or 0.0),
+                "volume": float(row["volume"] or 0.0),
+                "price": float(row["executed_price"] or 0.0),
+                "fees": float(row["fees"] or 0.0),
+                "pnl": round(pnl, 6),
+                "timestamp": row["created_at"],
+                "strategy": "unknown",
+                "status": "closed" if is_closing else "filled",
+                "trade_type": "closing_leg" if is_closing else "opening_leg" if is_opening else "execution",
+                "is_opening_leg": is_opening,
+                "is_closing_leg": is_closing,
+                "exchange_order_id": row["exchange_order_id"],
+                "decision_id": row["decision_id"],
+                "signal_id": row["signal_id"],
+                "liquidity": row["execution_liquidity"],
+                "source": "trade_ledger",
+            }
+        )
+    return {"count": total, "trades": trades, "source": "trade_ledger"}
+
+
 def _profit_factor_context(gross_profit: float, gross_loss: float, closed_trades: int) -> tuple[Optional[float], str]:
     """Return a finite profit factor when it is statistically meaningful."""
     if closed_trades <= 0:
@@ -1455,6 +1544,178 @@ async def get_quant_validation(
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/performance/setup-audit")
+async def get_setup_audit(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Paper-first validation table for pair/strategy setups.
+
+    This endpoint is intentionally read-only. It does not ban a pair and does
+    not promote live trading; it reports whether the observed setup is
+    validated, still learning, or currently negative after realized costs.
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..opportunity_scoring import OpportunityScorer
+
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        total_capital = (
+            _autobot_capital_from_snapshot(capital_snapshot, instances)
+            if capital_snapshot.get("source_status") == "ok"
+            else sum(float(inst.get("capital", 0.0)) for inst in instances)
+        )
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        paper_perf = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+        global_stats = paper_perf.get("global", {}) if isinstance(paper_perf, dict) else {}
+        by_symbol = paper_perf.get("by_symbol", {}) if isinstance(paper_perf, dict) else {}
+
+        pair_health = _pair_health_snapshot(orchestrator, state_db_path, paper_mode=paper_mode)
+        health_by_symbol = pair_health.get("by_symbol", {}) if isinstance(pair_health, dict) else {}
+        scorer = getattr(orchestrator, "opportunity_scorer", None)
+        if scorer is None:
+            scorer = OpportunityScorer(regime_engine=_get_regime_feature_engine(orchestrator))
+        opportunities = scorer.build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
+        )
+        opp_by_symbol = {
+            _paper_symbol_key(item.get("symbol")): item
+            for item in opportunities.get("opportunities", [])
+            if isinstance(item, dict)
+        }
+
+        min_closed = max(1, int(float(os.getenv("SETUP_AUDIT_MIN_CLOSED_TRADES", "30"))))
+        candidate_pf = max(1.0, float(os.getenv("SETUP_AUDIT_CANDIDATE_PF", "1.25")))
+        candidate_net_pnl = float(os.getenv("SETUP_AUDIT_MIN_NET_PNL_EUR", "0.0"))
+
+        pair_map: Dict[str, List[Dict[str, Any]]] = {}
+        for inst in instances:
+            symbol = _infer_symbol_from_instance(inst)
+            pair_map.setdefault(symbol, []).append(inst)
+
+        rows = []
+        for symbol, grouped in pair_map.items():
+            key = _paper_symbol_key(symbol)
+            stats = by_symbol.get(key, {})
+            opp = opp_by_symbol.get(key, {})
+            health = health_by_symbol.get(key, {})
+            closed = int(stats.get("closed_trades") or 0)
+            net_pnl = float(stats.get("net_pnl") or 0.0)
+            gross_profit = float(stats.get("gross_profit") or 0.0)
+            gross_loss = float(stats.get("gross_loss") or 0.0)
+            profit_factor = stats.get("profit_factor")
+            win_rate = float(stats.get("win_rate") or 0.0)
+            avg_pnl = net_pnl / closed if closed > 0 else 0.0
+            blockers = sorted({
+                str(reason)
+                for inst in grouped
+                for reason in ((inst.get("blocked_reasons") or []) + ((inst.get("warmup") or {}).get("blocked_reasons") or []))
+            } | {str(reason) for reason in (opp.get("blockers") or [])})
+
+            root_causes = []
+            if closed < min_closed:
+                verdict = "learning"
+                recommended_action = "collect_more_paper_data"
+                root_causes.append("sample_too_small")
+            elif profit_factor is None or float(profit_factor) < 1.0 or net_pnl <= 0.0:
+                verdict = "not_validated"
+                recommended_action = "keep_paper_and_adjust_setup"
+                if gross_loss >= gross_profit:
+                    root_causes.append("losses_exceed_gains_after_costs")
+                if win_rate < 50.0:
+                    root_causes.append("low_realized_win_rate")
+                if avg_pnl < 0.0:
+                    root_causes.append("negative_expectancy")
+            elif float(profit_factor) >= candidate_pf and net_pnl >= candidate_net_pnl:
+                verdict = "paper_review_candidate"
+                recommended_action = "manual_review_only_no_live_auto_promotion"
+                root_causes.append("realized_edge_positive")
+            else:
+                verdict = "watch"
+                recommended_action = "continue_paper_observation"
+                root_causes.append("positive_but_not_strong_enough")
+
+            if "no_recent_signal" in blockers:
+                root_causes.append("no_recent_signal")
+            if "atr_vol_warmup" in blockers or "warmup" in blockers:
+                root_causes.append("warmup_or_atr_not_ready")
+            if "score_below_threshold" in blockers:
+                root_causes.append("current_opportunity_score_low")
+
+            rows.append({
+                "symbol": symbol,
+                "strategy": ",".join(sorted({str(inst.get("strategy", "unknown")) for inst in grouped})),
+                "instance_count": len(grouped),
+                "closed_trades": closed,
+                "net_pnl_eur": round(net_pnl, 4),
+                "gross_profit_eur": round(gross_profit, 4),
+                "gross_loss_eur": round(gross_loss, 4),
+                "avg_pnl_eur": round(avg_pnl, 4),
+                "profit_factor": _round_optional(profit_factor),
+                "profit_factor_status": stats.get("profit_factor_status", "no_closed_trades"),
+                "win_rate": round(win_rate, 2),
+                "health_status": health.get("status"),
+                "health_score": health.get("health_score"),
+                "opportunity_status": opp.get("status"),
+                "opportunity_score": opp.get("score"),
+                "opportunity_reason": opp.get("reason"),
+                "opportunity_blockers": blockers,
+                "regime": (opp.get("regime_context") or {}).get("regime"),
+                "regime_confidence": (opp.get("regime_context") or {}).get("confidence"),
+                "verdict": verdict,
+                "recommended_action": recommended_action,
+                "root_causes": sorted(set(root_causes)),
+                "data_source": stats.get("source", paper_perf.get("source", "none") if isinstance(paper_perf, dict) else "none"),
+            })
+
+        rows.sort(key=lambda row: (row["verdict"] != "paper_review_candidate", -float(row["net_pnl_eur"]), -int(row["closed_trades"])))
+        global_pf = global_stats.get("profit_factor")
+        global_closed = int(global_stats.get("closed_trades") or 0)
+        global_net = float(global_stats.get("net_pnl") or 0.0)
+        if global_closed < min_closed:
+            global_verdict = "learning"
+        elif global_pf is None or float(global_pf) <= 1.0 or global_net <= 0.0:
+            global_verdict = "not_validated"
+        else:
+            global_verdict = "paper_candidate_needs_review"
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "paper" if paper_mode else "live",
+            "paper_mode": paper_mode,
+            "live_promotion_allowed": False,
+            "global_verdict": global_verdict,
+            "global": {
+                "closed_trades": global_closed,
+                "net_pnl_eur": round(global_net, 4),
+                "profit_factor": _round_optional(global_pf),
+                "profit_factor_status": global_stats.get("profit_factor_status"),
+                "win_rate": round(float(global_stats.get("win_rate") or 0.0), 2),
+                "source": paper_perf.get("source") if isinstance(paper_perf, dict) else "none",
+            },
+            "thresholds": {
+                "min_closed_trades": min_closed,
+                "candidate_profit_factor": candidate_pf,
+                "candidate_min_net_pnl_eur": candidate_net_pnl,
+            },
+            "setups": rows,
+            "message": "Audit de setups paper. Une ligne negative signifie setup non valide dans ce regime, pas paire bannie.",
+        }
+    except Exception:
+        logger.exception("Erreur recuperation setup audit")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/colony")
 async def get_colony(
     request: Request,
@@ -1737,6 +1998,71 @@ async def get_performance(request: Request, authorized: bool = Depends(verify_to
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
 
     try:
+        global_perf = await get_global_performance(request, authorized=True)
+        by_pair_payload = await get_performance_by_pair(request, authorized=True)
+        pair_metrics = {
+            _paper_symbol_key(pair.get("symbol")): pair
+            for pair in by_pair_payload.get("pairs", [])
+            if isinstance(pair, dict)
+        }
+
+        instances_data = orchestrator.get_instances_snapshot()
+        per_instance = []
+        for inst in instances_data:
+            symbol = _infer_symbol_from_instance(inst)
+            pair_stat = pair_metrics.get(_paper_symbol_key(symbol), {})
+            initial = float(inst.get('initial_capital', inst.get('capital', 0)) or 0.0)
+            profit = (
+                pair_stat.get("profit_total", inst.get("profit", 0.0))
+                if int(pair_stat.get("instances_count") or 0) <= 1
+                else inst.get("profit", 0.0)
+            )
+            profit = float(profit or 0.0)
+            pnl_pct = (profit / initial * 100.0) if initial > 0.0 else 0.0
+            trades = inst.get('trades_history', [])
+            total_trades = int(pair_stat.get("closed_trades") or pair_stat.get("total_trades") or len(trades))
+            win_rate = float(pair_stat.get("win_rate") or 0.0) if "win_rate" in pair_stat else 0.0
+            if not pair_stat and total_trades > 0:
+                winning = sum(1 for trade in trades if trade.get('pnl', 0) > 0)
+                win_rate = winning / total_trades * 100.0
+            sharpe = inst.get('sharpe_ratio', None)
+
+            per_instance.append({
+                "id": inst['id'],
+                "name": inst.get('name', inst['id']),
+                "capital": inst.get('capital', 0),
+                "profit": round(profit, 2),
+                "pnl_percent": round(pnl_pct, 2),
+                "total_trades": total_trades,
+                "win_rate": round(win_rate, 2),
+                "sharpe_ratio": round(sharpe, 3) if sharpe is not None else None,
+                "strategy": inst.get('strategy', 'unknown'),
+                "status": inst.get('status', 'unknown'),
+                "symbol": symbol,
+                "profit_factor": pair_stat.get("profit_factor"),
+                "profit_factor_status": pair_stat.get("profit_factor_status"),
+                "metric_scope": pair_stat.get("metric_scope", global_perf.get("metric_scope")),
+                "pnl_source": pair_stat.get("pnl_source", global_perf.get("pnl_source")),
+            })
+
+        return {
+            "timestamp": global_perf.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "global": {
+                "total_capital": global_perf.get("capital_total", 0.0),
+                "total_profit": global_perf.get("profit_total", 0.0),
+                "pnl_percent": global_perf.get("profit_percent", 0.0),
+                "instance_count": global_perf.get("instances_count", len(instances_data)),
+                "total_trades": global_perf.get("total_trades", 0),
+                "profit_factor": global_perf.get("profit_factor"),
+                "profit_factor_status": global_perf.get("profit_factor_status"),
+                "win_rate": global_perf.get("win_rate", 0.0),
+                "metric_scope": global_perf.get("metric_scope"),
+                "pnl_source": global_perf.get("pnl_source"),
+            },
+            "instances": per_instance,
+            "pairs": by_pair_payload.get("pairs", []),
+            "source": global_perf.get("pnl_source", "instance_memory"),
+        }
         instances_data = orchestrator.get_instances_snapshot()
         total_capital = sum(inst.get('capital', 0) for inst in instances_data)
         total_profit = sum(inst.get('profit', 0) for inst in instances_data)
@@ -2219,11 +2545,15 @@ async def get_trades(
     authorized: bool = Depends(verify_token),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    scope: str = Query(default="all"),
 ):
     """Liste des trades exécutés"""
     orchestrator = request.app.state.orchestrator
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    if scope not in {"all", "closed", "opening"}:
+        raise HTTPException(status_code=400, detail="scope doit etre all, closed ou opening")
 
     try:
         target_window = max(offset + limit, limit)
@@ -2240,11 +2570,23 @@ async def get_trades(
             except Exception:
                 persistence = None
 
-        if persistence and hasattr(persistence, "get_trades_paginated"):
+        if scope == "all" and persistence and hasattr(persistence, "get_trades_paginated"):
             persisted = persistence.get_trades_paginated(limit=limit, offset=offset)
             total_count = int(persisted.get("total", 0))
             paginated_trades = list(persisted.get("items", []))
-        else:
+
+        if total_count == 0:
+            state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+            ledger_page = _read_trade_ledger_trades(
+                state_db_path,
+                limit=limit,
+                offset=offset,
+                scope=scope,
+            )
+            if int(ledger_page.get("count") or 0) > 0:
+                total_count = int(ledger_page["count"])
+                paginated_trades = list(ledger_page["trades"])
+        if total_count == 0:
             instances_data = orchestrator.get_instances_snapshot()
             default_ts = datetime.now(timezone.utc).isoformat()
 
@@ -2312,6 +2654,12 @@ async def get_trades(
 
         return {
             "count": total_count,
+            "scope": scope,
+            "source": (
+                paginated_trades[0].get("source")
+                if paginated_trades and isinstance(paginated_trades[0], dict)
+                else "instance_memory"
+            ),
             "pagination": {
                 "limit": limit,
                 "offset": offset,

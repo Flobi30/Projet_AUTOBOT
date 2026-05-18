@@ -81,7 +81,7 @@ const Capital: React.FC = () => {
 
       const [capitalRes, tradesRes, paperRes] = await Promise.all([
         apiFetch('/api/capital'),
-        apiFetch('/api/trades?limit=10'),
+        apiFetch('/api/trades?limit=10&scope=closed'),
         apiFetch('/api/paper-trading/summary'),
       ]);
 

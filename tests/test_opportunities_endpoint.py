@@ -473,3 +473,28 @@ def test_performance_endpoints_use_traceable_trade_ledger(tmp_path, monkeypatch)
     assert pairs["XETHZEUR"]["profit_total"] == pytest.approx(3.0)
     assert pairs["XETHZEUR"]["profit_factor"] is None
     assert pairs["XETHZEUR"]["profit_factor_status"] == "no_losses_yet"
+
+    legacy_response = client.get("/api/performance", headers=headers)
+    assert legacy_response.status_code == 200
+    legacy_body = legacy_response.json()
+    assert legacy_body["global"]["total_profit"] == pytest.approx(4.0)
+    assert legacy_body["global"]["total_trades"] == 3
+    assert legacy_body["global"]["pnl_source"] == "trade_ledger"
+
+    trades_response = client.get("/api/trades?limit=2&scope=closed", headers=headers)
+    assert trades_response.status_code == 200
+    trades_body = trades_response.json()
+    assert trades_body["source"] == "trade_ledger"
+    assert trades_body["count"] == 3
+    assert trades_body["trades"][0]["pnl"] == pytest.approx(3.0)
+    assert trades_body["trades"][0]["trade_type"] == "closing_leg"
+
+    monkeypatch.setenv("SETUP_AUDIT_MIN_CLOSED_TRADES", "2")
+    audit_response = client.get("/api/performance/setup-audit", headers=headers)
+    assert audit_response.status_code == 200
+    audit_body = audit_response.json()
+    assert audit_body["live_promotion_allowed"] is False
+    assert audit_body["global"]["net_pnl_eur"] == pytest.approx(4.0)
+    setups = {item["symbol"]: item for item in audit_body["setups"]}
+    assert setups["XXBTZEUR"]["verdict"] == "paper_review_candidate"
+    assert "realized_edge_positive" in setups["XXBTZEUR"]["root_causes"]
