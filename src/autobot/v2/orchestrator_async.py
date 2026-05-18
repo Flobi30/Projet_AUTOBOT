@@ -411,6 +411,9 @@ class OrchestratorAsync:
         # Performance Ultra (Task #35 & #37)
         SystemOptimizer.optimize_for_hetzner()
         self.ofi = OrderFlowImbalance()
+        set_micro_provider = getattr(self.order_executor, "set_microstructure_provider", None)
+        if callable(set_micro_provider):
+            set_micro_provider(self.ofi.get_snapshot)
         SystemOptimizer.optimize_for_hetzner()
 
         # Instances

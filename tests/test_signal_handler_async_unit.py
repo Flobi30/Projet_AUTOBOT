@@ -462,5 +462,42 @@ def test_config_hash_supports_slotted_configs_and_redacts_secrets():
     assert len(handler._config_hash()) == 64
 
 
+def test_build_execution_plan_places_post_only_buy_on_bid():
+    class _FakeOfi:
+        def get_snapshot(self, _symbol):
+            return {
+                "has_book": True,
+                "bid": 100.0,
+                "ask": 100.05,
+                "spread_bps": 5.0,
+                "buy_adverse_selection_risk": 0.1,
+            }
+
+    instance = _Instance()
+    instance.config.force_maker_only = True
+    instance.orchestrator = SimpleNamespace(ofi=_FakeOfi())
+    handler = SignalHandlerAsync(instance=instance, order_executor=None)
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="XXBTZEUR",
+        price=100.04,
+        volume=0.5,
+        reason="unit maker",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"limit_price": 100.04, "urgency": 0.0},
+    )
+
+    plan = handler._build_execution_plan(
+        signal,
+        volume=0.5,
+        edge_ctx={"net_edge_bps": 50.0, "adaptive_min_edge_bps": 10.0, "spread_bps": 5.0},
+    )
+
+    assert plan["order_type"] == "limit"
+    assert plan["post_only"] is True
+    assert plan["price"] == pytest.approx(100.0)
+    assert plan["microstructure"]["has_book"] is True
+
+
 async def _noop_reconcile():
     return None

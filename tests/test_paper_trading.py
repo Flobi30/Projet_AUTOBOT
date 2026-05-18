@@ -112,6 +112,73 @@ async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_post_only_limit_uses_realistic_maker_fee_when_book_is_touchable(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPER_MAKER_REALISM_ENABLED", "true")
+    monkeypatch.setenv("PAPER_MAKER_REQUIRE_BOOK", "true")
+    monkeypatch.setenv("PAPER_MAKER_MIN_DEPTH_EUR", "10")
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    executor.set_microstructure_provider(
+        lambda _symbol: {
+            "has_book": True,
+            "bid": 100.0,
+            "ask": 100.05,
+            "spread_bps": 5.0,
+            "bid_depth_eur": 5_000.0,
+            "ask_depth_eur": 5_000.0,
+            "buy_adverse_selection_risk": 0.10,
+            "sell_adverse_selection_risk": 0.10,
+        }
+    )
+
+    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+
+    assert result.success is True
+    assert result.liquidity == "maker"
+    assert result.fees == pytest.approx(100.0 * executor.maker_fee_rate)
+    assert result.raw_response["paper_fill_decision"]["reason"] == "paper_maker_touch_fill"
+
+
+@pytest.mark.asyncio
+async def test_post_only_limit_rejects_missing_book_when_required(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPER_MAKER_REALISM_ENABLED", "true")
+    monkeypatch.setenv("PAPER_MAKER_REQUIRE_BOOK", "true")
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+
+    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+
+    assert result.success is False
+    assert result.error == "paper_maker_book_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_post_only_limit_rejects_crossing_or_adverse_book(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPER_MAKER_REALISM_ENABLED", "true")
+    monkeypatch.setenv("PAPER_MAKER_REQUIRE_BOOK", "true")
+    monkeypatch.setenv("PAPER_MAKER_MIN_DEPTH_EUR", "10")
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    executor.set_microstructure_provider(
+        lambda _symbol: {
+            "has_book": True,
+            "bid": 100.0,
+            "ask": 100.05,
+            "spread_bps": 5.0,
+            "bid_depth_eur": 5_000.0,
+            "ask_depth_eur": 5_000.0,
+            "buy_adverse_selection_risk": 0.90,
+            "sell_adverse_selection_risk": 0.10,
+        }
+    )
+
+    crossing = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.05, post_only=True)
+    adverse = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+
+    assert crossing.success is False
+    assert crossing.error == "paper_post_only_would_take_liquidity"
+    assert adverse.success is False
+    assert adverse.error == "paper_maker_adverse_selection"
+
+
+@pytest.mark.asyncio
 async def test_trade_balance_uses_asset_specific_fallbacks(tmp_path, monkeypatch):
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 

@@ -48,6 +48,15 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 @dataclass
 class PaperTrade:
     """Un trade simulé en paper trading."""
@@ -61,6 +70,7 @@ class PaperTrade:
     timestamp: str
     status: str  # "filled" | "pending" | "cancelled"
     userref: Optional[int] = None
+    liquidity: str = "unknown"  # "maker" | "taker" | "unknown"
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -78,18 +88,30 @@ class PaperTradingExecutor:
         self,
         db_path: str = "data/paper_trades.db",
         initial_capital: float = 1000.0,
-        fee_rate: float = 0.0016,  # 0.16% maker fee Kraken
+        fee_rate: Optional[float] = None,
     ):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         self.initial_capital = initial_capital
-        self.fee_rate = fee_rate
+        explicit_fee_rate = fee_rate is not None
+        default_maker_bps = (float(fee_rate) * 10000.0) if explicit_fee_rate else 25.0
+        default_taker_bps = (float(fee_rate) * 10000.0) if explicit_fee_rate else 40.0
+        self.maker_fee_rate = _env_float("PAPER_MAKER_FEE_BPS", default_maker_bps, 0.0, 250.0) / 10000.0
+        self.taker_fee_rate = _env_float("PAPER_TAKER_FEE_BPS", default_taker_bps, 0.0, 250.0) / 10000.0
+        self.fee_rate = float(fee_rate) if explicit_fee_rate else self.taker_fee_rate
         self.allow_synthetic_price_fallback = _env_bool(
             "PAPER_ALLOW_SYNTHETIC_PRICE_FALLBACK",
             False,
         )
+        self.maker_realism_enabled = _env_bool("PAPER_MAKER_REALISM_ENABLED", False)
+        self.maker_require_book = _env_bool("PAPER_MAKER_REQUIRE_BOOK", True)
+        self.maker_touch_bps = _env_float("PAPER_MAKER_TOUCH_BPS", 2.0, 0.0, 100.0)
+        self.maker_max_spread_bps = _env_float("PAPER_MAKER_MAX_SPREAD_BPS", 12.0, 0.1, 1000.0)
+        self.maker_max_adverse_risk = _env_float("PAPER_MAKER_MAX_ADVERSE_RISK", 0.58, 0.0, 1.0)
+        self.maker_min_depth_eur = _env_float("PAPER_MAKER_MIN_DEPTH_EUR", 50.0, 0.0, 1_000_000.0)
         self._lock = asyncio.Lock()
+        self._microstructure_provider: Optional[Callable[[str], Any]] = None
         
         # Circuit breaker (même interface que OrderExecutorAsync)
         self._consecutive_errors = 0
@@ -100,7 +122,13 @@ class PaperTradingExecutor:
         self._on_trade_executed: Optional[Callable[[PaperTrade], None]] = None
         
         self._init_db()
-        logger.info(f"📊 PaperTradingExecutor initialisé (capital: {initial_capital}€, fees: {fee_rate:.2%})")
+        logger.info(
+            "PaperTradingExecutor initialised (capital=%.2f EUR, maker=%.2fbps, taker=%.2fbps, maker_realism=%s)",
+            initial_capital,
+            self.maker_fee_rate * 10000.0,
+            self.taker_fee_rate * 10000.0,
+            self.maker_realism_enabled,
+        )
     
     def _init_db(self):
         """Crée la table trades si elle n'existe pas."""
@@ -117,9 +145,16 @@ class PaperTradingExecutor:
                     timestamp TEXT,
                     status TEXT,
                     userref INTEGER,
+                    liquidity TEXT DEFAULT 'unknown',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(trades)").fetchall()
+            }
+            if "liquidity" not in columns:
+                conn.execute("ALTER TABLE trades ADD COLUMN liquidity TEXT DEFAULT 'unknown'")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)
             """)
@@ -135,6 +170,18 @@ class PaperTradingExecutor:
     def set_on_trade_callback(self, callback: Callable[[PaperTrade], None]):
         """Callback appelé quand un trade est exécuté."""
         self._on_trade_executed = callback
+
+    def set_microstructure_provider(self, provider: Callable[[str], Any]) -> None:
+        """Attach a callable returning order-book microstructure snapshots."""
+        self._microstructure_provider = provider
+
+    def _fee_rate_for_liquidity(self, liquidity: str) -> float:
+        normalized = str(liquidity or "unknown").lower()
+        if normalized == "maker":
+            return self.maker_fee_rate
+        if normalized == "taker":
+            return self.taker_fee_rate
+        return self.fee_rate
 
     @staticmethod
     def _asset_for_symbol(symbol: str) -> str:
@@ -267,6 +314,7 @@ class PaperTradingExecutor:
             "status": "closed" if status == "filled" else status,
             "opentm": self._timestamp_to_epoch(row[7]),
             "userref": row[9],
+            "liquidity": row[10] if len(row) > 10 else "unknown",
         }
     
     # ------------------------------------------------------------------
@@ -311,9 +359,9 @@ class PaperTradingExecutor:
                 },
             )
         
-        # Calcule les frais
         notional = volume * price
-        fees = notional * self.fee_rate
+        liquidity = "taker"
+        fees = notional * self._fee_rate_for_liquidity(liquidity)
         
         # Crée le trade
         trade = PaperTrade(
@@ -327,6 +375,7 @@ class PaperTradingExecutor:
             timestamp=datetime.now(timezone.utc).isoformat(),
             status="filled",
             userref=userref,
+            liquidity=liquidity,
         )
         
         # Persiste
@@ -348,6 +397,7 @@ class PaperTradingExecutor:
             executed_volume=volume,
             executed_price=price,
             fees=fees,
+            liquidity=liquidity,
             raw_response={**trade.to_dict(), "price_source": price_source},
         )
 
@@ -379,19 +429,37 @@ class PaperTradingExecutor:
         if limit_price <= 0:
             return OrderResult(success=False, error="Prix limite doit être > 0")
 
-        notional = volume * limit_price
-        fees = notional * self.fee_rate
+        fill_decision = self._paper_limit_fill_decision(
+            symbol=symbol,
+            side=side,
+            volume=volume,
+            limit_price=limit_price,
+            post_only=post_only,
+        )
+        if not fill_decision["filled"]:
+            return OrderResult(
+                success=False,
+                error=str(fill_decision["reason"]),
+                liquidity="maker" if post_only else "unknown",
+                raw_response=fill_decision,
+            )
+
+        execution_price = float(fill_decision.get("executed_price") or limit_price)
+        liquidity = str(fill_decision.get("liquidity") or ("maker" if post_only else "unknown"))
+        notional = volume * execution_price
+        fees = notional * self._fee_rate_for_liquidity(liquidity)
         trade = PaperTrade(
             id=str(uuid.uuid4()),
             txid=f"PAPER_LMT_{uuid.uuid4().hex[:16]}",
             symbol=symbol,
             side=side.value,
             volume=volume,
-            price=limit_price,
+            price=execution_price,
             fees=fees,
             timestamp=datetime.now(timezone.utc).isoformat(),
             status="filled",
             userref=userref,
+            liquidity=liquidity,
         )
 
         async with self._lock:
@@ -407,10 +475,10 @@ class PaperTradingExecutor:
             success=True,
             txid=trade.txid,
             executed_volume=volume,
-            executed_price=limit_price,
+            executed_price=execution_price,
             fees=fees,
-            liquidity="maker" if post_only else "unknown",
-            raw_response=trade.to_dict(),
+            liquidity=liquidity,
+            raw_response={**trade.to_dict(), "paper_fill_decision": fill_decision},
         )
     
     async def execute_stop_loss_order(
@@ -503,17 +571,153 @@ class PaperTradingExecutor:
 
         return None, "unavailable"
 
+    def _get_microstructure_snapshot(self, symbol: str) -> dict[str, Any]:
+        provider = self._microstructure_provider
+        if provider is None:
+            return {"symbol": self._normalize_symbol(symbol), "has_book": False, "reason": "provider_unavailable"}
+        for candidate in dict.fromkeys([symbol, self._ws_symbol_for_symbol(symbol), self._normalize_symbol(symbol)]):
+            try:
+                snapshot = provider(candidate)
+            except Exception as exc:
+                logger.debug("Paper microstructure provider failed for %s: %s", candidate, exc)
+                continue
+            if snapshot is None:
+                continue
+            if hasattr(snapshot, "to_dict"):
+                snapshot = snapshot.to_dict()
+            if isinstance(snapshot, dict):
+                return dict(snapshot)
+        return {"symbol": self._normalize_symbol(symbol), "has_book": False, "reason": "snapshot_unavailable"}
+
+    def _paper_limit_fill_decision(
+        self,
+        *,
+        symbol: str,
+        side: OrderSide,
+        volume: float,
+        limit_price: float,
+        post_only: bool,
+    ) -> dict[str, Any]:
+        """Conservative immediate-fill simulation for paper post-only orders."""
+        if not post_only or not self.maker_realism_enabled:
+            return {
+                "filled": True,
+                "reason": "legacy_limit_fill" if not post_only else "maker_realism_disabled",
+                "executed_price": float(limit_price),
+                "liquidity": "maker" if post_only else "unknown",
+            }
+
+        snapshot = self._get_microstructure_snapshot(symbol)
+        snapshot["symbol"] = snapshot.get("symbol") or self._normalize_symbol(symbol)
+        if not snapshot.get("has_book"):
+            if self.maker_require_book:
+                return {
+                    "filled": False,
+                    "reason": "paper_maker_book_unavailable",
+                    "executed_price": 0.0,
+                    "liquidity": "maker",
+                    "microstructure": snapshot,
+                }
+            return {
+                "filled": True,
+                "reason": "maker_book_optional",
+                "executed_price": float(limit_price),
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+
+        bid = float(snapshot.get("bid") or 0.0)
+        ask = float(snapshot.get("ask") or 0.0)
+        spread_bps = float(snapshot.get("spread_bps") or 0.0)
+        side_value = side.value if isinstance(side, OrderSide) else str(side)
+        if bid <= 0.0 or ask <= 0.0 or bid >= ask:
+            return {
+                "filled": False,
+                "reason": "paper_maker_invalid_book",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        if side_value == "buy" and limit_price >= ask:
+            return {
+                "filled": False,
+                "reason": "paper_post_only_would_take_liquidity",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        if side_value == "sell" and limit_price <= bid:
+            return {
+                "filled": False,
+                "reason": "paper_post_only_would_take_liquidity",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        if spread_bps > self.maker_max_spread_bps:
+            return {
+                "filled": False,
+                "reason": "paper_maker_spread_too_wide",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+
+        notional = max(0.0, float(volume) * float(limit_price))
+        if side_value == "buy":
+            depth = float(snapshot.get("bid_depth_eur") or 0.0)
+            risk = float(snapshot.get("buy_adverse_selection_risk") or snapshot.get("adverse_selection_risk") or 0.0)
+            reference = bid
+            too_far = limit_price < reference * (1.0 - self.maker_touch_bps / 10000.0)
+        else:
+            depth = float(snapshot.get("ask_depth_eur") or 0.0)
+            risk = float(snapshot.get("sell_adverse_selection_risk") or snapshot.get("adverse_selection_risk") or 0.0)
+            reference = ask
+            too_far = limit_price > reference * (1.0 + self.maker_touch_bps / 10000.0)
+
+        if depth < max(self.maker_min_depth_eur, notional):
+            return {
+                "filled": False,
+                "reason": "paper_maker_depth_insufficient",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        if risk > self.maker_max_adverse_risk:
+            return {
+                "filled": False,
+                "reason": "paper_maker_adverse_selection",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        if too_far:
+            return {
+                "filled": False,
+                "reason": "paper_maker_not_touched",
+                "executed_price": 0.0,
+                "liquidity": "maker",
+                "microstructure": snapshot,
+            }
+        return {
+            "filled": True,
+            "reason": "paper_maker_touch_fill",
+            "executed_price": float(limit_price),
+            "liquidity": "maker",
+            "microstructure": snapshot,
+        }
+
     def _save_trade(self, trade: PaperTrade):
         """Sauvegarde un trade dans SQLite."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO trades 
-                (id, txid, symbol, side, volume, price, fees, timestamp, status, userref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, txid, symbol, side, volume, price, fees, timestamp, status, userref, liquidity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade.id, trade.txid, trade.symbol, trade.side,
                 trade.volume, trade.price, trade.fees, trade.timestamp,
-                trade.status, trade.userref
+                trade.status, trade.userref, trade.liquidity
             ))
             conn.commit()
     
@@ -752,6 +956,15 @@ class PaperTradingExecutor:
             ).fetchone()[0] or 0.0
             
             pf = gross_profit / gross_loss if gross_loss > 0 else 0.0
+            liquidity_rows = conn.execute(
+                """
+                SELECT COALESCE(liquidity, 'unknown'), COUNT(*)
+                FROM trades
+                WHERE status = 'filled'
+                GROUP BY COALESCE(liquidity, 'unknown')
+                """
+            ).fetchall()
+            liquidity_counts = {str(row[0] or "unknown"): int(row[1] or 0) for row in liquidity_rows}
             
             return {
                 "total_trades": total,
@@ -761,6 +974,12 @@ class PaperTradingExecutor:
                 "total_fees_eur": conn.execute("SELECT SUM(fees) FROM trades").fetchone()[0] or 0.0,
                 "estimated_pnl_eur": pnl,
                 "profit_factor": pf,
+                "maker_trades": liquidity_counts.get("maker", 0),
+                "taker_trades": liquidity_counts.get("taker", 0),
+                "unknown_liquidity_trades": liquidity_counts.get("unknown", 0),
+                "maker_fee_bps": self.maker_fee_rate * 10000.0,
+                "taker_fee_bps": self.taker_fee_rate * 10000.0,
+                "maker_realism_enabled": self.maker_realism_enabled,
                 "db_path": str(self.db_path),
             }
     

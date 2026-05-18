@@ -114,6 +114,30 @@ class SignalHandlerAsync:
             "MAX_EXPECTED_SLIPPAGE_BPS",
             22.0,
         )
+        self._microstructure_guard_enabled = self._load_bool(
+            "microstructure_guard_enabled",
+            "MICROSTRUCTURE_GUARD_ENABLED",
+            True,
+        )
+        self._microstructure_max_adverse_risk = self._load_float_in_range(
+            "microstructure_max_adverse_risk",
+            "MICROSTRUCTURE_MAX_ADVERSE_RISK",
+            0.62,
+            minimum=0.0,
+            maximum=1.0,
+        )
+        self._microstructure_min_depth_eur = self._load_float_in_range(
+            "microstructure_min_depth_eur",
+            "MICROSTRUCTURE_MIN_DEPTH_EUR",
+            35.0,
+            minimum=0.0,
+            maximum=1_000_000.0,
+        )
+        self._microstructure_max_book_age_ms = self._load_positive_float(
+            "microstructure_max_book_age_ms",
+            "MICROSTRUCTURE_MAX_BOOK_AGE_MS",
+            5000.0,
+        )
         self._min_edge_bps = self._load_positive_float("min_edge_bps", "MIN_EDGE_BPS", 12.0)
         self._base_min_edge_bps = self._min_edge_bps
         self._edge_percentile_target = self._load_float_in_range(
@@ -395,6 +419,15 @@ class SignalHandlerAsync:
         if asyncio.iscoroutine(value) or isinstance(value, asyncio.Future):
             return await value
         return value
+
+    def _load_bool(self, config_key: str, env_key: str, default: bool) -> bool:
+        candidate = getattr(getattr(self.instance, "config", None), config_key, default)
+        env_value = os.getenv(env_key)
+        if env_value is not None and str(env_value).strip() != "":
+            candidate = env_value
+        if isinstance(candidate, bool):
+            return candidate
+        return str(candidate).strip().lower() in {"1", "true", "yes", "on"}
 
     def _load_positive_float(self, config_key: str, env_key: str, default: float) -> float:
         """Read config then env value and fallback to default on invalid input."""
@@ -1740,7 +1773,10 @@ class SignalHandlerAsync:
     ) -> dict[str, float]:
         metadata = signal.metadata or {}
         symbol = self._convert_symbol(signal.symbol)
+        micro = self._microstructure_snapshot(signal.symbol)
         spread_bps = float(metadata.get("spread_bps", 0.0))
+        if spread_bps <= 0.0 and micro.get("has_book"):
+            spread_bps = float(micro.get("spread_bps", 0.0))
         params = risk_params or self._resolve_dynamic_risk_params(signal, atr_pct)
         observed = self._load_recent_execution_costs(symbol)
         fee_samples = [s["fee_bps"] for s in observed]
@@ -1779,6 +1815,10 @@ class SignalHandlerAsync:
             "gross_required_bps": gross_required_bps,
             "edge_shortfall_bps": max(0.0, gross_required_bps - expected_move_bps),
             "observed_samples": float(len(observed)),
+            "microstructure_spread_bps": float(micro.get("spread_bps", 0.0)),
+            "microstructure_ofi_score": float(micro.get("ofi_score", 0.0)),
+            "microstructure_adverse_risk": float(micro.get("adverse_selection_risk", 0.0)),
+            "microstructure_book_age_ms": float(micro.get("age_ms", 0.0)),
         }
 
     def _passes_cost_guard(
@@ -1852,6 +1892,21 @@ class SignalHandlerAsync:
                 baseline = max(baseline, sum(moves) / len(moves))
         return max(0.25, min(4.0, atr_pct / max(baseline, 1e-8)))
 
+    def _microstructure_snapshot(self, symbol: str) -> dict[str, Any]:
+        try:
+            orchestrator = getattr(self.instance, "orchestrator", None)
+            ofi = getattr(orchestrator, "ofi", None)
+            if ofi is None or not hasattr(ofi, "get_snapshot"):
+                return {"has_book": False, "reason": "ofi_unavailable"}
+            snapshot = ofi.get_snapshot(symbol)
+            if hasattr(snapshot, "to_dict"):
+                return snapshot.to_dict()
+            if isinstance(snapshot, dict):
+                return dict(snapshot)
+        except Exception as exc:
+            logger.debug("Microstructure snapshot unavailable for %s: %s", symbol, exc)
+        return {"has_book": False, "reason": "snapshot_error"}
+
     def _passes_microstructure_hard_filter(self, signal: TradingSignal) -> bool:
         """Hard gate before _execute_buy to reject poor microstructure setups."""
         metadata = signal.metadata or {}
@@ -1860,6 +1915,9 @@ class SignalHandlerAsync:
         spread_bps = self._resolve_spread_bps(metadata, market_metrics)
         latency_ms = self._resolve_signal_latency_ms(signal, metadata)
         expected_slippage_bps = self._resolve_expected_slippage_bps(metadata, spread_bps, market_metrics)
+        micro = self._microstructure_snapshot(signal.symbol)
+        if micro.get("has_book"):
+            spread_bps = max(spread_bps, self._safe_float(micro.get("spread_bps"), spread_bps))
 
         rejection_reasons: list[str] = []
         if spread_bps > self._max_spread_bps:
@@ -1889,6 +1947,25 @@ class SignalHandlerAsync:
                 "expected_slippage_bps="
                 f"{expected_slippage_bps:.2f} > max_expected_slippage_bps={self._max_expected_slippage_bps:.2f}"
             )
+        if self._microstructure_guard_enabled and micro.get("has_book"):
+            side = "buy" if signal.type == SignalType.BUY else "sell"
+            risk_key = "buy_adverse_selection_risk" if side == "buy" else "sell_adverse_selection_risk"
+            adverse_risk = self._safe_float(micro.get(risk_key), self._safe_float(micro.get("adverse_selection_risk"), 0.0))
+            depth_key = "bid_depth_eur" if side == "buy" else "ask_depth_eur"
+            depth_eur = self._safe_float(micro.get(depth_key), 0.0)
+            age_ms = self._safe_float(micro.get("age_ms"), 0.0)
+            if age_ms > self._microstructure_max_book_age_ms:
+                rejection_reasons.append(
+                    f"book_age_ms={age_ms:.0f} > max_book_age_ms={self._microstructure_max_book_age_ms:.0f}"
+                )
+            if adverse_risk > self._microstructure_max_adverse_risk:
+                rejection_reasons.append(
+                    f"adverse_selection_risk={adverse_risk:.2f} > max={self._microstructure_max_adverse_risk:.2f}"
+                )
+            if depth_eur < self._microstructure_min_depth_eur:
+                rejection_reasons.append(
+                    f"book_depth_eur={depth_eur:.2f} < min_depth_eur={self._microstructure_min_depth_eur:.2f}"
+                )
 
         if not rejection_reasons:
             return True
@@ -1900,10 +1977,14 @@ class SignalHandlerAsync:
             "spread_bps": spread_bps,
             "signal_latency_ms": latency_ms,
             "expected_slippage_bps": expected_slippage_bps,
+            "microstructure": micro,
             "thresholds": {
                 "max_spread_bps": self._max_spread_bps,
                 "max_signal_latency_ms": self._max_signal_latency_ms,
                 "max_expected_slippage_bps": self._max_expected_slippage_bps,
+                "max_adverse_selection_risk": self._microstructure_max_adverse_risk,
+                "min_depth_eur": self._microstructure_min_depth_eur,
+                "max_book_age_ms": self._microstructure_max_book_age_ms,
             },
         }
         if market_metrics is not None:
@@ -2023,10 +2104,23 @@ class SignalHandlerAsync:
         
         prefer_limit = (low_urgency and has_edge and rec.get("order_type") == "limit") or force_maker
         if prefer_limit:
-            # Use provided limit price or current signal price
             price = float(metadata.get("limit_price") or signal.price)
+            micro = self._microstructure_snapshot(signal.symbol)
+            if micro.get("has_book"):
+                bid = self._safe_float(micro.get("bid"), 0.0)
+                ask = self._safe_float(micro.get("ask"), 0.0)
+                if signal.type == SignalType.BUY and bid > 0.0:
+                    price = min(price, bid)
+                elif signal.type == SignalType.SELL and ask > 0.0:
+                    price = max(price, ask)
             reason = "force_maker_only_enabled" if force_maker else rec.get("reason", "low_urgency_edge")
-            return {"order_type": "limit", "post_only": True, "price": price, "reason": reason}
+            return {
+                "order_type": "limit",
+                "post_only": True,
+                "price": price,
+                "reason": reason,
+                "microstructure": micro,
+            }
             
         return {"order_type": "market", "post_only": False, "price": signal.price, "reason": rec.get("reason", "market_fallback")}
 
