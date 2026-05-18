@@ -64,6 +64,7 @@ class KrakenWebSocketAsync:
         # Cache
         self._last_prices: Dict[str, TickerData] = {}
         self._subscribed_pairs: Set[str] = set()
+        self._book_subscribed_pairs: Set[str] = set()
 
         # Heartbeat / staleness
         self._last_message_time: float = 0.0
@@ -135,6 +136,8 @@ class KrakenWebSocketAsync:
         # Re-subscribe to previously tracked pairs
         for pair in list(self._subscribed_pairs):
             await self._send_subscribe(pair)
+        for pair in list(self._book_subscribed_pairs):
+            await self._send_subscribe_book(pair)
 
         self._reconnect_backoff = 1.0
         logger.info("✅ WebSocket Kraken connecté (async)")
@@ -298,15 +301,22 @@ class KrakenWebSocketAsync:
         if pair not in self._book_callbacks:
             self._book_callbacks[pair] = []
         self._book_callbacks[pair].append(callback)
+        self._book_subscribed_pairs.add(pair)
         
         if self._ws:
-            msg = orjson.dumps({
-                "event": "subscribe",
-                "pair": [pair],
-                "subscription": {"name": "book", "depth": 10}
-            })
-            await self._ws.send(msg.decode("utf-8"))
-            logger.info(f"📡 Subscription book (OFI): {pair}")
+            await self._send_subscribe_book(pair)
+
+    async def _send_subscribe_book(self, pair: str) -> None:
+        """Send order-book subscribe message over WebSocket."""
+        if not self._ws:
+            return
+        msg = orjson.dumps({
+            "event": "subscribe",
+            "pair": [pair],
+            "subscription": {"name": "book", "depth": 10}
+        })
+        await self._ws.send(msg.decode("utf-8"))
+        logger.info("Subscription book (OFI): %s", pair)
 
     async def unsubscribe_book(self, pair: str, callback: Callable) -> None:
         if pair in self._book_callbacks:
@@ -314,6 +324,9 @@ class KrakenWebSocketAsync:
                 self._book_callbacks[pair].remove(callback)
             except ValueError:
                 pass
+            if not self._book_callbacks[pair]:
+                self._book_callbacks.pop(pair, None)
+                self._book_subscribed_pairs.discard(pair)
 
     # ------------------------------------------------------------------
     # Subscriptions
@@ -447,6 +460,8 @@ class KrakenWebSocketAsync:
             # Re-subscribe
             for pair in list(self._subscribed_pairs):
                 await self._send_subscribe(pair)
+            for pair in list(self._book_subscribed_pairs):
+                await self._send_subscribe_book(pair)
 
             self._reconnect_backoff = 1.0
             self._reconnect_attempts = 0  # ROB-03: reset circuit breaker on success

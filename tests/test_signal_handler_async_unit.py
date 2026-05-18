@@ -499,5 +499,12 @@ def test_build_execution_plan_places_post_only_buy_on_bid():
     assert plan["microstructure"]["has_book"] is True
 
 
+def test_paper_maker_rejections_are_local_validation_not_api_failures():
+    assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_book_unavailable") is True
+    assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_adverse_selection") is True
+    assert SignalHandlerAsync._is_local_order_validation_error("paper_post_only_would_take_liquidity") is True
+    assert SignalHandlerAsync._is_local_order_validation_error("EAPI:Invalid nonce") is False
+
+
 async def _noop_reconcile():
     return None

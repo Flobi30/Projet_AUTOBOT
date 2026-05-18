@@ -243,6 +243,16 @@ class RingBufferDispatcher:
         )
         return reader
 
+    async def subscribe_book(self, pair: str, callback: Callable) -> None:
+        """Subscribe to the Kraken order book for microstructure features."""
+        ws_pair = _convert_to_ws_pair(pair)
+        await self._ws.subscribe_book(ws_pair, callback)
+
+    async def unsubscribe_book(self, pair: str, callback: Callable) -> None:
+        """Remove an order-book callback."""
+        ws_pair = _convert_to_ws_pair(pair)
+        await self._ws.unsubscribe_book(ws_pair, callback)
+
     def unsubscribe(self, instance_id: str) -> None:
         """
         Remove *instance_id*'s reader.

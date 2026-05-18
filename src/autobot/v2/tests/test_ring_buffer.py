@@ -458,6 +458,23 @@ async def test_dispatcher_unsubscribe() -> None:
     assert "inst-x" not in dispatcher._readers
 
 
+@pytest.mark.asyncio
+async def test_dispatcher_subscribe_book_converts_symbol() -> None:
+    """Book subscriptions go through the underlying Kraken WS in WS pair format."""
+    from autobot.v2.ring_buffer_dispatcher import RingBufferDispatcher
+
+    dispatcher = RingBufferDispatcher(buffer_size=16)
+    dispatcher._ws = MagicMock()
+    dispatcher._ws.subscribe_book = AsyncMock()
+
+    async def _book_cb(_pair, _data):
+        return None
+
+    await dispatcher.subscribe_book("TRXEUR", _book_cb)
+
+    dispatcher._ws.subscribe_book.assert_awaited_once_with("TRX/EUR", _book_cb)
+
+
 # ---------------------------------------------------------------------------
 # Performance benchmarks
 # ---------------------------------------------------------------------------

@@ -1059,7 +1059,10 @@ class SignalHandlerAsync:
                 volume=float(volume),
                 error=(result.error or "unknown")[:240],
             )
-            logger.error(f"❌ Échec ordre Kraken: {result.error}")
+            if local_validation_error:
+                logger.info("Ordre rejeté localement: %s", result.error)
+            else:
+                logger.error(f"❌ Échec ordre Kraken: {result.error}")
             await self._maybe_await(self._osm.transition(
                 rec.client_order_id,
                 "REJECTED",
@@ -1523,7 +1526,9 @@ class SignalHandlerAsync:
     @staticmethod
     def _is_local_order_validation_error(error: Optional[str]) -> bool:
         text = str(error or "").lower()
-        return "volume" in text and ("minimum" in text or "min" in text)
+        if "volume" in text and ("minimum" in text or "min" in text):
+            return True
+        return text.startswith("paper_maker_") or text.startswith("paper_post_only_")
 
     def _passes_order_size_guard(
         self,
