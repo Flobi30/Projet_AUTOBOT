@@ -441,6 +441,19 @@ def _get_setup_optimizer(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_setup_shadow_lab(orchestrator: Any) -> Any:
+    from ..setup_shadow_lab import SetupShadowLab
+
+    lab = getattr(orchestrator, "setup_shadow_lab", None)
+    if lab is None:
+        lab = SetupShadowLab()
+        try:
+            setattr(orchestrator, "setup_shadow_lab", lab)
+        except Exception:
+            pass
+    return lab
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -1453,13 +1466,25 @@ async def get_opportunities(
             "instance_count": int(status.get("instance_count", len(instances))),
         }
         try:
+            shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
+                symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+            )
+            shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
             optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
                 instances=instances,
                 opportunities=snapshot.get("opportunities", []),
                 health_by_symbol=health_by_symbol,
+                shadow_by_symbol=shadow_by_symbol,
                 paper_mode=paper_mode,
                 total_capital=total_capital,
             )
+            snapshot["setup_shadow"] = {
+                "enabled": shadow_snapshot.get("enabled"),
+                "summary": shadow_snapshot.get("summary"),
+                "paper_only": shadow_snapshot.get("paper_only"),
+                "live_promotion_allowed": shadow_snapshot.get("live_promotion_allowed"),
+                "top_symbols": shadow_snapshot.get("symbols", [])[:5],
+            }
             snapshot["setup_optimizer"] = {
                 "enabled": optimizer_snapshot.get("enabled"),
                 "summary": optimizer_snapshot.get("summary"),
@@ -1514,13 +1539,25 @@ async def get_setup_optimizer(
             total_capital=total_capital,
             health_by_symbol=health_by_symbol,
         )
+        shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
+            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        )
+        shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
         snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
             instances=instances,
             opportunities=opportunities.get("opportunities", []),
             health_by_symbol=health_by_symbol,
+            shadow_by_symbol=shadow_by_symbol,
             paper_mode=paper_mode,
             total_capital=total_capital,
         )
+        snapshot["setup_shadow"] = {
+            "enabled": shadow_snapshot.get("enabled"),
+            "summary": shadow_snapshot.get("summary"),
+            "paper_only": shadow_snapshot.get("paper_only"),
+            "live_promotion_allowed": shadow_snapshot.get("live_promotion_allowed"),
+            "top_symbols": shadow_snapshot.get("symbols", [])[:5],
+        }
         snapshot["runtime"] = {
             "running": bool(status.get("running")),
             "websocket_connected": bool(status.get("websocket_connected")),
@@ -1539,6 +1576,33 @@ async def get_setup_optimizer(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation setup optimizer")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/setup-shadow")
+async def get_setup_shadow(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Isolated paper shadow runs for setup variants."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
+            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation setup shadow lab")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
@@ -1690,10 +1754,15 @@ async def get_setup_audit(
             for item in opportunities.get("opportunities", [])
             if isinstance(item, dict)
         }
+        shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
+            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        )
+        shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
         optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
             instances=instances,
             opportunities=opportunities.get("opportunities", []),
             health_by_symbol=health_by_symbol,
+            shadow_by_symbol=shadow_by_symbol,
             paper_mode=paper_mode,
             total_capital=total_capital,
         )
@@ -1720,6 +1789,8 @@ async def get_setup_audit(
             health = health_by_symbol.get(key, {})
             optimizer = optimizer_by_symbol.get(key, {})
             selected_variant = optimizer.get("selected_variant") if isinstance(optimizer.get("selected_variant"), dict) else {}
+            shadow = shadow_by_symbol.get(key, {})
+            shadow_best = shadow.get("best_variant") if isinstance(shadow.get("best_variant"), dict) else {}
             closed = int(stats.get("closed_trades") or 0)
             net_pnl = float(stats.get("net_pnl") or 0.0)
             gross_profit = float(stats.get("gross_profit") or 0.0)
@@ -1791,6 +1862,10 @@ async def get_setup_audit(
                 "recommended_variant": selected_variant.get("name"),
                 "recommended_variant_score": selected_variant.get("score"),
                 "recommended_grid_config": selected_variant.get("grid_config"),
+                "shadow_best_variant": shadow_best.get("variant"),
+                "shadow_best_score": shadow_best.get("score"),
+                "shadow_net_pnl_eur": shadow_best.get("net_pnl_eur"),
+                "shadow_closed_trades": shadow_best.get("closed_trades"),
                 "data_source": stats.get("source", paper_perf.get("source", "none") if isinstance(paper_perf, dict) else "none"),
             })
 
@@ -1830,6 +1905,12 @@ async def get_setup_audit(
                 "summary": optimizer_snapshot.get("summary"),
                 "live_promotion_allowed": optimizer_snapshot.get("live_promotion_allowed"),
                 "applies_to_execution": optimizer_snapshot.get("applies_to_execution"),
+            },
+            "setup_shadow": {
+                "enabled": shadow_snapshot.get("enabled"),
+                "summary": shadow_snapshot.get("summary"),
+                "paper_only": shadow_snapshot.get("paper_only"),
+                "live_promotion_allowed": shadow_snapshot.get("live_promotion_allowed"),
             },
             "message": "Audit de setups paper. Une ligne negative signifie setup non valide dans ce regime, pas paire bannie.",
         }

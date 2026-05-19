@@ -1913,6 +1913,7 @@ class OrchestratorAsync:
             self._loop_metrics["process_cycle_ms"] = (perf_counter() - t0) * 1000.0
             return
         self._update_pair_risk_state(inst)
+        self._update_setup_shadow_lab(inst)
 
         risk_blocked = await self._run_black_swan_guard(inst)
         if risk_blocked:
@@ -1979,6 +1980,28 @@ class OrchestratorAsync:
         self._loop_metrics["process_cycle_ms"] = (perf_counter() - t0) * 1000.0
         if not self.safety_guard.check_performance_budget(self._loop_metrics["process_cycle_ms"]):
             self._activate_emergency_mode("cycle budget exceeded")
+
+    def _update_setup_shadow_lab(self, inst: TradingInstanceAsync) -> None:
+        """Feed observed prices to the isolated setup shadow lab."""
+        try:
+            lab = getattr(self, "setup_shadow_lab", None)
+            if lab is None:
+                from .setup_shadow_lab import SetupShadowLab
+
+                lab = SetupShadowLab()
+                setattr(self, "setup_shadow_lab", lab)
+            if not getattr(lab.config, "enabled", True):
+                return
+            if not self.paper_mode and not getattr(lab.config, "continue_in_live", True):
+                return
+            price = getattr(inst, "_last_price", None)
+            if price is None:
+                return
+            symbol = str(getattr(inst.config, "symbol", "") or "")
+            timestamp = getattr(inst, "_last_price_at", None)
+            lab.on_price_tick(symbol=symbol, price=float(price), timestamp=timestamp)
+        except Exception as exc:
+            logger.debug("Setup shadow lab update skipped for %s: %s", getattr(inst, "id", "?"), exc)
 
     def _journal_major_decision(
         self,

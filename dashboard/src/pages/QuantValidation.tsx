@@ -100,6 +100,10 @@ type SetupAuditRow = {
   optimizer_action?: string | null;
   recommended_variant?: string | null;
   recommended_variant_score?: number | null;
+  shadow_best_variant?: string | null;
+  shadow_best_score?: number | null;
+  shadow_net_pnl_eur?: number | null;
+  shadow_closed_trades?: number | null;
 };
 
 type SetupAuditResponse = {
@@ -135,6 +139,14 @@ type SetupOptimizerVariant = {
     entry_touch_bps?: number;
     estimated_sell_threshold_pct?: number;
   };
+  shadow_metrics?: {
+    evidence_source?: string;
+    status?: string;
+    score?: number;
+    net_pnl_eur?: number;
+    closed_trades?: number;
+    [key: string]: unknown;
+  };
 };
 
 type SetupOptimizerRow = {
@@ -169,6 +181,19 @@ type SetupOptimizerResponse = {
     weak_or_adjust_setups: number;
   };
   setups: SetupOptimizerRow[];
+  setup_shadow?: {
+    enabled: boolean;
+    paper_only: boolean;
+    live_promotion_allowed: boolean;
+    summary: {
+      symbols: number;
+      variant_states: number;
+      open_shadow_positions: number;
+      closed_shadow_trades: number;
+      net_shadow_pnl_eur: number;
+      candidate_symbols: number;
+    };
+  };
   message: string;
 };
 
@@ -259,6 +284,7 @@ const QuantValidation: React.FC = () => {
   const volatilityRows = data?.volatility.symbols ?? [];
   const setupRows = setupAudit?.setups ?? [];
   const optimizerRows = setupOptimizer?.setups ?? [];
+  const shadowSummary = setupOptimizer?.setup_shadow?.summary;
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -359,7 +385,9 @@ const QuantValidation: React.FC = () => {
                       <td className="py-2 pl-4">
                         <div className={`font-semibold ${stateClass(row.verdict)}`}>{row.verdict}</div>
                         <div className="text-xs text-gray-500">
-                          {row.recommended_variant ? `${row.recommended_variant} (${row.recommended_variant_score?.toFixed(1) ?? 'score ?'})` : row.root_causes.slice(0, 2).join(', ') || row.recommended_action}
+                          {row.shadow_best_variant
+                            ? `Shadow: ${row.shadow_best_variant} (${row.shadow_best_score?.toFixed(1) ?? 'score ?'}, ${formatCurrency(row.shadow_net_pnl_eur ?? undefined)})`
+                            : row.recommended_variant ? `${row.recommended_variant} (${row.recommended_variant_score?.toFixed(1) ?? 'score ?'})` : row.root_causes.slice(0, 2).join(', ') || row.recommended_action}
                         </div>
                       </td>
                     </tr>
@@ -399,8 +427,18 @@ const QuantValidation: React.FC = () => {
               <div className="text-amber-400 font-semibold">{setupOptimizer.summary.weak_or_adjust_setups}</div>
             </div>
             <div className="bg-gray-900/50 rounded-lg p-3">
-              <div className="text-gray-400">Impact execution</div>
-              <div className="text-white font-semibold">{setupOptimizer.applies_to_execution ? 'Paper actif' : 'Observation'}</div>
+              <div className="text-gray-400">Shadow trades</div>
+              <div className="text-white font-semibold">{shadowSummary?.closed_shadow_trades ?? 0}</div>
+            </div>
+          </div>
+          <div className="mb-4 border border-gray-700/70 bg-gray-900/30 rounded-lg p-3 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <span className="text-gray-300">
+                Shadow lab: {shadowSummary?.variant_states ?? 0} variantes isolees, {shadowSummary?.open_shadow_positions ?? 0} positions virtuelles ouvertes.
+              </span>
+              <span className={(shadowSummary?.net_shadow_pnl_eur ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                PnL shadow {formatCurrency(shadowSummary?.net_shadow_pnl_eur)}
+              </span>
             </div>
           </div>
           {optimizerRows.length ? (
@@ -413,7 +451,7 @@ const QuantValidation: React.FC = () => {
                     <th className="text-left py-2">Variante choisie</th>
                     <th className="text-right py-2">Score</th>
                     <th className="text-right py-2">Range</th>
-                    <th className="text-right py-2">Edge estime</th>
+                    <th className="text-right py-2">Shadow</th>
                     <th className="text-left py-2 pl-4">Action</th>
                   </tr>
                 </thead>
@@ -428,7 +466,9 @@ const QuantValidation: React.FC = () => {
                         {typeof row.selected_variant?.grid_config.range_percent === 'number' ? `${row.selected_variant.grid_config.range_percent.toFixed(2)}%` : 'En attente'}
                       </td>
                       <td className="py-2 text-right text-gray-300">
-                        {typeof row.selected_variant?.estimated_grid_gross_edge_bps === 'number' ? `${row.selected_variant.estimated_grid_gross_edge_bps.toFixed(0)} bps` : 'En attente'}
+                        {typeof row.selected_variant?.shadow_metrics?.closed_trades === 'number'
+                          ? `${row.selected_variant.shadow_metrics.closed_trades} / ${formatCurrency(row.selected_variant.shadow_metrics.net_pnl_eur)}`
+                          : 'En attente'}
                       </td>
                       <td className="py-2 pl-4">
                         <div className={`font-semibold ${stateClass(row.status)}`}>{row.status}</div>

@@ -183,6 +183,7 @@ class VariantScore:
     estimated_grid_gross_edge_bps: float
     estimated_net_after_cost_bps: Optional[float]
     components: dict[str, float] = field(default_factory=dict)
+    shadow_metrics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,6 +200,7 @@ class VariantScore:
                 else None
             ),
             "components": {key: round(value, 3) for key, value in self.components.items()},
+            "shadow_metrics": dict(self.shadow_metrics),
         }
 
 
@@ -246,6 +248,7 @@ class PairSetupOptimizer:
         instances: Iterable[Mapping[str, Any]],
         opportunities: Iterable[Mapping[str, Any]],
         health_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
+        shadow_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
         paper_mode: bool,
         total_capital: float = 0.0,
     ) -> dict[str, Any]:
@@ -264,6 +267,7 @@ class PairSetupOptimizer:
             if isinstance(opp, Mapping)
         }
         health_by_symbol = health_by_symbol or {}
+        shadow_by_symbol = shadow_by_symbol or {}
 
         plans = [
             self.analyze_symbol(
@@ -271,6 +275,7 @@ class PairSetupOptimizer:
                 instances=group,
                 opportunity=opp_by_symbol.get(symbol, {}),
                 health=health_by_symbol.get(symbol, {}),
+                shadow=shadow_by_symbol.get(symbol, {}),
                 paper_mode=paper_mode,
             )
             for symbol, group in sorted(instance_groups.items())
@@ -315,6 +320,7 @@ class PairSetupOptimizer:
         instances: Iterable[Mapping[str, Any]],
         opportunity: Mapping[str, Any],
         health: Mapping[str, Any],
+        shadow: Mapping[str, Any] | None = None,
         paper_mode: bool,
     ) -> SymbolSetupPlan:
         symbol = symbol_key(symbol)
@@ -331,6 +337,13 @@ class PairSetupOptimizer:
         pf_value = _safe_float(pf, 0.0) if pf is not None else None
         net_pnl = _safe_float(health.get("net_pnl_eur"), 0.0)
         health_status = str(health.get("status") or "unknown").lower()
+        shadow = shadow if isinstance(shadow, Mapping) else {}
+        shadow_variants = {
+            str(item.get("variant") or item.get("name") or ""): item
+            for item in shadow.get("variants", [])
+            if isinstance(item, Mapping)
+        }
+        shadow_best = shadow.get("best_variant") if isinstance(shadow.get("best_variant"), Mapping) else {}
 
         variant_scores = [
             self._score_variant(
@@ -343,6 +356,7 @@ class PairSetupOptimizer:
                 profit_factor=pf_value,
                 net_pnl_eur=net_pnl,
                 health_status=health_status,
+                shadow_metrics=shadow_variants.get(variant.name, {}),
             )
             for variant in self.variants[: self.config.max_variants_per_symbol]
         ]
@@ -366,6 +380,10 @@ class PairSetupOptimizer:
             "opportunity_score": round(opp_score, 2),
             "opportunity_reason": opportunity.get("reason"),
             "opportunity_status": opportunity.get("status"),
+            "shadow_best_variant": shadow_best.get("variant"),
+            "shadow_best_score": shadow_best.get("score"),
+            "shadow_closed_trades": shadow_best.get("closed_trades"),
+            "shadow_net_pnl_eur": shadow_best.get("net_pnl_eur"),
         }
         current_context = {
             "profile_source": "explicit_registry" if self.registry.has(symbol) else "fallback_profile",
@@ -407,11 +425,14 @@ class PairSetupOptimizer:
         profit_factor: Optional[float],
         net_pnl_eur: float,
         health_status: str,
+        shadow_metrics: Mapping[str, Any] | None = None,
     ) -> VariantScore:
         grid_config, grid_edge = self._grid_config_for_variant(profile, variant)
         estimated_net = grid_edge - cost_bps if cost_bps is not None else None
         regime_fit = self._regime_fit(variant.name, regime)
         health_fit = self._health_fit(variant.name, health_status, closed_trades, profit_factor, net_pnl_eur)
+        shadow_metrics = shadow_metrics if isinstance(shadow_metrics, Mapping) else {}
+        shadow_fit = self._shadow_fit(shadow_metrics)
         opportunity_fit = (opportunity_score - 50.0) * 0.22
         edge_fit = 0.0
         if estimated_net is not None:
@@ -427,9 +448,22 @@ class PairSetupOptimizer:
         elif profit_factor is not None and profit_factor < 1.0:
             evidence_fit = -8.0
 
-        raw_score = 50.0 + regime_fit + health_fit + opportunity_fit + edge_fit + evidence_fit
+        raw_score = 50.0 + regime_fit + health_fit + shadow_fit + opportunity_fit + edge_fit + evidence_fit
         score = _clamp(raw_score)
-        if closed_trades < self.config.min_closed_trades:
+        shadow_closed = _safe_int(shadow_metrics.get("closed_trades"), 0)
+        shadow_status = str(shadow_metrics.get("status") or "").lower()
+        shadow_pf_raw = shadow_metrics.get("profit_factor")
+        shadow_pf = _safe_float(shadow_pf_raw, 0.0) if shadow_pf_raw is not None else None
+        shadow_net = _safe_float(shadow_metrics.get("net_pnl_eur"), 0.0)
+        if (
+            shadow_status == "candidate"
+            and shadow_closed >= max(1, min(self.config.min_closed_trades, 12))
+            and shadow_net > 0.0
+            and (shadow_pf is None or shadow_pf >= max(1.0, self.config.candidate_profit_factor * 0.90))
+        ):
+            status = "candidate"
+            reason = "shadow_variant_positive"
+        elif closed_trades < self.config.min_closed_trades:
             status = "learning"
             reason = "not_enough_closed_trades"
         elif score >= self.config.candidate_score and (profit_factor or 0.0) >= self.config.candidate_profit_factor and net_pnl_eur >= self.config.min_net_pnl_eur:
@@ -460,8 +494,30 @@ class PairSetupOptimizer:
                 "opportunity_fit": opportunity_fit,
                 "edge_fit": edge_fit,
                 "evidence_fit": evidence_fit,
+                "shadow_fit": shadow_fit,
             },
+            shadow_metrics=dict(shadow_metrics),
         )
+
+    @staticmethod
+    def _shadow_fit(shadow_metrics: Mapping[str, Any]) -> float:
+        if not shadow_metrics:
+            return 0.0
+        closed = _safe_int(shadow_metrics.get("closed_trades"), 0)
+        samples = _safe_int(shadow_metrics.get("sample_count"), 0)
+        if closed <= 0 and samples < 20:
+            return 0.0
+        score = _safe_float(shadow_metrics.get("score"), 50.0)
+        net_pnl = _safe_float(shadow_metrics.get("net_pnl_eur"), 0.0)
+        status = str(shadow_metrics.get("status") or "").lower()
+        fit = (score - 50.0) * 0.30
+        if status == "candidate" and net_pnl > 0.0:
+            fit += 8.0
+        elif status == "weak":
+            fit -= 8.0
+        elif net_pnl < 0.0 and closed >= 3:
+            fit -= 4.0
+        return _clamp(fit, -18.0, 18.0)
 
     def _grid_config_for_variant(self, profile: PairProfile, variant: SetupVariant) -> tuple[dict[str, Any], float]:
         range_mult = _clamp(
@@ -586,6 +642,16 @@ class PairSetupOptimizer:
             return "observe_only", "live_mode_no_optimizer_action"
         if selected is None:
             return "unknown", "no_variant_available"
+        shadow = selected.shadow_metrics if isinstance(selected.shadow_metrics, Mapping) else {}
+        shadow_candidate = (
+            str(shadow.get("status") or "").lower() == "candidate"
+            and _safe_int(shadow.get("closed_trades"), 0) >= max(1, min(self.config.min_closed_trades, 12))
+            and _safe_float(shadow.get("net_pnl_eur"), 0.0) > 0.0
+        )
+        if shadow_candidate and health_status in {"weak", "underperforming", "early_weak"}:
+            return "adjust", "paper_shadow_variant_outperforms_current_setup"
+        if shadow_candidate:
+            return "candidate", "paper_shadow_candidate_review"
         if closed_trades < self.config.min_closed_trades:
             return "learning", "continue_paper_shadow_until_min_sample"
         if health_status in {"weak", "underperforming"} and (profit_factor or 0.0) < 1.0:

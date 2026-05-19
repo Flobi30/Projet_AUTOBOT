@@ -283,8 +283,9 @@ def test_live_allocation_does_not_floor_to_paper_min_order():
     assert result.allocation_reason == "raw_order_below_min_order"
 
 
-def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
+def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
     client = TestClient(dashboard.app)
 
@@ -302,10 +303,12 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     assert "BTCEUR" in {item["symbol"] for item in body["opportunities"]}
     assert body["setup_optimizer"]["live_promotion_allowed"] is False
     assert body["setup_optimizer"]["summary"]["symbols"] == 2
+    assert body["setup_shadow"]["paper_only"] is True
 
 
-def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch):
+def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     dashboard.app.state.orchestrator = _LargePaperWalletOrchestrator()
     client = TestClient(dashboard.app)
 
@@ -332,8 +335,9 @@ def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
     assert all("entropy_norm" in item for item in body["symbols"])
 
 
-def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch):
+def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
     client = TestClient(dashboard.app)
 
@@ -348,6 +352,23 @@ def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch):
     assert "ETHEUR" in rows
     assert rows["ETHEUR"]["selected_variant"]["name"].startswith("grid_")
     assert rows["ETHEUR"]["execution_policy"]["paper_only"] is True
+    assert body["setup_shadow"]["paper_only"] is True
+
+
+def test_setup_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/setup-shadow", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper_shadow"
+    assert body["paper_only"] is True
+    assert body["live_promotion_allowed"] is False
+    assert body["writes_official_paper_ledger"] is False
 
 
 def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp_path):
