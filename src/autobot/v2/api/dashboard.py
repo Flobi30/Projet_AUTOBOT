@@ -428,6 +428,19 @@ def _get_pair_strategy_health_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_setup_optimizer(orchestrator: Any) -> Any:
+    from ..setup_optimizer import PairSetupOptimizer
+
+    engine = getattr(orchestrator, "setup_optimizer", None)
+    if engine is None:
+        engine = PairSetupOptimizer()
+        try:
+            setattr(orchestrator, "setup_optimizer", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -1439,9 +1452,93 @@ async def get_opportunities(
             "websocket_connected": bool(status.get("websocket_connected")),
             "instance_count": int(status.get("instance_count", len(instances))),
         }
+        try:
+            optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
+                instances=instances,
+                opportunities=snapshot.get("opportunities", []),
+                health_by_symbol=health_by_symbol,
+                paper_mode=paper_mode,
+                total_capital=total_capital,
+            )
+            snapshot["setup_optimizer"] = {
+                "enabled": optimizer_snapshot.get("enabled"),
+                "summary": optimizer_snapshot.get("summary"),
+                "live_promotion_allowed": optimizer_snapshot.get("live_promotion_allowed"),
+                "applies_to_execution": optimizer_snapshot.get("applies_to_execution"),
+                "top_setups": optimizer_snapshot.get("setups", [])[:5],
+            }
+        except Exception as exc:
+            logger.warning("Setup optimizer unavailable in opportunities: %s", exc)
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation opportunity scoring")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/setup-optimizer")
+async def get_setup_optimizer(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Paper-only adaptive setup comparison per watched pair."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..opportunity_scoring import OpportunityScorer
+
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        total_capital = (
+            _autobot_capital_from_snapshot(capital_snapshot, instances)
+            if capital_snapshot.get("source_status") == "ok"
+            else sum(float(inst.get("capital", 0.0)) for inst in instances)
+        )
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        pair_health = _pair_health_snapshot(orchestrator, state_db_path, paper_mode=paper_mode)
+        health_by_symbol = pair_health.get("by_symbol", {}) if isinstance(pair_health, dict) else {}
+        scorer = getattr(orchestrator, "opportunity_scorer", None)
+        if scorer is None:
+            scorer = OpportunityScorer(regime_engine=_get_regime_feature_engine(orchestrator))
+            try:
+                setattr(orchestrator, "opportunity_scorer", scorer)
+            except Exception:
+                pass
+        opportunities = scorer.build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
+        )
+        snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
+            instances=instances,
+            opportunities=opportunities.get("opportunities", []),
+            health_by_symbol=health_by_symbol,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        snapshot["capital"] = {
+            "total_capital": round(total_capital, 2),
+            "source": capital_snapshot.get("source"),
+            "source_status": capital_snapshot.get("source_status"),
+        }
+        snapshot["pair_health"] = {
+            "enabled": pair_health.get("enabled"),
+            "applies_to_scoring": pair_health.get("applies_to_scoring"),
+            "source": "trade_ledger",
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation setup optimizer")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
@@ -1593,6 +1690,18 @@ async def get_setup_audit(
             for item in opportunities.get("opportunities", [])
             if isinstance(item, dict)
         }
+        optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
+            instances=instances,
+            opportunities=opportunities.get("opportunities", []),
+            health_by_symbol=health_by_symbol,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+        )
+        optimizer_by_symbol = {
+            _paper_symbol_key(item.get("symbol")): item
+            for item in optimizer_snapshot.get("setups", [])
+            if isinstance(item, dict)
+        }
 
         min_closed = max(1, int(float(os.getenv("SETUP_AUDIT_MIN_CLOSED_TRADES", "30"))))
         candidate_pf = max(1.0, float(os.getenv("SETUP_AUDIT_CANDIDATE_PF", "1.25")))
@@ -1609,6 +1718,8 @@ async def get_setup_audit(
             stats = by_symbol.get(key, {})
             opp = opp_by_symbol.get(key, {})
             health = health_by_symbol.get(key, {})
+            optimizer = optimizer_by_symbol.get(key, {})
+            selected_variant = optimizer.get("selected_variant") if isinstance(optimizer.get("selected_variant"), dict) else {}
             closed = int(stats.get("closed_trades") or 0)
             net_pnl = float(stats.get("net_pnl") or 0.0)
             gross_profit = float(stats.get("gross_profit") or 0.0)
@@ -1675,6 +1786,11 @@ async def get_setup_audit(
                 "verdict": verdict,
                 "recommended_action": recommended_action,
                 "root_causes": sorted(set(root_causes)),
+                "optimizer_status": optimizer.get("status"),
+                "optimizer_action": optimizer.get("recommended_action"),
+                "recommended_variant": selected_variant.get("name"),
+                "recommended_variant_score": selected_variant.get("score"),
+                "recommended_grid_config": selected_variant.get("grid_config"),
                 "data_source": stats.get("source", paper_perf.get("source", "none") if isinstance(paper_perf, dict) else "none"),
             })
 
@@ -1709,6 +1825,12 @@ async def get_setup_audit(
                 "candidate_min_net_pnl_eur": candidate_net_pnl,
             },
             "setups": rows,
+            "setup_optimizer": {
+                "enabled": optimizer_snapshot.get("enabled"),
+                "summary": optimizer_snapshot.get("summary"),
+                "live_promotion_allowed": optimizer_snapshot.get("live_promotion_allowed"),
+                "applies_to_execution": optimizer_snapshot.get("applies_to_execution"),
+            },
             "message": "Audit de setups paper. Une ligne negative signifie setup non valide dans ce regime, pas paire bannie.",
         }
     except Exception:

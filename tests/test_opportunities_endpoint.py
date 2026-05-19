@@ -300,6 +300,8 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch):
     assert "regime_context" in body["opportunities"][0]
     assert not any(str(blocker).startswith("regime_") for blocker in body["opportunities"][0]["blockers"])
     assert "BTCEUR" in {item["symbol"] for item in body["opportunities"]}
+    assert body["setup_optimizer"]["live_promotion_allowed"] is False
+    assert body["setup_optimizer"]["summary"]["symbols"] == 2
 
 
 def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch):
@@ -328,6 +330,24 @@ def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
     assert body["config"]["enabled"] is True
     assert {item["symbol"] for item in body["symbols"]} == {"ETHEUR", "BTCEUR"}
     assert all("entropy_norm" in item for item in body["symbols"])
+
+
+def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/setup-optimizer", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper"
+    assert body["live_promotion_allowed"] is False
+    assert body["summary"]["symbols"] == 2
+    rows = {item["symbol"]: item for item in body["setups"]}
+    assert "ETHEUR" in rows
+    assert rows["ETHEUR"]["selected_variant"]["name"].startswith("grid_")
+    assert rows["ETHEUR"]["execution_policy"]["paper_only"] is True
 
 
 def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp_path):
@@ -495,6 +515,8 @@ def test_performance_endpoints_use_traceable_trade_ledger(tmp_path, monkeypatch)
     audit_body = audit_response.json()
     assert audit_body["live_promotion_allowed"] is False
     assert audit_body["global"]["net_pnl_eur"] == pytest.approx(4.0)
+    assert audit_body["setup_optimizer"]["live_promotion_allowed"] is False
     setups = {item["symbol"]: item for item in audit_body["setups"]}
     assert setups["XXBTZEUR"]["verdict"] == "paper_review_candidate"
     assert "realized_edge_positive" in setups["XXBTZEUR"]["root_causes"]
+    assert setups["XXBTZEUR"]["recommended_variant"]

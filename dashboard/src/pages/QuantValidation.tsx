@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, BarChart3, BrainCircuit, ShieldCheck, TrendingUp } from 'lucide-react';
+import { Activity, BarChart3, BrainCircuit, ShieldCheck, SlidersHorizontal, TrendingUp } from 'lucide-react';
 import MetricCard from '../components/ui/MetricCard';
 import { apiFetch } from '../api/client';
 
@@ -96,6 +96,10 @@ type SetupAuditRow = {
   recommended_action: string;
   root_causes: string[];
   opportunity_score?: number | null;
+  optimizer_status?: string | null;
+  optimizer_action?: string | null;
+  recommended_variant?: string | null;
+  recommended_variant_score?: number | null;
 };
 
 type SetupAuditResponse = {
@@ -114,6 +118,57 @@ type SetupAuditResponse = {
     candidate_min_net_pnl_eur: number;
   };
   setups: SetupAuditRow[];
+  message: string;
+};
+
+type SetupOptimizerVariant = {
+  name: string;
+  score: number;
+  status: string;
+  reason: string;
+  estimated_grid_gross_edge_bps: number;
+  estimated_net_after_cost_bps: number | null;
+  grid_config: {
+    range_percent?: number;
+    num_levels?: number;
+    max_capital_per_level?: number;
+    entry_touch_bps?: number;
+    estimated_sell_threshold_pct?: number;
+  };
+};
+
+type SetupOptimizerRow = {
+  symbol: string;
+  status: string;
+  recommended_action: string;
+  selected_variant: SetupOptimizerVariant | null;
+  evidence: {
+    closed_trades: number;
+    net_pnl_eur: number;
+    profit_factor: number | null;
+    health_status: string;
+    opportunity_score: number;
+    opportunity_reason?: string;
+  };
+  current_context: {
+    regime?: string;
+    profile_source?: string;
+    base_range_pct?: number;
+    base_num_levels?: number;
+  };
+};
+
+type SetupOptimizerResponse = {
+  enabled: boolean;
+  live_promotion_allowed: boolean;
+  applies_to_execution: boolean;
+  summary: {
+    symbols: number;
+    candidate_setups: number;
+    learning_setups: number;
+    weak_or_adjust_setups: number;
+  };
+  setups: SetupOptimizerRow[];
   message: string;
 };
 
@@ -148,22 +203,24 @@ const qualityReason = (
 const stateClass = (state?: string) => {
   if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review') return 'text-emerald-400';
   if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme') return 'text-red-400';
-  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch') return 'text-amber-400';
+  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch' || state === 'adjust' || state === 'pause_current' || state === 'learning') return 'text-amber-400';
   return 'text-gray-300';
 };
 
 const QuantValidation: React.FC = () => {
   const [data, setData] = useState<QuantValidationResponse | null>(null);
   const [setupAudit, setSetupAudit] = useState<SetupAuditResponse | null>(null);
+  const [setupOptimizer, setSetupOptimizer] = useState<SetupOptimizerResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [response, setupResponse] = await Promise.all([
+        const [response, setupResponse, optimizerResponse] = await Promise.all([
           apiFetch('/api/quant/validation'),
           apiFetch('/api/performance/setup-audit'),
+          apiFetch('/api/setup-optimizer'),
         ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
@@ -172,6 +229,7 @@ const QuantValidation: React.FC = () => {
         }
         setData(await response.json());
         setSetupAudit(setupResponse.ok ? await setupResponse.json() : null);
+        setSetupOptimizer(optimizerResponse.ok ? await optimizerResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -200,6 +258,7 @@ const QuantValidation: React.FC = () => {
   const policy = data?.live_shadow_policy;
   const volatilityRows = data?.volatility.symbols ?? [];
   const setupRows = setupAudit?.setups ?? [];
+  const optimizerRows = setupOptimizer?.setups ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -299,7 +358,9 @@ const QuantValidation: React.FC = () => {
                       <td className="py-2 text-right text-gray-300">{row.opportunity_score?.toFixed(1) ?? 'En attente'}</td>
                       <td className="py-2 pl-4">
                         <div className={`font-semibold ${stateClass(row.verdict)}`}>{row.verdict}</div>
-                        <div className="text-xs text-gray-500">{row.root_causes.slice(0, 2).join(', ') || row.recommended_action}</div>
+                        <div className="text-xs text-gray-500">
+                          {row.recommended_variant ? `${row.recommended_variant} (${row.recommended_variant_score?.toFixed(1) ?? 'score ?'})` : row.root_causes.slice(0, 2).join(', ') || row.recommended_action}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -308,6 +369,78 @@ const QuantValidation: React.FC = () => {
             </div>
           ) : (
             <div className="text-gray-500 text-sm">Aucun setup auditable pour le moment.</div>
+          )}
+        </section>
+      ) : null}
+
+      {setupOptimizer ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <SlidersHorizontal className="w-5 h-5 text-emerald-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Optimiseur adaptatif paper</h2>
+                <p className="text-sm text-gray-400 mt-1">{setupOptimizer.message}</p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{setupOptimizer.summary.symbols} setups</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Candidats paper</div>
+              <div className="text-emerald-400 font-semibold">{setupOptimizer.summary.candidate_setups}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">En apprentissage</div>
+              <div className="text-white font-semibold">{setupOptimizer.summary.learning_setups}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">A ajuster</div>
+              <div className="text-amber-400 font-semibold">{setupOptimizer.summary.weak_or_adjust_setups}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Impact execution</div>
+              <div className="text-white font-semibold">{setupOptimizer.applies_to_execution ? 'Paper actif' : 'Observation'}</div>
+            </div>
+          </div>
+          {optimizerRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Regime</th>
+                    <th className="text-left py-2">Variante choisie</th>
+                    <th className="text-right py-2">Score</th>
+                    <th className="text-right py-2">Range</th>
+                    <th className="text-right py-2">Edge estime</th>
+                    <th className="text-left py-2 pl-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {optimizerRows.slice(0, 12).map((row) => (
+                    <tr key={row.symbol} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className="py-2 text-gray-300">{row.current_context.regime ?? 'unknown'}</td>
+                      <td className="py-2 text-gray-300">{row.selected_variant?.name ?? 'En attente'}</td>
+                      <td className="py-2 text-right text-gray-300">{row.selected_variant?.score.toFixed(1) ?? 'En attente'}</td>
+                      <td className="py-2 text-right text-gray-300">
+                        {typeof row.selected_variant?.grid_config.range_percent === 'number' ? `${row.selected_variant.grid_config.range_percent.toFixed(2)}%` : 'En attente'}
+                      </td>
+                      <td className="py-2 text-right text-gray-300">
+                        {typeof row.selected_variant?.estimated_grid_gross_edge_bps === 'number' ? `${row.selected_variant.estimated_grid_gross_edge_bps.toFixed(0)} bps` : 'En attente'}
+                      </td>
+                      <td className="py-2 pl-4">
+                        <div className={`font-semibold ${stateClass(row.status)}`}>{row.status}</div>
+                        <div className="text-xs text-gray-500">{row.recommended_action}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucune variante paper comparable pour le moment.</div>
           )}
         </section>
       ) : null}
