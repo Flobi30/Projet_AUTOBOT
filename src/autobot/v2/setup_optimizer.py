@@ -69,7 +69,7 @@ def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
 class SetupOptimizerConfig:
     enabled: bool = True
     live_enabled: bool = False
-    apply_to_execution: bool = False
+    apply_to_execution: bool = True
     min_closed_trades: int = 30
     candidate_profit_factor: float = 1.25
     strong_profit_factor: float = 1.60
@@ -85,7 +85,7 @@ class SetupOptimizerConfig:
         return cls(
             enabled=_env_bool("SETUP_OPTIMIZER_ENABLED", True),
             live_enabled=_env_bool("SETUP_OPTIMIZER_LIVE_ENABLED", False),
-            apply_to_execution=_env_bool("SETUP_OPTIMIZER_APPLY_TO_EXECUTION", False),
+            apply_to_execution=_env_bool("SETUP_OPTIMIZER_APPLY_TO_EXECUTION", True),
             min_closed_trades=_env_int("SETUP_OPTIMIZER_MIN_CLOSED_TRADES", 30, 1, 100_000),
             candidate_profit_factor=_env_float("SETUP_OPTIMIZER_CANDIDATE_PF", 1.25, 0.01, 100.0),
             strong_profit_factor=_env_float("SETUP_OPTIMIZER_STRONG_PF", 1.60, 0.01, 100.0),
@@ -309,7 +309,7 @@ class PairSetupOptimizer:
             ),
             "message": (
                 "Paper-only optimizer: compare setup variants by pair and regime. "
-                "It does not activate live trading or mutate orders by itself."
+                "When enabled it can gate paper entries, but it never activates live trading."
             ),
         }
 

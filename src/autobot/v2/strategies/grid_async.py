@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -108,6 +109,24 @@ class GridStrategyAsync(StrategyAsync):
             "block_underperforming_health",
             "GRID_BLOCK_UNDERPERFORMING_HEALTH",
             True,
+        )
+        self._setup_optimizer_execution_gate = self._read_bool_config(
+            "setup_optimizer_execution_gate",
+            "SETUP_OPTIMIZER_APPLY_TO_EXECUTION",
+            True,
+        )
+        self._setup_optimizer_gate_ttl_s = self._read_float_config(
+            "setup_optimizer_gate_ttl_s",
+            "SETUP_OPTIMIZER_EXECUTION_GATE_TTL_SECONDS",
+            60.0,
+            1.0,
+            3600.0,
+        )
+        self._setup_optimizer_gate_cache: tuple[float, bool, str, dict[str, Any]] = (
+            0.0,
+            False,
+            "cold_start",
+            {},
         )
         self._kelly_zero_fallback_mult = self._read_float_config(
             "kelly_zero_fallback_mult",
@@ -545,6 +564,15 @@ class GridStrategyAsync(StrategyAsync):
                 reason,
             )
             return False
+        blocked, reason, details = self._setup_optimizer_blocks_entry()
+        if blocked:
+            logger.info(
+                "Grid BUY paused for %s: setup optimizer gate (%s, %s)",
+                getattr(self.instance.config, "symbol", "UNKNOWN"),
+                reason,
+                details,
+            )
+            return False
         cpl = self._calculate_kelly_cpl(price)
         return cpl > 0 and available_capital >= cpl
 
@@ -646,6 +674,104 @@ class GridStrategyAsync(StrategyAsync):
         except Exception as exc:
             logger.debug("Grid health gate unavailable: %s", exc)
         return False, "ok"
+
+    def _setup_optimizer_blocks_entry(self) -> tuple[bool, str, dict[str, Any]]:
+        """Use the paper setup optimizer as an execution gate for the current setup.
+
+        The optimizer does not blame a market pair. It only blocks the currently
+        running grid setup when realized paper evidence says that this setup should
+        be paused or adjusted while shadow variants keep learning separately.
+        """
+        if not self._setup_optimizer_execution_gate:
+            return False, "disabled", {}
+        try:
+            orchestrator = getattr(self.instance, "orchestrator", None)
+            if orchestrator is None or not getattr(orchestrator, "paper_mode", False):
+                return False, "not_paper", {}
+
+            now = time.monotonic()
+            cached_at, cached_blocked, cached_reason, cached_details = self._setup_optimizer_gate_cache
+            if now - cached_at <= self._setup_optimizer_gate_ttl_s:
+                return cached_blocked, cached_reason, dict(cached_details)
+
+            from ..pair_strategy_health import PairStrategyHealthEngine, symbol_key
+            from ..setup_optimizer import PairSetupOptimizer
+
+            symbol = symbol_key(getattr(self.instance.config, "symbol", None))
+            if not symbol or symbol == "UNKNOWN":
+                return self._cache_setup_optimizer_gate(now, False, "unknown_symbol", {})
+
+            optimizer = getattr(orchestrator, "setup_optimizer", None)
+            if optimizer is None:
+                optimizer = PairSetupOptimizer()
+                setattr(orchestrator, "setup_optimizer", optimizer)
+            if not getattr(optimizer.config, "enabled", True):
+                return self._cache_setup_optimizer_gate(now, False, "optimizer_disabled", {})
+            if not getattr(optimizer.config, "apply_to_execution", False):
+                return self._cache_setup_optimizer_gate(now, False, "optimizer_observe_only", {})
+
+            health_engine = getattr(orchestrator, "pair_strategy_health_engine", None)
+            if health_engine is None:
+                health_engine = PairStrategyHealthEngine()
+                setattr(orchestrator, "pair_strategy_health_engine", health_engine)
+            persistence = getattr(orchestrator, "persistence", None)
+            db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+            health_snapshot = health_engine.build_snapshot_from_state_db(db_path, paper_mode=True)
+            health = (health_snapshot.get("by_symbol", {}) if isinstance(health_snapshot, dict) else {}).get(symbol, {})
+
+            shadow = {}
+            shadow_lab = getattr(orchestrator, "setup_shadow_lab", None)
+            if shadow_lab is not None and hasattr(shadow_lab, "evidence_by_symbol"):
+                shadow = shadow_lab.evidence_by_symbol().get(symbol, {})
+
+            plan = optimizer.analyze_symbol(
+                symbol=symbol,
+                instances=[
+                    {
+                        "symbol": symbol,
+                        "strategy": "grid",
+                        "range_percent": self.range_percent,
+                        "num_levels": self.num_levels,
+                        "max_capital_per_level": self.max_capital_per_level,
+                    }
+                ],
+                opportunity={},
+                health=health if isinstance(health, dict) else {},
+                shadow=shadow if isinstance(shadow, dict) else {},
+                paper_mode=True,
+            )
+            selected = plan.selected_variant.to_dict() if plan.selected_variant else {}
+            details = {
+                "status": plan.status,
+                "action": plan.recommended_action,
+                "selected_variant": selected.get("name"),
+                "selected_score": selected.get("score"),
+                "health_status": (health or {}).get("status") if isinstance(health, dict) else None,
+                "closed_trades": (health or {}).get("closed_trades") if isinstance(health, dict) else None,
+                "net_pnl_eur": (health or {}).get("net_pnl_eur") if isinstance(health, dict) else None,
+                "profit_factor": (health or {}).get("profit_factor") if isinstance(health, dict) else None,
+            }
+            blocking_actions = {
+                "paper_shadow_variant_outperforms_current_setup",
+                "pause_current_setup_and_test_selected_variant_in_paper",
+                "test_selected_variant_in_paper_shadow",
+            }
+            blocked = plan.status in {"pause_current", "adjust"} or plan.recommended_action in blocking_actions
+            reason = f"{plan.status}:{plan.recommended_action}"
+            return self._cache_setup_optimizer_gate(now, blocked, reason, details)
+        except Exception as exc:
+            logger.debug("Setup optimizer gate unavailable: %s", exc)
+            return False, "unavailable", {"error": str(exc)}
+
+    def _cache_setup_optimizer_gate(
+        self,
+        timestamp: float,
+        blocked: bool,
+        reason: str,
+        details: dict[str, Any],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        self._setup_optimizer_gate_cache = (timestamp, blocked, reason, dict(details))
+        return blocked, reason, details
 
     def _get_active_trailing_sells(self, current_price: float, symbol: str) -> List[int]:
         """Gère la logique de Trailing Take-Profit (Phase 3)."""
