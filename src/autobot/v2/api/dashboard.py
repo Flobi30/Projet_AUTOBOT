@@ -454,6 +454,19 @@ def _get_setup_shadow_lab(orchestrator: Any) -> Any:
     return lab
 
 
+def _get_trend_shadow_lab(orchestrator: Any) -> Any:
+    from ..trend_shadow_lab import TrendShadowLab
+
+    lab = getattr(orchestrator, "trend_shadow_lab", None)
+    if lab is None:
+        lab = TrendShadowLab()
+        try:
+            setattr(orchestrator, "trend_shadow_lab", lab)
+        except Exception:
+            pass
+    return lab
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -1492,6 +1505,16 @@ async def get_opportunities(
                 "applies_to_execution": optimizer_snapshot.get("applies_to_execution"),
                 "top_setups": optimizer_snapshot.get("setups", [])[:5],
             }
+            trend_snapshot = _get_trend_shadow_lab(orchestrator).build_snapshot(
+                symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+            )
+            snapshot["trend_shadow"] = {
+                "enabled": trend_snapshot.get("enabled"),
+                "summary": trend_snapshot.get("summary"),
+                "paper_only": trend_snapshot.get("paper_only"),
+                "live_promotion_allowed": trend_snapshot.get("live_promotion_allowed"),
+                "top_symbols": trend_snapshot.get("symbols", [])[:5],
+            }
         except Exception as exc:
             logger.warning("Setup optimizer unavailable in opportunities: %s", exc)
         return snapshot
@@ -1603,6 +1626,33 @@ async def get_setup_shadow(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation setup shadow lab")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/trend-shadow")
+async def get_trend_shadow(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Isolated paper shadow runs for trend/momentum variants."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        snapshot = _get_trend_shadow_lab(orchestrator).build_snapshot(
+            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation trend shadow lab")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

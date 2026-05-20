@@ -197,6 +197,45 @@ type SetupOptimizerResponse = {
   message: string;
 };
 
+type TrendShadowVariant = {
+  variant: string;
+  status: string;
+  score: number;
+  net_pnl_eur: number;
+  realized_pnl_eur: number;
+  profit_factor: number | null;
+  win_rate: number;
+  opened_trades: number;
+  closed_trades: number;
+  open_positions: number;
+  sample_count: number;
+  last_decision?: {
+    status?: string;
+    reason?: string;
+  };
+};
+
+type TrendShadowResponse = {
+  enabled: boolean;
+  paper_only: boolean;
+  live_promotion_allowed: boolean;
+  summary: {
+    symbols: number;
+    variant_states: number;
+    open_shadow_positions: number;
+    closed_shadow_trades: number;
+    net_shadow_pnl_eur: number;
+    candidate_symbols: number;
+  };
+  symbols: Array<{
+    symbol: string;
+    engine: string;
+    best_variant: TrendShadowVariant | null;
+    variants: TrendShadowVariant[];
+  }>;
+  message: string;
+};
+
 const formatBps = (value?: number) =>
   typeof value === 'number' ? `${value.toFixed(1)} bps` : 'En attente';
 
@@ -236,16 +275,18 @@ const QuantValidation: React.FC = () => {
   const [data, setData] = useState<QuantValidationResponse | null>(null);
   const [setupAudit, setSetupAudit] = useState<SetupAuditResponse | null>(null);
   const [setupOptimizer, setSetupOptimizer] = useState<SetupOptimizerResponse | null>(null);
+  const [trendShadow, setTrendShadow] = useState<TrendShadowResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [response, setupResponse, optimizerResponse] = await Promise.all([
+        const [response, setupResponse, optimizerResponse, trendResponse] = await Promise.all([
           apiFetch('/api/quant/validation'),
           apiFetch('/api/performance/setup-audit'),
           apiFetch('/api/setup-optimizer'),
+          apiFetch('/api/trend-shadow'),
         ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
@@ -255,6 +296,7 @@ const QuantValidation: React.FC = () => {
         setData(await response.json());
         setSetupAudit(setupResponse.ok ? await setupResponse.json() : null);
         setSetupOptimizer(optimizerResponse.ok ? await optimizerResponse.json() : null);
+        setTrendShadow(trendResponse.ok ? await trendResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -285,6 +327,8 @@ const QuantValidation: React.FC = () => {
   const setupRows = setupAudit?.setups ?? [];
   const optimizerRows = setupOptimizer?.setups ?? [];
   const shadowSummary = setupOptimizer?.setup_shadow?.summary;
+  const trendSummary = trendShadow?.summary;
+  const trendRows = trendShadow?.symbols ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -481,6 +525,84 @@ const QuantValidation: React.FC = () => {
             </div>
           ) : (
             <div className="text-gray-500 text-sm">Aucune variante paper comparable pour le moment.</div>
+          )}
+        </section>
+      ) : null}
+
+      {trendShadow ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <TrendingUp className="w-5 h-5 text-blue-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Moteur trend shadow</h2>
+                <p className="text-sm text-gray-400 mt-1">{trendShadow.message}</p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{trendSummary?.symbols ?? 0} paires</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Candidats trend</div>
+              <div className="text-emerald-400 font-semibold">{trendSummary?.candidate_symbols ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Trades shadow</div>
+              <div className="text-white font-semibold">{trendSummary?.closed_shadow_trades ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Positions virtuelles</div>
+              <div className="text-white font-semibold">{trendSummary?.open_shadow_positions ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PnL trend shadow</div>
+              <div className={(trendSummary?.net_shadow_pnl_eur ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                {formatCurrency(trendSummary?.net_shadow_pnl_eur)}
+              </div>
+            </div>
+          </div>
+          <div className="mb-4 border border-blue-500/20 bg-blue-500/10 rounded-lg p-3 text-sm text-blue-100/90">
+            Ce moteur observe Donchian/EMA momentum en paper shadow. Il ne remplace pas encore la grid et ne place aucun ordre officiel.
+          </div>
+          {trendRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Meilleure variante</th>
+                    <th className="text-right py-2">Score</th>
+                    <th className="text-right py-2">PnL</th>
+                    <th className="text-right py-2">PF</th>
+                    <th className="text-right py-2">Trades</th>
+                    <th className="text-left py-2 pl-4">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trendRows.slice(0, 12).map((row) => {
+                    const best = row.best_variant;
+                    return (
+                      <tr key={row.symbol} className="border-b border-gray-700/50">
+                        <td className="py-2 text-white">{row.symbol}</td>
+                        <td className="py-2 text-gray-300">{best?.variant ?? 'En attente'}</td>
+                        <td className="py-2 text-right text-gray-300">{best?.score.toFixed(1) ?? 'En attente'}</td>
+                        <td className={`py-2 text-right ${(best?.net_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatCurrency(best?.net_pnl_eur)}
+                        </td>
+                        <td className="py-2 text-right text-gray-300">{best?.profit_factor?.toFixed(2) ?? 'En attente'}</td>
+                        <td className="py-2 text-right text-gray-300">{best?.closed_trades ?? 0}</td>
+                        <td className="py-2 pl-4">
+                          <div className={`font-semibold ${stateClass(best?.status)}`}>{best?.status ?? 'learning'}</div>
+                          <div className="text-xs text-gray-500">{best?.last_decision?.reason ?? 'En attente de signal trend'}</div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucune donnee trend shadow pour le moment.</div>
           )}
         </section>
       ) : null}

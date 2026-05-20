@@ -286,6 +286,7 @@ def test_live_allocation_does_not_floor_to_paper_min_order():
 def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
+    monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
     client = TestClient(dashboard.app)
 
@@ -304,11 +305,14 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch, tmp_p
     assert body["setup_optimizer"]["live_promotion_allowed"] is False
     assert body["setup_optimizer"]["summary"]["symbols"] == 2
     assert body["setup_shadow"]["paper_only"] is True
+    assert body["trend_shadow"]["paper_only"] is True
+    assert body["trend_shadow"]["live_promotion_allowed"] is False
 
 
 def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
+    monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
     dashboard.app.state.orchestrator = _LargePaperWalletOrchestrator()
     client = TestClient(dashboard.app)
 
@@ -366,6 +370,23 @@ def test_setup_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["mode"] == "paper_shadow"
+    assert body["paper_only"] is True
+    assert body["live_promotion_allowed"] is False
+    assert body["writes_official_paper_ledger"] is False
+
+
+def test_trend_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/trend-shadow", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper_shadow"
+    assert body["engine"] == "trend_momentum"
     assert body["paper_only"] is True
     assert body["live_promotion_allowed"] is False
     assert body["writes_official_paper_ledger"] is False
