@@ -467,6 +467,32 @@ def _get_trend_shadow_lab(orchestrator: Any) -> Any:
     return lab
 
 
+def _get_mean_reversion_shadow_lab(orchestrator: Any) -> Any:
+    from ..mean_reversion_shadow_lab import MeanReversionShadowLab
+
+    lab = getattr(orchestrator, "mean_reversion_shadow_lab", None)
+    if lab is None:
+        lab = MeanReversionShadowLab()
+        try:
+            setattr(orchestrator, "mean_reversion_shadow_lab", lab)
+        except Exception:
+            pass
+    return lab
+
+
+def _get_strategy_router(orchestrator: Any) -> Any:
+    from ..strategy_router import StrategyRouter
+
+    router = getattr(orchestrator, "strategy_router", None)
+    if router is None:
+        router = StrategyRouter()
+        try:
+            setattr(orchestrator, "strategy_router", router)
+        except Exception:
+            pass
+    return router
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -1508,12 +1534,37 @@ async def get_opportunities(
             trend_snapshot = _get_trend_shadow_lab(orchestrator).build_snapshot(
                 symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
             )
+            mean_reversion_snapshot = _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(
+                symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+            )
+            strategy_router_snapshot = _get_strategy_router(orchestrator).build_snapshot(
+                instances=instances,
+                paper_mode=paper_mode,
+                setup_shadow_by_symbol=shadow_snapshot.get("by_symbol", {}),
+                trend_shadow_by_symbol=trend_snapshot.get("by_symbol", {}),
+                mean_reversion_shadow_by_symbol=mean_reversion_snapshot.get("by_symbol", {}),
+                opportunities=snapshot.get("opportunities", []),
+            )
             snapshot["trend_shadow"] = {
                 "enabled": trend_snapshot.get("enabled"),
                 "summary": trend_snapshot.get("summary"),
                 "paper_only": trend_snapshot.get("paper_only"),
                 "live_promotion_allowed": trend_snapshot.get("live_promotion_allowed"),
                 "top_symbols": trend_snapshot.get("symbols", [])[:5],
+            }
+            snapshot["mean_reversion_shadow"] = {
+                "enabled": mean_reversion_snapshot.get("enabled"),
+                "summary": mean_reversion_snapshot.get("summary"),
+                "paper_only": mean_reversion_snapshot.get("paper_only"),
+                "live_promotion_allowed": mean_reversion_snapshot.get("live_promotion_allowed"),
+                "top_symbols": mean_reversion_snapshot.get("symbols", [])[:5],
+            }
+            snapshot["strategy_router"] = {
+                "enabled": strategy_router_snapshot.get("enabled"),
+                "summary": strategy_router_snapshot.get("summary"),
+                "paper_only": strategy_router_snapshot.get("paper_only"),
+                "live_promotion_allowed": strategy_router_snapshot.get("live_promotion_allowed"),
+                "top_routes": strategy_router_snapshot.get("routes", [])[:5],
             }
         except Exception as exc:
             logger.warning("Setup optimizer unavailable in opportunities: %s", exc)
@@ -1653,6 +1704,100 @@ async def get_trend_shadow(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation trend shadow lab")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/mean-reversion-shadow")
+async def get_mean_reversion_shadow(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Isolated paper shadow runs for mean-reversion variants."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        snapshot = _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(
+            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation mean-reversion shadow lab")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/strategy-router")
+async def get_strategy_router_snapshot(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Paper-only strategy router comparing shadow engines."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..opportunity_scoring import OpportunityScorer
+
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        total_capital = (
+            _autobot_capital_from_snapshot(capital_snapshot, instances)
+            if capital_snapshot.get("source_status") == "ok"
+            else sum(float(inst.get("capital", 0.0)) for inst in instances)
+        )
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        pair_health = _pair_health_snapshot(orchestrator, state_db_path, paper_mode=paper_mode)
+        health_by_symbol = pair_health.get("by_symbol", {}) if isinstance(pair_health, dict) else {}
+        scorer = getattr(orchestrator, "opportunity_scorer", None)
+        if scorer is None:
+            scorer = OpportunityScorer(regime_engine=_get_regime_feature_engine(orchestrator))
+            try:
+                setattr(orchestrator, "opportunity_scorer", scorer)
+            except Exception:
+                pass
+        opportunities = scorer.build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
+        )
+        symbol_list = [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        setup_shadow = _get_setup_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
+        trend_shadow = _get_trend_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
+        mean_reversion_shadow = _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
+        snapshot = _get_strategy_router(orchestrator).build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            setup_shadow_by_symbol=setup_shadow.get("by_symbol", {}),
+            trend_shadow_by_symbol=trend_shadow.get("by_symbol", {}),
+            mean_reversion_shadow_by_symbol=mean_reversion_shadow.get("by_symbol", {}),
+            opportunities=opportunities.get("opportunities", []),
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        snapshot["shadow_summaries"] = {
+            "dynamic_grid": setup_shadow.get("summary"),
+            "trend_momentum": trend_shadow.get("summary"),
+            "mean_reversion": mean_reversion_shadow.get("summary"),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation strategy router")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

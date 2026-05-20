@@ -287,6 +287,7 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch, tmp_p
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
+    monkeypatch.setenv("MEAN_REVERSION_SHADOW_DB_PATH", str(tmp_path / "mean_reversion_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
     client = TestClient(dashboard.app)
 
@@ -307,12 +308,16 @@ def test_opportunities_endpoint_returns_ranked_runtime_scores(monkeypatch, tmp_p
     assert body["setup_shadow"]["paper_only"] is True
     assert body["trend_shadow"]["paper_only"] is True
     assert body["trend_shadow"]["live_promotion_allowed"] is False
+    assert body["mean_reversion_shadow"]["paper_only"] is True
+    assert body["strategy_router"]["paper_only"] is True
+    assert body["strategy_router"]["live_promotion_allowed"] is False
 
 
 def test_opportunities_endpoint_uses_autobot_capital_not_paper_wallet(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
+    monkeypatch.setenv("MEAN_REVERSION_SHADOW_DB_PATH", str(tmp_path / "mean_reversion_shadow_lab.db"))
     dashboard.app.state.orchestrator = _LargePaperWalletOrchestrator()
     client = TestClient(dashboard.app)
 
@@ -390,6 +395,42 @@ def test_trend_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
     assert body["paper_only"] is True
     assert body["live_promotion_allowed"] is False
     assert body["writes_official_paper_ledger"] is False
+
+
+def test_mean_reversion_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("MEAN_REVERSION_SHADOW_DB_PATH", str(tmp_path / "mean_reversion_shadow_lab.db"))
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/mean-reversion-shadow", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper_shadow"
+    assert body["engine"] == "mean_reversion"
+    assert body["paper_only"] is True
+    assert body["live_promotion_allowed"] is False
+    assert body["writes_official_paper_ledger"] is False
+
+
+def test_strategy_router_endpoint_returns_read_only_routes(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
+    monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
+    monkeypatch.setenv("MEAN_REVERSION_SHADOW_DB_PATH", str(tmp_path / "mean_reversion_shadow_lab.db"))
+    dashboard.app.state.orchestrator = _Orchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/strategy-router", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["paper_only"] is True
+    assert body["live_promotion_allowed"] is False
+    assert body["official_execution_enabled"] is False
+    assert body["summary"]["symbols"] == 2
+    assert {"dynamic_grid", "trend_momentum", "mean_reversion"} <= set(body["shadow_summaries"].keys())
 
 
 def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp_path):

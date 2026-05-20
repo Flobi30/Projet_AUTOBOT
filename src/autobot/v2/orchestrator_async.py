@@ -1915,6 +1915,7 @@ class OrchestratorAsync:
         self._update_pair_risk_state(inst)
         self._update_setup_shadow_lab(inst)
         self._update_trend_shadow_lab(inst)
+        self._update_mean_reversion_shadow_lab(inst)
 
         risk_blocked = await self._run_black_swan_guard(inst)
         if risk_blocked:
@@ -2025,6 +2026,28 @@ class OrchestratorAsync:
             lab.on_price_tick(symbol=symbol, price=float(price), timestamp=timestamp)
         except Exception as exc:
             logger.debug("Trend shadow lab update skipped for %s: %s", getattr(inst, "id", "?"), exc)
+
+    def _update_mean_reversion_shadow_lab(self, inst: TradingInstanceAsync) -> None:
+        """Feed observed prices to the isolated mean-reversion shadow lab."""
+        try:
+            lab = getattr(self, "mean_reversion_shadow_lab", None)
+            if lab is None:
+                from .mean_reversion_shadow_lab import MeanReversionShadowLab
+
+                lab = MeanReversionShadowLab()
+                setattr(self, "mean_reversion_shadow_lab", lab)
+            if not getattr(lab.config, "enabled", True):
+                return
+            if not self.paper_mode and not getattr(lab.config, "continue_in_live", True):
+                return
+            price = getattr(inst, "_last_price", None)
+            if price is None:
+                return
+            symbol = str(getattr(inst.config, "symbol", "") or "")
+            timestamp = getattr(inst, "_last_price_at", None)
+            lab.on_price_tick(symbol=symbol, price=float(price), timestamp=timestamp)
+        except Exception as exc:
+            logger.debug("Mean-reversion shadow lab update skipped for %s: %s", getattr(inst, "id", "?"), exc)
 
     def _journal_major_decision(
         self,

@@ -236,6 +236,50 @@ type TrendShadowResponse = {
   message: string;
 };
 
+type StrategyRouterEngine = {
+  engine: string;
+  variant: string | null;
+  status: string;
+  router_score: number;
+  raw_score: number;
+  net_pnl_eur: number;
+  profit_factor: number | null;
+  win_rate: number | null;
+  closed_trades: number;
+  last_decision?: {
+    reason?: string;
+  };
+};
+
+type StrategyRouterRoute = {
+  symbol: string;
+  selected_engine: string;
+  selected_variant: string | null;
+  router_score: number;
+  status: string;
+  recommended_action: string;
+  reason: string;
+  live_promotion_allowed: boolean;
+  official_execution_enabled: boolean;
+  opportunity_score?: number | null;
+  engines: StrategyRouterEngine[];
+};
+
+type StrategyRouterResponse = {
+  enabled: boolean;
+  paper_only: boolean;
+  live_promotion_allowed: boolean;
+  official_execution_enabled: boolean;
+  summary: {
+    symbols: number;
+    candidate_symbols: number;
+    learning_symbols: number;
+    no_trade_symbols: number;
+  };
+  routes: StrategyRouterRoute[];
+  message: string;
+};
+
 const formatBps = (value?: number) =>
   typeof value === 'number' ? `${value.toFixed(1)} bps` : 'En attente';
 
@@ -276,17 +320,28 @@ const QuantValidation: React.FC = () => {
   const [setupAudit, setSetupAudit] = useState<SetupAuditResponse | null>(null);
   const [setupOptimizer, setSetupOptimizer] = useState<SetupOptimizerResponse | null>(null);
   const [trendShadow, setTrendShadow] = useState<TrendShadowResponse | null>(null);
+  const [meanReversionShadow, setMeanReversionShadow] = useState<TrendShadowResponse | null>(null);
+  const [strategyRouter, setStrategyRouter] = useState<StrategyRouterResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [response, setupResponse, optimizerResponse, trendResponse] = await Promise.all([
+        const [
+          response,
+          setupResponse,
+          optimizerResponse,
+          trendResponse,
+          meanReversionResponse,
+          routerResponse,
+        ] = await Promise.all([
           apiFetch('/api/quant/validation'),
           apiFetch('/api/performance/setup-audit'),
           apiFetch('/api/setup-optimizer'),
           apiFetch('/api/trend-shadow'),
+          apiFetch('/api/mean-reversion-shadow'),
+          apiFetch('/api/strategy-router'),
         ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
@@ -297,6 +352,8 @@ const QuantValidation: React.FC = () => {
         setSetupAudit(setupResponse.ok ? await setupResponse.json() : null);
         setSetupOptimizer(optimizerResponse.ok ? await optimizerResponse.json() : null);
         setTrendShadow(trendResponse.ok ? await trendResponse.json() : null);
+        setMeanReversionShadow(meanReversionResponse.ok ? await meanReversionResponse.json() : null);
+        setStrategyRouter(routerResponse.ok ? await routerResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -329,6 +386,9 @@ const QuantValidation: React.FC = () => {
   const shadowSummary = setupOptimizer?.setup_shadow?.summary;
   const trendSummary = trendShadow?.summary;
   const trendRows = trendShadow?.symbols ?? [];
+  const meanSummary = meanReversionShadow?.summary;
+  const meanRows = meanReversionShadow?.symbols ?? [];
+  const routerRows = strategyRouter?.routes ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -529,6 +589,76 @@ const QuantValidation: React.FC = () => {
         </section>
       ) : null}
 
+      {strategyRouter ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <BrainCircuit className="w-5 h-5 text-violet-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Routeur multi-moteurs</h2>
+                <p className="text-sm text-gray-400 mt-1">{strategyRouter.message}</p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{strategyRouter.summary.symbols} paires</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Candidats</div>
+              <div className="text-emerald-400 font-semibold">{strategyRouter.summary.candidate_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Learning</div>
+              <div className="text-white font-semibold">{strategyRouter.summary.learning_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">No-trade</div>
+              <div className="text-amber-400 font-semibold">{strategyRouter.summary.no_trade_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Execution officielle</div>
+              <div className="text-white font-semibold">{strategyRouter.official_execution_enabled ? 'Active' : 'Bloquee'}</div>
+            </div>
+          </div>
+          <div className="mb-4 border border-violet-500/20 bg-violet-500/10 rounded-lg p-3 text-sm text-violet-100/90">
+            Le routeur compare grid, trend, mean-reversion et abstention. Pour l'instant il classe seulement les moteurs; il ne remplace pas la strategie officielle.
+          </div>
+          {routerRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Moteur choisi</th>
+                    <th className="text-right py-2">Score</th>
+                    <th className="text-right py-2">Opp.</th>
+                    <th className="text-left py-2 pl-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {routerRows.slice(0, 14).map((row) => (
+                    <tr key={row.symbol} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className="py-2 text-gray-300">
+                        {row.selected_engine}
+                        <span className="text-gray-500"> / {row.selected_variant ?? 'abstain'}</span>
+                      </td>
+                      <td className="py-2 text-right text-gray-300">{row.router_score.toFixed(1)}</td>
+                      <td className="py-2 text-right text-gray-300">{row.opportunity_score?.toFixed(1) ?? 'En attente'}</td>
+                      <td className="py-2 pl-4">
+                        <div className={`font-semibold ${stateClass(row.status)}`}>{row.recommended_action}</div>
+                        <div className="text-xs text-gray-500">{row.reason}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucune route multi-moteurs pour le moment.</div>
+          )}
+        </section>
+      ) : null}
+
       {trendShadow ? (
         <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
@@ -603,6 +733,84 @@ const QuantValidation: React.FC = () => {
             </div>
           ) : (
             <div className="text-gray-500 text-sm">Aucune donnee trend shadow pour le moment.</div>
+          )}
+        </section>
+      ) : null}
+
+      {meanReversionShadow ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <SlidersHorizontal className="w-5 h-5 text-cyan-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Moteur mean-reversion shadow</h2>
+                <p className="text-sm text-gray-400 mt-1">{meanReversionShadow.message}</p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{meanSummary?.symbols ?? 0} paires</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Candidats MR</div>
+              <div className="text-emerald-400 font-semibold">{meanSummary?.candidate_symbols ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Trades shadow</div>
+              <div className="text-white font-semibold">{meanSummary?.closed_shadow_trades ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Positions virtuelles</div>
+              <div className="text-white font-semibold">{meanSummary?.open_shadow_positions ?? 0}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PnL MR shadow</div>
+              <div className={(meanSummary?.net_shadow_pnl_eur ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                {formatCurrency(meanSummary?.net_shadow_pnl_eur)}
+              </div>
+            </div>
+          </div>
+          <div className="mb-4 border border-cyan-500/20 bg-cyan-500/10 rounded-lg p-3 text-sm text-cyan-100/90">
+            Ce moteur observe les retours a la moyenne Bollinger/z-score. Il doit rester annexe et eviter les tendances fortes.
+          </div>
+          {meanRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Meilleure variante</th>
+                    <th className="text-right py-2">Score</th>
+                    <th className="text-right py-2">PnL</th>
+                    <th className="text-right py-2">PF</th>
+                    <th className="text-right py-2">Trades</th>
+                    <th className="text-left py-2 pl-4">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {meanRows.slice(0, 12).map((row) => {
+                    const best = row.best_variant;
+                    return (
+                      <tr key={row.symbol} className="border-b border-gray-700/50">
+                        <td className="py-2 text-white">{row.symbol}</td>
+                        <td className="py-2 text-gray-300">{best?.variant ?? 'En attente'}</td>
+                        <td className="py-2 text-right text-gray-300">{best?.score.toFixed(1) ?? 'En attente'}</td>
+                        <td className={`py-2 text-right ${(best?.net_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatCurrency(best?.net_pnl_eur)}
+                        </td>
+                        <td className="py-2 text-right text-gray-300">{best?.profit_factor?.toFixed(2) ?? 'En attente'}</td>
+                        <td className="py-2 text-right text-gray-300">{best?.closed_trades ?? 0}</td>
+                        <td className="py-2 pl-4">
+                          <div className={`font-semibold ${stateClass(best?.status)}`}>{best?.status ?? 'learning'}</div>
+                          <div className="text-xs text-gray-500">{best?.last_decision?.reason ?? 'En attente de signal MR'}</div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucune donnee mean-reversion shadow pour le moment.</div>
           )}
         </section>
       ) : null}
