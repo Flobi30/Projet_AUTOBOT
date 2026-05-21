@@ -189,6 +189,26 @@ class SignalHandlerAsync:
             minimum=0.0,
             maximum=3.0,
         )
+        self._paper_diversification_enabled = self._load_bool(
+            "paper_official_diversification_enabled",
+            "PAPER_OFFICIAL_DIVERSIFICATION_ENABLED",
+            True,
+        )
+        self._paper_symbol_buy_window_minutes = self._load_positive_int(
+            "paper_symbol_buy_window_minutes",
+            "PAPER_SYMBOL_BUY_WINDOW_MINUTES",
+            180,
+        )
+        self._paper_max_symbol_buys_per_window = self._load_positive_int(
+            "paper_max_symbol_buys_per_window",
+            "PAPER_MAX_SYMBOL_BUYS_PER_WINDOW",
+            3,
+        )
+        self._paper_diversification_min_symbols = self._load_positive_int(
+            "paper_diversification_min_symbols",
+            "PAPER_DIVERSIFICATION_MIN_SYMBOLS",
+            2,
+        )
         self._risk_regime_preset = str(
             getattr(
                 getattr(self.instance, "config", None),
@@ -371,6 +391,89 @@ class SignalHandlerAsync:
     def _paper_opportunity_upsizing_enabled(self) -> bool:
         config = getattr(getattr(self, "_opportunity_scorer", None), "config", None)
         return bool(self._is_paper_mode() and getattr(config, "paper_allow_upsize", False))
+
+    def _paper_active_symbol_count(self) -> int:
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        instances = getattr(orchestrator, "_instances", None)
+        if not isinstance(instances, dict):
+            return 1
+        symbols: set[str] = set()
+        for inst in instances.values():
+            try:
+                symbol = self._convert_symbol(str(getattr(inst.config, "symbol", ""))).upper()
+            except Exception:
+                continue
+            if symbol:
+                symbols.add(symbol)
+        return max(1, len(symbols))
+
+    def _state_db_path_for_diversification(self) -> Optional[str]:
+        persistence = getattr(self.instance, "_persistence", None)
+        if persistence is not None and getattr(persistence, "db_path", None):
+            return str(getattr(persistence, "db_path"))
+        orchestrator = getattr(self.instance, "orchestrator", None)
+        persistence = getattr(orchestrator, "persistence", None)
+        if persistence is not None and getattr(persistence, "db_path", None):
+            return str(getattr(persistence, "db_path"))
+        return None
+
+    def _paper_symbol_concentration_guard(self, symbol: str) -> tuple[bool, dict[str, Any]]:
+        """Prevent one official paper symbol from monopolizing new entries."""
+        if not self._is_paper_mode() or not self._paper_diversification_enabled:
+            return False, {"enabled": False}
+        active_symbols = self._paper_active_symbol_count()
+        if active_symbols < self._paper_diversification_min_symbols:
+            return False, {
+                "enabled": True,
+                "reason": "not_enough_active_symbols",
+                "active_symbols": active_symbols,
+            }
+        db_path = self._state_db_path_for_diversification()
+        if not db_path:
+            return False, {"enabled": True, "reason": "state_db_unavailable"}
+        normalized_symbol = self._convert_symbol(symbol).upper()
+        window = max(1, int(self._paper_symbol_buy_window_minutes))
+        try:
+            with sqlite3.connect(db_path, timeout=2.0) as conn:
+                conn.row_factory = sqlite3.Row
+                table_exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trade_ledger'"
+                ).fetchone()
+                if not table_exists:
+                    return False, {"enabled": True, "reason": "trade_ledger_unavailable"}
+                rows = conn.execute(
+                    """
+                    SELECT symbol, COUNT(*) AS n
+                    FROM trade_ledger
+                    WHERE lower(side) = 'buy'
+                      AND julianday(replace(substr(created_at, 1, 19), 'T', ' '))
+                          >= julianday('now', ?)
+                    GROUP BY symbol
+                    """,
+                    (f"-{window} minutes",),
+                ).fetchall()
+        except Exception as exc:
+            logger.debug("Paper diversification guard unavailable for %s: %s", normalized_symbol, exc)
+            return False, {"enabled": True, "reason": "query_failed", "error": str(exc)[:160]}
+
+        counts = {str(row["symbol"] or "").upper(): int(row["n"] or 0) for row in rows}
+        symbol_buys = int(counts.get(normalized_symbol, 0))
+        total_buys = int(sum(counts.values()))
+        details = {
+            "enabled": True,
+            "symbol": normalized_symbol,
+            "recent_symbol_buys": symbol_buys,
+            "recent_total_buys": total_buys,
+            "buy_counts_by_symbol": counts,
+            "window_minutes": window,
+            "max_symbol_buys": int(self._paper_max_symbol_buys_per_window),
+            "active_symbols": active_symbols,
+        }
+        if symbol_buys >= int(self._paper_max_symbol_buys_per_window):
+            details["reason"] = "symbol_buy_cap_reached"
+            return True, details
+        details["reason"] = "ok"
+        return False, details
 
     async def _try_paper_signal_budget_top_up(
         self,
@@ -967,6 +1070,30 @@ class SignalHandlerAsync:
                 volume = min(volume, target_volume)
 
         symbol = self._convert_symbol(signal.symbol)
+        concentration_blocked, concentration_details = self._paper_symbol_concentration_guard(symbol)
+        if concentration_blocked:
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="paper_symbol_concentration_guard",
+                symbol=symbol,
+                side="buy",
+                blocking_condition=concentration_details.get("reason"),
+                net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
+                min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
+                gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
+                cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
+                opportunity=opportunity_payload,
+                concentration_guard=concentration_details,
+            )
+            logger.info(
+                "Signal BUY ignored: official paper concentration guard %s (%s/%s BUY over %d min)",
+                symbol,
+                concentration_details.get("recent_symbol_buys"),
+                concentration_details.get("max_symbol_buys"),
+                concentration_details.get("window_minutes"),
+            )
+            return
         volume_before_min_adjustment = volume
         normalized_volume = self._normalize_buy_volume_for_minimum(
             symbol=symbol,
