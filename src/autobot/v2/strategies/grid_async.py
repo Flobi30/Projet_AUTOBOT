@@ -110,6 +110,12 @@ class GridStrategyAsync(StrategyAsync):
             "GRID_BLOCK_UNDERPERFORMING_HEALTH",
             True,
         )
+        self._underperforming_health_action = self._read_choice_config(
+            "underperforming_health_action",
+            "GRID_UNDERPERFORMING_HEALTH_ACTION",
+            "observe",
+            {"observe", "block"},
+        )
         self._setup_optimizer_execution_gate = self._read_bool_config(
             "setup_optimizer_execution_gate",
             "SETUP_OPTIMIZER_APPLY_TO_EXECUTION",
@@ -251,6 +257,17 @@ class GridStrategyAsync(StrategyAsync):
         if isinstance(raw, bool):
             return raw
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _read_choice_config(
+        self,
+        config_key: str,
+        env_key: str,
+        default: str,
+        allowed: set[str],
+    ) -> str:
+        raw = self.config.get(config_key, os.getenv(env_key, default))
+        value = str(raw if raw is not None else default).strip().lower()
+        return value if value in allowed else default
 
     # ------------------------------------------------------------------
     # V3: Initialization helpers
@@ -669,8 +686,13 @@ class GridStrategyAsync(StrategyAsync):
             logger.error(f"Error in Kelly sizing: {e}")
             return base_cpl
 
+    def _realized_health_gate_result(self, reason: str) -> tuple[bool, str]:
+        if self._underperforming_health_action == "block":
+            return True, reason
+        return False, f"{reason}_observed"
+
     def _realized_health_blocks_entry(self) -> tuple[bool, str]:
-        """Block new paper grid entries for pairs with poor realized health."""
+        """Observe or block new paper grid entries for pairs with poor realized health."""
         if not self._block_underperforming_health:
             return False, "disabled"
         try:
@@ -693,11 +715,11 @@ class GridStrategyAsync(StrategyAsync):
             status = str(context.get("status") or "").lower()
             closed = int(float(context.get("closed_trades") or 0))
             if status == "weak" and closed >= int(engine.config.min_closed_trades):
-                return True, "pair_health_weak"
+                return self._realized_health_gate_result("pair_health_weak")
             if status == "underperforming" and closed >= int(engine.config.min_closed_trades):
-                return True, "pair_health_underperforming"
+                return self._realized_health_gate_result("pair_health_underperforming")
             if status == "early_weak" and closed >= int(engine.config.early_weak_min_closed_trades):
-                return True, "pair_health_early_weak"
+                return self._realized_health_gate_result("pair_health_early_weak")
         except Exception as exc:
             logger.debug("Grid health gate unavailable: %s", exc)
         return False, "ok"

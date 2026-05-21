@@ -115,7 +115,7 @@ def test_pair_health_marks_confirmed_negative_pf_as_underperforming(tmp_path):
     assert btc["adjustment"] <= 0.0
 
 
-def test_opportunity_score_uses_health_as_paper_guard():
+def test_opportunity_score_uses_health_as_paper_penalty_by_default():
     scorer = OpportunityScorer(
         OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
     )
@@ -159,12 +159,19 @@ def test_opportunity_score_uses_health_as_paper_guard():
     assert weak.score < neutral.score
     assert weak.health_adjustment < 0.0
     assert weak.health_context["status"] == "weak"
-    assert "pair_health_weak" in weak.blockers
+    assert weak.health_context["guard_action"] == "observe"
+    assert "pair_health_weak" not in weak.blockers
 
 
 def test_opportunity_score_blocks_underperforming_pf_in_paper():
     scorer = OpportunityScorer(
-        OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=5.0,
+            pair_health_guard_action="block",
+        )
     )
 
     result = scorer.score_signal(
@@ -201,7 +208,13 @@ def test_opportunity_score_blocks_underperforming_pf_in_paper():
 
 def test_opportunity_score_blocks_early_weak_learning_in_paper():
     scorer = OpportunityScorer(
-        OpportunityConfig(min_score=60.0, min_gross_edge_bps=35.0, min_net_edge_bps=12.0, min_atr_bps=5.0)
+        OpportunityConfig(
+            min_score=60.0,
+            min_gross_edge_bps=35.0,
+            min_net_edge_bps=12.0,
+            min_atr_bps=5.0,
+            pair_health_guard_action="block",
+        )
     )
 
     result = scorer.score_signal(

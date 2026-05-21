@@ -27,7 +27,7 @@ def _state_db(path):
         )
 
 
-def test_grid_blocks_new_buy_when_pair_health_underperforms(tmp_path):
+def test_grid_observes_underperforming_pair_health_by_default(tmp_path):
     db_path = tmp_path / "state.db"
     _state_db(db_path)
     rows = []
@@ -46,6 +46,32 @@ def test_grid_blocks_new_buy_when_pair_health_underperforms(tmp_path):
         _trades=[],
     )
     grid = GridStrategyAsync(instance, {"enable_dgt": False})
+
+    blocked, reason = grid._realized_health_blocks_entry()
+
+    assert blocked is False
+    assert reason == "pair_health_underperforming_observed"
+
+
+def test_grid_can_block_underperforming_pair_health_when_configured(tmp_path):
+    db_path = tmp_path / "state.db"
+    _state_db(db_path)
+    rows = []
+    for idx in range(24):
+        pnl = 0.03 if idx < 13 else -0.04
+        rows.append(("XXBTZEUR", "sell", 1.0, 100.0, 0.01, pnl, 1, f"2026-05-12T00:{idx:02d}:00+00:00"))
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany("INSERT INTO trade_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+
+    instance = SimpleNamespace(
+        config=SimpleNamespace(symbol="XXBTZEUR", strategy="grid"),
+        orchestrator=SimpleNamespace(paper_mode=True, persistence=SimpleNamespace(db_path=str(db_path))),
+        get_available_capital=lambda: 100.0,
+        get_current_capital=lambda: 100.0,
+        get_profit_factor_days=lambda _days=30: 0.0,
+        _trades=[],
+    )
+    grid = GridStrategyAsync(instance, {"enable_dgt": False, "underperforming_health_action": "block"})
 
     blocked, reason = grid._realized_health_blocks_entry()
 

@@ -90,6 +90,7 @@ class OpportunityConfig:
     high_net_edge_bps: float = 80.0
     paper_relaxed_min_atr_bps: float = 5.0
     pair_health_guard_enabled: bool = True
+    pair_health_guard_action: str = "observe"
     pair_health_guard_min_closed_trades: int = 20
     pair_health_guard_early_min_closed_trades: int = 8
     pair_health_guard_score_max: float = 35.0
@@ -128,6 +129,7 @@ class OpportunityConfig:
             high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
             paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
             pair_health_guard_enabled=_env_bool("OPPORTUNITY_PAIR_HEALTH_GUARD_ENABLED", True),
+            pair_health_guard_action=_env_choice("OPPORTUNITY_PAIR_HEALTH_GUARD_ACTION", "observe", {"observe", "block"}),
             pair_health_guard_min_closed_trades=_env_int("OPPORTUNITY_PAIR_HEALTH_GUARD_MIN_CLOSED_TRADES", 20, 1, 10_000),
             pair_health_guard_early_min_closed_trades=_env_int("OPPORTUNITY_PAIR_HEALTH_GUARD_EARLY_MIN_CLOSED_TRADES", 8, 1, 10_000),
             pair_health_guard_score_max=_env_float("OPPORTUNITY_PAIR_HEALTH_GUARD_SCORE_MAX", 35.0, 0.0, 100.0),
@@ -377,6 +379,7 @@ class OpportunityScorer:
                 "high_net_edge_bps": self.config.high_net_edge_bps,
                 "paper_relaxed_min_atr_bps": self.config.paper_relaxed_min_atr_bps,
                 "pair_health_guard_enabled": self.config.pair_health_guard_enabled,
+                "pair_health_guard_action": self.config.pair_health_guard_action,
                 "pair_health_guard_min_closed_trades": self.config.pair_health_guard_min_closed_trades,
                 "pair_health_guard_early_min_closed_trades": self.config.pair_health_guard_early_min_closed_trades,
                 "regime_scoring_enabled": self.regime_engine.config.enabled,
@@ -518,8 +521,7 @@ class OpportunityScorer:
             "enabled": regime.enabled,
         }
 
-    @staticmethod
-    def _health_for(symbol: str, context: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    def _health_for(self, symbol: str, context: Optional[Mapping[str, Any]]) -> dict[str, Any]:
         if not context:
             return {
                 "health_score": 50.0,
@@ -530,6 +532,7 @@ class OpportunityScorer:
                     "reason": "no_health_context",
                     "closed_trades": 0,
                     "enabled": False,
+                    "guard_action": self.config.pair_health_guard_action,
                 },
             }
         health_score = _safe_float(context.get("health_score"), 50.0)
@@ -548,6 +551,7 @@ class OpportunityScorer:
                 "avg_return_bps": _safe_float(context.get("avg_return_bps"), 0.0),
                 "max_drawdown_eur": _safe_float(context.get("max_drawdown_eur"), 0.0),
                 "enabled": bool(context.get("enabled", True)),
+                "guard_action": self.config.pair_health_guard_action,
             },
         }
 
@@ -635,6 +639,8 @@ class OpportunityScorer:
     ) -> list[str]:
         cfg = self.config
         if not paper_mode or not cfg.pair_health_guard_enabled or not health:
+            return []
+        if cfg.pair_health_guard_action != "block":
             return []
         context = health.get("context") if isinstance(health.get("context"), Mapping) else {}
         status = str(context.get("status") or "").lower()
