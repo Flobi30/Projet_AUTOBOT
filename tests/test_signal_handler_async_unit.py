@@ -324,6 +324,7 @@ async def test_execute_buy_blocks_symbol_that_monopolizes_official_paper(tmp_pat
 
     instance = _Instance()
     instance.config.symbol = "TRXEUR"
+    instance.config.paper_symbol_concentration_action = "block"
     instance._persistence = SimpleNamespace(db_path=str(db), append_audit_event=lambda **_: None)
     instance.orchestrator = SimpleNamespace(
         paper_mode=True,
@@ -356,6 +357,53 @@ async def test_execute_buy_blocks_symbol_that_monopolizes_official_paper(tmp_pat
     assert executor.limit_calls == 0
     assert handler._last_decision_event["reason"] == "paper_symbol_concentration_guard"
     assert handler._last_decision_event["concentration_guard"]["recent_symbol_buys"] == 3
+
+
+@pytest.mark.asyncio
+async def test_execute_buy_observes_concentration_without_blocking_by_default(tmp_path):
+    db = tmp_path / "state.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE trade_ledger (symbol TEXT, side TEXT, created_at TEXT)")
+        for _ in range(3):
+            conn.execute(
+                "INSERT INTO trade_ledger(symbol, side, created_at) VALUES (?, ?, ?)",
+                ("TRXEUR", "buy", datetime.now(timezone.utc).isoformat()),
+            )
+        conn.commit()
+
+    instance = _Instance()
+    instance.config.symbol = "TRXEUR"
+    instance._persistence = SimpleNamespace(db_path=str(db), append_audit_event=lambda **_: None)
+    instance.orchestrator = SimpleNamespace(
+        paper_mode=True,
+        _instances={
+            "trx": SimpleNamespace(config=SimpleNamespace(symbol="TRXEUR")),
+            "atom": SimpleNamespace(config=SimpleNamespace(symbol="ATOMEUR")),
+        },
+    )
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = _CountingOSM()
+    handler._post_trade_reconcile = _noop_reconcile
+    handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": False}
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="TRXEUR",
+        price=0.31,
+        volume=40.0,
+        reason="unit concentration observe",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"spread_bps": 1.0, "expected_move_bps": 220.0, "fee_bps": 10.0, "exit_fee_bps": 10.0, "slippage_bps": 2.0},
+    )
+
+    await handler._execute_buy(signal)
+
+    assert executor.market_calls + executor.limit_calls == 1
+    assert handler._last_decision_event["reason"] == "all_guards_passed"
+    assert handler._last_decision_event["concentration_guard"]["reason"] == "symbol_buy_cap_reached"
+    assert handler._last_decision_event["concentration_guard"]["action"] == "observe"
 
 
 @pytest.mark.asyncio

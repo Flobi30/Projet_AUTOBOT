@@ -194,6 +194,19 @@ class SignalHandlerAsync:
             "PAPER_OFFICIAL_DIVERSIFICATION_ENABLED",
             True,
         )
+        self._paper_symbol_concentration_action = str(
+            getattr(
+                getattr(self.instance, "config", None),
+                "paper_symbol_concentration_action",
+                os.getenv("PAPER_SYMBOL_CONCENTRATION_ACTION", "observe"),
+            )
+        ).strip().lower()
+        if self._paper_symbol_concentration_action not in {"observe", "block"}:
+            logger.warning(
+                "PAPER_SYMBOL_CONCENTRATION_ACTION invalide (%s), fallback=observe",
+                self._paper_symbol_concentration_action,
+            )
+            self._paper_symbol_concentration_action = "observe"
         self._paper_symbol_buy_window_minutes = self._load_positive_int(
             "paper_symbol_buy_window_minutes",
             "PAPER_SYMBOL_BUY_WINDOW_MINUTES",
@@ -461,6 +474,7 @@ class SignalHandlerAsync:
         total_buys = int(sum(counts.values()))
         details = {
             "enabled": True,
+            "action": self._paper_symbol_concentration_action,
             "symbol": normalized_symbol,
             "recent_symbol_buys": symbol_buys,
             "recent_total_buys": total_buys,
@@ -471,7 +485,7 @@ class SignalHandlerAsync:
         }
         if symbol_buys >= int(self._paper_max_symbol_buys_per_window):
             details["reason"] = "symbol_buy_cap_reached"
-            return True, details
+            return self._paper_symbol_concentration_action == "block", details
         details["reason"] = "ok"
         return False, details
 
@@ -1150,6 +1164,7 @@ class SignalHandlerAsync:
             paper_budget_top_up=paper_budget_top_up,
             order_size_adjustment=order_size_adjustment,
             opportunity_size_adjustment=opportunity_size_adjustment,
+            concentration_guard=concentration_details,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
         decision_id = f"dec_{uuid.uuid4().hex}"
