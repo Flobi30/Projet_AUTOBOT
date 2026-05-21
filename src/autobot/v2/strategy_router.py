@@ -1,8 +1,8 @@
 """Paper-only multi-engine strategy router.
 
 The router compares isolated shadow evidence from Grid, Trend/Momentum and
-Mean-Reversion labs.  It is a read-only control plane: it does not place
-orders, mutate running strategies, or enable live trading.
+Mean-Reversion labs. It never enables live trading. A separate paper-only
+adapter may let a validated Grid candidate replace the official paper setup.
 """
 
 from __future__ import annotations
@@ -143,6 +143,7 @@ class StrategyRouter:
             ranked = sorted([*engines, no_trade], key=lambda item: item["router_score"], reverse=True)
             selected = ranked[0]
             action, reason = self._recommendation(selected, ranked)
+            paper_execution_policy = self._paper_execution_policy(selected, action, paper_mode=paper_mode)
             opp = opp_by_symbol.get(symbol, {})
             rows.append(
                 {
@@ -155,11 +156,12 @@ class StrategyRouter:
                     "reason": reason,
                     "paper_only": True,
                     "live_promotion_allowed": False,
-                    "official_execution_enabled": False,
+                    "official_execution_enabled": paper_execution_policy.get("support") == "paper_official_candidate",
+                    "paper_official_execution_enabled": paper_execution_policy.get("support") == "paper_official_candidate",
                     "opportunity_score": opp.get("score") if isinstance(opp, Mapping) else None,
                     "opportunity_status": opp.get("status") if isinstance(opp, Mapping) else None,
                     "opportunity_reason": opp.get("reason") if isinstance(opp, Mapping) else None,
-                    "paper_execution_policy": self._paper_execution_policy(selected, action),
+                    "paper_execution_policy": paper_execution_policy,
                     "engines": ranked,
                 }
             )
@@ -167,6 +169,7 @@ class StrategyRouter:
         candidate_count = sum(1 for row in rows if row["recommended_action"] == "shadow_candidate_review")
         no_trade_count = sum(1 for row in rows if row["selected_engine"] == "no_trade")
         learning_count = sum(1 for row in rows if row["recommended_action"] == "continue_shadow_learning")
+        paper_official_execution_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
         return {
             "timestamp": _utc_now(),
             "mode": "paper" if paper_mode else "live_shadow_observation",
@@ -174,7 +177,8 @@ class StrategyRouter:
             "enabled": self.config.enabled,
             "paper_only": True,
             "live_promotion_allowed": False,
-            "official_execution_enabled": False,
+            "official_execution_enabled": paper_official_execution_enabled,
+            "paper_official_execution_enabled": paper_official_execution_enabled,
             "config": self.config.to_dict(),
             "summary": {
                 "symbols": len(rows),
@@ -185,8 +189,8 @@ class StrategyRouter:
             "routes": rows,
             "by_symbol": {row["symbol"]: row for row in rows},
             "message": (
-                "Strategy router is observation-only. It ranks grid, trend, mean-reversion and no-trade "
-                "from shadow evidence but does not place official paper or live orders."
+                "Strategy router ranks grid, trend, mean-reversion and no-trade from shadow evidence. "
+                "Validated dynamic-grid candidates can be applied to official paper execution; live stays blocked."
             ),
         }
 
@@ -311,28 +315,39 @@ class StrategyRouter:
             return "continue_shadow_learning", "no_trade_close_second"
         return "continue_shadow_learning", "no_engine_validated_yet"
 
-    def _paper_execution_policy(self, selected: Mapping[str, Any], action: str) -> dict[str, Any]:
+    def _paper_execution_policy(
+        self,
+        selected: Mapping[str, Any],
+        action: str,
+        *,
+        paper_mode: bool,
+    ) -> dict[str, Any]:
+        paper_router_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
         engine = str(selected.get("engine") or "no_trade")
         if engine == "dynamic_grid":
-            if action == "shadow_candidate_review":
+            if action == "shadow_candidate_review" and paper_router_enabled:
                 return {
                     "support": "paper_official_candidate",
                     "reason": "dynamic_grid_adapter_available",
+                    "paper_execution_enabled": True,
                     "live_enabled": False,
                 }
             return {
                 "support": "paper_observation",
-                "reason": "dynamic_grid_waiting_for_candidate_evidence",
+                "reason": "dynamic_grid_waiting_for_candidate_evidence" if paper_router_enabled else "paper_execution_router_disabled",
+                "paper_execution_enabled": paper_router_enabled,
                 "live_enabled": False,
             }
         if engine in {"trend_momentum", "mean_reversion"}:
             return {
                 "support": "shadow_only",
                 "reason": "official_execution_adapter_not_enabled_yet",
+                "paper_execution_enabled": False,
                 "live_enabled": False,
             }
         return {
             "support": "abstain",
             "reason": "router_selected_no_trade",
+            "paper_execution_enabled": False,
             "live_enabled": False,
         }

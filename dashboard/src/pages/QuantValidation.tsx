@@ -261,7 +261,14 @@ type StrategyRouterRoute = {
   reason: string;
   live_promotion_allowed: boolean;
   official_execution_enabled: boolean;
+  paper_official_execution_enabled?: boolean;
   opportunity_score?: number | null;
+  paper_execution_policy?: {
+    support: string;
+    reason: string;
+    paper_execution_enabled?: boolean;
+    live_enabled: boolean;
+  };
   engines: StrategyRouterEngine[];
 };
 
@@ -270,6 +277,7 @@ type StrategyRouterResponse = {
   paper_only: boolean;
   live_promotion_allowed: boolean;
   official_execution_enabled: boolean;
+  paper_official_execution_enabled?: boolean;
   summary: {
     symbols: number;
     candidate_symbols: number;
@@ -615,12 +623,15 @@ const QuantValidation: React.FC = () => {
               <div className="text-amber-400 font-semibold">{strategyRouter.summary.no_trade_symbols}</div>
             </div>
             <div className="bg-gray-900/50 rounded-lg p-3">
-              <div className="text-gray-400">Execution officielle</div>
-              <div className="text-white font-semibold">{strategyRouter.official_execution_enabled ? 'Active' : 'Bloquee'}</div>
+              <div className="text-gray-400">Execution paper</div>
+              <div className="text-white font-semibold">
+                {(strategyRouter.paper_official_execution_enabled ?? strategyRouter.official_execution_enabled) ? 'Controlee' : 'Observation'}
+              </div>
+              <div className="text-xs text-gray-500">Live bloque</div>
             </div>
           </div>
           <div className="mb-4 border border-violet-500/20 bg-violet-500/10 rounded-lg p-3 text-sm text-violet-100/90">
-            Le routeur compare grid, trend, mean-reversion et abstention. Pour l'instant il classe seulement les moteurs; il ne remplace pas la strategie officielle.
+            Le routeur compare grid, trend, mean-reversion et abstention. Seuls les candidats dynamic-grid valides peuvent remplacer la configuration paper officielle; le live reste bloque.
           </div>
           {routerRows.length ? (
             <div className="overflow-x-auto">
@@ -647,6 +658,7 @@ const QuantValidation: React.FC = () => {
                       <td className="py-2 pl-4">
                         <div className={`font-semibold ${stateClass(row.status)}`}>{row.recommended_action}</div>
                         <div className="text-xs text-gray-500">{row.reason}</div>
+                        <div className="text-xs text-gray-500">{row.paper_execution_policy?.support ?? 'shadow_only'}</div>
                       </td>
                     </tr>
                   ))}

@@ -62,6 +62,27 @@ def test_strategy_router_selects_best_shadow_engine():
     assert row["recommended_action"] == "shadow_candidate_review"
     assert row["live_promotion_allowed"] is False
     assert row["official_execution_enabled"] is False
+    assert row["paper_execution_policy"]["support"] == "shadow_only"
+    assert snapshot["paper_official_execution_enabled"] is True
+
+
+def test_strategy_router_marks_validated_grid_candidate_as_paper_official_candidate():
+    snapshot = _router().build_snapshot(
+        instances=[{"symbol": "NEWEUR"}],
+        paper_mode=True,
+        setup_shadow_by_symbol={
+            "NEWEUR": _symbol_payload("dynamic_grid", "grid_tight_range", 82.0, "candidate", 3.0, 5)
+        },
+        opportunities=[],
+    )
+
+    row = snapshot["by_symbol"]["NEWEUR"]
+    assert row["selected_engine"] == "dynamic_grid"
+    assert row["recommended_action"] == "shadow_candidate_review"
+    assert row["official_execution_enabled"] is True
+    assert row["paper_official_execution_enabled"] is True
+    assert row["paper_execution_policy"]["support"] == "paper_official_candidate"
+    assert row["paper_execution_policy"]["live_enabled"] is False
 
 
 def test_strategy_router_uses_no_trade_when_all_engines_weak():
