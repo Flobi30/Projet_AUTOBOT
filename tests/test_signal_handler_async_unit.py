@@ -237,7 +237,7 @@ async def test_execute_buy_and_cost_guard_without_external_injection():
         volume=0.2,
         reason="unit",
         timestamp=datetime.now(timezone.utc),
-        metadata={"spread_bps": 10.0, "expected_move_bps": 120.0, "fee_bps": 20.0, "slippage_bps": 8.0},
+        metadata={"spread_bps": 10.0, "expected_move_bps": 160.0, "fee_bps": 20.0, "slippage_bps": 8.0},
     )
 
     assert handler._passes_cost_guard(signal, atr_pct=0.01) is True
@@ -246,6 +246,38 @@ async def test_execute_buy_and_cost_guard_without_external_injection():
 
     assert len(handler.instance.opened) == 1
     assert handler.instance.opened[0]["buy_txid"] == "buy-1"
+
+
+def test_cost_guard_counts_exit_fee_for_round_trip():
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=_Executor())
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=100.0,
+        volume=0.2,
+        reason="unit",
+        timestamp=datetime.now(timezone.utc),
+        metadata={
+            "spread_bps": 0.0,
+            "expected_move_bps": 64.0,
+            "fee_bps": 25.0,
+            "exit_fee_bps": 40.0,
+            "slippage_bps": 0.0,
+        },
+    )
+    risk = {
+        "atr_sl_mult": 1.0,
+        "tp_rr": 1.0,
+        "min_edge_bps": 1.0,
+        "cost_buffer_mult": 0.0,
+        "volatility_edge_weight": 0.0,
+    }
+
+    edge = handler._estimate_edge_context(signal, atr_pct=0.0, risk_params=risk)
+
+    assert edge["estimated_round_trip_fee_bps"] == 65.0
+    assert edge["net_edge_bps"] == -1.0
+    assert handler._passes_cost_guard(edge) is False
 
 
 @pytest.mark.asyncio

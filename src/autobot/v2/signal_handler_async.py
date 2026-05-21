@@ -154,6 +154,13 @@ class SignalHandlerAsync:
             minimum=0.0,
             maximum=250.0,
         )
+        self._edge_exit_fee_bps = self._load_float_in_range(
+            "edge_exit_fee_bps",
+            "EDGE_EXIT_FEE_BPS",
+            self._edge_fallback_fee_bps,
+            minimum=0.0,
+            maximum=250.0,
+        )
         self._edge_fallback_slippage_bps = self._load_float_in_range(
             "edge_fallback_slippage_bps",
             "EDGE_FALLBACK_SLIPPAGE_BPS",
@@ -1788,6 +1795,7 @@ class SignalHandlerAsync:
         slip_samples = [s["slippage_bps"] for s in observed]
         cost_samples = [s["total_cost_bps"] for s in observed]
         fallback_fee_bps = float(metadata.get("fee_bps", self._edge_fallback_fee_bps))
+        exit_fee_bps = float(metadata.get("exit_fee_bps", self._edge_exit_fee_bps))
         fallback_slippage_bps = float(
             metadata.get(
                 "slippage_bps",
@@ -1795,10 +1803,12 @@ class SignalHandlerAsync:
             )
         )
         estimated_fee_bps = self._percentile(fee_samples, self._edge_percentile_target) if fee_samples else fallback_fee_bps
+        estimated_exit_fee_bps = max(0.0, exit_fee_bps)
+        estimated_round_trip_fee_bps = estimated_fee_bps + estimated_exit_fee_bps
         estimated_slippage_bps = self._percentile(slip_samples, self._edge_percentile_target) if slip_samples else fallback_slippage_bps
         observed_cost_pctl = self._percentile(cost_samples, self._edge_percentile_target) if cost_samples else (estimated_fee_bps + estimated_slippage_bps)
         expected_move_bps = float(metadata.get("expected_move_bps", atr_pct * 10000 * params["tp_rr"]))
-        total_cost_bps = spread_bps + estimated_fee_bps + estimated_slippage_bps
+        total_cost_bps = spread_bps + estimated_round_trip_fee_bps + estimated_slippage_bps
         net_edge_bps = expected_move_bps - total_cost_bps
         volatility_edge_weight = float(params.get("volatility_edge_weight", self._volatility_edge_weight))
         cost_buffer_mult = float(params.get("cost_buffer_mult", self._edge_cost_buffer_mult))
@@ -1810,6 +1820,8 @@ class SignalHandlerAsync:
             "spread_bps": spread_bps,
             "expected_move_bps": expected_move_bps,
             "estimated_fee_bps": estimated_fee_bps,
+            "estimated_exit_fee_bps": estimated_exit_fee_bps,
+            "estimated_round_trip_fee_bps": estimated_round_trip_fee_bps,
             "estimated_slippage_bps": estimated_slippage_bps,
             "total_cost_bps": total_cost_bps,
             "net_edge_bps": net_edge_bps,
