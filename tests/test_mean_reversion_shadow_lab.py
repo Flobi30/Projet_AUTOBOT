@@ -24,6 +24,7 @@ def _variant() -> MeanReversionVariant:
         max_abs_trend_bps=2500.0,
         min_atr_bps=0.1,
         max_atr_bps=5000.0,
+        min_expected_net_edge_bps=0.0,
         position_pct=0.50,
         cooldown_ticks=0,
     )
@@ -49,7 +50,7 @@ def _lab(tmp_path) -> MeanReversionShadowLab:
 
 def test_mean_reversion_shadow_lab_opens_and_closes_snapback(tmp_path):
     lab = _lab(tmp_path)
-    prices = [100.0, 100.0, 100.0, 100.0, 90.0, 95.0, 99.0]
+    prices = [100.0, 101.0, 99.0, 100.0, 100.0, 90.0, 95.0, 99.0]
 
     for idx, price in enumerate(prices):
         lab.on_price_tick(symbol="NEWEUR", price=price, timestamp=f"2026-05-20T01:0{idx}:00+00:00")
@@ -82,6 +83,7 @@ def test_mean_reversion_shadow_lab_rejects_strong_trend(tmp_path):
         max_abs_trend_bps=50.0,
         min_atr_bps=0.1,
         max_atr_bps=5000.0,
+        min_expected_net_edge_bps=0.0,
     )
     lab = MeanReversionShadowLab(lab.config, variants=[trend_variant])
     for idx, price in enumerate([100.0, 99.0, 98.0, 97.0, 90.0, 89.0]):
@@ -91,6 +93,40 @@ def test_mean_reversion_shadow_lab_rejects_strong_trend(tmp_path):
     best = snapshot["by_symbol"]["TRENDEUR"]["best_variant"]
     assert best["opened_trades"] == 0
     assert best["last_decision"]["reason"] == "trend_too_strong_for_mean_reversion"
+
+
+def test_mean_reversion_shadow_lab_rejects_when_expected_edge_below_cost(tmp_path):
+    expensive_variant = MeanReversionVariant(
+        name="mr_cost_guard",
+        description="Reject weak snapback after estimated costs",
+        window=5,
+        entry_z=0.25,
+        atr_window=2,
+        min_bandwidth_bps=0.1,
+        max_bandwidth_bps=5000.0,
+        max_abs_trend_bps=2500.0,
+        min_atr_bps=0.1,
+        max_atr_bps=5000.0,
+        min_expected_net_edge_bps=20.0,
+    )
+    lab = MeanReversionShadowLab(
+        MeanReversionShadowConfig(
+            db_path=str(tmp_path / "mean_reversion_shadow_lab.db"),
+            virtual_capital_per_variant=100.0,
+            min_tick_seconds=0,
+            min_samples_for_signal=5,
+            fee_bps_per_side=12.0,
+            slippage_bps_per_side=3.0,
+        ),
+        variants=[expensive_variant],
+    )
+    for idx, price in enumerate([100.0, 100.2, 99.8, 100.1, 99.9, 99.7]):
+        lab.on_price_tick(symbol="COSTEUR", price=price, timestamp=f"2026-05-20T01:2{idx}:00+00:00")
+
+    snapshot = lab.build_snapshot(symbols=["COSTEUR"])
+    best = snapshot["by_symbol"]["COSTEUR"]["best_variant"]
+    assert best["opened_trades"] == 0
+    assert best["last_decision"]["reason"] == "expected_edge_below_cost"
 
 
 def test_mean_reversion_shadow_lab_learning_status_with_short_history(tmp_path):

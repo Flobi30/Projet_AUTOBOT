@@ -147,6 +147,7 @@ class MeanReversionVariant:
     max_abs_trend_bps: float = 120.0
     min_atr_bps: float = 3.0
     max_atr_bps: float = 220.0
+    min_expected_net_edge_bps: float = 6.0
     position_pct: float = 0.35
     cooldown_ticks: int = 3
 
@@ -164,6 +165,7 @@ class MeanReversionVariant:
             "max_abs_trend_bps": self.max_abs_trend_bps,
             "min_atr_bps": self.min_atr_bps,
             "max_atr_bps": self.max_atr_bps,
+            "min_expected_net_edge_bps": self.min_expected_net_edge_bps,
             "position_pct": self.position_pct,
             "cooldown_ticks": self.cooldown_ticks,
         }
@@ -189,30 +191,33 @@ DEFAULT_MEAN_REVERSION_VARIANTS: tuple[MeanReversionVariant, ...] = (
         stop_z=4.0,
         min_bandwidth_bps=10.0,
         max_abs_trend_bps=150.0,
+        min_expected_net_edge_bps=10.0,
         position_pct=0.30,
     ),
     MeanReversionVariant(
-        name="mr_fast_range",
-        description="Faster range reversion with smaller allocation.",
+        name="mr_fast_probe",
+        description="Paper-only faster snapback probe; smaller allocation, still cost-aware.",
         window=20,
-        entry_z=1.75,
+        entry_z=1.25,
         exit_z=0.20,
         stop_z=3.2,
-        max_abs_trend_bps=80.0,
-        position_pct=0.28,
+        max_abs_trend_bps=95.0,
+        min_expected_net_edge_bps=4.0,
+        position_pct=0.18,
     ),
     MeanReversionVariant(
-        name="mr_low_vol_range",
-        description="Low-volatility range snapback; rejects trending moves.",
-        window=40,
-        entry_z=1.65,
+        name="mr_range_probe",
+        description="Paper-only range probe for mild deviations after cost filter.",
+        window=28,
+        entry_z=1.15,
         exit_z=0.15,
         stop_z=3.0,
         min_bandwidth_bps=4.0,
-        max_bandwidth_bps=120.0,
-        max_abs_trend_bps=55.0,
+        max_bandwidth_bps=150.0,
+        max_abs_trend_bps=70.0,
         min_atr_bps=1.0,
-        position_pct=0.25,
+        min_expected_net_edge_bps=3.0,
+        position_pct=0.15,
     ),
 )
 
@@ -561,13 +566,16 @@ class MeanReversionShadowLab:
             return False, "bandwidth_below_min"
         if bandwidth_bps > variant.max_bandwidth_bps:
             return False, "bandwidth_above_max"
+        z_score = _safe_float(features.get("z_score"))
+        if z_score > -abs(variant.entry_z):
+            return False, "zscore_not_extreme"
+        expected_net_bps = _safe_float(features.get("expected_net_edge_bps"))
+        if expected_net_bps < variant.min_expected_net_edge_bps:
+            return False, "expected_edge_below_cost"
         trend_bps = abs(_safe_float(features.get("trend_bps")))
         if trend_bps > variant.max_abs_trend_bps:
             return False, "trend_too_strong_for_mean_reversion"
-        z_score = _safe_float(features.get("z_score"))
-        if z_score <= -abs(variant.entry_z):
-            return True, "lower_band_snapback"
-        return False, "zscore_not_extreme"
+        return True, "lower_band_snapback_cost_aware"
 
     def _exit_decision(
         self,
@@ -588,7 +596,7 @@ class MeanReversionShadowLab:
         return False, "waiting_snapback"
 
     def _features(self, prices: list[float], variant: MeanReversionVariant) -> dict[str, Any]:
-        required = max(variant.window, variant.atr_window + 1)
+        required = max(variant.window + 1, variant.atr_window + 1)
         if len(prices) < required:
             return {
                 "ready": False,
@@ -596,7 +604,8 @@ class MeanReversionShadowLab:
                 "samples": len(prices),
                 "required_samples": required,
             }
-        window_prices = prices[-variant.window :]
+        current_price = prices[-1]
+        window_prices = prices[-variant.window - 1 : -1]
         mean = sum(window_prices) / len(window_prices)
         variance = sum((price - mean) ** 2 for price in window_prices) / max(len(window_prices), 1)
         std = math.sqrt(max(variance, 0.0))
@@ -616,8 +625,11 @@ class MeanReversionShadowLab:
         atr_values = returns_bps[-variant.atr_window :]
         atr_bps = sum(abs(value) for value in atr_values) / max(len(atr_values), 1)
         trend_base = window_prices[0]
-        trend_bps = ((prices[-1] / max(trend_base, 1e-12)) - 1.0) * 10000.0
-        z_score = (prices[-1] - mean) / max(std, 1e-12)
+        trend_bps = ((current_price / max(trend_base, 1e-12)) - 1.0) * 10000.0
+        z_score = (current_price - mean) / max(std, 1e-12)
+        expected_gross_bps = max(0.0, ((mean / max(current_price, 1e-12)) - 1.0) * 10000.0)
+        estimated_round_trip_cost_bps = (self.config.fee_bps_per_side + self.config.slippage_bps_per_side) * 2.0
+        expected_net_edge_bps = expected_gross_bps - estimated_round_trip_cost_bps
         return {
             "ready": True,
             "samples": len(prices),
@@ -630,6 +642,9 @@ class MeanReversionShadowLab:
             "bandwidth_bps": round((std / mean) * 10000.0, 4),
             "trend_bps": round(trend_bps, 4),
             "atr_bps": round(atr_bps, 4),
+            "expected_gross_edge_bps": round(expected_gross_bps, 4),
+            "estimated_round_trip_cost_bps": round(estimated_round_trip_cost_bps, 4),
+            "expected_net_edge_bps": round(expected_net_edge_bps, 4),
         }
 
     def _close_position(
