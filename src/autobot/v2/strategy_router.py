@@ -159,6 +159,7 @@ class StrategyRouter:
                     "opportunity_score": opp.get("score") if isinstance(opp, Mapping) else None,
                     "opportunity_status": opp.get("status") if isinstance(opp, Mapping) else None,
                     "opportunity_reason": opp.get("reason") if isinstance(opp, Mapping) else None,
+                    "paper_execution_policy": self._paper_execution_policy(selected, action),
                     "engines": ranked,
                 }
             )
@@ -309,3 +310,29 @@ class StrategyRouter:
         if runner_up and runner_up.get("engine") == "no_trade":
             return "continue_shadow_learning", "no_trade_close_second"
         return "continue_shadow_learning", "no_engine_validated_yet"
+
+    def _paper_execution_policy(self, selected: Mapping[str, Any], action: str) -> dict[str, Any]:
+        engine = str(selected.get("engine") or "no_trade")
+        if engine == "dynamic_grid":
+            if action == "shadow_candidate_review":
+                return {
+                    "support": "paper_official_candidate",
+                    "reason": "dynamic_grid_adapter_available",
+                    "live_enabled": False,
+                }
+            return {
+                "support": "paper_observation",
+                "reason": "dynamic_grid_waiting_for_candidate_evidence",
+                "live_enabled": False,
+            }
+        if engine in {"trend_momentum", "mean_reversion"}:
+            return {
+                "support": "shadow_only",
+                "reason": "official_execution_adapter_not_enabled_yet",
+                "live_enabled": False,
+            }
+        return {
+            "support": "abstain",
+            "reason": "router_selected_no_trade",
+            "live_enabled": False,
+        }

@@ -18,7 +18,7 @@ import os
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from . import TradingSignal, SignalType, calculate_grid_levels, PositionSizing
 from ..modules.trailing_stop_atr import TrailingStopATR
@@ -128,6 +128,33 @@ class GridStrategyAsync(StrategyAsync):
             "cold_start",
             {},
         )
+        self._paper_execution_router_enabled = self._read_bool_config(
+            "paper_execution_router_enabled",
+            "PAPER_EXECUTION_ROUTER_ENABLED",
+            True,
+        )
+        self._paper_execution_block_pending = self._read_bool_config(
+            "paper_execution_block_pending",
+            "PAPER_EXECUTION_ROUTER_BLOCK_PENDING",
+            True,
+        )
+        self._paper_execution_min_score = self._read_float_config(
+            "paper_execution_min_score",
+            "PAPER_EXECUTION_ROUTER_MIN_SCORE",
+            70.0,
+            0.0,
+            100.0,
+        )
+        self._paper_execution_profile: Dict[str, Any] = {
+            "enabled": self._paper_execution_router_enabled,
+            "mode": "paper_only",
+            "active_variant": "grid_registry_default",
+            "status": "startup",
+            "last_reason": "not_evaluated",
+            "last_action_at": None,
+            "pending_variant": None,
+            "applied_count": 0,
+        }
         self._kelly_zero_fallback_mult = self._read_float_config(
             "kelly_zero_fallback_mult",
             "GRID_KELLY_ZERO_FALLBACK_MULT",
@@ -564,7 +591,7 @@ class GridStrategyAsync(StrategyAsync):
                 reason,
             )
             return False
-        blocked, reason, details = self._setup_optimizer_blocks_entry()
+        blocked, reason, details = self._setup_optimizer_blocks_entry(current_price=price)
         if blocked:
             logger.info(
                 "Grid BUY paused for %s: setup optimizer gate (%s, %s)",
@@ -675,7 +702,7 @@ class GridStrategyAsync(StrategyAsync):
             logger.debug("Grid health gate unavailable: %s", exc)
         return False, "ok"
 
-    def _setup_optimizer_blocks_entry(self) -> tuple[bool, str, dict[str, Any]]:
+    def _setup_optimizer_blocks_entry(self, current_price: Optional[float] = None) -> tuple[bool, str, dict[str, Any]]:
         """Use the paper setup optimizer as an execution gate for the current setup.
 
         The optimizer does not blame a market pair. It only blocks the currently
@@ -741,6 +768,11 @@ class GridStrategyAsync(StrategyAsync):
                 paper_mode=True,
             )
             selected = plan.selected_variant.to_dict() if plan.selected_variant else {}
+            paper_execution = self._maybe_promote_grid_shadow_candidate(
+                plan=plan,
+                selected=selected,
+                current_price=current_price,
+            )
             details = {
                 "status": plan.status,
                 "action": plan.recommended_action,
@@ -750,6 +782,7 @@ class GridStrategyAsync(StrategyAsync):
                 "closed_trades": (health or {}).get("closed_trades") if isinstance(health, dict) else None,
                 "net_pnl_eur": (health or {}).get("net_pnl_eur") if isinstance(health, dict) else None,
                 "profit_factor": (health or {}).get("profit_factor") if isinstance(health, dict) else None,
+                "paper_execution": paper_execution,
             }
             blocking_actions = {
                 "paper_shadow_variant_outperforms_current_setup",
@@ -757,11 +790,206 @@ class GridStrategyAsync(StrategyAsync):
                 "test_selected_variant_in_paper_shadow",
             }
             blocked = plan.status in {"pause_current", "adjust"} or plan.recommended_action in blocking_actions
+            if paper_execution.get("block_new_entries"):
+                blocked = True
             reason = f"{plan.status}:{plan.recommended_action}"
             return self._cache_setup_optimizer_gate(now, blocked, reason, details)
         except Exception as exc:
             logger.debug("Setup optimizer gate unavailable: %s", exc)
             return False, "unavailable", {"error": str(exc)}
+
+    def _maybe_promote_grid_shadow_candidate(
+        self,
+        *,
+        plan: Any,
+        selected: Mapping[str, Any],
+        current_price: Optional[float],
+    ) -> dict[str, Any]:
+        """Apply a proven shadow grid variant to official paper execution.
+
+        This is deliberately paper-only and grid-only. Trend and mean-reversion
+        shadow engines keep learning until they have enough closed-trade
+        evidence and an execution adapter is explicitly added.
+        """
+        result: dict[str, Any] = {
+            "enabled": self._paper_execution_router_enabled,
+            "mode": "paper_only",
+            "engine": "dynamic_grid",
+            "action": "observe",
+            "reason": "not_candidate",
+            "block_new_entries": False,
+            "selected_variant": selected.get("name"),
+            "active_variant": self._paper_execution_profile.get("active_variant"),
+        }
+        if not self._paper_execution_router_enabled:
+            result["reason"] = "paper_execution_router_disabled"
+            self._remember_paper_execution(result)
+            return result
+
+        orchestrator = getattr(getattr(self, "instance", None), "orchestrator", None)
+        paper_mode = bool(orchestrator and getattr(orchestrator, "paper_mode", False))
+        if not paper_mode:
+            result["reason"] = "not_paper_mode"
+            self._remember_paper_execution(result)
+            return result
+
+        action = str(getattr(plan, "recommended_action", "") or "")
+        status = str(getattr(plan, "status", "") or "")
+        if status != "candidate" or action not in {"paper_shadow_candidate_review", "paper_review_selected_variant"}:
+            result["reason"] = f"{status}:{action}" if status or action else "not_candidate"
+            self._remember_paper_execution(result)
+            return result
+
+        score = self._safe_float(selected.get("score"), 0.0)
+        if score < self._paper_execution_min_score:
+            result["reason"] = "candidate_score_below_paper_execution_min"
+            result["selected_score"] = score
+            self._remember_paper_execution(result)
+            return result
+
+        grid_config = selected.get("grid_config")
+        if not isinstance(grid_config, Mapping):
+            result["reason"] = "selected_variant_has_no_grid_config"
+            self._remember_paper_execution(result)
+            return result
+
+        open_count = len(getattr(self, "open_levels", {}) or {})
+        if open_count > 0:
+            result.update(
+                {
+                    "action": "defer_until_flat",
+                    "reason": "open_positions_keep_current_grid_until_flat",
+                    "open_levels": open_count,
+                    "block_new_entries": self._paper_execution_block_pending,
+                }
+            )
+            self._paper_execution_profile["pending_variant"] = selected.get("name")
+            self._paper_execution_profile["pending_grid_config"] = dict(grid_config)
+            self._remember_paper_execution(result)
+            return result
+
+        price = self._safe_float(current_price, self._safe_float(getattr(self, "center_price", 0.0), 0.0))
+        if price <= 0.0 or not math.isfinite(price):
+            result["reason"] = "current_price_unavailable"
+            self._remember_paper_execution(result)
+            return result
+
+        if self._grid_config_matches_runtime(grid_config):
+            result.update({"action": "already_active", "reason": "selected_grid_config_already_active"})
+            self._paper_execution_profile["active_variant"] = selected.get("name") or self._paper_execution_profile.get("active_variant")
+            self._remember_paper_execution(result)
+            return result
+
+        applied = self._apply_paper_grid_config(grid_config, price, selected.get("name"))
+        result.update(applied)
+        self._remember_paper_execution(result)
+        return result
+
+    def _apply_paper_grid_config(
+        self,
+        grid_config: Mapping[str, Any],
+        current_price: float,
+        variant_name: Any,
+    ) -> dict[str, Any]:
+        previous = {
+            "range_percent": self.range_percent,
+            "num_levels": self.num_levels,
+            "max_capital_per_level": self.max_capital_per_level,
+            "max_positions": self.max_positions,
+            "entry_touch_bps": self._entry_touch_bps,
+        }
+        self.range_percent = self._safe_float(grid_config.get("range_percent"), self.range_percent)
+        self.num_levels = max(2, int(self._safe_float(grid_config.get("num_levels"), self.num_levels)))
+        self.max_capital_per_level = max(
+            0.0,
+            self._safe_float(grid_config.get("max_capital_per_level"), self.max_capital_per_level),
+        )
+        self.max_positions = max(1, int(self._safe_float(grid_config.get("max_positions"), self.max_positions)))
+        self._entry_touch_bps = max(0.0, self._safe_float(grid_config.get("entry_touch_bps"), self._entry_touch_bps))
+
+        grid_step = self.range_percent / (self.num_levels - 1) if self.num_levels > 1 else 0.5
+        self._sell_threshold_pct = max(1.5, grid_step * 0.8)
+        self.center_price = current_price
+        self._init_grid()
+        self._grid_initialized = True
+        self._emergency_mode = False
+        self._emergency_close_price = self.center_price * (
+            1 - self.range_percent * self._grid_invalidation_factor / 100
+        )
+        self.trailing_stops.clear()
+        if self._dgt is not None:
+            self._dgt = None
+            if self.config.get("enable_dgt", True):
+                self._init_recentering()
+        if self._spec_cache is not None:
+            self._precompute_speculative_templates()
+
+        self._paper_execution_profile["active_variant"] = str(variant_name or "dynamic_grid_candidate")
+        self._paper_execution_profile["applied_count"] = int(self._paper_execution_profile.get("applied_count") or 0) + 1
+        logger.info(
+            "Paper execution router applied %s to %s: range=%.3f%% levels=%d max_cpl=%.2f max_pos=%d entry_touch=%.2f",
+            variant_name,
+            getattr(self.instance.config, "symbol", "UNKNOWN"),
+            self.range_percent,
+            self.num_levels,
+            self.max_capital_per_level,
+            self.max_positions,
+            self._entry_touch_bps,
+        )
+        return {
+            "action": "applied",
+            "reason": "shadow_candidate_promoted_to_official_paper_grid",
+            "previous_grid_config": previous,
+            "applied_grid_config": {
+                "range_percent": self.range_percent,
+                "num_levels": self.num_levels,
+                "max_capital_per_level": self.max_capital_per_level,
+                "max_positions": self.max_positions,
+                "entry_touch_bps": self._entry_touch_bps,
+                "sell_threshold_pct": self._sell_threshold_pct,
+            },
+            "active_variant": self._paper_execution_profile["active_variant"],
+            "block_new_entries": False,
+        }
+
+    def _grid_config_matches_runtime(self, grid_config: Mapping[str, Any]) -> bool:
+        expected = {
+            "range_percent": self._safe_float(grid_config.get("range_percent"), self.range_percent),
+            "num_levels": int(self._safe_float(grid_config.get("num_levels"), self.num_levels)),
+            "max_capital_per_level": self._safe_float(grid_config.get("max_capital_per_level"), self.max_capital_per_level),
+            "max_positions": int(self._safe_float(grid_config.get("max_positions"), self.max_positions)),
+            "entry_touch_bps": self._safe_float(grid_config.get("entry_touch_bps"), self._entry_touch_bps),
+        }
+        actual = {
+            "range_percent": self.range_percent,
+            "num_levels": self.num_levels,
+            "max_capital_per_level": self.max_capital_per_level,
+            "max_positions": self.max_positions,
+            "entry_touch_bps": self._entry_touch_bps,
+        }
+        return all(abs(float(actual[key]) - float(expected[key])) < 1e-9 for key in actual)
+
+    def _remember_paper_execution(self, result: Mapping[str, Any]) -> None:
+        self._paper_execution_profile.update(
+            {
+                "enabled": self._paper_execution_router_enabled,
+                "status": result.get("action", "observe"),
+                "last_reason": result.get("reason"),
+                "last_action_at": datetime.now(timezone.utc).isoformat(),
+                "selected_variant": result.get("selected_variant"),
+                "active_variant": result.get("active_variant", self._paper_execution_profile.get("active_variant")),
+                "block_new_entries": bool(result.get("block_new_entries", False)),
+            }
+        )
+
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     def _cache_setup_optimizer_gate(
         self,
@@ -1058,6 +1286,7 @@ class GridStrategyAsync(StrategyAsync):
             "capital_per_level": self._runtime_capital_per_level,
             "grid_initialized": self._grid_initialized,
             "emergency_mode": self._emergency_mode,
+            "paper_execution_router": dict(self._paper_execution_profile),
         })
         if self._range_calculator:
             status["range_calculator"] = self._range_calculator.get_status()
