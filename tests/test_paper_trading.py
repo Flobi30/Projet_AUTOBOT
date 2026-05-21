@@ -142,12 +142,36 @@ async def test_post_only_limit_uses_realistic_maker_fee_when_book_is_touchable(t
 async def test_post_only_limit_rejects_missing_book_when_required(tmp_path, monkeypatch):
     monkeypatch.setenv("PAPER_MAKER_REALISM_ENABLED", "true")
     monkeypatch.setenv("PAPER_MAKER_REQUIRE_BOOK", "true")
+    monkeypatch.setenv("PAPER_MAKER_MISSING_BOOK_TAKER_FALLBACK", "false")
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
     result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
 
     assert result.success is False
     assert result.error == "paper_maker_book_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_post_only_limit_missing_book_can_fallback_to_taker_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPER_MAKER_REALISM_ENABLED", "true")
+    monkeypatch.setenv("PAPER_MAKER_REQUIRE_BOOK", "true")
+    monkeypatch.setenv("PAPER_MAKER_MISSING_BOOK_TAKER_FALLBACK", "true")
+    monkeypatch.setenv("PAPER_TAKER_FEE_BPS", "40")
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+
+    async def live_price(_symbol: str):
+        return 100.08
+
+    monkeypatch.setattr(executor, "_get_current_price", live_price)
+
+    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+
+    assert result.success is True
+    assert result.liquidity == "taker"
+    assert result.executed_price == pytest.approx(100.08)
+    assert result.fees == pytest.approx(100.08 * executor.taker_fee_rate)
+    assert result.raw_response["paper_fill_decision"]["reason"] == "paper_maker_missing_book_taker_fallback"
+    assert result.raw_response["paper_fill_decision"]["fallback_from"] == "paper_maker_book_unavailable"
 
 
 @pytest.mark.asyncio

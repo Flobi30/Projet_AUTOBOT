@@ -110,6 +110,10 @@ class PaperTradingExecutor:
         self.maker_max_spread_bps = _env_float("PAPER_MAKER_MAX_SPREAD_BPS", 12.0, 0.1, 1000.0)
         self.maker_max_adverse_risk = _env_float("PAPER_MAKER_MAX_ADVERSE_RISK", 0.58, 0.0, 1.0)
         self.maker_min_depth_eur = _env_float("PAPER_MAKER_MIN_DEPTH_EUR", 50.0, 0.0, 1_000_000.0)
+        self.maker_missing_book_taker_fallback = _env_bool(
+            "PAPER_MAKER_MISSING_BOOK_TAKER_FALLBACK",
+            False,
+        )
         self._lock = asyncio.Lock()
         self._microstructure_provider: Optional[Callable[[str], Any]] = None
         
@@ -436,6 +440,37 @@ class PaperTradingExecutor:
             limit_price=limit_price,
             post_only=post_only,
         )
+        if (
+            not fill_decision["filled"]
+            and post_only
+            and self.maker_missing_book_taker_fallback
+            and str(fill_decision.get("reason")) == "paper_maker_book_unavailable"
+        ):
+            fallback_price, price_source = await self._resolve_market_price(symbol, price_hint=limit_price)
+            if fallback_price is not None and fallback_price > 0:
+                logger.info(
+                    "[PAPER] Fallback maker->taker pour %s: carnet absent, execution taker a %.6f (source=%s)",
+                    symbol,
+                    fallback_price,
+                    price_source,
+                )
+                fill_decision = {
+                    "filled": True,
+                    "reason": "paper_maker_missing_book_taker_fallback",
+                    "fallback_from": "paper_maker_book_unavailable",
+                    "executed_price": float(fallback_price),
+                    "liquidity": "taker",
+                    "price_source": price_source,
+                    "original_limit_price": float(limit_price),
+                    "microstructure": fill_decision.get("microstructure", {}),
+                }
+            else:
+                fill_decision = {
+                    **fill_decision,
+                    "fallback_attempted": True,
+                    "fallback_reason": "paper_taker_price_unavailable",
+                }
+
         if not fill_decision["filled"]:
             return OrderResult(
                 success=False,
