@@ -524,6 +524,14 @@ class GridStrategyAsync(StrategyAsync):
         for pos in positions:
             if pos.get("status") != "open":
                 continue
+            metadata = pos.get("metadata") if isinstance(pos.get("metadata"), dict) else {}
+            execution_engine = str(
+                metadata.get("execution_engine")
+                or metadata.get("strategy")
+                or "dynamic_grid"
+            ).strip().lower()
+            if execution_engine not in {"dynamic_grid", "grid"}:
+                continue
             try:
                 entry_price = float(pos.get("entry_price") or pos.get("buy_price") or 0.0)
                 volume = float(pos.get("volume") or 0.0)
@@ -612,6 +620,15 @@ class GridStrategyAsync(StrategyAsync):
         if blocked:
             logger.info(
                 "Grid BUY paused for %s: setup optimizer gate (%s, %s)",
+                getattr(self.instance.config, "symbol", "UNKNOWN"),
+                reason,
+                details,
+            )
+            return False
+        blocked, reason, details = self._strategy_governance_blocks_entry(current_price=price)
+        if blocked:
+            logger.info(
+                "Grid BUY paused for %s: strategy governance gate (%s, %s)",
                 getattr(self.instance.config, "symbol", "UNKNOWN"),
                 reason,
                 details,
@@ -818,6 +835,31 @@ class GridStrategyAsync(StrategyAsync):
             return self._cache_setup_optimizer_gate(now, blocked, reason, details)
         except Exception as exc:
             logger.debug("Setup optimizer gate unavailable: %s", exc)
+            return False, "unavailable", {"error": str(exc)}
+
+    def _strategy_governance_blocks_entry(self, current_price: Optional[float] = None) -> tuple[bool, str, dict[str, Any]]:
+        try:
+            orchestrator = getattr(self.instance, "orchestrator", None)
+            if orchestrator is None or not getattr(orchestrator, "paper_mode", False):
+                return False, "not_paper", {}
+            getter = getattr(orchestrator, "_governance_row_for_symbol", None)
+            if not callable(getter):
+                return False, "governance_unavailable", {}
+            row = getter(getattr(self.instance.config, "symbol", None))
+            if not isinstance(row, dict) or not row:
+                return False, "no_row", {}
+            blocked = bool(row.get("block_new_entries")) or not bool(row.get("allow_grid_entries", True))
+            details = {
+                "governance_status": row.get("governance_status"),
+                "decision": row.get("decision"),
+                "execution_mode": row.get("execution_mode"),
+                "official_execution_engine": row.get("official_execution_engine"),
+                "reason": row.get("reason"),
+                "current_price": current_price,
+            }
+            return blocked, str(row.get("decision") or row.get("governance_status") or "governance"), details
+        except Exception as exc:
+            logger.debug("Strategy governance gate unavailable: %s", exc)
             return False, "unavailable", {"error": str(exc)}
 
     def _maybe_promote_grid_shadow_candidate(

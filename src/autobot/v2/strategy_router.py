@@ -190,7 +190,7 @@ class StrategyRouter:
             "by_symbol": {row["symbol"]: row for row in rows},
             "message": (
                 "Strategy router ranks grid, trend, mean-reversion and no-trade from shadow evidence. "
-                "Validated dynamic-grid candidates can be applied to official paper execution; live stays blocked."
+                "Validated candidates can graduate to controlled paper execution while live stays blocked."
             ),
         }
 
@@ -339,9 +339,26 @@ class StrategyRouter:
                 "live_enabled": False,
             }
         if engine in {"trend_momentum", "mean_reversion"}:
+            adapter_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ADAPTER_ENABLED", True)
+            trend_enabled = _env_bool("PAPER_EXECUTION_ADAPTER_TREND_ENABLED", True)
+            mean_reversion_enabled = _env_bool("PAPER_EXECUTION_ADAPTER_MEAN_REVERSION_ENABLED", True)
+            engine_enabled = (
+                trend_enabled if engine == "trend_momentum" else mean_reversion_enabled
+            )
+            if action == "shadow_candidate_review" and paper_router_enabled and adapter_enabled and engine_enabled:
+                return {
+                    "support": "paper_official_candidate",
+                    "reason": "shadow_paper_execution_adapter_available",
+                    "paper_execution_enabled": True,
+                    "live_enabled": False,
+                }
             return {
                 "support": "shadow_only",
-                "reason": "official_execution_adapter_not_enabled_yet",
+                "reason": (
+                    "paper_execution_adapter_disabled"
+                    if not adapter_enabled or not engine_enabled
+                    else "shadow_candidate_waiting_for_review"
+                ),
                 "paper_execution_enabled": False,
                 "live_enabled": False,
             }

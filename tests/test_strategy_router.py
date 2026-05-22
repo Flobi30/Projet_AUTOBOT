@@ -61,8 +61,8 @@ def test_strategy_router_selects_best_shadow_engine():
     assert row["selected_engine"] == "trend_momentum"
     assert row["recommended_action"] == "shadow_candidate_review"
     assert row["live_promotion_allowed"] is False
-    assert row["official_execution_enabled"] is False
-    assert row["paper_execution_policy"]["support"] == "shadow_only"
+    assert row["official_execution_enabled"] is True
+    assert row["paper_execution_policy"]["support"] == "paper_official_candidate"
     assert snapshot["paper_official_execution_enabled"] is True
 
 

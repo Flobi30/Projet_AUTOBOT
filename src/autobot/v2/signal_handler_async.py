@@ -255,7 +255,61 @@ class SignalHandlerAsync:
             setattr(self.instance, "_runtime_events", list(history))
         setattr(self, attr_name, event)
         setattr(self.instance, attr_name, event)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(self._persist_runtime_event(attr_name, event))
         return event
+
+    @staticmethod
+    def _runtime_event_type(attr_name: str) -> str:
+        return (
+            str(attr_name or "")
+            .replace("_last_", "")
+            .replace("_event", "")
+            .strip("_")
+            or "runtime"
+        )
+
+    @staticmethod
+    def _runtime_event_status(event: dict[str, Any]) -> str | None:
+        for key in ("event", "status", "action", "result"):
+            value = event.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return None
+
+    async def _persist_runtime_event(self, attr_name: str, event: dict[str, Any]) -> None:
+        try:
+            persistence = getattr(self.instance, "_persistence", None)
+            if persistence is None or not hasattr(persistence, "append_decision_ledger_event"):
+                return
+            symbol = str(
+                event.get("symbol")
+                or getattr(getattr(self.instance, "config", None), "symbol", "")
+                or "UNKNOWN"
+            )
+            await self._maybe_await(
+                persistence.append_decision_ledger_event(
+                    event_id=f"dlg_{uuid.uuid4().hex}",
+                    decision_id=event.get("decision_id"),
+                    signal_id=event.get("signal_id"),
+                    instance_id=self.instance.id,
+                    symbol=symbol,
+                    strategy=getattr(getattr(self.instance, "config", None), "strategy", None),
+                    engine=event.get("execution_engine") or event.get("engine") or event.get("strategy"),
+                    event_type=self._runtime_event_type(attr_name),
+                    event_status=self._runtime_event_status(event),
+                    reason=event.get("reason") or event.get("blocking_condition") or event.get("error"),
+                    source=event.get("source") or "signal_handler_runtime",
+                    payload=self._audit_safe_value(event),
+                    created_at=event.get("timestamp"),
+                )
+            )
+        except Exception:
+            logger.debug("Decision ledger persistence skipped", exc_info=True)
 
     @staticmethod
     def _serialize_risk_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -668,6 +722,9 @@ class SignalHandlerAsync:
 
     async def _on_signal(self, signal: TradingSignal) -> None:
         """Async signal handler."""
+        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        execution_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy")
+        execution_source = signal_metadata.get("execution_source") or "strategy_signal"
         if self._kill_switch.tripped or self._kill_switch.is_globally_tripped():
             self._record_runtime_event(
                 "_last_decision_event",
@@ -676,6 +733,8 @@ class SignalHandlerAsync:
                 symbol=signal.symbol,
                 side=signal.type.value,
                 price=float(signal.price),
+                execution_engine=execution_engine,
+                source=execution_source,
             )
             logger.error("🛑 Kill switch actif — signal ignoré")
             return
@@ -688,6 +747,9 @@ class SignalHandlerAsync:
             price=float(signal.price),
             volume=float(signal.volume),
             reason=getattr(signal, "reason", None),
+            execution_engine=execution_engine,
+            source=execution_source,
+            signal_metadata=self._audit_safe_value(signal_metadata),
         )
 
         if self._last_signal_time:
@@ -700,6 +762,8 @@ class SignalHandlerAsync:
                     symbol=signal.symbol,
                     side=signal.type.value,
                     elapsed_seconds=round(elapsed, 3),
+                    execution_engine=execution_engine,
+                    source=execution_source,
                 )
                 logger.warning(f"⏱️ Signal ignoré (cooldown): {elapsed:.1f}s")
                 return
@@ -715,6 +779,8 @@ class SignalHandlerAsync:
                         symbol=signal.symbol,
                         side=signal.type.value,
                         details=details if isinstance(details, dict) else None,
+                        execution_engine=execution_engine,
+                        source=execution_source,
                     )
                     return
                 await self._execute_buy(signal)
@@ -728,6 +794,8 @@ class SignalHandlerAsync:
                 symbol=signal.symbol,
                 side=signal.type.value,
                 error=str(exc)[:240],
+                execution_engine=execution_engine,
+                source=execution_source,
             )
             logger.exception(f"❌ Erreur exécution signal: {exc}")
 
@@ -859,6 +927,11 @@ class SignalHandlerAsync:
         return await self.order_executor.execute_market_order(symbol, side, volume, **kwargs)
 
     async def _execute_buy(self, signal: TradingSignal) -> None:
+        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        signal_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy") or "dynamic_grid"
+        signal_source = signal_metadata.get("execution_source") or "strategy_signal"
+        decision_id = f"dec_{uuid.uuid4().hex}"
+        signal_id = f"sig_{uuid.uuid4().hex}"
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
         if await self._maybe_await(self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy")):
             self._record_runtime_event(
@@ -867,6 +940,10 @@ class SignalHandlerAsync:
                 reason="duplicate_active_order",
                 symbol=signal.symbol,
                 side="buy",
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.warning("🔁 Ordre BUY dupliqué bloqué (idempotency)")
             return
@@ -1145,6 +1222,10 @@ class SignalHandlerAsync:
             reason="all_guards_passed",
             symbol=signal.symbol,
             side="buy",
+            decision_id=decision_id,
+            signal_id=signal_id,
+            execution_engine=signal_engine,
+            source=signal_source,
             net_edge_bps=round(float(edge_ctx.get("net_edge_bps", 0.0)), 3),
             min_edge_bps=round(float(edge_ctx.get("adaptive_min_edge_bps", self._min_edge_bps)), 3),
             gross_edge_bps=round(float(edge_ctx.get("expected_move_bps", 0.0)), 3),
@@ -1167,8 +1248,6 @@ class SignalHandlerAsync:
             concentration_guard=concentration_details,
         )
         execution_plan = self._build_execution_plan(signal, volume, edge_ctx=edge_ctx)
-        decision_id = f"dec_{uuid.uuid4().hex}"
-        signal_id = f"sig_{uuid.uuid4().hex}"
         rec = await self._maybe_await(self._osm.new_order(
             instance_id=self.instance.id,
             symbol=symbol,
@@ -1207,6 +1286,10 @@ class SignalHandlerAsync:
                 order_type=execution_plan["order_type"],
                 volume=float(volume),
                 error=(result.error or "unknown")[:240],
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             if local_validation_error:
                 logger.info("Ordre rejeté localement: %s", result.error)
@@ -1271,6 +1354,10 @@ class SignalHandlerAsync:
             executed_price=float(executed_price),
             fees=float(result.fees or 0.0),
             paper_mode=bool(getattr(getattr(self.instance, "orchestrator", None), "paper_mode", False)),
+            decision_id=decision_id,
+            signal_id=signal_id,
+            execution_engine=signal_engine,
+            source=signal_source,
         )
         logger.info(
             "💸 Exécution BUY %s: type=%s post_only=%s liquidity=%s reason=%s",
@@ -1312,6 +1399,7 @@ class SignalHandlerAsync:
             buy_fee=result.fees,
             buy_fee_source="order_result" if result.fees is not None else None,
             symbol=symbol,
+            metadata=signal_metadata,
         )
 
         if position:
@@ -1362,6 +1450,9 @@ class SignalHandlerAsync:
             await self._post_trade_reconcile()
 
     async def _execute_sell(self, signal: TradingSignal) -> None:
+        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        signal_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy") or "dynamic_grid"
+        signal_source = signal_metadata.get("execution_source") or "strategy_signal"
         logger.info(f"💰 Exécution VENTE {signal.symbol}")
 
         if self.order_executor is None:
@@ -1370,6 +1461,8 @@ class SignalHandlerAsync:
                 event="sell_rejected",
                 reason="order_executor_missing",
                 symbol=signal.symbol,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.error("❌ OrderExecutor non configuré")
             return
@@ -1382,6 +1475,8 @@ class SignalHandlerAsync:
                 event="sell_ignored",
                 reason="no_open_position",
                 symbol=signal.symbol,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             return
 
@@ -1415,17 +1510,22 @@ class SignalHandlerAsync:
                     symbol=symbol,
                     side="sell",
                     position_id=pos_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
                 )
                 logger.warning(f"🔁 Ordre SELL dupliqué bloqué (idempotency): {symbol}")
                 continue
 
+            decision_id = f"dec_sell_{uuid.uuid4().hex}"
+            signal_id = f"sig_sell_{uuid.uuid4().hex}"
             rec = await self._osm.new_order(
                 instance_id=self.instance.id,
                 symbol=symbol,
                 side="sell",
                 order_type="market",
                 requested_qty=vol,
-                signal_id=f"sig_sell_{uuid.uuid4().hex}"
+                decision_id=decision_id,
+                signal_id=signal_id
             )
             await self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange")
 
@@ -1473,6 +1573,10 @@ class SignalHandlerAsync:
                     fees=float(result.fees or 0.0),
                     realized_pnl=realized_pnl,
                     paper_mode=bool(getattr(getattr(self.instance, "orchestrator", None), "paper_mode", False)),
+                    decision_id=decision_id,
+                    signal_id=signal_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
                 )
                 logger.info(
                     "💸 Exécution SELL %s: type=market post_only=False liquidity=%s",
@@ -1497,8 +1601,8 @@ class SignalHandlerAsync:
                     slippage_bps=self._slippage_bps(signal.price, price, "sell"),
                     realized_pnl=realized_pnl,
                     exchange_order_id=result.txid,
-                    decision_id=None,
-                    signal_id=None,
+                    decision_id=decision_id,
+                    signal_id=signal_id,
                     is_opening_leg=False,
                     is_closing_leg=True,
                     execution_liquidity=actual_liquidity,
@@ -1515,6 +1619,10 @@ class SignalHandlerAsync:
                     order_type="market",
                     volume=float(vol),
                     error=(result.error or "unknown")[:240],
+                    decision_id=decision_id,
+                    signal_id=signal_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
                 )
                 logger.error(f"❌ Échec vente: {result.error}")
                 if not self._is_local_order_validation_error(result.error):

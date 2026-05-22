@@ -364,6 +364,51 @@ type StrategyTradeReconciliationResponse = {
   message: string;
 };
 
+type StrategyGovernanceRow = {
+  symbol: string;
+  selected_engine: string;
+  selected_variant?: string | null;
+  governance_status: string;
+  decision: string;
+  execution_mode: string;
+  official_execution_engine: string;
+  allow_grid_entries: boolean;
+  allow_shadow_signal_mirror: boolean;
+  block_new_entries: boolean;
+  reason?: string;
+  reasons: string[];
+};
+
+type StrategyGovernanceResponse = {
+  summary: {
+    symbols: number;
+    eligible_symbols: number;
+    blocked_symbols: number;
+    mirror_symbols: number;
+    pending_flat_symbols: number;
+  };
+  symbols: StrategyGovernanceRow[];
+  message: string;
+};
+
+type DecisionLedgerRow = {
+  created_at?: string;
+  symbol: string;
+  engine?: string | null;
+  event_type: string;
+  event_status?: string | null;
+  reason?: string | null;
+  source: string;
+};
+
+type DecisionLedgerResponse = {
+  summary: {
+    events: number;
+    by_type: Record<string, number>;
+  };
+  rows: DecisionLedgerRow[];
+};
+
 const formatBps = (value?: number) =>
   typeof value === 'number' ? `${value.toFixed(1)} bps` : 'En attente';
 
@@ -393,9 +438,9 @@ const qualityReason = (
 };
 
 const stateClass = (state?: string) => {
-  if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review' || state === 'aligned_win' || state === 'official_better') return 'text-emerald-400';
-  if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme' || state === 'execution_drag' || state === 'official_loss_shadow_win') return 'text-red-400';
-  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch' || state === 'adjust' || state === 'pause_current' || state === 'learning' || state === 'no_shadow_match' || state === 'aligned_loss') return 'text-amber-400';
+  if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review' || state === 'aligned_win' || state === 'official_better' || state === 'eligible') return 'text-emerald-400';
+  if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme' || state === 'execution_drag' || state === 'official_loss_shadow_win' || state === 'blocked') return 'text-red-400';
+  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch' || state === 'adjust' || state === 'pause_current' || state === 'learning' || state === 'no_shadow_match' || state === 'aligned_loss' || state === 'review' || state === 'pending_flat') return 'text-amber-400';
   return 'text-gray-300';
 };
 
@@ -407,6 +452,8 @@ const QuantValidation: React.FC = () => {
   const [meanReversionShadow, setMeanReversionShadow] = useState<TrendShadowResponse | null>(null);
   const [strategyRouter, setStrategyRouter] = useState<StrategyRouterResponse | null>(null);
   const [tradeReconciliation, setTradeReconciliation] = useState<StrategyTradeReconciliationResponse | null>(null);
+  const [strategyGovernance, setStrategyGovernance] = useState<StrategyGovernanceResponse | null>(null);
+  const [decisionLedger, setDecisionLedger] = useState<DecisionLedgerResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -421,6 +468,8 @@ const QuantValidation: React.FC = () => {
           meanReversionResponse,
           routerResponse,
           tradeReconciliationResponse,
+          governanceResponse,
+          decisionLedgerResponse,
         ] = await Promise.all([
           apiFetch('/api/quant/validation'),
           apiFetch('/api/performance/setup-audit'),
@@ -429,6 +478,8 @@ const QuantValidation: React.FC = () => {
           apiFetch('/api/mean-reversion-shadow'),
           apiFetch('/api/strategy-router'),
           apiFetch('/api/strategy-reconciliation/trades'),
+          apiFetch('/api/strategy-governance'),
+          apiFetch('/api/decision-ledger?limit=25'),
         ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
@@ -442,6 +493,8 @@ const QuantValidation: React.FC = () => {
         setMeanReversionShadow(meanReversionResponse.ok ? await meanReversionResponse.json() : null);
         setStrategyRouter(routerResponse.ok ? await routerResponse.json() : null);
         setTradeReconciliation(tradeReconciliationResponse.ok ? await tradeReconciliationResponse.json() : null);
+        setStrategyGovernance(governanceResponse.ok ? await governanceResponse.json() : null);
+        setDecisionLedger(decisionLedgerResponse.ok ? await decisionLedgerResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -479,6 +532,8 @@ const QuantValidation: React.FC = () => {
   const routerRows = strategyRouter?.routes ?? [];
   const reconciliation = strategyRouter?.reconciliation;
   const tradeReconciliationRows = tradeReconciliation?.rows ?? [];
+  const governanceRows = strategyGovernance?.symbols ?? [];
+  const decisionLedgerRows = decisionLedger?.rows ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -713,7 +768,7 @@ const QuantValidation: React.FC = () => {
             </div>
           </div>
           <div className="mb-4 border border-violet-500/20 bg-violet-500/10 rounded-lg p-3 text-sm text-violet-100/90">
-            Le routeur compare grid, trend, mean-reversion et abstention. Seuls les candidats dynamic-grid valides peuvent remplacer la configuration paper officielle; le live reste bloque.
+            Le routeur compare grid, trend, mean-reversion et abstention. Les meilleurs candidats peuvent maintenant passer en execution paper controlee via la gouvernance; le live reste bloque.
           </div>
           {routerRows.length ? (
             <div className="overflow-x-auto">
@@ -749,6 +804,83 @@ const QuantValidation: React.FC = () => {
             </div>
           ) : (
             <div className="text-gray-500 text-sm">Aucune route multi-moteurs pour le moment.</div>
+          )}
+        </section>
+      ) : null}
+
+      {strategyGovernance ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-emerald-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Gouvernance paper officielle</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Ce niveau transforme le router + la reconciliation en politique d'execution concrete.
+                </p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{strategyGovernance.summary.symbols} paires</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Eligibles</div>
+              <div className="text-emerald-400 font-semibold">{strategyGovernance.summary.eligible_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Bloquees</div>
+              <div className="text-red-400 font-semibold">{strategyGovernance.summary.blocked_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Mirror non-grid</div>
+              <div className="text-white font-semibold">{strategyGovernance.summary.mirror_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">En attente flat</div>
+              <div className="text-amber-300 font-semibold">{strategyGovernance.summary.pending_flat_symbols}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Live</div>
+              <div className="text-white font-semibold">Bloque</div>
+            </div>
+          </div>
+          {governanceRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Moteur cible</th>
+                    <th className="text-left py-2">Statut</th>
+                    <th className="text-left py-2">Mode</th>
+                    <th className="text-left py-2">Decision</th>
+                    <th className="text-left py-2 pl-4">Raison</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {governanceRows.slice(0, 14).map((row) => (
+                    <tr key={`${row.symbol}-${row.selected_engine}`} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className="py-2 text-gray-300">
+                        {row.selected_engine}
+                        <span className="text-gray-500"> / {row.selected_variant ?? 'n/a'}</span>
+                      </td>
+                      <td className={`py-2 font-semibold ${stateClass(row.governance_status)}`}>{row.governance_status}</td>
+                      <td className="py-2 text-gray-300">{row.execution_mode}</td>
+                      <td className="py-2 text-gray-300">{row.decision}</td>
+                      <td className="py-2 pl-4">
+                        <div className="text-gray-300">{row.reason ?? row.reasons?.[0] ?? 'Aucune raison'}</div>
+                        <div className="text-xs text-gray-500">
+                          grid {row.allow_grid_entries ? 'autorise' : 'bloque'} | mirror {row.allow_shadow_signal_mirror ? 'oui' : 'non'}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucune politique de gouvernance disponible pour le moment.</div>
           )}
         </section>
       ) : null}
@@ -831,6 +963,56 @@ const QuantValidation: React.FC = () => {
           <div className="mt-4 border border-amber-500/20 bg-amber-500/10 rounded-lg p-3 text-sm text-amber-100/90">
             Un shadow positif seul ne suffit pas: il doit etre confirme par des clotures paper officielles, avec un echantillon robuste.
           </div>
+        </section>
+      ) : null}
+
+      {decisionLedger ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <Activity className="w-5 h-5 text-orange-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Ledger de decision</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Source canonique des derniers evenements signal, decision, ordre et erreur.
+                </p>
+              </div>
+            </div>
+            <span className="text-sm text-gray-400">{decisionLedger.summary.events} evenements</span>
+          </div>
+          {decisionLedgerRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Horodatage</th>
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Type</th>
+                    <th className="text-left py-2">Statut</th>
+                    <th className="text-left py-2">Moteur</th>
+                    <th className="text-left py-2 pl-4">Raison</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionLedgerRows.slice(0, 20).map((row, index) => (
+                    <tr key={`${row.created_at ?? 'na'}-${row.symbol}-${index}`} className="border-b border-gray-700/50">
+                      <td className="py-2 text-gray-300">{row.created_at ? new Date(row.created_at).toLocaleString('fr-FR') : 'n/a'}</td>
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className="py-2 text-gray-300">{row.event_type}</td>
+                      <td className={`py-2 ${stateClass(row.event_status ?? undefined)}`}>{row.event_status ?? 'n/a'}</td>
+                      <td className="py-2 text-gray-300">{row.engine ?? 'n/a'}</td>
+                      <td className="py-2 pl-4">
+                        <div className="text-gray-300">{row.reason ?? 'Aucune raison'}</div>
+                        <div className="text-xs text-gray-500">{row.source}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">Aucun evenement de decision recente pour le moment.</div>
+          )}
         </section>
       ) : null}
 
@@ -955,7 +1137,7 @@ const QuantValidation: React.FC = () => {
             </div>
           </div>
           <div className="mb-4 border border-blue-500/20 bg-blue-500/10 rounded-lg p-3 text-sm text-blue-100/90">
-            Ce moteur observe Donchian/EMA momentum en paper shadow. Il ne remplace pas encore la grid et ne place aucun ordre officiel.
+            Ce moteur observe Donchian/EMA momentum en shadow. S'il devient assez robuste et que la gouvernance l'autorise, il peut etre miroite vers le paper officiel sans toucher au live.
           </div>
           {trendRows.length ? (
             <div className="overflow-x-auto">
@@ -1033,7 +1215,7 @@ const QuantValidation: React.FC = () => {
             </div>
           </div>
           <div className="mb-4 border border-cyan-500/20 bg-cyan-500/10 rounded-lg p-3 text-sm text-cyan-100/90">
-            Ce moteur observe les retours a la moyenne Bollinger/z-score. Il doit rester annexe et eviter les tendances fortes.
+            Ce moteur observe les retours a la moyenne Bollinger/z-score. Il reste prudent face aux tendances fortes, mais peut lui aussi passer en mirror paper controle si la preuve est suffisante.
           </div>
           {meanRows.length ? (
             <div className="overflow-x-auto">

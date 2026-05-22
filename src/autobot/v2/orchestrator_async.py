@@ -169,6 +169,10 @@ from .decision_journal import (
     REJECTION_REASON_SYMBOL_NOT_SELECTED,
     REJECTION_REASON_VALIDATION_GUARD_BLOCK,
 )
+from .shadow_paper_adapter import ShadowPaperExecutionAdapter
+from .strategy_governance import StrategyGovernanceEngine
+from .strategy_reconciliation import StrategyReconciliationEngine
+from .strategy_router import StrategyRouter
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +407,19 @@ class OrchestratorAsync:
         self.safety_guard = SafetyGuard(
             emergency_cycle_ms=SAFETY_EMERGENCY_CYCLE_MS,
             emergency_consecutive=SAFETY_EMERGENCY_CONSECUTIVE,
+        )
+        self.strategy_router = StrategyRouter()
+        self.strategy_reconciliation_engine = StrategyReconciliationEngine()
+        self.strategy_governance_engine = StrategyGovernanceEngine()
+        self.shadow_paper_adapter = ShadowPaperExecutionAdapter()
+        self._strategy_governance_snapshot: Dict[str, Any] = {}
+        self._strategy_governance_snapshot_ts: float = 0.0
+        self._strategy_governance_cache_ttl_s = float(
+            os.getenv("STRATEGY_GOVERNANCE_CACHE_TTL_S", "5.0")
+        )
+        self._strategy_governance_disable_legacy_ensemble = _env_bool(
+            "STRATEGY_GOVERNANCE_DISABLE_LEGACY_ENSEMBLE",
+            True,
         )
 
         # Validator
@@ -1510,6 +1527,218 @@ class OrchestratorAsync:
             logger.debug("Pair strategy health unavailable for paper rebalance: %s", exc)
             return {}
 
+    def _get_regime_feature_engine(self) -> Any:
+        from .regime_features import RegimeFeatureEngine
+
+        engine = getattr(self, "regime_feature_engine", None)
+        if engine is None:
+            engine = RegimeFeatureEngine()
+            self.regime_feature_engine = engine
+        return engine
+
+    def _get_opportunity_scorer(self) -> OpportunityScorer:
+        scorer = getattr(self, "opportunity_scorer", None)
+        if scorer is None:
+            scorer = OpportunityScorer(regime_engine=self._get_regime_feature_engine())
+            self.opportunity_scorer = scorer
+        return scorer
+
+    def _get_setup_shadow_lab(self) -> Any:
+        from .setup_shadow_lab import SetupShadowLab
+
+        lab = getattr(self, "setup_shadow_lab", None)
+        if lab is None:
+            lab = SetupShadowLab()
+            self.setup_shadow_lab = lab
+        return lab
+
+    def _get_trend_shadow_lab(self) -> Any:
+        from .trend_shadow_lab import TrendShadowLab
+
+        lab = getattr(self, "trend_shadow_lab", None)
+        if lab is None:
+            lab = TrendShadowLab()
+            self.trend_shadow_lab = lab
+        return lab
+
+    def _get_mean_reversion_shadow_lab(self) -> Any:
+        from .mean_reversion_shadow_lab import MeanReversionShadowLab
+
+        lab = getattr(self, "mean_reversion_shadow_lab", None)
+        if lab is None:
+            lab = MeanReversionShadowLab()
+            self.mean_reversion_shadow_lab = lab
+        return lab
+
+    def _strategy_shadow_snapshots(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dynamic_grid": self._get_setup_shadow_lab().build_snapshot(symbols=symbols),
+            "trend_momentum": self._get_trend_shadow_lab().build_snapshot(symbols=symbols),
+            "mean_reversion": self._get_mean_reversion_shadow_lab().build_snapshot(symbols=symbols),
+        }
+
+    def _official_performance_from_pair_health(self, *, paper_mode: bool) -> Dict[str, Any]:
+        health_by_symbol = self._pair_strategy_health_by_symbol(paper_mode=paper_mode)
+        return {
+            "status": "ok",
+            "source": "trade_ledger",
+            "by_symbol": {
+                symbol: {
+                    "closed_trades": int(float(payload.get("closed_trades", 0) or 0)),
+                    "net_pnl": float(payload.get("net_pnl_eur", 0.0) or 0.0),
+                    "gross_profit": float(payload.get("gross_profit_eur", 0.0) or 0.0),
+                    "gross_loss": float(payload.get("gross_loss_eur", 0.0) or 0.0),
+                    "fees": float(payload.get("total_fees_eur", 0.0) or 0.0),
+                    "profit_factor": payload.get("profit_factor"),
+                    "win_rate": float(payload.get("win_rate", 0.0) or 0.0),
+                    "first_close": None,
+                    "last_close": payload.get("timestamp"),
+                    "source": "trade_ledger",
+                }
+                for symbol, payload in health_by_symbol.items()
+                if isinstance(payload, dict)
+            },
+        }
+
+    def _instance_state_by_symbol(self) -> Dict[str, Dict[str, Any]]:
+        from .pair_strategy_health import symbol_key
+
+        result: Dict[str, Dict[str, Any]] = {}
+        for inst in self._instances.values():
+            symbol = symbol_key(getattr(inst.config, "symbol", None))
+            row = result.setdefault(
+                symbol,
+                {
+                    "symbol": symbol,
+                    "instance_ids": [],
+                    "running_instances": 0,
+                    "open_positions": 0,
+                    "available_capital": 0.0,
+                    "current_capital": 0.0,
+                },
+            )
+            row["instance_ids"].append(inst.id)
+            if inst.is_running():
+                row["running_instances"] += 1
+            try:
+                row["open_positions"] += len(
+                    [pos for pos in inst.get_positions_snapshot() if str(pos.get("status") or "").lower() == "open"]
+                )
+            except Exception:
+                pass
+            try:
+                row["available_capital"] += float(inst.get_available_capital())
+            except Exception:
+                pass
+            try:
+                row["current_capital"] += float(inst.get_current_capital())
+            except Exception:
+                pass
+        return result
+
+    async def _build_strategy_governance_snapshot(self, *, force: bool = False) -> Dict[str, Any]:
+        now = perf_counter()
+        if (
+            not force
+            and self._strategy_governance_snapshot
+            and (now - self._strategy_governance_snapshot_ts) <= self._strategy_governance_cache_ttl_s
+        ):
+            return self._strategy_governance_snapshot
+
+        instances = self.get_instances_snapshot()
+        paper_mode = bool(getattr(self, "paper_mode", False))
+        health_by_symbol = self._pair_strategy_health_by_symbol(paper_mode=paper_mode)
+        total_capital = sum(float(inst.get("capital", 0.0) or 0.0) for inst in instances if isinstance(inst, dict))
+        opportunities = self._get_opportunity_scorer().build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            total_capital=total_capital,
+            health_by_symbol=health_by_symbol,
+        )
+        symbols = [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        shadow_snapshots = self._strategy_shadow_snapshots(symbols)
+        router_snapshot = self.strategy_router.build_snapshot(
+            instances=instances,
+            paper_mode=paper_mode,
+            setup_shadow_by_symbol=(shadow_snapshots.get("dynamic_grid", {}) or {}).get("by_symbol", {}),
+            trend_shadow_by_symbol=(shadow_snapshots.get("trend_momentum", {}) or {}).get("by_symbol", {}),
+            mean_reversion_shadow_by_symbol=(shadow_snapshots.get("mean_reversion", {}) or {}).get("by_symbol", {}),
+            opportunities=opportunities.get("opportunities", []),
+        )
+        reconciliation_snapshot = self.strategy_reconciliation_engine.build_snapshot(
+            official_performance=self._official_performance_from_pair_health(paper_mode=paper_mode),
+            shadow_snapshots=shadow_snapshots,
+            paper_mode=paper_mode,
+        )
+        governance_snapshot = self.strategy_governance_engine.build_snapshot(
+            router_snapshot=router_snapshot,
+            reconciliation_snapshot=reconciliation_snapshot,
+            paper_mode=paper_mode,
+            instance_state_by_symbol=self._instance_state_by_symbol(),
+        )
+        governance_snapshot["router"] = {
+            "summary": router_snapshot.get("summary", {}),
+            "routes": router_snapshot.get("routes", []),
+        }
+        governance_snapshot["reconciliation"] = {
+            "summary": reconciliation_snapshot.get("summary", {}),
+            "symbols": reconciliation_snapshot.get("symbols", []),
+        }
+        governance_snapshot["shadow_snapshots"] = shadow_snapshots
+        self._strategy_governance_snapshot = governance_snapshot
+        self._strategy_governance_snapshot_ts = now
+        return governance_snapshot
+
+    def _governance_row_for_symbol(self, symbol: Any) -> Dict[str, Any]:
+        from .pair_strategy_health import symbol_key
+
+        key = symbol_key(symbol)
+        snapshot = getattr(self, "_strategy_governance_snapshot", None)
+        if not isinstance(snapshot, dict):
+            return {}
+        by_symbol = snapshot.get("by_symbol", {})
+        row = by_symbol.get(key) if isinstance(by_symbol, dict) else None
+        return dict(row) if isinstance(row, dict) else {}
+
+    async def _maybe_execute_shadow_paper_candidate(self, inst: TradingInstanceAsync) -> Dict[str, Any]:
+        from .pair_strategy_health import symbol_key
+
+        if not getattr(self, "paper_mode", False):
+            return {"handled": False, "reason": "not_paper_mode"}
+        snapshot = await self._build_strategy_governance_snapshot()
+        symbol = symbol_key(getattr(inst.config, "symbol", None))
+        row = (snapshot.get("by_symbol", {}) if isinstance(snapshot, dict) else {}).get(symbol, {})
+        if not isinstance(row, dict) or row.get("execution_mode") != "shadow_signal_mirror":
+            return {"handled": False, "reason": row.get("execution_mode", "observe_only") if isinstance(row, dict) else "no_row"}
+        selected_engine = str(row.get("selected_engine") or "")
+        shadow_snapshots = snapshot.get("shadow_snapshots", {}) if isinstance(snapshot, dict) else {}
+        shadow_symbol_row = (
+            ((shadow_snapshots.get(selected_engine) or {}).get("by_symbol", {}) or {}).get(symbol)
+            if isinstance(shadow_snapshots, dict)
+            else None
+        )
+        result = await self.shadow_paper_adapter.mirror_if_needed(
+            instance=inst,
+            governance_row=row,
+            shadow_symbol_row=shadow_symbol_row,
+        )
+        if result.get("handled"):
+            persistence = getattr(inst, "_persistence", None)
+            if persistence is not None and hasattr(persistence, "append_decision_ledger_event"):
+                await persistence.append_decision_ledger_event(
+                    event_id=f"gov_{uuid.uuid4().hex}",
+                    instance_id=inst.id,
+                    symbol=symbol,
+                    strategy=getattr(inst.config, "strategy", None),
+                    engine=selected_engine,
+                    event_type="governance",
+                    event_status="shadow_signal_mirror",
+                    reason=result.get("reason"),
+                    source="strategy_governance",
+                    payload=result,
+                )
+        return result
+
     async def _apply_paper_dynamic_capital_rebalance(self) -> None:
         """Reallocate paper budget toward the strongest running engines."""
         reallocator = getattr(self, "paper_capital_reallocator", None)
@@ -1916,6 +2145,10 @@ class OrchestratorAsync:
         self._update_setup_shadow_lab(inst)
         self._update_trend_shadow_lab(inst)
         self._update_mean_reversion_shadow_lab(inst)
+        try:
+            await self._build_strategy_governance_snapshot()
+        except Exception as exc:
+            logger.debug("Strategy governance snapshot refresh skipped: %s", exc)
 
         risk_blocked = await self._run_black_swan_guard(inst)
         if risk_blocked:
@@ -1947,14 +2180,26 @@ class OrchestratorAsync:
             return
 
         sig_t0 = perf_counter()
-        opened = await self.decision.evaluate_signal(inst)
+        mirror_result = await self._maybe_execute_shadow_paper_candidate(inst)
+        opened = bool(mirror_result.get("handled"))
         if opened:
             self._decision_stats["entry_actions"] += 1
             self._set_last_decision(
                 inst.id,
                 action="ENTRY",
-                reason="ensemble_buy_open",
+                reason=f"shadow_mirror:{mirror_result.get('engine') or 'candidate'}",
             )
+        legacy_entry_enabled = (not self.paper_mode) or (not self._strategy_governance_disable_legacy_ensemble)
+        if legacy_entry_enabled:
+            legacy_opened = await self.decision.evaluate_signal(inst)
+            opened = opened or legacy_opened
+            if legacy_opened:
+                self._decision_stats["entry_actions"] += 1
+                self._set_last_decision(
+                    inst.id,
+                    action="ENTRY",
+                    reason="ensemble_buy_open",
+                )
         self._loop_metrics["signal_eval_ms"] = (perf_counter() - sig_t0) * 1000.0
         await self.check_spin_off(inst)
         if inst.config.leverage == 1:

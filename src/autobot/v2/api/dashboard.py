@@ -1994,6 +1994,84 @@ async def get_strategy_trade_reconciliation(
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/strategy-governance")
+async def get_strategy_governance(
+    request: Request,
+    authorized: bool = Depends(verify_token),
+):
+    """Runtime paper governance built from router + reconciliation evidence."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        builder = getattr(orchestrator, "_build_strategy_governance_snapshot", None)
+        if not callable(builder):
+            raise HTTPException(status_code=503, detail="Gouvernance non disponible")
+        snapshot = await builder(force=True)
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur recuperation strategy governance")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/decision-ledger")
+async def get_decision_ledger(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    symbol: Optional[str] = Query(None),
+    instance_id: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    authorized: bool = Depends(verify_token),
+):
+    """Canonical runtime decision ledger (signal -> decision -> order -> error)."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        from ..persistence import get_persistence
+        persistence = getattr(orchestrator, "persistence", None) or getattr(orchestrator, "_persistence", None) or get_persistence()
+        rows = (
+            await persistence.get_decision_ledger_events(
+                limit=limit,
+                symbol=symbol,
+                instance_id=instance_id,
+                event_type=event_type,
+            )
+            if persistence is not None and hasattr(persistence, "get_decision_ledger_events")
+            else []
+        )
+        by_type: Dict[str, int] = {}
+        for row in rows:
+            key = str(row.get("event_type") or "unknown")
+            by_type[key] = by_type.get(key, 0) + 1
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mode": "paper" if paper_mode else "live",
+            "paper_mode": paper_mode,
+            "summary": {
+                "events": len(rows),
+                "by_type": by_type,
+            },
+            "rows": rows,
+        }
+    except Exception:
+        logger.exception("Erreur recuperation decision ledger")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/regime")
 async def get_regime(
     request: Request,
@@ -4160,6 +4238,15 @@ async def get_trading_debug(
         executor = getattr(orchestrator, "order_executor", None)
         paper_db_path = getattr(executor, "db_path", "data/paper_trades.db")
         last_trade, filled_trade_count = _latest_filled_paper_trade(paper_db_path) if paper_mode else (None, 0)
+        governance_builder = getattr(orchestrator, "_build_strategy_governance_snapshot", None)
+        governance_snapshot = await governance_builder() if callable(governance_builder) else {}
+        from ..persistence import get_persistence
+        persistence = getattr(orchestrator, "persistence", None) or getattr(orchestrator, "_persistence", None) or get_persistence()
+        decision_ledger = (
+            await persistence.get_decision_ledger_events(limit=min(decision_limit, 50))
+            if persistence is not None and hasattr(persistence, "get_decision_ledger_events")
+            else []
+        )
 
         debug = _trading_pipeline_debug(
             instances_data=instances_data,
@@ -4210,6 +4297,8 @@ async def get_trading_debug(
             },
             **debug,
             "regime": regime_snapshot,
+            "strategy_governance": governance_snapshot,
+            "decision_ledger": decision_ledger,
             "instances": per_instance,
             "paper_test_mode": {
                 "enabled": os.getenv("PAPER_TEST_TRADING_ENABLED", "false").lower() in {"1", "true", "yes", "on"},

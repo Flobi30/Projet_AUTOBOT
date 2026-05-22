@@ -213,6 +213,7 @@ class TradingInstanceAsync:
                             stop_loss_txid=metadata.get("stop_loss_txid"),
                             buy_txid=metadata.get("buy_txid"),
                             sell_txid=metadata.get("sell_txid"),
+                            metadata=metadata,
                         )
                         self._positions[position.id] = position
                         self._allocated_capital += position.buy_price * position.volume
@@ -532,6 +533,7 @@ class TradingInstanceAsync:
         buy_fee: Optional[float] = None,
         buy_fee_source: Optional[str] = None,
         symbol: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Position]:
         """Open a position (atomic check+create under lock)."""
         order_value = price * volume
@@ -554,6 +556,7 @@ class TradingInstanceAsync:
                 take_profit=take_profit,
                 stop_loss_txid=stop_loss_txid,
                 buy_txid=buy_txid,
+                metadata=dict(metadata) if isinstance(metadata, dict) else None,
             )
             self._positions[position_id] = position
             self._allocated_capital += order_value
@@ -580,6 +583,12 @@ class TradingInstanceAsync:
             "buy_fee_source": buy_fee_source or ("order_result" if buy_fee is not None else None),
             "symbol": symbol or getattr(self.config, "symbol", None),
         }
+        if isinstance(metadata, dict):
+            position_metadata.update(metadata)
+        try:
+            position.metadata = position_metadata
+        except Exception:
+            pass
         await self._persistence.save_position(
             position_id=position_id,
             instance_id=self.id,
@@ -960,6 +969,7 @@ class TradingInstanceAsync:
                 "txid": pos.buy_txid,
                 "stop_loss_txid": pos.stop_loss_txid,
                 "sell_txid": pos.sell_txid,
+                "metadata": dict(pos.metadata) if isinstance(pos.metadata, dict) else None,
             })
         return snapshot
 

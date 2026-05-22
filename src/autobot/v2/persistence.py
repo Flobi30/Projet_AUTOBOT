@@ -622,6 +622,24 @@ class StatePersistence:
                     created_at TEXT NOT NULL
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS decision_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    strategy TEXT,
+                    engine TEXT,
+                    event_type TEXT NOT NULL,
+                    event_status TEXT,
+                    reason TEXT,
+                    source TEXT NOT NULL,
+                    payload_json TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
             
             # Indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
@@ -631,6 +649,9 @@ class StatePersistence:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_root ON instance_lineage(root_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_created_at ON trade_ledger(created_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_symbol ON decision_ledger(symbol)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_created_at ON decision_ledger(created_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_instance_event ON decision_ledger(instance_id, event_type)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
@@ -849,6 +870,103 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"❌ Erreur append_trade_ledger: {e}")
             return False
+
+    async def append_decision_ledger_event(self, **kwargs) -> bool:
+        await self.initialize()
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            conn = await self.orders.get_conn()
+            payload = kwargs.get("payload_json")
+            if payload is None:
+                payload = kwargs.get("payload")
+            if payload is not None and not isinstance(payload, str):
+                payload = orjson.dumps(payload).decode("utf-8")
+            cols = [
+                "event_id",
+                "decision_id",
+                "signal_id",
+                "instance_id",
+                "symbol",
+                "strategy",
+                "engine",
+                "event_type",
+                "event_status",
+                "reason",
+                "source",
+                "payload_json",
+                "created_at",
+            ]
+            vals = [
+                kwargs.get("event_id"),
+                kwargs.get("decision_id"),
+                kwargs.get("signal_id"),
+                kwargs.get("instance_id"),
+                kwargs.get("symbol"),
+                kwargs.get("strategy"),
+                kwargs.get("engine"),
+                kwargs.get("event_type"),
+                kwargs.get("event_status"),
+                kwargs.get("reason"),
+                kwargs.get("source", "runtime"),
+                payload,
+                kwargs.get("created_at") or now,
+            ]
+            query = f"INSERT INTO decision_ledger ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})"
+            await conn.execute(query, tuple(vals))
+            await conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"Erreur append_decision_ledger_event: {e}")
+            return False
+
+    async def get_decision_ledger_events(
+        self,
+        *,
+        limit: int = 50,
+        symbol: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        await self.initialize()
+        clauses: List[str] = []
+        args: List[Any] = []
+        if symbol:
+            clauses.append("symbol = ?")
+            args.append(symbol)
+        if instance_id:
+            clauses.append("instance_id = ?")
+            args.append(instance_id)
+        if event_type:
+            clauses.append("event_type = ?")
+            args.append(event_type)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = (
+            "SELECT * FROM decision_ledger "
+            f"{where} "
+            "ORDER BY created_at DESC, id DESC "
+            "LIMIT ?"
+        )
+        args.append(max(1, int(limit)))
+        try:
+            conn = await self.orders.get_conn()
+            async with conn.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+            results: List[Dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                payload_raw = item.get("payload_json")
+                if isinstance(payload_raw, (str, bytes)):
+                    try:
+                        item["payload"] = orjson.loads(payload_raw)
+                    except Exception:
+                        item["payload"] = None
+                else:
+                    item["payload"] = None
+                results.append(item)
+            return results
+        except Exception as e:
+            logger.exception(f"Erreur get_decision_ledger_events: {e}")
+            return []
 
     async def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:
         await self.initialize()

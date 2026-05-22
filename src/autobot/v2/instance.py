@@ -71,6 +71,7 @@ class Position:
     # CORRECTION Phase 3: Tracking ordre d'achat Kraken
     buy_txid: Optional[str] = None  # TXID ordre d'achat sur Kraken
     sell_txid: Optional[str] = None  # TXID ordre de vente sur Kraken
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class TradingInstance:
