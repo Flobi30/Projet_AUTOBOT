@@ -432,7 +432,32 @@ def test_strategy_router_endpoint_returns_paper_controlled_routes(monkeypatch, t
     assert body["paper_official_execution_enabled"] is True
     assert body["summary"]["symbols"] == 2
     assert {"dynamic_grid", "trend_momentum", "mean_reversion"} <= set(body["shadow_summaries"].keys())
+    assert body["reconciliation"]["paper_only"] is True
+    assert body["reconciliation"]["live_promotion_allowed"] is False
     assert "live stays blocked" in body["message"]
+
+
+def test_strategy_reconciliation_endpoint_is_paper_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
+    monkeypatch.setenv("TREND_SHADOW_DB_PATH", str(tmp_path / "trend_shadow_lab.db"))
+    monkeypatch.setenv("MEAN_REVERSION_SHADOW_DB_PATH", str(tmp_path / "mean_reversion_shadow_lab.db"))
+
+    class _ReconciliationOrchestrator(_Orchestrator):
+        persistence = SimpleNamespace(db_path=str(tmp_path / "state.db"))
+
+    dashboard.app.state.orchestrator = _ReconciliationOrchestrator()
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/strategy-reconciliation", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper"
+    assert body["paper_only"] is True
+    assert body["live_promotion_allowed"] is False
+    assert body["data_sources"]["official_status"] == "missing"
+    assert body["runtime"]["websocket_connected"] is True
 
 
 def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp_path):

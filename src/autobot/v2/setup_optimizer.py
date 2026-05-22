@@ -79,6 +79,8 @@ class SetupOptimizerConfig:
     candidate_score: float = 70.0
     max_range_multiplier: float = 2.20
     min_range_multiplier: float = 0.55
+    shadow_min_closed_trades: int = 30
+    shadow_no_loss_min_closed_trades: int = 50
 
     @classmethod
     def from_env(cls) -> "SetupOptimizerConfig":
@@ -95,6 +97,10 @@ class SetupOptimizerConfig:
             candidate_score=_env_float("SETUP_OPTIMIZER_CANDIDATE_SCORE", 70.0, 0.0, 100.0),
             max_range_multiplier=_env_float("SETUP_OPTIMIZER_MAX_RANGE_MULT", 2.20, 0.1, 10.0),
             min_range_multiplier=_env_float("SETUP_OPTIMIZER_MIN_RANGE_MULT", 0.55, 0.1, 10.0),
+            shadow_min_closed_trades=_env_int("SETUP_OPTIMIZER_SHADOW_MIN_CLOSED_TRADES", 30, 1, 100_000),
+            shadow_no_loss_min_closed_trades=_env_int(
+                "SETUP_OPTIMIZER_SHADOW_NO_LOSS_MIN_CLOSED_TRADES", 50, 1, 100_000
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -111,6 +117,8 @@ class SetupOptimizerConfig:
             "candidate_score": self.candidate_score,
             "max_range_multiplier": self.max_range_multiplier,
             "min_range_multiplier": self.min_range_multiplier,
+            "shadow_min_closed_trades": self.shadow_min_closed_trades,
+            "shadow_no_loss_min_closed_trades": self.shadow_no_loss_min_closed_trades,
         }
 
 
@@ -455,12 +463,8 @@ class PairSetupOptimizer:
         shadow_pf_raw = shadow_metrics.get("profit_factor")
         shadow_pf = _safe_float(shadow_pf_raw, 0.0) if shadow_pf_raw is not None else None
         shadow_net = _safe_float(shadow_metrics.get("net_pnl_eur"), 0.0)
-        if (
-            shadow_status == "candidate"
-            and shadow_closed >= max(1, min(self.config.min_closed_trades, 12))
-            and shadow_net > 0.0
-            and (shadow_pf is None or shadow_pf >= max(1.0, self.config.candidate_profit_factor * 0.90))
-        ):
+        shadow_ready = self._shadow_candidate_ready(shadow_metrics)
+        if shadow_status == "candidate" and shadow_ready["ready"]:
             status = "candidate"
             reason = "shadow_variant_positive"
         elif closed_trades < self.config.min_closed_trades:
@@ -495,9 +499,38 @@ class PairSetupOptimizer:
                 "edge_fit": edge_fit,
                 "evidence_fit": evidence_fit,
                 "shadow_fit": shadow_fit,
+                "shadow_validation": 1.0 if shadow_ready["ready"] else 0.0,
             },
             shadow_metrics=dict(shadow_metrics),
         )
+
+    def _shadow_candidate_ready(self, shadow_metrics: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(shadow_metrics, Mapping):
+            return {"ready": False, "reason": "no_shadow_metrics"}
+        closed = _safe_int(shadow_metrics.get("closed_trades"), 0)
+        net = _safe_float(shadow_metrics.get("net_pnl_eur"), 0.0)
+        gross_loss = _safe_float(shadow_metrics.get("gross_loss_eur", shadow_metrics.get("gross_loss")), 0.0)
+        pf_raw = shadow_metrics.get("profit_factor")
+        pf = _safe_float(pf_raw, 0.0) if pf_raw is not None else None
+        if closed < self.config.shadow_min_closed_trades:
+            return {"ready": False, "reason": "shadow_closed_trades_below_min", "closed_trades": closed}
+        if net <= 0.0:
+            return {"ready": False, "reason": "shadow_net_pnl_not_positive", "closed_trades": closed}
+        if pf is not None:
+            return {
+                "ready": pf >= max(1.0, self.config.candidate_profit_factor * 0.90),
+                "reason": "shadow_pf_ok" if pf >= max(1.0, self.config.candidate_profit_factor * 0.90) else "shadow_pf_below_min",
+                "closed_trades": closed,
+                "profit_factor": pf,
+            }
+        if gross_loss <= 0.0 and closed < self.config.shadow_no_loss_min_closed_trades:
+            return {
+                "ready": False,
+                "reason": "shadow_no_losses_needs_more_sample",
+                "closed_trades": closed,
+                "required_closed_trades": self.config.shadow_no_loss_min_closed_trades,
+            }
+        return {"ready": True, "reason": "shadow_no_loss_sample_large_enough", "closed_trades": closed}
 
     @staticmethod
     def _shadow_fit(shadow_metrics: Mapping[str, Any]) -> float:
@@ -643,11 +676,7 @@ class PairSetupOptimizer:
         if selected is None:
             return "unknown", "no_variant_available"
         shadow = selected.shadow_metrics if isinstance(selected.shadow_metrics, Mapping) else {}
-        shadow_candidate = (
-            str(shadow.get("status") or "").lower() == "candidate"
-            and _safe_int(shadow.get("closed_trades"), 0) >= max(1, min(self.config.min_closed_trades, 12))
-            and _safe_float(shadow.get("net_pnl_eur"), 0.0) > 0.0
-        )
+        shadow_candidate = str(shadow.get("status") or "").lower() == "candidate" and self._shadow_candidate_ready(shadow)["ready"]
         if shadow_candidate and health_status in {"weak", "underperforming", "early_weak"}:
             return "adjust", "paper_shadow_variant_outperforms_current_setup"
         if shadow_candidate:

@@ -89,6 +89,7 @@ class SetupShadowLabConfig:
     stop_loss_multiplier: float = 3.0
     min_samples_for_signal: int = 20
     min_closed_trades_for_signal: int = 8
+    no_loss_candidate_min_closed_trades: int = 50
     candidate_score: float = 65.0
     candidate_profit_factor: float = 1.15
     weak_score: float = 40.0
@@ -109,6 +110,9 @@ class SetupShadowLabConfig:
             stop_loss_multiplier=_env_float("SETUP_SHADOW_STOP_LOSS_MULTIPLIER", 3.0, 0.1, 50.0),
             min_samples_for_signal=_env_int("SETUP_SHADOW_MIN_SAMPLES", 20, 1, 100_000),
             min_closed_trades_for_signal=_env_int("SETUP_SHADOW_MIN_CLOSED_TRADES", 8, 1, 100_000),
+            no_loss_candidate_min_closed_trades=_env_int(
+                "SETUP_SHADOW_NO_LOSS_CANDIDATE_MIN_CLOSED_TRADES", 50, 1, 100_000
+            ),
             candidate_score=_env_float("SETUP_SHADOW_CANDIDATE_SCORE", 65.0, 0.0, 100.0),
             candidate_profit_factor=_env_float("SETUP_SHADOW_CANDIDATE_PF", 1.15, 0.01, 100.0),
             weak_score=_env_float("SETUP_SHADOW_WEAK_SCORE", 40.0, 0.0, 100.0),
@@ -129,6 +133,7 @@ class SetupShadowLabConfig:
             "stop_loss_multiplier": self.stop_loss_multiplier,
             "min_samples_for_signal": self.min_samples_for_signal,
             "min_closed_trades_for_signal": self.min_closed_trades_for_signal,
+            "no_loss_candidate_min_closed_trades": self.no_loss_candidate_min_closed_trades,
             "candidate_score": self.candidate_score,
             "candidate_profit_factor": self.candidate_profit_factor,
             "weak_score": self.weak_score,
@@ -512,10 +517,12 @@ class SetupShadowLab:
     ) -> str:
         if sample_count < self.config.min_samples_for_signal or closed_trades < self.config.min_closed_trades_for_signal:
             return "learning"
+        pf_ok = profit_factor is not None and profit_factor >= self.config.candidate_profit_factor
+        no_loss_ok = profit_factor is None and closed_trades >= self.config.no_loss_candidate_min_closed_trades
         if (
             score >= self.config.candidate_score
             and net_pnl > 0.0
-            and (profit_factor is None or profit_factor >= self.config.candidate_profit_factor)
+            and (pf_ok or no_loss_ok)
         ):
             return "candidate"
         if score <= self.config.weak_score or net_pnl < 0.0:

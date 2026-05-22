@@ -493,6 +493,19 @@ def _get_strategy_router(orchestrator: Any) -> Any:
     return router
 
 
+def _get_strategy_reconciliation_engine(orchestrator: Any) -> Any:
+    from ..strategy_reconciliation import StrategyReconciliationEngine
+
+    engine = getattr(orchestrator, "strategy_reconciliation_engine", None)
+    if engine is None:
+        engine = StrategyReconciliationEngine()
+        try:
+            setattr(orchestrator, "strategy_reconciliation_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -500,6 +513,62 @@ def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: 
     except Exception:
         logger.exception("Pair strategy health unavailable")
         return {"by_symbol": {}, "enabled": False, "applies_to_scoring": False}
+
+
+def _strategy_shadow_snapshots(orchestrator: Any, symbols: List[Any]) -> Dict[str, Dict[str, Any]]:
+    return {
+        "dynamic_grid": _get_setup_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
+        "trend_momentum": _get_trend_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
+        "mean_reversion": _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
+    }
+
+
+def _strategy_reconciliation_snapshot(
+    orchestrator: Any,
+    *,
+    instances: List[Dict[str, Any]],
+    state_db_path: Any,
+    paper_mode: bool,
+) -> Dict[str, Any]:
+    symbols = [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+    shadow_snapshots = _strategy_shadow_snapshots(orchestrator, symbols)
+    official_performance = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+    snapshot = _get_strategy_reconciliation_engine(orchestrator).build_snapshot(
+        official_performance=official_performance,
+        shadow_snapshots=shadow_snapshots,
+        paper_mode=paper_mode,
+    )
+    snapshot["data_sources"] = {
+        "official": official_performance.get("source", "none") if isinstance(official_performance, dict) else "none",
+        "official_status": official_performance.get("status", "not_loaded") if isinstance(official_performance, dict) else "not_loaded",
+        "state_db_path": str(state_db_path) if state_db_path else "",
+        "shadow_engines": sorted(shadow_snapshots.keys()),
+    }
+    return snapshot
+
+
+def _strategy_reconciliation_attention(reconciliation: Dict[str, Any], limit: int = 5) -> List[Dict[str, Any]]:
+    rows = reconciliation.get("symbols", []) if isinstance(reconciliation, dict) else []
+    attention = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("verdict") not in {"shadow_official_divergence", "official_underperforming", "shadow_sample_not_robust"}:
+            continue
+        attention.append(
+            {
+                "symbol": row.get("symbol"),
+                "verdict": row.get("verdict"),
+                "recommended_action": row.get("recommended_action"),
+                "root_causes": row.get("root_causes", []),
+                "official_net_pnl_eur": (row.get("official") or {}).get("net_pnl_eur") if isinstance(row.get("official"), dict) else None,
+                "best_shadow_engine": (row.get("best_shadow") or {}).get("engine") if isinstance(row.get("best_shadow"), dict) else None,
+                "best_shadow_net_pnl_eur": (row.get("best_shadow") or {}).get("net_pnl_eur") if isinstance(row.get("best_shadow"), dict) else None,
+            }
+        )
+        if len(attention) >= limit:
+            break
+    return attention
 
 
 def _acknowledge_runtime_kill_switches(orchestrator: Any, operator_id: str) -> int:
@@ -1774,9 +1843,10 @@ async def get_strategy_router_snapshot(
             health_by_symbol=health_by_symbol,
         )
         symbol_list = [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
-        setup_shadow = _get_setup_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
-        trend_shadow = _get_trend_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
-        mean_reversion_shadow = _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(symbols=symbol_list)
+        shadow_snapshots = _strategy_shadow_snapshots(orchestrator, symbol_list)
+        setup_shadow = shadow_snapshots["dynamic_grid"]
+        trend_shadow = shadow_snapshots["trend_momentum"]
+        mean_reversion_shadow = shadow_snapshots["mean_reversion"]
         snapshot = _get_strategy_router(orchestrator).build_snapshot(
             instances=instances,
             paper_mode=paper_mode,
@@ -1795,9 +1865,64 @@ async def get_strategy_router_snapshot(
             "trend_momentum": trend_shadow.get("summary"),
             "mean_reversion": mean_reversion_shadow.get("summary"),
         }
+        official_performance = _paper_realized_performance_from_state_db(state_db_path) if paper_mode else {}
+        reconciliation = _get_strategy_reconciliation_engine(orchestrator).build_snapshot(
+            official_performance=official_performance,
+            shadow_snapshots=shadow_snapshots,
+            paper_mode=paper_mode,
+        )
+        snapshot["reconciliation"] = {
+            "paper_only": reconciliation.get("paper_only", True),
+            "live_promotion_allowed": reconciliation.get("live_promotion_allowed", False),
+            "summary": reconciliation.get("summary", {}),
+            "requires_attention": _strategy_reconciliation_attention(reconciliation),
+            "message": "Shadow candidates must agree with official paper ledger before promotion.",
+        }
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation strategy router")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/strategy-reconciliation")
+async def get_strategy_reconciliation(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Read-only reconciliation between official paper ledger and shadow engines."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        snapshot = _strategy_reconciliation_snapshot(
+            orchestrator,
+            instances=instances,
+            state_db_path=state_db_path,
+            paper_mode=paper_mode,
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        snapshot["capital"] = {
+            "paper_mode": bool(capital_snapshot.get("paper_mode", paper_mode)),
+            "autobot_trading_capital": capital_snapshot.get("autobot_trading_capital"),
+            "allocated_capital": capital_snapshot.get("allocated_capital"),
+            "source": capital_snapshot.get("source"),
+            "source_status": capital_snapshot.get("source_status"),
+        }
+        snapshot["requires_attention"] = _strategy_reconciliation_attention(snapshot, limit=10)
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation strategy reconciliation")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

@@ -75,7 +75,7 @@ def test_setup_optimizer_uses_shadow_variant_evidence_when_available():
                         "variant": "grid_wide",
                         "status": "candidate",
                         "score": 88.0,
-                        "closed_trades": 12,
+                        "closed_trades": 30,
                         "net_pnl_eur": 2.4,
                         "profit_factor": 1.4,
                         "evidence_source": "setup_shadow_lab",
@@ -92,3 +92,55 @@ def test_setup_optimizer_uses_shadow_variant_evidence_when_available():
     assert row["recommended_action"] == "paper_shadow_candidate_review"
     assert row["selected_variant"]["name"] == "grid_wide"
     assert row["selected_variant"]["shadow_metrics"]["evidence_source"] == "setup_shadow_lab"
+
+
+def test_setup_optimizer_does_not_promote_small_no_loss_shadow_sample():
+    optimizer = PairSetupOptimizer(
+        SetupOptimizerConfig(
+            min_closed_trades=30,
+            candidate_profit_factor=1.25,
+            strong_profit_factor=1.60,
+            candidate_score=70.0,
+            shadow_min_closed_trades=30,
+            shadow_no_loss_min_closed_trades=50,
+        )
+    )
+
+    snapshot = optimizer.build_snapshot(
+        instances=[{"id": "inst-new", "symbol": "NEWEUR", "strategy": "grid"}],
+        opportunities=[
+            {
+                "symbol": "NEWEUR",
+                "score": 55.0,
+                "status": "non_tradable",
+                "reason": "no_recent_signal",
+                "cost_bps": 16.0,
+                "regime_context": {"regime": "range", "confidence": 0.62},
+            }
+        ],
+        health_by_symbol={},
+        shadow_by_symbol={
+            "NEWEUR": {
+                "best_variant": {"variant": "grid_wide", "score": 92.0},
+                "variants": [
+                    {
+                        "variant": "grid_wide",
+                        "status": "candidate",
+                        "score": 92.0,
+                        "closed_trades": 12,
+                        "net_pnl_eur": 2.4,
+                        "gross_loss_eur": 0.0,
+                        "profit_factor": None,
+                        "evidence_source": "setup_shadow_lab",
+                    }
+                ],
+            }
+        },
+        paper_mode=True,
+        total_capital=800.0,
+    )
+
+    row = snapshot["setups"][0]
+    assert row["status"] == "learning"
+    assert row["recommended_action"] == "continue_paper_shadow_until_min_sample"
+    assert row["selected_variant"]["components"]["shadow_validation"] == 0.0

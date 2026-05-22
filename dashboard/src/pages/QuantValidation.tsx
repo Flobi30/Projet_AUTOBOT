@@ -272,6 +272,16 @@ type StrategyRouterRoute = {
   engines: StrategyRouterEngine[];
 };
 
+type StrategyReconciliationAttention = {
+  symbol: string;
+  verdict: string;
+  recommended_action: string;
+  root_causes: string[];
+  official_net_pnl_eur?: number | null;
+  best_shadow_engine?: string | null;
+  best_shadow_net_pnl_eur?: number | null;
+};
+
 type StrategyRouterResponse = {
   enabled: boolean;
   paper_only: boolean;
@@ -285,6 +295,28 @@ type StrategyRouterResponse = {
     no_trade_symbols: number;
   };
   routes: StrategyRouterRoute[];
+  reconciliation?: {
+    paper_only: boolean;
+    live_promotion_allowed: boolean;
+    summary?: {
+      requires_attention?: number;
+      verdict_counts?: Record<string, number>;
+      official?: {
+        closed_trades?: number;
+        net_pnl_eur?: number;
+        profit_factor?: number | null;
+        win_rate?: number;
+        source?: string;
+      };
+      shadow?: Record<string, {
+        closed_shadow_trades?: number;
+        net_shadow_pnl_eur?: number;
+        candidate_symbols?: number;
+      }>;
+    };
+    requires_attention?: StrategyReconciliationAttention[];
+    message?: string;
+  };
   message: string;
 };
 
@@ -397,6 +429,7 @@ const QuantValidation: React.FC = () => {
   const meanSummary = meanReversionShadow?.summary;
   const meanRows = meanReversionShadow?.symbols ?? [];
   const routerRows = strategyRouter?.routes ?? [];
+  const reconciliation = strategyRouter?.reconciliation;
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -668,6 +701,87 @@ const QuantValidation: React.FC = () => {
           ) : (
             <div className="text-gray-500 text-sm">Aucune route multi-moteurs pour le moment.</div>
           )}
+        </section>
+      ) : null}
+
+      {reconciliation ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-amber-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Concordance shadow / paper officiel</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Les resultats shadow sont compares au ledger paper officiel avant toute promotion.
+                </p>
+              </div>
+            </div>
+            <span className={(reconciliation.summary?.requires_attention ?? 0) > 0 ? 'text-amber-300 text-sm font-semibold' : 'text-emerald-300 text-sm font-semibold'}>
+              {reconciliation.summary?.requires_attention ?? 0} point(s) a verifier
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Clotures officielles</div>
+              <div className="text-white font-semibold">{reconciliation.summary?.official?.closed_trades ?? 0}</div>
+              <div className="text-xs text-gray-500">{reconciliation.summary?.official?.source ?? 'source inconnue'}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PnL officiel</div>
+              <div className={(reconciliation.summary?.official?.net_pnl_eur ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                {formatCurrency(reconciliation.summary?.official?.net_pnl_eur)}
+              </div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">PF officiel</div>
+              <div className="text-white font-semibold">{reconciliation.summary?.official?.profit_factor?.toFixed(2) ?? 'En attente'}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Live promotion</div>
+              <div className="text-white font-semibold">{reconciliation.live_promotion_allowed ? 'Autorisee' : 'Bloquee'}</div>
+              <div className="text-xs text-gray-500">Paper-only</div>
+            </div>
+          </div>
+          {reconciliation.requires_attention?.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Verdict</th>
+                    <th className="text-right py-2">Paper officiel</th>
+                    <th className="text-right py-2">Meilleur shadow</th>
+                    <th className="text-left py-2 pl-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconciliation.requires_attention.slice(0, 10).map((row) => (
+                    <tr key={`${row.symbol}-${row.verdict}`} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className={`py-2 font-semibold ${stateClass(row.verdict)}`}>{row.verdict}</td>
+                      <td className={`py-2 text-right ${(row.official_net_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {formatCurrency(row.official_net_pnl_eur ?? undefined)}
+                      </td>
+                      <td className={`py-2 text-right ${(row.best_shadow_net_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {row.best_shadow_engine ?? 'none'} / {formatCurrency(row.best_shadow_net_pnl_eur ?? undefined)}
+                      </td>
+                      <td className="py-2 pl-4">
+                        <div className="text-gray-300">{row.recommended_action}</div>
+                        <div className="text-xs text-gray-500">{row.root_causes.slice(0, 3).join(', ') || 'Aucune cause precise'}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-400 text-sm">
+              Aucun ecart prioritaire detecte entre le shadow et le ledger paper officiel.
+            </div>
+          )}
+          <div className="mt-4 border border-amber-500/20 bg-amber-500/10 rounded-lg p-3 text-sm text-amber-100/90">
+            Un shadow positif seul ne suffit pas: il doit etre confirme par des clotures paper officielles, avec un echantillon robuste.
+          </div>
         </section>
       ) : null}
 
