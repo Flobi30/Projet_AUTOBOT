@@ -506,6 +506,19 @@ def _get_strategy_reconciliation_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_strategy_trade_reconciliation_engine(orchestrator: Any) -> Any:
+    from ..strategy_trade_reconciliation import StrategyTradeReconciliationEngine
+
+    engine = getattr(orchestrator, "strategy_trade_reconciliation_engine", None)
+    if engine is None:
+        engine = StrategyTradeReconciliationEngine()
+        try:
+            setattr(orchestrator, "strategy_trade_reconciliation_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -544,6 +557,28 @@ def _strategy_reconciliation_snapshot(
         "state_db_path": str(state_db_path) if state_db_path else "",
         "shadow_engines": sorted(shadow_snapshots.keys()),
     }
+    return snapshot
+
+
+def _strategy_shadow_db_paths(orchestrator: Any) -> Dict[str, str]:
+    return {
+        "dynamic_grid": str(getattr(_get_setup_shadow_lab(orchestrator).config, "db_path", "data/setup_shadow_lab.db")),
+        "trend_momentum": str(getattr(_get_trend_shadow_lab(orchestrator).config, "db_path", "data/trend_shadow_lab.db")),
+        "mean_reversion": str(getattr(_get_mean_reversion_shadow_lab(orchestrator).config, "db_path", "data/mean_reversion_shadow_lab.db")),
+    }
+
+
+def _strategy_trade_reconciliation_snapshot(
+    orchestrator: Any,
+    *,
+    state_db_path: Any,
+    paper_mode: bool,
+) -> Dict[str, Any]:
+    snapshot = _get_strategy_trade_reconciliation_engine(orchestrator).build_snapshot(
+        state_db_path=state_db_path,
+        paper_mode=paper_mode,
+        shadow_db_paths=_strategy_shadow_db_paths(orchestrator),
+    )
     return snapshot
 
 
@@ -1923,6 +1958,39 @@ async def get_strategy_reconciliation(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation strategy reconciliation")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/strategy-reconciliation/trades")
+async def get_strategy_trade_reconciliation(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Read-only trade-by-trade audit between official paper and shadow closes."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        snapshot = _strategy_trade_reconciliation_snapshot(
+            orchestrator,
+            state_db_path=state_db_path,
+            paper_mode=paper_mode,
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation strategy trade reconciliation")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 

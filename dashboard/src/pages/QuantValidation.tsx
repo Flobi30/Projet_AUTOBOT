@@ -320,6 +320,50 @@ type StrategyRouterResponse = {
   message: string;
 };
 
+type StrategyTradeReconciliationRow = {
+  symbol: string;
+  verdict: string;
+  root_causes: string[];
+  official: {
+    realized_pnl_eur?: number | null;
+    return_bps?: number | null;
+    fee_bps?: number | null;
+    closed_at?: string | null;
+  };
+  matched_shadow?: {
+    engine?: string | null;
+    variant?: string | null;
+    realized_pnl_eur?: number | null;
+    return_bps?: number | null;
+    fee_bps?: number | null;
+    closed_at?: string | null;
+  } | null;
+  deltas: {
+    pnl_delta_eur?: number | null;
+    return_delta_bps?: number | null;
+    fee_delta_bps?: number | null;
+    time_delta_minutes?: number | null;
+  };
+};
+
+type StrategyTradeReconciliationResponse = {
+  paper_only: boolean;
+  live_promotion_allowed: boolean;
+  summary: {
+    official_closes_loaded: number;
+    shadow_closes_loaded: number;
+    matched_count: number;
+    no_match_count: number;
+    official_loss_shadow_win_count: number;
+    requires_attention: number;
+    avg_pnl_delta_eur?: number | null;
+    avg_return_delta_bps?: number | null;
+    avg_fee_delta_bps?: number | null;
+  };
+  rows: StrategyTradeReconciliationRow[];
+  message: string;
+};
+
 const formatBps = (value?: number) =>
   typeof value === 'number' ? `${value.toFixed(1)} bps` : 'En attente';
 
@@ -349,9 +393,9 @@ const qualityReason = (
 };
 
 const stateClass = (state?: string) => {
-  if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review') return 'text-emerald-400';
-  if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme') return 'text-red-400';
-  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch' || state === 'adjust' || state === 'pause_current' || state === 'learning') return 'text-amber-400';
+  if (state === 'candidate' || state === 'acceptable' || state === 'normal' || state === 'paper_review_candidate' || state === 'paper_candidate_needs_review' || state === 'aligned_win' || state === 'official_better') return 'text-emerald-400';
+  if (state === 'unsafe' || state === 'high_overfit_risk' || state === 'extreme' || state === 'execution_drag' || state === 'official_loss_shadow_win') return 'text-red-400';
+  if (state === 'weak' || state === 'caution' || state === 'high' || state === 'rising' || state === 'not_validated' || state === 'watch' || state === 'adjust' || state === 'pause_current' || state === 'learning' || state === 'no_shadow_match' || state === 'aligned_loss') return 'text-amber-400';
   return 'text-gray-300';
 };
 
@@ -362,6 +406,7 @@ const QuantValidation: React.FC = () => {
   const [trendShadow, setTrendShadow] = useState<TrendShadowResponse | null>(null);
   const [meanReversionShadow, setMeanReversionShadow] = useState<TrendShadowResponse | null>(null);
   const [strategyRouter, setStrategyRouter] = useState<StrategyRouterResponse | null>(null);
+  const [tradeReconciliation, setTradeReconciliation] = useState<StrategyTradeReconciliationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -375,6 +420,7 @@ const QuantValidation: React.FC = () => {
           trendResponse,
           meanReversionResponse,
           routerResponse,
+          tradeReconciliationResponse,
         ] = await Promise.all([
           apiFetch('/api/quant/validation'),
           apiFetch('/api/performance/setup-audit'),
@@ -382,6 +428,7 @@ const QuantValidation: React.FC = () => {
           apiFetch('/api/trend-shadow'),
           apiFetch('/api/mean-reversion-shadow'),
           apiFetch('/api/strategy-router'),
+          apiFetch('/api/strategy-reconciliation/trades'),
         ]);
         if (!response.ok) {
           setError(`API quant indisponible: ${response.status}`);
@@ -394,6 +441,7 @@ const QuantValidation: React.FC = () => {
         setTrendShadow(trendResponse.ok ? await trendResponse.json() : null);
         setMeanReversionShadow(meanReversionResponse.ok ? await meanReversionResponse.json() : null);
         setStrategyRouter(routerResponse.ok ? await routerResponse.json() : null);
+        setTradeReconciliation(tradeReconciliationResponse.ok ? await tradeReconciliationResponse.json() : null);
         setError(null);
       } catch {
         setError('Erreur lors de la recuperation de la validation quant');
@@ -430,6 +478,7 @@ const QuantValidation: React.FC = () => {
   const meanRows = meanReversionShadow?.symbols ?? [];
   const routerRows = strategyRouter?.routes ?? [];
   const reconciliation = strategyRouter?.reconciliation;
+  const tradeReconciliationRows = tradeReconciliation?.rows ?? [];
 
   return (
     <div className="p-4 lg:p-8 bg-gray-900 min-h-screen">
@@ -781,6 +830,94 @@ const QuantValidation: React.FC = () => {
           )}
           <div className="mt-4 border border-amber-500/20 bg-amber-500/10 rounded-lg p-3 text-sm text-amber-100/90">
             Un shadow positif seul ne suffit pas: il doit etre confirme par des clotures paper officielles, avec un echantillon robuste.
+          </div>
+        </section>
+      ) : null}
+
+      {tradeReconciliation ? (
+        <section className="mb-8 bg-gray-800 border border-gray-700/60 rounded-xl p-4 lg:p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start gap-3">
+              <SlidersHorizontal className="w-5 h-5 text-cyan-300 mt-1" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Audit trade par trade</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Les clotures paper officielles sont rapprochees des clotures shadow les plus proches par paire et par temps.
+                </p>
+              </div>
+            </div>
+            <span className={(tradeReconciliation.summary.requires_attention ?? 0) > 0 ? 'text-amber-300 text-sm font-semibold' : 'text-emerald-300 text-sm font-semibold'}>
+              {tradeReconciliation.summary.requires_attention ?? 0} divergence(s)
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Clotures officielles</div>
+              <div className="text-white font-semibold">{tradeReconciliation.summary.official_closes_loaded}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Match shadow</div>
+              <div className="text-white font-semibold">{tradeReconciliation.summary.matched_count}</div>
+              <div className="text-xs text-gray-500">{tradeReconciliation.summary.no_match_count} sans match</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Officiel perd / shadow gagne</div>
+              <div className="text-amber-300 font-semibold">{tradeReconciliation.summary.official_loss_shadow_win_count}</div>
+            </div>
+            <div className="bg-gray-900/50 rounded-lg p-3">
+              <div className="text-gray-400">Delta PnL moyen</div>
+              <div className={(tradeReconciliation.summary.avg_pnl_delta_eur ?? 0) >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                {formatCurrency(tradeReconciliation.summary.avg_pnl_delta_eur ?? undefined)}
+              </div>
+              <div className="text-xs text-gray-500">officiel - shadow</div>
+            </div>
+          </div>
+          {tradeReconciliationRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400">
+                  <tr className="border-b border-gray-700">
+                    <th className="text-left py-2">Paire</th>
+                    <th className="text-left py-2">Verdict</th>
+                    <th className="text-right py-2">Officiel</th>
+                    <th className="text-right py-2">Shadow proche</th>
+                    <th className="text-right py-2">Delta</th>
+                    <th className="text-left py-2 pl-4">Cause</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeReconciliationRows.slice(0, 12).map((row, index) => (
+                    <tr key={`${row.symbol}-${row.verdict}-${index}`} className="border-b border-gray-700/50">
+                      <td className="py-2 text-white">{row.symbol}</td>
+                      <td className={`py-2 font-semibold ${stateClass(row.verdict)}`}>{row.verdict}</td>
+                      <td className={`py-2 text-right ${(row.official.realized_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div>{formatCurrency(row.official.realized_pnl_eur ?? undefined)}</div>
+                        <div className="text-xs text-gray-500">{formatBps(row.official.return_bps ?? undefined)}</div>
+                      </td>
+                      <td className={`py-2 text-right ${(row.matched_shadow?.realized_pnl_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div>{row.matched_shadow?.engine ?? 'aucun'} / {formatCurrency(row.matched_shadow?.realized_pnl_eur ?? undefined)}</div>
+                        <div className="text-xs text-gray-500">{formatBps(row.matched_shadow?.return_bps ?? undefined)}</div>
+                      </td>
+                      <td className={`py-2 text-right ${(row.deltas.pnl_delta_eur ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div>{formatCurrency(row.deltas.pnl_delta_eur ?? undefined)}</div>
+                        <div className="text-xs text-gray-500">{formatBps(row.deltas.return_delta_bps ?? undefined)}</div>
+                      </td>
+                      <td className="py-2 pl-4">
+                        <div className="text-gray-300">{row.root_causes.slice(0, 3).join(', ') || 'Aucune cause precise'}</div>
+                        <div className="text-xs text-gray-500">{row.deltas.time_delta_minutes ?? 'n/a'} min d'ecart</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-gray-400 text-sm">
+              Aucune cloture officielle recente a comparer pour le moment.
+            </div>
+          )}
+          <div className="mt-4 border border-cyan-500/20 bg-cyan-500/10 rounded-lg p-3 text-sm text-cyan-100/90">
+            Ce rapprochement est approximatif: il explique les ecarts d'execution, frais et timing, mais ne certifie pas que les deux moteurs ont pris exactement le meme setup.
           </div>
         </section>
       ) : null}
