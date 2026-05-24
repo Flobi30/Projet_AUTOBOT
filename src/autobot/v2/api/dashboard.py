@@ -389,6 +389,18 @@ def _global_kill_switch_snapshot(orchestrator: Any) -> Dict[str, Any]:
         }
 
 
+def _websocket_health_snapshot(orchestrator: Any) -> Dict[str, Any]:
+    dispatcher = getattr(orchestrator, "ring_dispatcher", None) or getattr(orchestrator, "ws_client", None)
+    if dispatcher is not None and hasattr(dispatcher, "get_health_snapshot"):
+        try:
+            snapshot = dispatcher.get_health_snapshot()
+            if isinstance(snapshot, dict):
+                return snapshot
+        except Exception:
+            logger.debug("Impossible de recuperer le snapshot websocket", exc_info=True)
+    return {"available": False, "connected": False}
+
+
 def _get_regime_feature_engine(orchestrator: Any) -> Any:
     from ..regime_features import RegimeFeatureEngine
 
@@ -1607,6 +1619,7 @@ async def get_opportunities(
             "running": bool(status.get("running")),
             "websocket_connected": bool(status.get("websocket_connected")),
             "instance_count": int(status.get("instance_count", len(instances))),
+            "websocket_health": _websocket_health_snapshot(orchestrator),
         }
         try:
             shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
@@ -4290,6 +4303,7 @@ async def get_trading_debug(
             "safety": {
                 "kill_switch": kill_switch,
             },
+            "websocket": _websocket_health_snapshot(orchestrator),
             "overall": {
                 "status": debug["status"],
                 "reason": debug["reason"],

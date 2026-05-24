@@ -104,7 +104,7 @@ class PaperTradingExecutor:
             "PAPER_ALLOW_SYNTHETIC_PRICE_FALLBACK",
             False,
         )
-        self.maker_realism_enabled = _env_bool("PAPER_MAKER_REALISM_ENABLED", False)
+        self.maker_realism_enabled = _env_bool("PAPER_MAKER_REALISM_ENABLED", True)
         self.maker_require_book = _env_bool("PAPER_MAKER_REQUIRE_BOOK", True)
         self.maker_touch_bps = _env_float("PAPER_MAKER_TOUCH_BPS", 2.0, 0.0, 100.0)
         self.maker_max_spread_bps = _env_float("PAPER_MAKER_MAX_SPREAD_BPS", 12.0, 0.1, 1000.0)

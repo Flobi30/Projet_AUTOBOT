@@ -30,6 +30,15 @@ class _Orchestrator:
         self.order_executor = _Executor(db_path)
         self._global_kill_store = kill_store or GlobalKillSwitchStore(str(db_path.parent / "global_kill_switch.db"))
         self._instances = {}
+        self.ring_dispatcher = SimpleNamespace(
+            get_health_snapshot=lambda: {
+                "available": True,
+                "connected": True,
+                "backpressure_active": False,
+                "msg_rate_per_sec": 42.0,
+                "rate_window_seconds": 10.0,
+            }
+        )
 
     def get_status(self):
         return {
@@ -230,6 +239,8 @@ def test_trading_debug_explains_cost_guard_rejection(monkeypatch, tmp_path):
     assert body["regime"]["symbols"][0]["symbol"] == "ETHEUR"
     assert body["instances"][0]["regime"]["symbol"] == "ETHEUR"
     assert body["cost_edge_model"]["recent_decisions"][0]["atr_bps"] == pytest.approx(10.0)
+    assert body["websocket"]["connected"] is True
+    assert body["websocket"]["backpressure_active"] is False
 
 
 def test_runtime_trace_reports_tripped_kill_switch(monkeypatch, tmp_path):

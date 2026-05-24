@@ -212,6 +212,18 @@ class TestProcessTickerValidation:
         ws = KrakenWebSocketAsync.__new__(KrakenWebSocketAsync)
         ws._last_prices = {}
         ws._ticker_callbacks = {}
+        ws._running = True
+        ws._ws = object()
+        ws._last_message_time = 0.0
+        ws._stale_threshold = 30.0
+        ws._last_msg_rate = 0.0
+        ws._msg_rate_window = 0.0
+        ws._backpressure_active = False
+        ws._backpressure_warn_threshold = 100.0
+        ws._backpressure_consecutive_windows = 0
+        ws._last_callback_count = 0
+        ws._last_dispatch_duration_ms = 0.0
+        ws._dispatch_ewma_ms = 0.0
         return ws
 
     def _make_ticker_data(self, price, bid, ask, volume=1000.0):
@@ -304,3 +316,17 @@ class TestProcessTickerValidation:
         await ws._process_ticker("XXBTZEUR", self._make_ticker_data(50_000, 49_990, 50_010))
         assert "XXBTZEUR" in ws._last_prices
         assert ws._last_prices["XXBTZEUR"].price == 50_000.0
+
+    def test_health_snapshot_exposes_backpressure_fields(self):
+        ws = self._make_ws()
+        ws._last_msg_rate = 84.2
+        ws._msg_rate_window = 10.0
+        ws._backpressure_active = True
+        ws._backpressure_consecutive_windows = 3
+
+        snapshot = ws.get_health_snapshot()
+
+        assert snapshot["connected"] is True
+        assert snapshot["msg_rate_per_sec"] == pytest.approx(84.2)
+        assert snapshot["backpressure_active"] is True
+        assert snapshot["consecutive_backpressure_windows"] == 3

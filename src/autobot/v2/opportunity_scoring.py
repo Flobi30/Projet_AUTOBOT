@@ -86,7 +86,7 @@ class OpportunityConfig:
     paper_dynamic_allocation_enabled: bool = True
     paper_min_order_capital_pct: float = 12.0
     paper_edge_boost_bps: float = 140.0
-    atr_mode: str = "strict"
+    atr_mode: str = "adaptive"
     high_net_edge_bps: float = 80.0
     paper_relaxed_min_atr_bps: float = 5.0
     pair_health_guard_enabled: bool = True
@@ -125,7 +125,7 @@ class OpportunityConfig:
             paper_dynamic_allocation_enabled=_env_bool("OPPORTUNITY_PAPER_DYNAMIC_ALLOCATION_ENABLED", True),
             paper_min_order_capital_pct=_env_float("OPPORTUNITY_PAPER_MIN_ORDER_CAPITAL_PCT", 12.0, 0.1, 100.0),
             paper_edge_boost_bps=_env_float("OPPORTUNITY_PAPER_EDGE_BOOST_BPS", 140.0, 1.0, 5000.0),
-            atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "strict", {"strict", "adaptive", "opportunistic"}),
+            atr_mode=_env_choice("OPPORTUNITY_ATR_MODE", "adaptive", {"strict", "adaptive", "opportunistic"}),
             high_net_edge_bps=_env_float("OPPORTUNITY_HIGH_NET_EDGE_BPS", 80.0, 0.0, 5000.0),
             paper_relaxed_min_atr_bps=_env_float("OPPORTUNITY_PAPER_RELAXED_MIN_ATR_BPS", 5.0, 0.0, 1000.0),
             pair_health_guard_enabled=_env_bool("OPPORTUNITY_PAIR_HEALTH_GUARD_ENABLED", True),
@@ -158,6 +158,7 @@ class OpportunityResult:
     allocation_reason: str = "ok"
     components: dict[str, float] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
+    atr_context: dict[str, Any] = field(default_factory=dict)
     regime_score: float = 50.0
     regime_adjustment: float = 0.0
     regime_context: dict[str, Any] = field(default_factory=dict)
@@ -188,6 +189,7 @@ class OpportunityResult:
             "allocation_reason": self.allocation_reason,
             "components": {k: round(v, 3) for k, v in self.components.items()},
             "blockers": list(self.blockers),
+            "atr_context": dict(self.atr_context),
             "regime_score": round(self.regime_score, 2),
             "regime_adjustment": round(self.regime_adjustment, 3),
             "regime_context": dict(self.regime_context),
@@ -311,6 +313,13 @@ class OpportunityScorer:
             allocation_reason=allocation["reason"],
             components=components,
             blockers=blockers,
+            atr_context=self._atr_context(
+                paper_mode=paper_mode,
+                gross_edge_bps=gross_edge,
+                net_edge_bps=net_edge,
+                atr_bps=atr_bps,
+                min_edge_bps=min_edge,
+            ),
             regime_score=regime.regime_score,
             regime_adjustment=regime.adjustment,
             regime_context=self._regime_context(regime),
@@ -388,6 +397,7 @@ class OpportunityScorer:
             },
             "execution_gate": self.execution_gate(paper_mode=paper_mode),
             "selected_symbols": selected_symbols,
+            "blocked_analysis": self._blocked_analysis(ranked),
             "opportunities": [item.to_dict() for item in ranked],
         }
 
@@ -686,6 +696,75 @@ class OpportunityScorer:
         if atr_bps < cfg.paper_relaxed_min_atr_bps:
             return False
         return True
+
+    def _atr_context(
+        self,
+        *,
+        paper_mode: bool,
+        gross_edge_bps: float,
+        net_edge_bps: float,
+        atr_bps: float,
+        min_edge_bps: float,
+    ) -> dict[str, Any]:
+        cfg = self.config
+        override_allowed = self._paper_atr_override_allowed(
+            paper_mode=paper_mode,
+            gross_edge_bps=gross_edge_bps,
+            net_edge_bps=net_edge_bps,
+            atr_bps=atr_bps,
+        )
+        atr_shortfall_bps = max(0.0, cfg.min_atr_bps - atr_bps)
+        edge_buffer_bps = max(0.0, net_edge_bps - min_edge_bps)
+        if atr_bps >= cfg.min_atr_bps:
+            reason = "atr_above_minimum"
+        elif override_allowed:
+            reason = "paper_adaptive_override_allowed"
+        elif not paper_mode:
+            reason = "live_never_overrides_low_atr"
+        elif cfg.atr_mode not in {"adaptive", "opportunistic"}:
+            reason = "strict_atr_mode"
+        elif net_edge_bps < cfg.high_net_edge_bps:
+            reason = "net_edge_below_adaptive_override"
+        elif gross_edge_bps < cfg.min_gross_edge_bps:
+            reason = "gross_edge_below_target"
+        elif atr_bps < cfg.paper_relaxed_min_atr_bps:
+            reason = "atr_below_relaxed_floor"
+        else:
+            reason = "atr_override_unavailable"
+        return {
+            "mode": cfg.atr_mode,
+            "paper_mode": paper_mode,
+            "atr_bps": round(atr_bps, 3),
+            "min_atr_bps": round(cfg.min_atr_bps, 3),
+            "paper_relaxed_min_atr_bps": round(cfg.paper_relaxed_min_atr_bps, 3),
+            "high_net_edge_bps": round(cfg.high_net_edge_bps, 3),
+            "gross_edge_bps": round(gross_edge_bps, 3),
+            "net_edge_bps": round(net_edge_bps, 3),
+            "min_edge_bps": round(min_edge_bps, 3),
+            "edge_buffer_bps": round(edge_buffer_bps, 3),
+            "atr_shortfall_bps": round(atr_shortfall_bps, 3),
+            "override_allowed": override_allowed,
+            "reason": reason,
+        }
+
+    @staticmethod
+    def _blocked_analysis(opportunities: Iterable[OpportunityResult]) -> dict[str, Any]:
+        rows = list(opportunities)
+        non_tradable = [row for row in rows if row.status != "tradable"]
+        atr_blocked = [row for row in non_tradable if "atr_below_minimum" in row.blockers]
+        atr_only = [row for row in atr_blocked if set(row.blockers) == {"atr_below_minimum"}]
+        high_edge_atr_blocked = [
+            row for row in atr_blocked
+            if row.net_edge_bps > 0.0 and row.gross_edge_bps >= row.min_edge_bps
+        ]
+        return {
+            "non_tradable_count": len(non_tradable),
+            "atr_blocked_count": len(atr_blocked),
+            "atr_only_count": len(atr_only),
+            "high_edge_atr_blocked_count": len(high_edge_atr_blocked),
+            "atr_only_symbols": [row.symbol for row in atr_only[:10]],
+            "high_edge_atr_blocked_symbols": [row.symbol for row in high_edge_atr_blocked[:10]],
+        }
 
     def _allocation(
         self,

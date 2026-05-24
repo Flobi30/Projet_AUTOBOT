@@ -177,6 +177,9 @@ def test_paper_adaptive_atr_allows_high_net_edge_only_in_paper():
 
     assert "atr_below_minimum" not in paper_result.blockers
     assert "atr_below_minimum" in live_result.blockers
+    assert paper_result.atr_context["override_allowed"] is True
+    assert paper_result.atr_context["reason"] == "paper_adaptive_override_allowed"
+    assert live_result.atr_context["reason"] == "live_never_overrides_low_atr"
 
 
 def test_paper_allocation_can_train_with_larger_bounded_orders():

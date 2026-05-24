@@ -628,6 +628,42 @@ def test_build_execution_plan_places_post_only_buy_on_bid():
     assert plan["microstructure"]["has_book"] is True
 
 
+def test_build_execution_plan_prefers_post_only_in_paper_when_edge_buffer_is_healthy():
+    class _FakeOfi:
+        def get_snapshot(self, _symbol):
+            return {
+                "has_book": True,
+                "bid": 99.98,
+                "ask": 100.02,
+                "spread_bps": 4.0,
+                "buy_adverse_selection_risk": 0.12,
+            }
+
+    instance = _Instance()
+    instance.orchestrator = SimpleNamespace(paper_mode=True, ofi=_FakeOfi())
+    handler = SignalHandlerAsync(instance=instance, order_executor=None)
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="XXBTZEUR",
+        price=100.0,
+        volume=0.5,
+        reason="unit paper maker preference",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"urgency": 0.2, "limit_price": 100.0},
+    )
+
+    plan = handler._build_execution_plan(
+        signal,
+        volume=0.5,
+        edge_ctx={"net_edge_bps": 62.0, "adaptive_min_edge_bps": 50.0, "spread_bps": 4.0},
+    )
+
+    assert plan["order_type"] == "limit"
+    assert plan["post_only"] is True
+    assert plan["reason"] == "paper_post_only_cost_control"
+    assert plan["price"] == pytest.approx(99.98)
+
+
 def test_paper_maker_rejections_are_local_validation_not_api_failures():
     assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_book_unavailable") is True
     assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_adverse_selection") is True

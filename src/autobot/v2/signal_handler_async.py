@@ -240,6 +240,35 @@ class SignalHandlerAsync:
         history_size = self._load_positive_int("cost_edge_audit_history_size", "COST_EDGE_AUDIT_HISTORY_SIZE", 50)
         self._runtime_event_history: deque[dict[str, Any]] = deque(maxlen=min(500, max(10, history_size)))
         self._opportunity_scorer = OpportunityScorer()
+        self._paper_prefer_post_only_execution = self._load_bool(
+            "paper_prefer_post_only_execution",
+            "PAPER_PREFER_POST_ONLY_EXECUTION",
+            True,
+        )
+        self._paper_post_only_max_urgency = self._load_float_in_range(
+            "paper_post_only_max_urgency",
+            "PAPER_POST_ONLY_MAX_URGENCY",
+            0.55,
+            minimum=0.0,
+            maximum=1.0,
+        )
+        self._paper_post_only_max_spread_bps = self._load_positive_float(
+            "paper_post_only_max_spread_bps",
+            "PAPER_POST_ONLY_MAX_SPREAD_BPS",
+            min(6.0, self._max_spread_bps),
+        )
+        self._paper_post_only_min_edge_buffer_bps = self._load_positive_float(
+            "paper_post_only_min_edge_buffer_bps",
+            "PAPER_POST_ONLY_MIN_EDGE_BUFFER_BPS",
+            8.0,
+        )
+        self._paper_post_only_max_adverse_risk = self._load_float_in_range(
+            "paper_post_only_max_adverse_risk",
+            "PAPER_POST_ONLY_MAX_ADVERSE_RISK",
+            0.50,
+            minimum=0.0,
+            maximum=1.0,
+        )
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
     def _record_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
@@ -2344,6 +2373,57 @@ class SignalHandlerAsync:
         except Exception:
             logger.debug("Decision journal indisponible pour rejet microstructure", exc_info=True)
 
+    def _paper_post_only_candidate(
+        self,
+        *,
+        signal: TradingSignal,
+        urgency: float,
+        spread_bps: float,
+        edge_bps: float,
+        adaptive_min_edge: float,
+        force_maker: bool,
+    ) -> tuple[bool, dict[str, Any]]:
+        micro = self._microstructure_snapshot(signal.symbol)
+        if force_maker:
+            return True, micro
+        if not self._is_paper_mode() or not self._paper_prefer_post_only_execution:
+            return False, micro
+        if signal.type != SignalType.BUY:
+            return False, micro
+        if urgency > self._paper_post_only_max_urgency:
+            return False, micro
+        if spread_bps > self._paper_post_only_max_spread_bps:
+            return False, micro
+        if (edge_bps - adaptive_min_edge) < self._paper_post_only_min_edge_buffer_bps:
+            return False, micro
+        if not micro.get("has_book"):
+            return False, micro
+        adverse_risk = self._safe_float(
+            micro.get("buy_adverse_selection_risk", micro.get("adverse_selection_risk")),
+            0.0,
+        )
+        if adverse_risk > self._paper_post_only_max_adverse_risk:
+            return False, micro
+        return True, micro
+
+    def _limit_price_from_microstructure(
+        self,
+        *,
+        signal: TradingSignal,
+        metadata: dict[str, Any],
+        micro: dict[str, Any],
+    ) -> float:
+        price = float(metadata.get("limit_price") or signal.price)
+        if not micro.get("has_book"):
+            return price
+        bid = self._safe_float(micro.get("bid"), 0.0)
+        ask = self._safe_float(micro.get("ask"), 0.0)
+        if signal.type == SignalType.BUY and bid > 0.0:
+            return min(price, bid)
+        if signal.type == SignalType.SELL and ask > 0.0:
+            return max(price, ask)
+        return price
+
     def _build_execution_plan(self, signal: TradingSignal, volume: float, edge_ctx: Optional[dict[str, float]] = None) -> dict[str, Any]:
         metadata = signal.metadata or {}
         edge = edge_ctx or self._estimate_edge_context(signal, self._estimate_atr_pct(signal.price))
@@ -2366,21 +2446,40 @@ class SignalHandlerAsync:
             if self._fee_optimizer is not None
             else {"order_type": "market", "post_only": False, "reason": "fee_optimizer_unavailable"}
         )
-        # Phase 5: Force Maker Only (Ultra Optimization)
-        force_maker = getattr(self.instance.config, "force_maker_only", os.getenv("FORCE_MAKER_ONLY", "false").lower() == "true")
-        
-        prefer_limit = (low_urgency and has_edge and rec.get("order_type") == "limit") or force_maker
+        force_maker = getattr(
+            self.instance.config,
+            "force_maker_only",
+            os.getenv("FORCE_MAKER_ONLY", "false").lower() == "true",
+        )
+
+        paper_post_only, micro = self._paper_post_only_candidate(
+            signal=signal,
+            urgency=urgency,
+            spread_bps=spread_bps,
+            edge_bps=edge_bps,
+            adaptive_min_edge=adaptive_min_edge,
+            force_maker=force_maker,
+        )
+        paper_maker_realism_enabled = bool(getattr(self.order_executor, "maker_realism_enabled", False))
+        generic_limit_ready = (
+            low_urgency
+            and has_edge
+            and rec.get("order_type") == "limit"
+            and (
+                not self._is_paper_mode()
+                or not paper_maker_realism_enabled
+                or bool(micro.get("has_book"))
+            )
+        )
+        prefer_limit = generic_limit_ready or force_maker or paper_post_only
         if prefer_limit:
-            price = float(metadata.get("limit_price") or signal.price)
-            micro = self._microstructure_snapshot(signal.symbol)
-            if micro.get("has_book"):
-                bid = self._safe_float(micro.get("bid"), 0.0)
-                ask = self._safe_float(micro.get("ask"), 0.0)
-                if signal.type == SignalType.BUY and bid > 0.0:
-                    price = min(price, bid)
-                elif signal.type == SignalType.SELL and ask > 0.0:
-                    price = max(price, ask)
-            reason = "force_maker_only_enabled" if force_maker else rec.get("reason", "low_urgency_edge")
+            price = self._limit_price_from_microstructure(signal=signal, metadata=metadata, micro=micro)
+            if force_maker:
+                reason = "force_maker_only_enabled"
+            elif paper_post_only:
+                reason = "paper_post_only_cost_control"
+            else:
+                reason = rec.get("reason", "low_urgency_edge")
             return {
                 "order_type": "limit",
                 "post_only": True,
@@ -2388,7 +2487,7 @@ class SignalHandlerAsync:
                 "reason": reason,
                 "microstructure": micro,
             }
-            
+
         return {"order_type": "market", "post_only": False, "price": signal.price, "reason": rec.get("reason", "market_fallback")}
 
     @staticmethod

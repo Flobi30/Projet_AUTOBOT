@@ -78,6 +78,14 @@ class KrakenWebSocketAsync:
         # ARCH-08: backpressure monitoring counters
         self._msg_count: int = 0
         self._msg_rate_window: float = 0.0
+        self._msg_rate_window_started_at: float = time.monotonic()
+        self._last_msg_rate: float = 0.0
+        self._backpressure_warn_threshold: float = 100.0
+        self._backpressure_active: bool = False
+        self._backpressure_consecutive_windows: int = 0
+        self._last_callback_count: int = 0
+        self._last_dispatch_duration_ms: float = 0.0
+        self._dispatch_ewma_ms: float = 0.0
 
         # ROB-03: circuit breaker for runaway reconnects
         self._reconnect_attempts: int = 0
@@ -110,6 +118,7 @@ class KrakenWebSocketAsync:
 
         self._running = True
         self._last_message_time = time.monotonic()
+        self._msg_rate_window_started_at = self._last_message_time
 
         try:
             self._ws = await websockets.connect(
@@ -273,6 +282,7 @@ class KrakenWebSocketAsync:
 
         # Dispatch to async callbacks
         callbacks = list(self._ticker_callbacks.get(pair, []))
+        self._last_callback_count = len(callbacks)
         msg_count = getattr(self, "_msg_count", 0)
         if not callbacks and msg_count % 60 == 1:
             # Log periodically if no callbacks registered for this pair
@@ -281,11 +291,20 @@ class KrakenWebSocketAsync:
                 f"⚠️ Ticker {pair}: aucun callback enregistré "
                 f"(clés connues: {registered_keys})"
             )
+        dispatch_started_at = time.monotonic() if callbacks else 0.0
         for cb in callbacks:
             try:
                 await cb(ticker)
             except Exception as exc:
                 logger.error(f"❌ Erreur callback ticker {pair}: {exc}")
+
+        if callbacks:
+            dispatch_duration_ms = max(0.0, (time.monotonic() - dispatch_started_at) * 1000.0)
+            self._last_dispatch_duration_ms = dispatch_duration_ms
+            if self._dispatch_ewma_ms <= 0.0:
+                self._dispatch_ewma_ms = dispatch_duration_ms
+            else:
+                self._dispatch_ewma_ms = (self._dispatch_ewma_ms * 0.8) + (dispatch_duration_ms * 0.2)
 
     async def _process_book(self, pair: str, data: dict) -> None:
         """Process order book update."""
@@ -402,10 +421,32 @@ class KrakenWebSocketAsync:
                 await self._reconnect()
             else:
                 # ARCH-08: backpressure monitoring — warn if rate > 100 msg/s
-                rate = self._msg_count / max(elapsed, 1)
-                if rate > 100:
-                    logger.warning("WS backpressure: %.0f msg/s", rate)
+                window_elapsed = max(time.monotonic() - self._msg_rate_window_started_at, 1e-6)
+                self._msg_rate_window = window_elapsed
+                rate = self._msg_count / window_elapsed
+                self._last_msg_rate = rate
+                if rate > self._backpressure_warn_threshold:
+                    self._backpressure_consecutive_windows += 1
+                    self._backpressure_active = self._backpressure_consecutive_windows >= 2
+                    if self._backpressure_active or rate > (self._backpressure_warn_threshold * 1.5):
+                        logger.warning(
+                            "WS backpressure: %.0f msg/s (window=%.1fs callbacks=%d dispatch_ewma=%.2fms)",
+                            rate,
+                            window_elapsed,
+                            self._last_callback_count,
+                            self._dispatch_ewma_ms,
+                        )
+                else:
+                    if self._backpressure_active:
+                        logger.info(
+                            "WS backpressure rÃ©solu: %.0f msg/s (dispatch_ewma=%.2fms)",
+                            rate,
+                            self._dispatch_ewma_ms,
+                        )
+                    self._backpressure_active = False
+                    self._backpressure_consecutive_windows = 0
                 self._msg_count = 0  # reset window
+                self._msg_rate_window_started_at = time.monotonic()
                 if not self.is_connected():
                     logger.warning("🔌 WS déconnecté - Tentative reconnexion...")
                     await self._reconnect()
@@ -456,6 +497,7 @@ class KrakenWebSocketAsync:
             get_os_tuner().tune_websocket(self._ws)
             self._recv_task = asyncio.create_task(self._recv_loop(), name="ws-recv")
             self._last_message_time = time.monotonic()
+            self._msg_rate_window_started_at = self._last_message_time
 
             # Re-subscribe
             for pair in list(self._subscribed_pairs):
@@ -501,6 +543,23 @@ class KrakenWebSocketAsync:
             return int(state) == 1
         except (TypeError, ValueError):
             return getattr(self._ws, "close_code", None) is None
+
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        stale_seconds = max(0.0, time.monotonic() - self._last_message_time) if self._last_message_time else 0.0
+        return {
+            "running": self._running,
+            "connected": self.is_connected(),
+            "stale_seconds": round(stale_seconds, 3),
+            "stale_threshold_seconds": round(self._stale_threshold, 3),
+            "msg_rate_per_sec": round(self._last_msg_rate, 3),
+            "rate_window_seconds": round(self._msg_rate_window, 3),
+            "backpressure_active": self._backpressure_active,
+            "backpressure_warn_threshold": round(self._backpressure_warn_threshold, 3),
+            "consecutive_backpressure_windows": self._backpressure_consecutive_windows,
+            "callback_count": self._last_callback_count,
+            "last_dispatch_duration_ms": round(self._last_dispatch_duration_ms, 3),
+            "dispatch_ewma_ms": round(self._dispatch_ewma_ms, 3),
+        }
 
 
 class WebSocketMultiplexerAsync:

@@ -358,6 +358,22 @@ class RingBufferDispatcher:
         """Return ``True`` if a message was received within *max_age_seconds*."""
         return self._ws.is_data_fresh(max_age_seconds)
 
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        snapshot = (
+            self._ws.get_health_snapshot()
+            if hasattr(self._ws, "get_health_snapshot")
+            else {
+                "connected": self._ws.is_connected(),
+                "running": getattr(self._ws, "running", False),
+            }
+        )
+        return {
+            **snapshot,
+            "pairs_subscribed": len(self._buffers),
+            "total_listeners": len(self._readers),
+            "buffer_size": self._buffer_size,
+        }
+
     @property
     def stats(self) -> Dict[str, Any]:
         """Runtime diagnostics (not on hot path)."""
