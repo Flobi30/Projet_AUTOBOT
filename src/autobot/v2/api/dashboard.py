@@ -531,6 +531,19 @@ def _get_strategy_trade_reconciliation_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_pnl_causality_audit_engine(orchestrator: Any) -> Any:
+    from ..pnl_causality_audit import PnlCausalityAuditEngine
+
+    engine = getattr(orchestrator, "pnl_causality_audit_engine", None)
+    if engine is None:
+        engine = PnlCausalityAuditEngine()
+        try:
+            setattr(orchestrator, "pnl_causality_audit_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: bool) -> dict[str, Any]:
     engine = _get_pair_strategy_health_engine(orchestrator)
     try:
@@ -592,6 +605,18 @@ def _strategy_trade_reconciliation_snapshot(
         shadow_db_paths=_strategy_shadow_db_paths(orchestrator),
     )
     return snapshot
+
+
+def _pnl_causality_audit_snapshot(
+    orchestrator: Any,
+    *,
+    state_db_path: Any,
+    paper_mode: bool,
+) -> Dict[str, Any]:
+    return _get_pnl_causality_audit_engine(orchestrator).build_snapshot(
+        state_db_path=state_db_path,
+        paper_mode=paper_mode,
+    )
 
 
 def _strategy_reconciliation_attention(reconciliation: Dict[str, Any], limit: int = 5) -> List[Dict[str, Any]]:
@@ -2004,6 +2029,39 @@ async def get_strategy_trade_reconciliation(
         return snapshot
     except Exception:
         logger.exception("Erreur recuperation strategy trade reconciliation")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/pnl-causality")
+async def get_pnl_causality_audit(
+    request: Request,
+    authorized: bool = Depends(verify_token)
+):
+    """Explain realized paper PnL causes from ledger and entry decisions."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances = orchestrator.get_instances_snapshot()
+        capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
+        persistence = getattr(orchestrator, "persistence", None)
+        state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
+        snapshot = _pnl_causality_audit_snapshot(
+            orchestrator,
+            state_db_path=state_db_path,
+            paper_mode=paper_mode,
+        )
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        return snapshot
+    except Exception:
+        logger.exception("Erreur recuperation pnl causality audit")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
