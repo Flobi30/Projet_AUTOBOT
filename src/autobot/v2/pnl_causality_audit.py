@@ -476,10 +476,16 @@ class PnlCausalityAuditEngine:
             causes.append("fees_erased_positive_move")
         if close_pnl < 0.0 and gross_return_bps < 0.0:
             causes.append("adverse_price_move")
-        if str(row.get("open_liquidity") or "").lower() in {"taker", "market", "unknown"}:
-            causes.append("entry_not_confirmed_maker")
-        if str(row.get("close_liquidity") or "").lower() in {"taker", "market", "unknown"}:
+        open_liquidity = str(row.get("open_liquidity") or "").strip().lower()
+        close_liquidity = str(row.get("close_liquidity") or "").strip().lower()
+        if open_liquidity in {"taker", "market"}:
+            causes.append("entry_taker_or_market")
+        elif open_liquidity in {"", "unknown"}:
+            causes.append("entry_liquidity_untracked")
+        if close_liquidity in {"taker", "market"}:
             causes.append("exit_market_or_taker")
+        elif close_liquidity in {"", "unknown"}:
+            causes.append("exit_liquidity_untracked")
         if str(regime.get("regime") or "") in {"low_activity", "chaos"}:
             causes.append(f"regime_{regime.get('regime')}")
         if str(health.get("status") or "") in {"underperforming", "blocked"}:
