@@ -343,8 +343,13 @@ class PaperTradingExecutor:
                 error=f"Volume {volume:.6f} inférieur au minimum ({MIN_VOLUME})",
             )
         
-        # Récupère le prix actuel du WebSocket
-        price, price_source = await self._resolve_market_price(symbol, price_hint=price_hint)
+        # MARKET paper fills use the live book when available, then fall back to trusted tick/signal prices.
+        book_price, book_source, book_snapshot = self._market_execution_price_from_book(symbol, side)
+        if book_price is not None:
+            price = book_price
+            price_source = book_source
+        else:
+            price, price_source = await self._resolve_market_price(symbol, price_hint=price_hint)
         if price is None:
             logger.warning(
                 "[PAPER] Ordre refuse pour %s: prix indisponible (websocket absent, signal sans prix fiable)",
@@ -360,6 +365,7 @@ class PaperTradingExecutor:
                     "symbol": symbol,
                     "price_source": "unavailable",
                     "price_hint": price_hint,
+                    "microstructure": book_snapshot,
                 },
             )
         
@@ -402,7 +408,7 @@ class PaperTradingExecutor:
             executed_price=price,
             fees=fees,
             liquidity=liquidity,
-            raw_response={**trade.to_dict(), "price_source": price_source},
+            raw_response={**trade.to_dict(), "price_source": price_source, "microstructure": book_snapshot},
         )
 
     async def execute_limit_order(
@@ -623,6 +629,33 @@ class PaperTradingExecutor:
             if isinstance(snapshot, dict):
                 return dict(snapshot)
         return {"symbol": self._normalize_symbol(symbol), "has_book": False, "reason": "snapshot_unavailable"}
+
+    def _market_execution_price_from_book(
+        self,
+        symbol: str,
+        side: OrderSide,
+    ) -> tuple[Optional[float], str, dict[str, Any]]:
+        """Resolve a paper MARKET fill from best bid/ask when a valid book is available."""
+        snapshot = self._get_microstructure_snapshot(symbol)
+        snapshot["symbol"] = snapshot.get("symbol") or self._normalize_symbol(symbol)
+        if not snapshot.get("has_book"):
+            return None, "book_unavailable", snapshot
+
+        try:
+            bid = float(snapshot.get("bid") or 0.0)
+            ask = float(snapshot.get("ask") or 0.0)
+        except (TypeError, ValueError):
+            return None, "book_invalid", snapshot
+
+        if bid <= 0.0 or ask <= 0.0 or bid >= ask:
+            return None, "book_invalid", snapshot
+
+        side_value = side.value if isinstance(side, OrderSide) else str(side)
+        if side_value == "buy":
+            return ask, "book_ask", snapshot
+        if side_value == "sell":
+            return bid, "book_bid", snapshot
+        return None, "book_side_unknown", snapshot
 
     def _paper_limit_fill_decision(
         self,

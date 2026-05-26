@@ -93,6 +93,83 @@ async def test_paper_market_order_prefers_signal_price_hint(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_paper_market_buy_executes_at_book_ask_when_available(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    executor.set_microstructure_provider(
+        lambda _symbol: {
+            "has_book": True,
+            "bid": 99.90,
+            "ask": 100.10,
+            "spread_bps": 20.0,
+        }
+    )
+
+    async def no_live_price(_symbol: str):
+        raise AssertionError("websocket fallback should not be used when book is valid")
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order("XXBTZEUR", OrderSide.BUY, 1.0, userref=4321, price_hint=100.0)
+
+    assert result.success is True
+    assert result.executed_price == pytest.approx(100.10)
+    assert result.fees == pytest.approx(100.10 * executor.taker_fee_rate)
+    assert result.raw_response["price_source"] == "book_ask"
+    assert result.raw_response["microstructure"]["has_book"] is True
+
+
+@pytest.mark.asyncio
+async def test_paper_market_sell_executes_at_book_bid_when_available(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    executor.set_microstructure_provider(
+        lambda _symbol: {
+            "has_book": True,
+            "bid": 99.90,
+            "ask": 100.10,
+            "spread_bps": 20.0,
+        }
+    )
+
+    async def no_live_price(_symbol: str):
+        raise AssertionError("websocket fallback should not be used when book is valid")
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order("XXBTZEUR", OrderSide.SELL, 1.0, userref=4322, price_hint=100.0)
+
+    assert result.success is True
+    assert result.executed_price == pytest.approx(99.90)
+    assert result.fees == pytest.approx(99.90 * executor.taker_fee_rate)
+    assert result.raw_response["price_source"] == "book_bid"
+    assert result.raw_response["microstructure"]["has_book"] is True
+
+
+@pytest.mark.asyncio
+async def test_paper_market_order_falls_back_to_signal_price_when_book_invalid(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    executor.set_microstructure_provider(
+        lambda _symbol: {
+            "has_book": True,
+            "bid": 100.10,
+            "ask": 100.00,
+            "spread_bps": -10.0,
+        }
+    )
+
+    async def no_live_price(_symbol: str):
+        return None
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order("XXBTZEUR", OrderSide.BUY, 1.0, userref=4323, price_hint=100.0)
+
+    assert result.success is True
+    assert result.executed_price == pytest.approx(100.0)
+    assert result.raw_response["price_source"] == "signal"
+    assert result.raw_response["microstructure"]["has_book"] is True
+
+
+@pytest.mark.asyncio
 async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
