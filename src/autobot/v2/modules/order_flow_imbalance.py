@@ -150,7 +150,16 @@ class OrderFlowImbalance:
         bid = float(bids[0][0]) if bids else 0.0
         ask = float(asks[0][0]) if asks else 0.0
         if bid <= 0.0 or ask <= 0.0 or bid >= ask:
-            return MicrostructureSnapshot(symbol=key, has_book=False, reason="invalid_book")
+            mid = (bid + ask) / 2.0 if bid > 0.0 and ask > 0.0 else 0.0
+            return MicrostructureSnapshot(
+                symbol=key,
+                has_book=False,
+                bid=bid,
+                ask=ask,
+                mid=mid,
+                age_ms=max(0.0, (time.time() - self._updated_at.get(key, time.time())) * 1000.0),
+                reason="invalid_book",
+            )
 
         mid = (bid + ask) / 2.0
         spread_bps = ((ask - bid) / mid) * 10000.0
@@ -194,12 +203,22 @@ class OrderFlowImbalance:
         )
 
     def is_unbalanced_against(self, pair: str, side: str) -> bool:
+        snapshot = self.get_snapshot(pair)
+        if not snapshot.has_book:
+            return False
         score = self.get_ofi_score(pair)
         if side == "buy" and score < -0.6:
             return True
         if side == "sell" and score > 0.6:
             return True
         return False
+
+    def get_quality_snapshot(self, pair: str) -> dict[str, Any]:
+        """Return book diagnostics without implying tradability."""
+        snapshot = self.get_snapshot(pair).to_dict()
+        history = self._ofi_history.get(_normalize_pair(pair), [])
+        snapshot["ofi_samples"] = len(history)
+        return snapshot
 
     @staticmethod
     def _clean_side(rows: List[Any]) -> Dict[float, float]:

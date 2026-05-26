@@ -414,6 +414,19 @@ def _get_regime_feature_engine(orchestrator: Any) -> Any:
     return engine
 
 
+def _get_market_data_quality_engine(orchestrator: Any) -> Any:
+    from ..market_data_quality import MarketDataQualityEngine
+
+    engine = getattr(orchestrator, "market_data_quality_engine", None)
+    if engine is None:
+        engine = MarketDataQualityEngine()
+        try:
+            setattr(orchestrator, "market_data_quality_engine", engine)
+        except Exception:
+            pass
+    return engine
+
+
 def _get_quant_validation_engine(orchestrator: Any) -> Any:
     from ..quant_validation import QuantValidationEngine
 
@@ -4279,6 +4292,32 @@ async def acknowledge_kill_switch(
     }
 
 
+@app.get("/api/market-data/quality")
+async def get_market_data_quality(
+    request: Request,
+    authorized: bool = Depends(verify_token),
+):
+    """Explain whether ticker and order-book data are usable per symbol."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        instances_data = orchestrator.get_instances_snapshot()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        return _get_market_data_quality_engine(orchestrator).build_snapshot(
+            orchestrator=orchestrator,
+            instances=instances_data,
+            paper_mode=paper_mode,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur qualite donnees marche")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/trading/debug")
 async def get_trading_debug(
     request: Request,
@@ -4294,6 +4333,11 @@ async def get_trading_debug(
         status = orchestrator.get_status()
         instances_data = orchestrator.get_instances_snapshot()
         paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        market_data_quality = _get_market_data_quality_engine(orchestrator).build_snapshot(
+            orchestrator=orchestrator,
+            instances=instances_data,
+            paper_mode=paper_mode,
+        )
         regime_snapshot = _get_regime_feature_engine(orchestrator).build_snapshot(
             instances=instances_data,
             paper_mode=paper_mode,
@@ -4362,6 +4406,7 @@ async def get_trading_debug(
                 "kill_switch": kill_switch,
             },
             "websocket": _websocket_health_snapshot(orchestrator),
+            "market_data_quality": market_data_quality,
             "overall": {
                 "status": debug["status"],
                 "reason": debug["reason"],

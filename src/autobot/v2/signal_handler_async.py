@@ -119,6 +119,11 @@ class SignalHandlerAsync:
             "MICROSTRUCTURE_GUARD_ENABLED",
             True,
         )
+        self._microstructure_require_book = self._load_bool(
+            "microstructure_require_book",
+            "MICROSTRUCTURE_REQUIRE_BOOK",
+            True,
+        )
         self._microstructure_max_adverse_risk = self._load_float_in_range(
             "microstructure_max_adverse_risk",
             "MICROSTRUCTURE_MAX_ADVERSE_RISK",
@@ -2224,9 +2229,17 @@ class SignalHandlerAsync:
             rejection_reasons.append(
                 f"signal_latency_ms={latency_ms:.1f} > max_signal_latency_ms={self._max_signal_latency_ms:.1f}"
             )
+        if (
+            self._microstructure_guard_enabled
+            and self._microstructure_require_book
+            and not micro.get("has_book")
+        ):
+            rejection_reasons.append(
+                f"microstructure_book_unavailable:{micro.get('reason', 'unknown')}"
+            )
         # P1: Order Flow Imbalance (OFI) Filter
         try:
-            if hasattr(self.instance, "orchestrator") and hasattr(self.instance.orchestrator, "ofi"):
+            if micro.get("has_book") and hasattr(self.instance, "orchestrator") and hasattr(self.instance.orchestrator, "ofi"):
                 ofi = self.instance.orchestrator.ofi
                 if ofi:
                     side = "buy" if signal.type == SignalType.BUY else "sell"
@@ -2281,6 +2294,7 @@ class SignalHandlerAsync:
                 "max_adverse_selection_risk": self._microstructure_max_adverse_risk,
                 "min_depth_eur": self._microstructure_min_depth_eur,
                 "max_book_age_ms": self._microstructure_max_book_age_ms,
+                "require_book": self._microstructure_require_book,
             },
         }
         if market_metrics is not None:

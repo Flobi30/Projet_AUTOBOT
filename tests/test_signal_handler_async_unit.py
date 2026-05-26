@@ -664,6 +664,36 @@ def test_build_execution_plan_prefers_post_only_in_paper_when_edge_buffer_is_hea
     assert plan["price"] == pytest.approx(99.98)
 
 
+def test_microstructure_filter_requires_valid_book_before_ofi_block():
+    class _FakeOfi:
+        def get_snapshot(self, _symbol):
+            return {"has_book": False, "reason": "invalid_book", "bid": 100.1, "ask": 99.9}
+
+        def is_unbalanced_against(self, _symbol, _side):
+            return True
+
+        def get_ofi_score(self, _symbol):
+            return -1.0
+
+    instance = _Instance()
+    instance.orchestrator = SimpleNamespace(ofi=_FakeOfi())
+    handler = SignalHandlerAsync(instance=instance, order_executor=None)
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="XXBTZEUR",
+        price=100.0,
+        volume=0.5,
+        reason="unit invalid book",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"spread_bps": 5.0, "expected_slippage_bps": 4.0},
+    )
+
+    assert handler._passes_microstructure_hard_filter(signal) is False
+    reasons = handler._last_microstructure_reject_context["rejection_reasons"]
+    assert "microstructure_book_unavailable:invalid_book" in reasons
+    assert not any(str(reason).startswith("OFI_BLOCK") for reason in reasons)
+
+
 def test_paper_maker_rejections_are_local_validation_not_api_failures():
     assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_book_unavailable") is True
     assert SignalHandlerAsync._is_local_order_validation_error("paper_maker_adverse_selection") is True

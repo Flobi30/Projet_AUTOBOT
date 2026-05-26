@@ -57,3 +57,24 @@ def test_microstructure_unknown_without_book_has_neutral_score():
     assert snapshot["has_book"] is False
     assert snapshot["reason"] == "book_unavailable"
     assert snapshot["adverse_selection_risk"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_invalid_book_does_not_create_ofi_block():
+    ofi = OrderFlowImbalance(depth=2)
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "as": [["100.00", "2.0"]],
+            "bs": [["100.10", "2.0"]],
+        },
+    )
+    await ofi.on_book_update("XBT/EUR", {"a": [["99.95", "4.0"]]})
+
+    snapshot = ofi.get_snapshot("XXBTZEUR").to_dict()
+
+    assert snapshot["has_book"] is False
+    assert snapshot["reason"] == "invalid_book"
+    assert snapshot["bid"] == pytest.approx(100.10)
+    assert snapshot["ask"] == pytest.approx(99.95)
+    assert ofi.is_unbalanced_against("XXBTZEUR", "buy") is False
