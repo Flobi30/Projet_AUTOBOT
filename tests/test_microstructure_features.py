@@ -132,3 +132,27 @@ async def test_update_only_messages_are_ignored_until_snapshot_after_reset():
     recovered = ofi.get_quality_snapshot("XXBTZEUR")
     assert recovered["reason"] == "ok"
     assert recovered["has_book"] is True
+
+
+@pytest.mark.asyncio
+async def test_book_is_kept_to_requested_depth_after_updates():
+    ofi = OrderFlowImbalance(depth=2)
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "as": [["100.10", "1.0"], ["100.20", "1.0"]],
+            "bs": [["100.00", "1.0"], ["99.90", "1.0"]],
+        },
+    )
+
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "a": [["100.30", "5.0"], ["100.40", "5.0"]],
+            "b": [["99.80", "5.0"], ["99.70", "5.0"]],
+        },
+    )
+
+    book = ofi._books["XXBTZEUR"]
+    assert list(book["asks"]) == [100.10, 100.20]
+    assert list(book["bids"]) == [100.00, 99.90]

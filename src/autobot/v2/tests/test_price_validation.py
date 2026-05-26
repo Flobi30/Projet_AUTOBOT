@@ -212,6 +212,9 @@ class TestProcessTickerValidation:
         ws = KrakenWebSocketAsync.__new__(KrakenWebSocketAsync)
         ws._last_prices = {}
         ws._ticker_callbacks = {}
+        ws._book_callbacks = {}
+        ws._subscribed_pairs = set()
+        ws._book_subscribed_pairs = set()
         ws._running = True
         ws._ws = object()
         ws._last_message_time = 0.0
@@ -330,3 +333,46 @@ class TestProcessTickerValidation:
         assert snapshot["msg_rate_per_sec"] == pytest.approx(84.2)
         assert snapshot["backpressure_active"] is True
         assert snapshot["consecutive_backpressure_windows"] == 3
+
+    @pytest.mark.asyncio
+    async def test_book_message_with_split_ask_bid_payloads_dispatches_both(self):
+        import orjson
+
+        ws = self._make_ws()
+        received = []
+
+        async def cb(pair, data):
+            received.append((pair, data))
+
+        ws._book_callbacks["XBT/EUR"] = [cb]
+        await ws._on_message(orjson.dumps([
+            123,
+            {"a": [["100.10", "1.0", "1234567890.1"]]},
+            {"b": [["100.00", "2.0", "1234567890.1"]]},
+            "book-10",
+            "XBT/EUR",
+        ]))
+
+        assert received == [
+            ("XBT/EUR", {"a": [["100.10", "1.0", "1234567890.1"]]}),
+            ("XBT/EUR", {"b": [["100.00", "2.0", "1234567890.1"]]}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_book_snapshot_still_dispatches_single_payload(self):
+        import orjson
+
+        ws = self._make_ws()
+        received = []
+
+        async def cb(pair, data):
+            received.append((pair, data))
+
+        payload = {
+            "as": [["100.10", "1.0", "1234567890.1"]],
+            "bs": [["100.00", "2.0", "1234567890.1"]],
+        }
+        ws._book_callbacks["XBT/EUR"] = [cb]
+        await ws._on_message(orjson.dumps([123, payload, "book-10", "XBT/EUR"]))
+
+        assert received == [("XBT/EUR", payload)]

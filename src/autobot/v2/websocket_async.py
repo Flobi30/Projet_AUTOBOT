@@ -230,14 +230,29 @@ class KrakenWebSocketAsync:
 
         # Channel data
         if isinstance(data, list) and len(data) >= 4:
-            channel_data = data[1]
-            channel_name = data[2]
-            pair = data[3]
+            channel_index = None
+            for index in range(len(data) - 2, 1, -1):
+                item = data[index]
+                if isinstance(item, str) and ("ticker" in item or "book" in item):
+                    channel_index = index
+                    break
+            if channel_index is None:
+                return
+
+            channel_name = data[channel_index]
+            pair = data[channel_index + 1] if len(data) > channel_index + 1 else None
+            if not isinstance(pair, str):
+                return
+
+            payloads = [item for item in data[1:channel_index] if isinstance(item, dict)]
+            if not payloads:
+                return
 
             if "ticker" in channel_name:
-                await self._process_ticker(pair, channel_data)
+                await self._process_ticker(pair, payloads[0])
             elif "book" in channel_name:
-                await self._process_book(pair, channel_data)
+                for channel_data in payloads:
+                    await self._process_book(pair, channel_data)
             else:
                 logger.debug(f"📨 WS channel non géré: {channel_name} pair={pair}")
 

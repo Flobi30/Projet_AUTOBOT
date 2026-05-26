@@ -82,6 +82,7 @@ class OrderFlowImbalance:
             book["asks"] = self._clean_side(data["as"])
         if "bs" in data:
             book["bids"] = self._clean_side(data["bs"])
+            self._trim_book(book)
             if book["bids"] and book["asks"]:
                 self._awaiting_snapshot.discard(key)
             return
@@ -100,6 +101,7 @@ class OrderFlowImbalance:
                     book["asks"].pop(price, None)
                 else:
                     book["asks"][price] = volume
+            self._trim_book(book)
 
             new_best_ask = min(book["asks"].keys()) if book["asks"] else None
             new_best_ask_vol = book["asks"].get(new_best_ask, 0.0) if new_best_ask else 0.0
@@ -124,6 +126,7 @@ class OrderFlowImbalance:
                     book["bids"].pop(price, None)
                 else:
                     book["bids"][price] = volume
+            self._trim_book(book)
 
             new_best_bid = max(book["bids"].keys()) if book["bids"] else None
             new_best_bid_vol = book["bids"].get(new_best_bid, 0.0) if new_best_bid else 0.0
@@ -278,6 +281,10 @@ class OrderFlowImbalance:
     def _mark_invalid(self, key: str) -> None:
         self._invalid_counts[key] = self._invalid_counts.get(key, 0) + 1
         self._last_invalid_at[key] = time.time()
+
+    def _trim_book(self, book: Dict[str, Dict[float, float]]) -> None:
+        book["asks"] = dict(sorted(book["asks"].items(), key=lambda item: item[0])[: self._depth])
+        book["bids"] = dict(sorted(book["bids"].items(), key=lambda item: item[0], reverse=True)[: self._depth])
 
     @staticmethod
     def _clean_side(rows: List[Any]) -> Dict[float, float]:
