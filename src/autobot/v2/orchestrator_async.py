@@ -451,19 +451,19 @@ class OrchestratorAsync:
         self._order_book_recovery_enabled = _env_bool("ORDER_BOOK_RECOVERY_ENABLED", True)
         self._order_book_recovery_interval_s = max(
             5.0,
-            _env_float("ORDER_BOOK_RECOVERY_INTERVAL_S", 20.0, minimum=1.0),
+            _env_float("ORDER_BOOK_RECOVERY_INTERVAL_S", 30.0, minimum=1.0),
         )
         self._order_book_recovery_cooldown_s = max(
             5.0,
-            _env_float("ORDER_BOOK_RECOVERY_COOLDOWN_S", 30.0, minimum=1.0),
+            _env_float("ORDER_BOOK_RECOVERY_COOLDOWN_S", 120.0, minimum=1.0),
         )
         self._order_book_recovery_min_invalid_count = max(
             1,
-            _env_int("ORDER_BOOK_RECOVERY_MIN_INVALID_COUNT", 1, minimum=1),
+            _env_int("ORDER_BOOK_RECOVERY_MIN_INVALID_COUNT", 3, minimum=1),
         )
         self._order_book_recovery_max_per_cycle = max(
             1,
-            _env_int("ORDER_BOOK_RECOVERY_MAX_PER_CYCLE", 4, minimum=1),
+            _env_int("ORDER_BOOK_RECOVERY_MAX_PER_CYCLE", 2, minimum=1),
         )
         self._order_book_recovery_last_attempt: Dict[str, float] = {}
         self._order_book_recovery_stats: Dict[str, Any] = {
