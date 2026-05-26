@@ -298,6 +298,16 @@ class SignalHandlerAsync:
         return event
 
     @staticmethod
+    def _ensure_signal_trace_id(signal: TradingSignal) -> tuple[dict[str, Any], str]:
+        metadata = getattr(signal, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            signal.metadata = metadata
+        signal_id = str(metadata.get("signal_id") or f"sig_{uuid.uuid4().hex}")
+        metadata["signal_id"] = signal_id
+        return metadata, signal_id
+
+    @staticmethod
     def _runtime_event_type(attr_name: str) -> str:
         return (
             str(attr_name or "")
@@ -756,7 +766,7 @@ class SignalHandlerAsync:
 
     async def _on_signal(self, signal: TradingSignal) -> None:
         """Async signal handler."""
-        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        signal_metadata, signal_id = self._ensure_signal_trace_id(signal)
         execution_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy")
         execution_source = signal_metadata.get("execution_source") or "strategy_signal"
         if self._kill_switch.tripped or self._kill_switch.is_globally_tripped():
@@ -767,6 +777,7 @@ class SignalHandlerAsync:
                 symbol=signal.symbol,
                 side=signal.type.value,
                 price=float(signal.price),
+                signal_id=signal_id,
                 execution_engine=execution_engine,
                 source=execution_source,
             )
@@ -781,6 +792,7 @@ class SignalHandlerAsync:
             price=float(signal.price),
             volume=float(signal.volume),
             reason=getattr(signal, "reason", None),
+            signal_id=signal_id,
             execution_engine=execution_engine,
             source=execution_source,
             signal_metadata=self._audit_safe_value(signal_metadata),
@@ -796,6 +808,7 @@ class SignalHandlerAsync:
                     symbol=signal.symbol,
                     side=signal.type.value,
                     elapsed_seconds=round(elapsed, 3),
+                    signal_id=signal_id,
                     execution_engine=execution_engine,
                     source=execution_source,
                 )
@@ -813,6 +826,7 @@ class SignalHandlerAsync:
                         symbol=signal.symbol,
                         side=signal.type.value,
                         details=details if isinstance(details, dict) else None,
+                        signal_id=signal_id,
                         execution_engine=execution_engine,
                         source=execution_source,
                     )
@@ -828,6 +842,7 @@ class SignalHandlerAsync:
                 symbol=signal.symbol,
                 side=signal.type.value,
                 error=str(exc)[:240],
+                signal_id=signal_id,
                 execution_engine=execution_engine,
                 source=execution_source,
             )
@@ -961,11 +976,11 @@ class SignalHandlerAsync:
         return await self.order_executor.execute_market_order(symbol, side, volume, **kwargs)
 
     async def _execute_buy(self, signal: TradingSignal) -> None:
-        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        signal_metadata, signal_id = self._ensure_signal_trace_id(signal)
         signal_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy") or "dynamic_grid"
         signal_source = signal_metadata.get("execution_source") or "strategy_signal"
-        decision_id = f"dec_{uuid.uuid4().hex}"
-        signal_id = f"sig_{uuid.uuid4().hex}"
+        decision_id = str(signal_metadata.get("decision_id") or f"dec_{uuid.uuid4().hex}")
+        signal_metadata["decision_id"] = decision_id
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
         if await self._maybe_await(self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy")):
             self._record_runtime_event(
@@ -1005,6 +1020,10 @@ class SignalHandlerAsync:
                 reason="open_position_validator",
                 symbol=signal.symbol,
                 message=validation.message,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.error(f"❌ Signal BUY rejeté: {validation.message}")
             return
@@ -1015,6 +1034,10 @@ class SignalHandlerAsync:
                 event="buy_rejected",
                 reason="order_executor_missing",
                 symbol=signal.symbol,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.error("❌ OrderExecutor non configuré")
             return
@@ -1038,6 +1061,10 @@ class SignalHandlerAsync:
                 side="buy",
                 available_capital=float(available),
                 order_value=float(order_value),
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             return
 
@@ -1073,6 +1100,10 @@ class SignalHandlerAsync:
                 signal_reason=getattr(signal, "reason", None),
                 risk_params=self._serialize_risk_params(risk_params),
                 edge_context=cost_details,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.info("⛔ Signal BUY ignoré: edge net insuffisant vs coûts")
             return
@@ -1148,6 +1179,10 @@ class SignalHandlerAsync:
                     opportunity=opportunity_payload,
                     opportunity_gate=opportunity_gate,
                     paper_budget_top_up=paper_budget_top_up,
+                    decision_id=decision_id,
+                    signal_id=signal_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
                 )
                 logger.info(
                     "⛔ Signal BUY ignoré: %s (%s, score %.1f)",
@@ -1167,6 +1202,10 @@ class SignalHandlerAsync:
                     side="buy",
                     opportunity=opportunity_payload,
                     opportunity_gate=opportunity_gate,
+                    decision_id=decision_id,
+                    signal_id=signal_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
                 )
                 return
             if self._paper_opportunity_upsizing_enabled():
@@ -1210,6 +1249,10 @@ class SignalHandlerAsync:
                 cost_bps=round(float(edge_ctx.get("total_cost_bps", 0.0)), 3),
                 opportunity=opportunity_payload,
                 concentration_guard=concentration_details,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
             )
             logger.info(
                 "Signal BUY ignored: official paper concentration guard %s (%s/%s BUY over %d min)",
@@ -1232,6 +1275,8 @@ class SignalHandlerAsync:
             ),
             signal_reason=getattr(signal, "reason", None),
             opportunity=opportunity_payload,
+            decision_id=decision_id,
+            signal_id=signal_id,
         )
         if normalized_volume is None:
             return
@@ -1484,7 +1529,7 @@ class SignalHandlerAsync:
             await self._post_trade_reconcile()
 
     async def _execute_sell(self, signal: TradingSignal) -> None:
-        signal_metadata = getattr(signal, "metadata", None) if isinstance(getattr(signal, "metadata", None), dict) else {}
+        signal_metadata, signal_id = self._ensure_signal_trace_id(signal)
         signal_engine = signal_metadata.get("execution_engine") or signal_metadata.get("strategy") or "dynamic_grid"
         signal_source = signal_metadata.get("execution_source") or "strategy_signal"
         logger.info(f"💰 Exécution VENTE {signal.symbol}")
@@ -1495,6 +1540,7 @@ class SignalHandlerAsync:
                 event="sell_rejected",
                 reason="order_executor_missing",
                 symbol=signal.symbol,
+                signal_id=signal_id,
                 execution_engine=signal_engine,
                 source=signal_source,
             )
@@ -1509,6 +1555,7 @@ class SignalHandlerAsync:
                 event="sell_ignored",
                 reason="no_open_position",
                 symbol=signal.symbol,
+                signal_id=signal_id,
                 execution_engine=signal_engine,
                 source=signal_source,
             )
@@ -1531,6 +1578,7 @@ class SignalHandlerAsync:
                 price=float(signal.price),
                 available_capital=0.0,
                 signal_reason=getattr(signal, "reason", None),
+                signal_id=signal_id,
             ):
                 continue
 
@@ -1544,6 +1592,7 @@ class SignalHandlerAsync:
                     symbol=symbol,
                     side="sell",
                     position_id=pos_id,
+                    signal_id=signal_id,
                     execution_engine=signal_engine,
                     source=signal_source,
                 )
@@ -1551,7 +1600,20 @@ class SignalHandlerAsync:
                 continue
 
             decision_id = f"dec_sell_{uuid.uuid4().hex}"
-            signal_id = f"sig_sell_{uuid.uuid4().hex}"
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="sell_accepted",
+                reason="close_signal_selected_position",
+                symbol=symbol,
+                side="sell",
+                position_id=pos_id,
+                volume=float(vol),
+                signal_price=float(signal.price),
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
+            )
             rec = await self._osm.new_order(
                 instance_id=self.instance.id,
                 symbol=symbol,
@@ -1831,6 +1893,8 @@ class SignalHandlerAsync:
         available_capital: float,
         signal_reason: Optional[str] = None,
         opportunity: Optional[dict[str, Any]] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
     ) -> bool:
         min_volume = self._min_order_volume(symbol)
         if min_volume <= 0.0 or volume >= min_volume:
@@ -1852,6 +1916,8 @@ class SignalHandlerAsync:
             signal_price=float(price),
             signal_reason=signal_reason,
             opportunity=opportunity,
+            decision_id=decision_id,
+            signal_id=signal_id,
             blocking_condition="volume < min_order_volume",
         )
         logger.info(
@@ -1873,6 +1939,8 @@ class SignalHandlerAsync:
         max_order_value: float,
         signal_reason: Optional[str] = None,
         opportunity: Optional[dict[str, Any]] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
     ) -> Optional[float]:
         min_volume = self._min_order_volume(symbol)
         if min_volume <= 0.0 or volume >= min_volume:
@@ -1922,6 +1990,8 @@ class SignalHandlerAsync:
                 signal_price=float(price),
                 signal_reason=signal_reason,
                 opportunity=opportunity,
+                decision_id=decision_id,
+                signal_id=signal_id,
             )
             logger.info(
                 "Signal BUY ajuste au minimum executable: %.12f -> %.12f pour %s",
@@ -1939,6 +2009,8 @@ class SignalHandlerAsync:
             available_capital=available_capital,
             signal_reason=signal_reason,
             opportunity=opportunity,
+            decision_id=decision_id,
+            signal_id=signal_id,
         )
         return None
 

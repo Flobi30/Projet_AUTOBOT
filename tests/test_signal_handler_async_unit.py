@@ -701,5 +701,49 @@ def test_paper_maker_rejections_are_local_validation_not_api_failures():
     assert SignalHandlerAsync._is_local_order_validation_error("EAPI:Invalid nonce") is False
 
 
+@pytest.mark.asyncio
+async def test_on_signal_links_signal_and_decision_with_same_signal_id():
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=None)
+    handler._cooldown_seconds = 0
+    handler._kill_switch = SimpleNamespace(tripped=False, is_globally_tripped=lambda: False)
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="XXBTZEUR",
+        price=100.0,
+        volume=0.5,
+        reason="unit trace",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"strategy": "grid"},
+    )
+
+    await handler._on_signal(signal)
+
+    signal_id = signal.metadata["signal_id"]
+    assert handler._last_signal_event["signal_id"] == signal_id
+    assert handler._last_decision_event["signal_id"] == signal_id
+    assert handler._last_decision_event["event"] == "signal_rejected"
+
+
+@pytest.mark.asyncio
+async def test_execute_buy_keeps_existing_trace_ids_on_rejection():
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=None)
+    handler._osm = _OSM()
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="XXBTZEUR",
+        price=100.0,
+        volume=0.5,
+        reason="unit trace",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"strategy": "grid", "signal_id": "sig-known", "decision_id": "dec-known"},
+    )
+
+    await handler._execute_buy(signal)
+
+    assert handler._last_error_event["signal_id"] == "sig-known"
+    assert handler._last_error_event["decision_id"] == "dec-known"
+    assert handler._last_error_event["reason"] == "order_executor_missing"
+
+
 async def _noop_reconcile():
     return None
