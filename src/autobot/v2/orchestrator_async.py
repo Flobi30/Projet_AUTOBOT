@@ -441,6 +441,10 @@ class OrchestratorAsync:
             "STRATEGY_GOVERNANCE_DISABLE_LEGACY_ENSEMBLE",
             True,
         )
+        self._strategy_governance_allow_legacy_direct_entry_live = _env_bool(
+            "STRATEGY_GOVERNANCE_ALLOW_LEGACY_DIRECT_ENTRY_LIVE",
+            False,
+        )
 
         # Validator
         self.validator = ValidatorEngine()
@@ -2234,7 +2238,7 @@ class OrchestratorAsync:
                 action="ENTRY",
                 reason=f"shadow_mirror:{mirror_result.get('engine') or 'candidate'}",
             )
-        legacy_entry_enabled = (not self.paper_mode) or (not self._strategy_governance_disable_legacy_ensemble)
+        legacy_entry_enabled = self._legacy_ensemble_entry_enabled()
         if legacy_entry_enabled:
             legacy_opened = await self.decision.evaluate_signal(inst)
             opened = opened or legacy_opened
@@ -2392,6 +2396,14 @@ class OrchestratorAsync:
         if last_ts is None:
             return True
         return (now - last_ts) >= self.trade_action_min_interval_s
+
+    def _legacy_ensemble_entry_enabled(self) -> bool:
+        """Guard the legacy direct-entry path so official entries go through signal execution."""
+        if self._strategy_governance_disable_legacy_ensemble:
+            return False
+        if not self.paper_mode and not self._strategy_governance_allow_legacy_direct_entry_live:
+            return False
+        return True
 
     def _mark_trade_action(self, instance_id: str) -> None:
         self._last_trade_action_ts[instance_id] = perf_counter()
