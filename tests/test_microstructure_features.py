@@ -103,3 +103,32 @@ async def test_order_book_reset_clears_invalid_state_for_recovery():
     assert after["invalid_count"] == 0
     assert after["reset_count"] == 1
     assert after["last_reset_reason"] == "unit_test"
+
+
+@pytest.mark.asyncio
+async def test_update_only_messages_are_ignored_until_snapshot_after_reset():
+    ofi = OrderFlowImbalance(depth=2)
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "as": [["100.10", "2.0"]],
+            "bs": [["100.00", "2.0"]],
+        },
+    )
+    ofi.reset_book("XXBTZEUR", reason="unit_test")
+
+    await ofi.on_book_update("XBT/EUR", {"a": [["99.95", "4.0"]], "b": [["100.10", "2.0"]]})
+    awaiting = ofi.get_quality_snapshot("XXBTZEUR")
+    assert awaiting["reason"] == "book_unavailable"
+    assert awaiting["invalid_count"] == 0
+
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "as": [["100.10", "2.0"]],
+            "bs": [["100.00", "2.0"]],
+        },
+    )
+    recovered = ofi.get_quality_snapshot("XXBTZEUR")
+    assert recovered["reason"] == "ok"
+    assert recovered["has_book"] is True

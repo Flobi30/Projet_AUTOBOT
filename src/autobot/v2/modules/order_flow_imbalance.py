@@ -63,6 +63,7 @@ class OrderFlowImbalance:
         self._reset_counts: Dict[str, int] = {}
         self._last_reset_at: Dict[str, float] = {}
         self._last_reset_reason: Dict[str, str] = {}
+        self._awaiting_snapshot: set[str] = set()
 
     async def on_book_update(self, pair: str, data: dict) -> None:
         """Kraken book callback. Supports snapshots (`as`/`bs`) and updates (`a`/`b`)."""
@@ -73,11 +74,16 @@ class OrderFlowImbalance:
 
         book = self._books[key]
         self._updated_at[key] = time.time()
+        is_snapshot = "as" in data or "bs" in data
+        if not is_snapshot and (key in self._awaiting_snapshot or not book["bids"] or not book["asks"]):
+            return
 
         if "as" in data:
             book["asks"] = self._clean_side(data["as"])
         if "bs" in data:
             book["bids"] = self._clean_side(data["bs"])
+            if book["bids"] and book["asks"]:
+                self._awaiting_snapshot.discard(key)
             return
 
         ofi_delta = 0.0
@@ -239,6 +245,7 @@ class OrderFlowImbalance:
         """Clear local book state before requesting a fresh exchange snapshot."""
         key = _normalize_pair(pair)
         self._books[key] = {"bids": {}, "asks": {}}
+        self._awaiting_snapshot.add(key)
         self._updated_at.pop(key, None)
         self._ofi_values[key] = 0.0
         self._ofi_history[key] = []
