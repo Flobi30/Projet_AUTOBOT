@@ -475,6 +475,20 @@ async def test_dispatcher_subscribe_book_converts_symbol() -> None:
     dispatcher._ws.subscribe_book.assert_awaited_once_with("TRX/EUR", _book_cb)
 
 
+@pytest.mark.asyncio
+async def test_dispatcher_resubscribe_book_converts_symbol() -> None:
+    """Book recovery refreshes the underlying Kraken WS subscription."""
+    from autobot.v2.ring_buffer_dispatcher import RingBufferDispatcher
+
+    dispatcher = RingBufferDispatcher(buffer_size=16)
+    dispatcher._ws = MagicMock()
+    dispatcher._ws.resubscribe_book = AsyncMock()
+
+    await dispatcher.resubscribe_book("XXBTZEUR")
+
+    dispatcher._ws.resubscribe_book.assert_awaited_once_with("XBT/EUR")
+
+
 # ---------------------------------------------------------------------------
 # Performance benchmarks
 # ---------------------------------------------------------------------------

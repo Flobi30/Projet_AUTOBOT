@@ -182,6 +182,26 @@ def _env_bool(name: str, default: bool) -> bool:
     return value in ("1", "true", "yes", "on")
 
 
+def _env_float(name: str, default: float, minimum: float | None = None) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
+def _env_int(name: str, default: int, minimum: int | None = None) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
 def _apply_force_enable_all_hardening_flags(hardening_flags: Dict[str, bool]) -> None:
     if _env_bool("AUTOBOT_FORCE_ENABLE_ALL", False):
         for flag in (
@@ -428,6 +448,31 @@ class OrchestratorAsync:
         # Performance Ultra (Task #35 & #37)
         SystemOptimizer.optimize_for_hetzner()
         self.ofi = OrderFlowImbalance()
+        self._order_book_recovery_enabled = _env_bool("ORDER_BOOK_RECOVERY_ENABLED", True)
+        self._order_book_recovery_interval_s = max(
+            5.0,
+            _env_float("ORDER_BOOK_RECOVERY_INTERVAL_S", 20.0, minimum=1.0),
+        )
+        self._order_book_recovery_cooldown_s = max(
+            5.0,
+            _env_float("ORDER_BOOK_RECOVERY_COOLDOWN_S", 30.0, minimum=1.0),
+        )
+        self._order_book_recovery_min_invalid_count = max(
+            1,
+            _env_int("ORDER_BOOK_RECOVERY_MIN_INVALID_COUNT", 1, minimum=1),
+        )
+        self._order_book_recovery_max_per_cycle = max(
+            1,
+            _env_int("ORDER_BOOK_RECOVERY_MAX_PER_CYCLE", 4, minimum=1),
+        )
+        self._order_book_recovery_last_attempt: Dict[str, float] = {}
+        self._order_book_recovery_stats: Dict[str, Any] = {
+            "enabled": self._order_book_recovery_enabled,
+            "attempts": 0,
+            "successes": 0,
+            "failures": 0,
+            "last_actions": [],
+        }
         set_micro_provider = getattr(self.order_executor, "set_microstructure_provider", None)
         if callable(set_micro_provider):
             set_micro_provider(self.ofi.get_snapshot)
@@ -3467,6 +3512,12 @@ class OrchestratorAsync:
             interval=60.0,
             name="leverage-downgrade",
         )
+        if self._order_book_recovery_enabled:
+            self.cold_scheduler.schedule_periodic(
+                self._recover_invalid_order_books,
+                interval=self._order_book_recovery_interval_s,
+                name="order-book-recovery",
+            )
 
         # Connect WS via ring dispatcher (P2). Kraken can occasionally return
         # transient 5xx responses during the opening handshake; retry startup
@@ -3569,6 +3620,87 @@ class OrchestratorAsync:
                 delay_s = min(delay_s * 1.7, 45.0)
 
         raise last_error if last_error else RuntimeError("Connexion WebSocket impossible")
+
+    async def _recover_invalid_order_books(self) -> Dict[str, Any]:
+        """Cold-path recovery for crossed or otherwise invalid local books."""
+        if not self._order_book_recovery_enabled:
+            return dict(self._order_book_recovery_stats)
+        if not getattr(self, "running", False):
+            return dict(self._order_book_recovery_stats)
+        if not self.ws_client.is_connected():
+            self._order_book_recovery_stats.update({
+                "last_status": "skipped_websocket_disconnected",
+                "last_checked_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return dict(self._order_book_recovery_stats)
+
+        resubscribe = getattr(self.ring_dispatcher, "resubscribe_book", None)
+        reset_book = getattr(self.ofi, "reset_book", None)
+        quality = getattr(self.ofi, "get_quality_snapshot", None)
+        if not callable(resubscribe) or not callable(reset_book) or not callable(quality):
+            self._order_book_recovery_stats.update({
+                "last_status": "unavailable",
+                "last_checked_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return dict(self._order_book_recovery_stats)
+
+        symbols = sorted({
+            str(getattr(inst.config, "symbol", "") or "").upper()
+            for inst in list(self._instances.values())
+            if getattr(getattr(inst, "config", None), "symbol", None)
+        })
+        now = perf_counter()
+        actions: List[Dict[str, Any]] = []
+
+        for symbol in symbols:
+            snapshot = quality(symbol)
+            if str(snapshot.get("reason")) != "invalid_book":
+                continue
+            if int(snapshot.get("invalid_count") or 0) < self._order_book_recovery_min_invalid_count:
+                continue
+            last_attempt = self._order_book_recovery_last_attempt.get(symbol, 0.0)
+            if now - last_attempt < self._order_book_recovery_cooldown_s:
+                continue
+
+            self._order_book_recovery_last_attempt[symbol] = now
+            reset_info = reset_book(symbol, reason="invalid_book_resubscribe")
+            action = {
+                "symbol": symbol,
+                "reason": "invalid_book",
+                "reset_count": reset_info.get("reset_count") if isinstance(reset_info, dict) else None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            self._order_book_recovery_stats["attempts"] = int(self._order_book_recovery_stats.get("attempts", 0)) + 1
+            try:
+                await resubscribe(symbol)
+                action["status"] = "resubscribed"
+                self._order_book_recovery_stats["successes"] = int(self._order_book_recovery_stats.get("successes", 0)) + 1
+                logger.info("Order-book recovery resubscribed %s after invalid book", symbol)
+            except Exception as exc:
+                action["status"] = "error"
+                action["error"] = str(exc)[:240]
+                self._order_book_recovery_stats["failures"] = int(self._order_book_recovery_stats.get("failures", 0)) + 1
+                logger.warning("Order-book recovery failed for %s: %s", symbol, exc)
+
+            actions.append(action)
+            if len(actions) >= self._order_book_recovery_max_per_cycle:
+                break
+
+        if actions:
+            previous = list(self._order_book_recovery_stats.get("last_actions", []))
+            self._order_book_recovery_stats["last_actions"] = (actions + previous)[:20]
+            self._order_book_recovery_stats["last_status"] = "actions_taken"
+        else:
+            self._order_book_recovery_stats["last_status"] = "no_invalid_books_ready"
+        self._order_book_recovery_stats.update({
+            "enabled": self._order_book_recovery_enabled,
+            "last_checked_at": datetime.now(timezone.utc).isoformat(),
+            "interval_s": self._order_book_recovery_interval_s,
+            "cooldown_s": self._order_book_recovery_cooldown_s,
+            "min_invalid_count": self._order_book_recovery_min_invalid_count,
+            "max_per_cycle": self._order_book_recovery_max_per_cycle,
+        })
+        return dict(self._order_book_recovery_stats)
 
     def _check_leverage_all_instances(self) -> None:
         """

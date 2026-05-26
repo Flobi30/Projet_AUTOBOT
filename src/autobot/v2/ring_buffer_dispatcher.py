@@ -253,6 +253,15 @@ class RingBufferDispatcher:
         ws_pair = _convert_to_ws_pair(pair)
         await self._ws.unsubscribe_book(ws_pair, callback)
 
+    async def resubscribe_book(self, pair: str) -> None:
+        """Refresh a Kraken order-book subscription for a REST symbol."""
+        ws_pair = _convert_to_ws_pair(pair)
+        resubscribe = getattr(self._ws, "resubscribe_book", None)
+        if callable(resubscribe):
+            await resubscribe(ws_pair)
+        else:
+            logger.warning("Underlying websocket has no resubscribe_book for %s", ws_pair)
+
     def unsubscribe(self, instance_id: str) -> None:
         """
         Remove *instance_id*'s reader.

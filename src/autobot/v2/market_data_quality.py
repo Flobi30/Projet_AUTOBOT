@@ -185,6 +185,7 @@ class MarketDataQualityEngine:
                 "max_book_age_ms": self.max_book_age_ms,
             },
             "websocket": ws,
+            "recovery": self._recovery_snapshot(orchestrator, ofi),
             "summary": summary,
             "recommended_action": global_action,
             "symbols": symbols,
@@ -247,3 +248,22 @@ class MarketDataQualityEngine:
         except Exception:
             return {"symbol": symbol, "has_book": False, "reason": "snapshot_error"}
         return {"symbol": symbol, "has_book": False, "reason": "snapshot_invalid"}
+
+    @staticmethod
+    def _recovery_snapshot(orchestrator: Any, ofi: Any) -> dict[str, Any]:
+        runtime = getattr(orchestrator, "_order_book_recovery_stats", {})
+        if not isinstance(runtime, Mapping):
+            runtime = {}
+        ofi_recovery: dict[str, Any] = {}
+        getter = getattr(ofi, "get_recovery_snapshot", None)
+        if callable(getter):
+            try:
+                raw = getter()
+                if isinstance(raw, dict):
+                    ofi_recovery = raw
+            except Exception:
+                ofi_recovery = {"status": "snapshot_error"}
+        return {
+            "runtime": dict(runtime),
+            "ofi": ofi_recovery,
+        }

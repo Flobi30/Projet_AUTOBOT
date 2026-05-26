@@ -78,3 +78,28 @@ async def test_invalid_book_does_not_create_ofi_block():
     assert snapshot["bid"] == pytest.approx(100.10)
     assert snapshot["ask"] == pytest.approx(99.95)
     assert ofi.is_unbalanced_against("XXBTZEUR", "buy") is False
+
+
+@pytest.mark.asyncio
+async def test_order_book_reset_clears_invalid_state_for_recovery():
+    ofi = OrderFlowImbalance(depth=2)
+    await ofi.on_book_update(
+        "XBT/EUR",
+        {
+            "as": [["100.00", "2.0"]],
+            "bs": [["100.10", "2.0"]],
+        },
+    )
+    invalid = ofi.get_quality_snapshot("XXBTZEUR")
+    assert invalid["reason"] == "invalid_book"
+    assert invalid["invalid_count"] >= 1
+
+    reset = ofi.reset_book("XXBTZEUR", reason="unit_test")
+    after = ofi.get_quality_snapshot("XXBTZEUR")
+
+    assert reset["reset"] is True
+    assert reset["reset_count"] == 1
+    assert after["reason"] == "book_unavailable"
+    assert after["invalid_count"] == 0
+    assert after["reset_count"] == 1
+    assert after["last_reset_reason"] == "unit_test"

@@ -58,6 +58,11 @@ class OrderFlowImbalance:
         self._updated_at: Dict[str, float] = {}
         self._ofi_values: Dict[str, float] = {}
         self._ofi_history: Dict[str, List[float]] = {}
+        self._invalid_counts: Dict[str, int] = {}
+        self._last_invalid_at: Dict[str, float] = {}
+        self._reset_counts: Dict[str, int] = {}
+        self._last_reset_at: Dict[str, float] = {}
+        self._last_reset_reason: Dict[str, str] = {}
 
     async def on_book_update(self, pair: str, data: dict) -> None:
         """Kraken book callback. Supports snapshots (`as`/`bs`) and updates (`a`/`b`)."""
@@ -150,6 +155,7 @@ class OrderFlowImbalance:
         bid = float(bids[0][0]) if bids else 0.0
         ask = float(asks[0][0]) if asks else 0.0
         if bid <= 0.0 or ask <= 0.0 or bid >= ask:
+            self._mark_invalid(key)
             mid = (bid + ask) / 2.0 if bid > 0.0 and ask > 0.0 else 0.0
             return MicrostructureSnapshot(
                 symbol=key,
@@ -161,6 +167,7 @@ class OrderFlowImbalance:
                 reason="invalid_book",
             )
 
+        self._invalid_counts[key] = 0
         mid = (bid + ask) / 2.0
         spread_bps = ((ask - bid) / mid) * 10000.0
         bid_depth = sum(float(price) * float(volume) for price, volume in bids)
@@ -215,10 +222,55 @@ class OrderFlowImbalance:
 
     def get_quality_snapshot(self, pair: str) -> dict[str, Any]:
         """Return book diagnostics without implying tradability."""
+        key = _normalize_pair(pair)
         snapshot = self.get_snapshot(pair).to_dict()
-        history = self._ofi_history.get(_normalize_pair(pair), [])
+        history = self._ofi_history.get(key, [])
         snapshot["ofi_samples"] = len(history)
+        snapshot["invalid_count"] = int(self._invalid_counts.get(key, 0))
+        snapshot["reset_count"] = int(self._reset_counts.get(key, 0))
+        if key in self._last_invalid_at:
+            snapshot["last_invalid_age_ms"] = max(0.0, (time.time() - self._last_invalid_at[key]) * 1000.0)
+        if key in self._last_reset_at:
+            snapshot["last_reset_age_ms"] = max(0.0, (time.time() - self._last_reset_at[key]) * 1000.0)
+            snapshot["last_reset_reason"] = self._last_reset_reason.get(key, "")
         return snapshot
+
+    def reset_book(self, pair: str, reason: str = "manual_reset") -> dict[str, Any]:
+        """Clear local book state before requesting a fresh exchange snapshot."""
+        key = _normalize_pair(pair)
+        self._books[key] = {"bids": {}, "asks": {}}
+        self._updated_at.pop(key, None)
+        self._ofi_values[key] = 0.0
+        self._ofi_history[key] = []
+        self._invalid_counts[key] = 0
+        self._reset_counts[key] = self._reset_counts.get(key, 0) + 1
+        self._last_reset_at[key] = time.time()
+        self._last_reset_reason[key] = str(reason or "manual_reset")
+        return {
+            "symbol": key,
+            "reset": True,
+            "reset_count": self._reset_counts[key],
+            "reason": self._last_reset_reason[key],
+        }
+
+    def get_recovery_snapshot(self) -> dict[str, Any]:
+        """Return aggregate book recovery counters for diagnostics."""
+        symbols = sorted(set(self._books) | set(self._reset_counts) | set(self._invalid_counts))
+        return {
+            "symbols": {
+                symbol: {
+                    "invalid_count": int(self._invalid_counts.get(symbol, 0)),
+                    "reset_count": int(self._reset_counts.get(symbol, 0)),
+                    "last_reset_reason": self._last_reset_reason.get(symbol, ""),
+                }
+                for symbol in symbols
+            },
+            "total_resets": int(sum(self._reset_counts.values())),
+        }
+
+    def _mark_invalid(self, key: str) -> None:
+        self._invalid_counts[key] = self._invalid_counts.get(key, 0) + 1
+        self._last_invalid_at[key] = time.time()
 
     @staticmethod
     def _clean_side(rows: List[Any]) -> Dict[float, float]:

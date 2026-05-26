@@ -337,6 +337,27 @@ class KrakenWebSocketAsync:
         await self._ws.send(msg.decode("utf-8"))
         logger.info("Subscription book (OFI): %s", pair)
 
+    async def _send_unsubscribe_book(self, pair: str) -> None:
+        """Send order-book unsubscribe message over WebSocket."""
+        if not self._ws:
+            return
+        msg = orjson.dumps({
+            "event": "unsubscribe",
+            "pair": [pair],
+            "subscription": {"name": "book", "depth": 10}
+        })
+        await self._ws.send(msg.decode("utf-8"))
+        logger.info("Unsubscription book (OFI): %s", pair)
+
+    async def resubscribe_book(self, pair: str) -> None:
+        """Refresh a book subscription while keeping registered callbacks."""
+        self._book_subscribed_pairs.add(pair)
+        if not self._ws:
+            return
+        await self._send_unsubscribe_book(pair)
+        await asyncio.sleep(0.25)
+        await self._send_subscribe_book(pair)
+
     async def unsubscribe_book(self, pair: str, callback: Callable) -> None:
         if pair in self._book_callbacks:
             try:
@@ -346,6 +367,7 @@ class KrakenWebSocketAsync:
             if not self._book_callbacks[pair]:
                 self._book_callbacks.pop(pair, None)
                 self._book_subscribed_pairs.discard(pair)
+                await self._send_unsubscribe_book(pair)
 
     # ------------------------------------------------------------------
     # Subscriptions
