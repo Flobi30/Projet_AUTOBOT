@@ -7,6 +7,7 @@ import Sidebar from './components/layout/Sidebar';
 import Capital from './pages/Capital';
 
 import Diagnostic from './pages/Diagnostic';
+import Funding from './pages/Funding';
 import Overview from './pages/Overview';
 import Performance from './pages/Performance';
 import QuantValidation from './pages/QuantValidation';
@@ -33,6 +34,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Overview />} />
               <Route path="/overview" element={<Overview />} />
+              <Route path="/funding" element={<Funding />} />
               <Route path="/performance" element={<Performance />} />
               <Route path="/capital" element={<Capital />} />
               <Route path="/diagnostic" element={<Diagnostic />} />

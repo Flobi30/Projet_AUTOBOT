@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Bot, Activity, Menu, X, ShieldCheck, LayoutDashboard } from 'lucide-react';
+import { Bot, Activity, Menu, X, ShieldCheck, LayoutDashboard, Landmark } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 interface SidebarProps {
@@ -76,6 +76,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       category: 'AUTOBOT',
       items: [
         { name: 'Vue simple', path: '/overview', icon: LayoutDashboard },
+        { name: 'Depots / Retraits', path: '/funding', icon: Landmark },
       ],
     },
   ];
