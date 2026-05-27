@@ -2209,6 +2209,47 @@ async def get_decision_learning(
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/pattern-learning")
+async def get_pattern_learning(
+    request: Request,
+    authorized: bool = Depends(verify_token),
+):
+    """Observe-only pattern statistics from labelled decision outcomes."""
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        from ..pattern_learning import PatternLearningEngine
+        from ..persistence import get_persistence
+
+        status = orchestrator.get_status()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        persistence = getattr(orchestrator, "persistence", None) or getattr(orchestrator, "_persistence", None) or get_persistence()
+        if persistence is None:
+            raise HTTPException(status_code=503, detail="Persistance non disponible")
+        engine = PatternLearningEngine()
+        outcomes = await persistence.get_signal_outcomes(limit=engine.config.max_outcomes)
+        snapshot = engine.build_snapshot(outcomes)
+        snapshot["mode"] = "paper" if paper_mode else "live_observe_only"
+        snapshot["paper_mode"] = paper_mode
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", 0)),
+        }
+        snapshot["message"] = (
+            "Pattern learning groups triple-barrier outcomes into interpretable contexts. "
+            "It is observe-only and does not place orders or change thresholds."
+        )
+        return snapshot
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur recuperation pattern learning")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/regime")
 async def get_regime(
     request: Request,

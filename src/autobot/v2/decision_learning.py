@@ -219,6 +219,31 @@ def _payload(row: Mapping[str, Any]) -> Mapping[str, Any]:
     return payload if isinstance(payload, Mapping) else {}
 
 
+def _decision_feature_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep non-secret decision context needed for later pattern learning."""
+    scalar_keys = (
+        "reason",
+        "blocking_condition",
+        "net_edge_bps",
+        "gross_edge_bps",
+        "cost_bps",
+        "min_edge_bps",
+        "spread_bps",
+        "atr_pct",
+        "signal_reason",
+        "available_capital",
+        "order_value",
+        "volume",
+    )
+    nested_keys = ("edge_context", "opportunity", "opportunity_gate", "risk_params")
+    result: dict[str, Any] = {key: payload.get(key) for key in scalar_keys if key in payload}
+    for key in nested_keys:
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            result[key] = dict(value)
+    return result
+
+
 def _nested_float(payload: Mapping[str, Any], *path: str) -> Optional[float]:
     current: Any = payload
     for key in path:
@@ -391,18 +416,7 @@ def _evaluate_triple_barrier(
             "sample_count": len(selected),
             "max_net_return_bps": round(float(max_net_return_bps), 6),
             "min_net_return_bps": round(float(min_net_return_bps), 6),
-            "decision_payload": {
-                key: payload.get(key)
-                for key in (
-                    "reason",
-                    "blocking_condition",
-                    "net_edge_bps",
-                    "gross_edge_bps",
-                    "cost_bps",
-                    "signal_reason",
-                )
-                if key in payload
-            },
+            "decision_payload": _decision_feature_payload(payload),
         },
         "decision_created_at": row.get("created_at"),
         "evaluated_at": now,
@@ -476,18 +490,7 @@ def build_outcome_for_decision(
         "payload": {
             "method": "point_in_time_proxy",
             "note": "Uses latest runtime price after horizon; not a path-sensitive triple-barrier label.",
-            "decision_payload": {
-                key: payload.get(key)
-                for key in (
-                    "reason",
-                    "blocking_condition",
-                    "net_edge_bps",
-                    "gross_edge_bps",
-                    "cost_bps",
-                    "signal_reason",
-                )
-                if key in payload
-            },
+            "decision_payload": _decision_feature_payload(payload),
         },
         "decision_created_at": row.get("created_at"),
         "evaluated_at": now,
