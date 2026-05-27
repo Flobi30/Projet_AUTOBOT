@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Wallet, Bot, Activity, Menu, X, HeartPulse, ShieldCheck, BrainCircuit } from 'lucide-react';
+import { Wallet, Bot, Activity, Menu, X, HeartPulse, ShieldCheck, BrainCircuit, LayoutDashboard } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 interface SidebarProps {
@@ -91,6 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
     {
       category: 'TRADING',
       items: [
+        { name: 'Vue simple', path: '/overview', icon: LayoutDashboard },
         { name: 'Performance', path: '/performance', icon: Activity },
       ],
     },
