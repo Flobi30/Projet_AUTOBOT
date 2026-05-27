@@ -640,6 +640,36 @@ class StatePersistence:
                     created_at TEXT NOT NULL
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS signal_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    outcome_id TEXT NOT NULL,
+                    decision_ledger_id INTEGER NOT NULL,
+                    decision_event_id TEXT,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    instance_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    strategy TEXT,
+                    engine TEXT,
+                    side TEXT,
+                    original_status TEXT,
+                    rejection_reason TEXT,
+                    reference_price REAL NOT NULL,
+                    evaluation_price REAL NOT NULL,
+                    gross_return_bps REAL NOT NULL,
+                    estimated_cost_bps REAL NOT NULL,
+                    net_return_bps REAL NOT NULL,
+                    horizon_minutes INTEGER NOT NULL,
+                    outcome_label TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    payload_json TEXT,
+                    decision_created_at TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(decision_ledger_id, horizon_minutes)
+                )
+            """)
             
             # Indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
@@ -652,6 +682,9 @@ class StatePersistence:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_symbol ON decision_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_created_at ON decision_ledger(created_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_instance_event ON decision_ledger(instance_id, event_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_label ON signal_outcomes(outcome_label)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_evaluated_at ON signal_outcomes(evaluated_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
@@ -966,6 +999,172 @@ class StatePersistence:
             return results
         except Exception as e:
             logger.exception(f"Erreur get_decision_ledger_events: {e}")
+            return []
+
+    async def get_decision_outcome_candidates(
+        self,
+        *,
+        horizon_minutes: int,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Return mature decision events that do not yet have an outcome label."""
+        await self.initialize()
+        horizon = max(1, int(horizon_minutes))
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=horizon)
+        query = """
+            SELECT dl.*
+            FROM decision_ledger dl
+            WHERE dl.event_type = 'decision'
+              AND dl.created_at <= ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM signal_outcomes so
+                  WHERE so.decision_ledger_id = dl.id
+                    AND so.horizon_minutes = ?
+              )
+            ORDER BY dl.created_at ASC, dl.id ASC
+            LIMIT ?
+        """
+        try:
+            conn = await self.orders.get_conn()
+            async with conn.execute(query, (cutoff.isoformat(), horizon, max(1, int(limit)))) as cursor:
+                rows = await cursor.fetchall()
+            results: List[Dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                payload_raw = item.get("payload_json")
+                if isinstance(payload_raw, (str, bytes)):
+                    try:
+                        item["payload"] = orjson.loads(payload_raw)
+                    except Exception:
+                        item["payload"] = None
+                else:
+                    item["payload"] = None
+                results.append(item)
+            return results
+        except Exception as e:
+            logger.exception(f"Erreur get_decision_outcome_candidates: {e}")
+            return []
+
+    async def upsert_signal_outcome(self, **kwargs) -> bool:
+        await self.initialize()
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            conn = await self.orders.get_conn()
+            payload = kwargs.get("payload_json")
+            if payload is None:
+                payload = kwargs.get("payload")
+            if payload is not None and not isinstance(payload, str):
+                payload = orjson.dumps(payload).decode("utf-8")
+            cols = [
+                "outcome_id",
+                "decision_ledger_id",
+                "decision_event_id",
+                "decision_id",
+                "signal_id",
+                "instance_id",
+                "symbol",
+                "strategy",
+                "engine",
+                "side",
+                "original_status",
+                "rejection_reason",
+                "reference_price",
+                "evaluation_price",
+                "gross_return_bps",
+                "estimated_cost_bps",
+                "net_return_bps",
+                "horizon_minutes",
+                "outcome_label",
+                "source",
+                "payload_json",
+                "decision_created_at",
+                "evaluated_at",
+                "created_at",
+            ]
+            vals = [
+                kwargs.get("outcome_id"),
+                int(kwargs.get("decision_ledger_id")),
+                kwargs.get("decision_event_id"),
+                kwargs.get("decision_id"),
+                kwargs.get("signal_id"),
+                kwargs.get("instance_id"),
+                kwargs.get("symbol"),
+                kwargs.get("strategy"),
+                kwargs.get("engine"),
+                kwargs.get("side"),
+                kwargs.get("original_status"),
+                kwargs.get("rejection_reason"),
+                float(kwargs.get("reference_price")),
+                float(kwargs.get("evaluation_price")),
+                float(kwargs.get("gross_return_bps")),
+                float(kwargs.get("estimated_cost_bps")),
+                float(kwargs.get("net_return_bps")),
+                int(kwargs.get("horizon_minutes")),
+                kwargs.get("outcome_label"),
+                kwargs.get("source", "decision_learning"),
+                payload,
+                kwargs.get("decision_created_at"),
+                kwargs.get("evaluated_at") or now,
+                kwargs.get("created_at") or now,
+            ]
+            assignments = ", ".join(f"{col}=excluded.{col}" for col in cols if col not in {"outcome_id", "decision_ledger_id", "horizon_minutes", "created_at"})
+            query = (
+                f"INSERT INTO signal_outcomes ({', '.join(cols)}) "
+                f"VALUES ({', '.join(['?'] * len(cols))}) "
+                "ON CONFLICT(decision_ledger_id, horizon_minutes) DO UPDATE SET "
+                f"{assignments}"
+            )
+            await conn.execute(query, tuple(vals))
+            await conn.commit()
+            return True
+        except Exception as e:
+            logger.exception(f"Erreur upsert_signal_outcome: {e}")
+            return False
+
+    async def get_signal_outcomes(
+        self,
+        *,
+        limit: int = 50,
+        symbol: Optional[str] = None,
+        outcome_label: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        await self.initialize()
+        clauses: List[str] = []
+        args: List[Any] = []
+        if symbol:
+            clauses.append("symbol = ?")
+            args.append(symbol)
+        if outcome_label:
+            clauses.append("outcome_label = ?")
+            args.append(outcome_label)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = (
+            "SELECT * FROM signal_outcomes "
+            f"{where} "
+            "ORDER BY evaluated_at DESC, id DESC "
+            "LIMIT ?"
+        )
+        args.append(max(1, int(limit)))
+        try:
+            conn = await self.orders.get_conn()
+            async with conn.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+            results: List[Dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                payload_raw = item.get("payload_json")
+                if isinstance(payload_raw, (str, bytes)):
+                    try:
+                        item["payload"] = orjson.loads(payload_raw)
+                    except Exception:
+                        item["payload"] = None
+                else:
+                    item["payload"] = None
+                results.append(item)
+            return results
+        except Exception as e:
+            logger.exception(f"Erreur get_signal_outcomes: {e}")
             return []
 
     async def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:

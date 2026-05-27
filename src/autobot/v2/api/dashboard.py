@@ -2156,6 +2156,59 @@ async def get_decision_ledger(
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
+@app.get("/api/decision-learning")
+async def get_decision_learning(
+    request: Request,
+    refresh: bool = Query(True),
+    authorized: bool = Depends(verify_token),
+):
+    """Outcome labels for accepted/rejected paper decisions.
+
+    This is an observability/learning endpoint only: it does not place orders,
+    change thresholds, or promote strategies.
+    """
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrateur non disponible")
+
+    try:
+        status = orchestrator.get_status()
+        paper_mode = bool(getattr(orchestrator, "paper_mode", status.get("capital", {}).get("paper_mode", False)))
+        instances = orchestrator.get_instances_snapshot() if hasattr(orchestrator, "get_instances_snapshot") else []
+        from ..decision_learning import DecisionLearningEngine
+        from ..persistence import get_persistence
+
+        persistence = getattr(orchestrator, "persistence", None) or getattr(orchestrator, "_persistence", None) or get_persistence()
+        if persistence is None:
+            raise HTTPException(status_code=503, detail="Persistance non disponible")
+        engine = DecisionLearningEngine()
+        snapshot = (
+            await engine.refresh(persistence=persistence, instances=instances)
+            if refresh
+            else await engine.snapshot(persistence=persistence)
+        )
+        snapshot["timestamp"] = datetime.now(timezone.utc).isoformat()
+        snapshot["mode"] = "paper" if paper_mode else "live"
+        snapshot["paper_mode"] = paper_mode
+        snapshot["runtime"] = {
+            "running": bool(status.get("running")),
+            "websocket_connected": bool(status.get("websocket_connected")),
+            "instance_count": int(status.get("instance_count", len(instances))),
+        }
+        snapshot["safety"] = {
+            "writes_orders": False,
+            "changes_thresholds": False,
+            "live_promotion": False,
+            "method": "post_decision_outcome_labelling",
+        }
+        return snapshot
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Erreur recuperation decision learning")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
 @app.get("/api/regime")
 async def get_regime(
     request: Request,
