@@ -186,7 +186,7 @@ const Overview: React.FC = () => {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 15000);
+    const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
   }, [refresh]);
 
@@ -265,7 +265,7 @@ const Overview: React.FC = () => {
             <div className="font-semibold text-white">Lecture rapide</div>
             <p className="mt-1">
               En paper, les montants sont virtuels. Le live reste bloque tant qu'il n'est pas active explicitement et valide humainement.
-              Les pages detaillees restent disponibles pour l'audit complet.
+              Les pages detaillees restent disponibles par URL pour l'audit, mais la navigation normale reste volontairement simple.
             </p>
           </div>
         </div>

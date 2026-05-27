@@ -112,7 +112,7 @@ const Capital: React.FC = () => {
 
   useEffect(() => {
     fetchCapitalData();
-    const interval = setInterval(fetchCapitalData, 5000);
+    const interval = setInterval(fetchCapitalData, 30000);
     return () => clearInterval(interval);
   }, [fetchCapitalData]);
 

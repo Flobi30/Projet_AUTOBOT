@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Wallet, Bot, Activity, Menu, X, HeartPulse, ShieldCheck, BrainCircuit, LayoutDashboard } from 'lucide-react';
+import { Bot, Activity, Menu, X, ShieldCheck, LayoutDashboard } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 interface SidebarProps {
@@ -40,19 +40,6 @@ interface RuntimeTrace {
   };
 }
 
-interface SidebarColony {
-  runtime?: {
-    active_children_count?: number;
-    child_count?: number;
-    routing_symbol_count?: number;
-    unassigned_symbol_count?: number;
-  };
-  execution?: {
-    execution_mode?: string;
-    auto_scale_paper_children?: boolean;
-  };
-}
-
 const formatCurrency = (value?: number) =>
   typeof value === 'number'
     ? value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
@@ -62,20 +49,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
   const [status, setStatus] = useState<SidebarStatus | null>(null);
   const [capital, setCapital] = useState<SidebarCapital | null>(null);
   const [trace, setTrace] = useState<RuntimeTrace | null>(null);
-  const [colony, setColony] = useState<SidebarColony | null>(null);
 
   const fetchSidebarState = useCallback(async () => {
     try {
-      const [statusRes, capitalRes, traceRes, colonyRes] = await Promise.all([
+      const [statusRes, capitalRes, traceRes] = await Promise.all([
         apiFetch('/api/status'),
         apiFetch('/api/capital'),
         apiFetch('/api/runtime/trace'),
-        apiFetch('/api/colony'),
       ]);
       if (statusRes.ok) setStatus(await statusRes.json());
       if (capitalRes.ok) setCapital(await capitalRes.json());
       if (traceRes.ok) setTrace(await traceRes.json());
-      if (colonyRes.ok) setColony(await colonyRes.json());
     } catch {
       // Keep the last known state; page-level panels show detailed API errors.
     }
@@ -83,29 +67,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
 
   useEffect(() => {
     fetchSidebarState();
-    const interval = setInterval(fetchSidebarState, 15000);
+    const interval = setInterval(fetchSidebarState, 60000);
     return () => clearInterval(interval);
   }, [fetchSidebarState]);
 
   const navItems = [
     {
-      category: 'TRADING',
+      category: 'AUTOBOT',
       items: [
         { name: 'Vue simple', path: '/overview', icon: LayoutDashboard },
-        { name: 'Performance', path: '/performance', icon: Activity },
-      ],
-    },
-    {
-      category: 'GESTION',
-      items: [
-        { name: 'Capital', path: '/capital', icon: Wallet },
-      ],
-    },
-    {
-      category: 'SYSTEME',
-      items: [
-        { name: 'Diagnostic', path: '/diagnostic', icon: HeartPulse },
-        { name: 'Validation Quant', path: '/quant-validation', icon: BrainCircuit },
       ],
     },
   ];
@@ -226,7 +196,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
               <div>Capital AUTOBOT: <strong>{formatCurrency(displayedCapital)}</strong></div>
               <div>Disponible: <strong>{formatCurrency(displayedAvailable)}</strong></div>
               <div>
-                Paires paper actives: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
+                Paires surveillees: <strong>{trace?.strategies?.active_count ?? status?.instance_count ?? 'Non disponible'}</strong>
               </div>
               <div>
                 Kill switch:{' '}
@@ -237,19 +207,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
                   <span> ({trace.safety.kill_switch.reason_code})</span>
                 ) : null}
               </div>
-              <div>
-                Moteurs paper: <strong>{colony?.runtime?.active_children_count ?? 'Non disponible'}</strong>
-                {typeof colony?.runtime?.child_count === 'number' ? <span> / {colony.runtime.child_count}</span> : null}
-              </div>
-              <div>
-                Paires routees: <strong>{colony?.runtime?.routing_symbol_count ?? 'Non disponible'}</strong>
-                {typeof colony?.runtime?.unassigned_symbol_count === 'number' && colony.runtime.unassigned_symbol_count > 0 ? (
-                  <span className="text-amber-300"> ({colony.runtime.unassigned_symbol_count} non assignees)</span>
-                ) : null}
-              </div>
-              {trace?.strategies?.pairs_watched?.length ? (
-                <div>Paires: <strong>{trace.strategies.pairs_watched.join(', ')}</strong></div>
-              ) : null}
             </div>
           </div>
 
@@ -260,7 +217,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
             <div>
               <div className="text-sm font-medium text-white">Dashboard backend</div>
               <div className="text-xs text-gray-400">
-                {capital?.paper_mode ? 'Paper trading virtuel' : 'Lecture compte Kraken'}
+                {capital ? (capital.paper_mode ? 'Paper trading virtuel' : 'Lecture compte Kraken') : 'Connexion backend en attente'}
               </div>
             </div>
           </div>

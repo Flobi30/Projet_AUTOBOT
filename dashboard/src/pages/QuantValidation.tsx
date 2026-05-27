@@ -504,7 +504,7 @@ const QuantValidation: React.FC = () => {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 15000);
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, []);
 

@@ -114,7 +114,7 @@ const Performance: React.FC = () => {
     setIsLoading(false);
   }, []);
 
-  useEffect(() => { fetchAll(); const i=setInterval(fetchAll,15000); return ()=>clearInterval(i); }, [fetchAll]);
+  useEffect(() => { fetchAll(); const i=setInterval(fetchAll,30000); return ()=>clearInterval(i); }, [fetchAll]);
 
   if (isLoading) return (
     <div className="p-8 bg-gray-900 min-h-screen flex items-center justify-center">

@@ -442,7 +442,7 @@ const Diagnostic: React.FC = () => {
 
   useEffect(() => {
     fetchDiagnostics();
-    const interval = setInterval(fetchDiagnostics, 5000);
+    const interval = setInterval(fetchDiagnostics, 30000);
     return () => clearInterval(interval);
   }, [fetchDiagnostics]);
 
