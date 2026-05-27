@@ -11,10 +11,15 @@ from autobot.v2.persistence import StatePersistence
 pytestmark = pytest.mark.integration
 
 
+def _ts(base: datetime, minutes: int) -> str:
+    return (base + timedelta(minutes=minutes)).isoformat()
+
+
 @pytest.mark.asyncio
 async def test_decision_learning_labels_rejected_buy_as_missed_profit(tmp_path):
     persistence = StatePersistence(str(tmp_path / "state.db"))
-    created_at = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    decision_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    created_at = decision_at.isoformat()
     try:
         await persistence.append_decision_ledger_event(
             event_id="dlg_reject_1",
@@ -31,6 +36,22 @@ async def test_decision_learning_labels_rejected_buy_as_missed_profit(tmp_path):
             payload={"side": "buy", "signal_price": 100.0, "cost_bps": 10.0},
             created_at=created_at,
         )
+        await persistence.append_market_price_samples([
+            {
+                "symbol": "TRXEUR",
+                "price": 100.2,
+                "observed_at": _ts(decision_at, 5),
+                "bucket_start": _ts(decision_at, 5),
+                "source": "test",
+            },
+            {
+                "symbol": "TRXEUR",
+                "price": 100.5,
+                "observed_at": _ts(decision_at, 10),
+                "bucket_start": _ts(decision_at, 10),
+                "source": "test",
+            },
+        ])
 
         engine = DecisionLearningEngine(
             DecisionLearningConfig(
@@ -44,7 +65,7 @@ async def test_decision_learning_labels_rejected_buy_as_missed_profit(tmp_path):
         )
         snapshot = await engine.refresh(
             persistence=persistence,
-            instances=[{"symbol": "TRXEUR", "last_price": 100.5}],
+            instances=[],
         )
 
         assert snapshot["refreshed"] == 1
@@ -52,6 +73,8 @@ async def test_decision_learning_labels_rejected_buy_as_missed_profit(tmp_path):
         assert len(rows) == 1
         assert rows[0]["outcome_label"] == "missed_profit"
         assert rows[0]["net_return_bps"] == pytest.approx(40.0)
+        assert rows[0]["source"] == "decision_learning_triple_barrier"
+        assert rows[0]["payload"]["barrier_touched"] == "take_profit"
     finally:
         await persistence.close()
 
@@ -59,7 +82,8 @@ async def test_decision_learning_labels_rejected_buy_as_missed_profit(tmp_path):
 @pytest.mark.asyncio
 async def test_decision_learning_labels_rejected_buy_as_saved_loss(tmp_path):
     persistence = StatePersistence(str(tmp_path / "state.db"))
-    created_at = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    decision_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    created_at = decision_at.isoformat()
     try:
         await persistence.append_decision_ledger_event(
             event_id="dlg_reject_2",
@@ -76,6 +100,22 @@ async def test_decision_learning_labels_rejected_buy_as_saved_loss(tmp_path):
             payload={"side": "buy", "signal_price": 100.0, "edge_context": {"total_cost_bps": 5.0}},
             created_at=created_at,
         )
+        await persistence.append_market_price_samples([
+            {
+                "symbol": "ETHEUR",
+                "price": 99.8,
+                "observed_at": _ts(decision_at, 5),
+                "bucket_start": _ts(decision_at, 5),
+                "source": "test",
+            },
+            {
+                "symbol": "ETHEUR",
+                "price": 99.5,
+                "observed_at": _ts(decision_at, 10),
+                "bucket_start": _ts(decision_at, 10),
+                "source": "test",
+            },
+        ])
 
         engine = DecisionLearningEngine(
             DecisionLearningConfig(
@@ -89,13 +129,14 @@ async def test_decision_learning_labels_rejected_buy_as_saved_loss(tmp_path):
         )
         snapshot = await engine.refresh(
             persistence=persistence,
-            instances=[{"symbol": "ETHEUR", "last_price": 99.5}],
+            instances=[],
         )
 
         assert snapshot["refreshed"] == 1
         rows = await persistence.get_signal_outcomes(limit=5, symbol="ETHEUR")
         assert rows[0]["outcome_label"] == "saved_loss"
         assert rows[0]["net_return_bps"] == pytest.approx(-55.0)
+        assert rows[0]["payload"]["barrier_touched"] == "stop_loss"
     finally:
         await persistence.close()
 
@@ -103,8 +144,9 @@ async def test_decision_learning_labels_rejected_buy_as_saved_loss(tmp_path):
 class _LearningOrchestrator:
     paper_mode = True
 
-    def __init__(self, persistence):
+    def __init__(self, persistence, decision_at: datetime):
         self.persistence = persistence
+        self._decision_at = decision_at
 
     def get_status(self):
         return {
@@ -115,7 +157,14 @@ class _LearningOrchestrator:
         }
 
     def get_instances_snapshot(self):
-        return [{"symbol": "TRXEUR", "last_price": 100.5}]
+        return [{
+            "symbol": "TRXEUR",
+            "last_price": 100.5,
+            "price_history_tail": [
+                {"timestamp": _ts(self._decision_at, 5), "price": 100.2},
+                {"timestamp": _ts(self._decision_at, 10), "price": 100.5},
+            ],
+        }]
 
 
 @pytest.mark.asyncio
@@ -123,7 +172,8 @@ async def test_decision_learning_endpoint_returns_outcome_summary(monkeypatch, t
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("DECISION_LEARNING_HORIZONS_MIN", "15")
     persistence = StatePersistence(str(tmp_path / "state.db"))
-    created_at = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    decision_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    created_at = decision_at.isoformat()
     try:
         await persistence.append_decision_ledger_event(
             event_id="dlg_endpoint",
@@ -141,7 +191,7 @@ async def test_decision_learning_endpoint_returns_outcome_summary(monkeypatch, t
             created_at=created_at,
         )
 
-        dashboard.app.state.orchestrator = _LearningOrchestrator(persistence)
+        dashboard.app.state.orchestrator = _LearningOrchestrator(persistence, decision_at)
         client = TestClient(dashboard.app)
         response = client.get("/api/decision-learning", headers={"Authorization": "Bearer tok"})
 
@@ -150,5 +200,6 @@ async def test_decision_learning_endpoint_returns_outcome_summary(monkeypatch, t
         assert body["safety"]["writes_orders"] is False
         assert body["refreshed"] == 1
         assert body["summary"]["by_label"]["missed_profit"] == 1
+        assert body["summary"]["by_source"]["decision_learning_triple_barrier"] == 1
     finally:
         await persistence.close()

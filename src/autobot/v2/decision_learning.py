@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Optional
 
 
@@ -62,6 +62,10 @@ class DecisionLearningConfig:
     recent_limit: int = 50
     take_profit_bps: float = 35.0
     stop_loss_bps: float = 35.0
+    price_sample_interval_seconds: int = 60
+    price_retention_hours: int = 168
+    min_path_samples: int = 2
+    allow_proxy_fallback: bool = False
 
     @classmethod
     def from_env(cls) -> "DecisionLearningConfig":
@@ -72,6 +76,10 @@ class DecisionLearningConfig:
             recent_limit=_env_int("DECISION_LEARNING_RECENT_LIMIT", 50, 1, 500),
             take_profit_bps=_env_float("DECISION_LEARNING_TP_BPS", 35.0, 1.0, 1000.0),
             stop_loss_bps=_env_float("DECISION_LEARNING_SL_BPS", 35.0, 1.0, 1000.0),
+            price_sample_interval_seconds=_env_int("DECISION_LEARNING_PRICE_SAMPLE_SECONDS", 60, 10, 3600),
+            price_retention_hours=_env_int("DECISION_LEARNING_PRICE_RETENTION_HOURS", 168, 2, 24 * 60),
+            min_path_samples=_env_int("DECISION_LEARNING_MIN_PATH_SAMPLES", 2, 1, 100),
+            allow_proxy_fallback=_env_bool("DECISION_LEARNING_ALLOW_PROXY_FALLBACK", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -82,6 +90,10 @@ class DecisionLearningConfig:
             "recent_limit": self.recent_limit,
             "take_profit_bps": self.take_profit_bps,
             "stop_loss_bps": self.stop_loss_bps,
+            "price_sample_interval_seconds": self.price_sample_interval_seconds,
+            "price_retention_hours": self.price_retention_hours,
+            "min_path_samples": self.min_path_samples,
+            "allow_proxy_fallback": self.allow_proxy_fallback,
         }
 
 
@@ -93,6 +105,24 @@ def _safe_float(value: Any) -> Optional[float]:
     if result <= 0.0:
         return None
     return result
+
+
+def _parse_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _bucket_start(value: datetime, interval_seconds: int) -> datetime:
+    interval = max(1, int(interval_seconds))
+    epoch = int(value.timestamp())
+    return datetime.fromtimestamp(epoch - (epoch % interval), tz=timezone.utc)
 
 
 def _normalize_symbol(symbol: Any) -> str:
@@ -114,6 +144,54 @@ def _symbol_aliases(symbol: Any) -> set[str]:
     if norm.startswith("X") and len(norm) > 4:
         aliases.add(norm[1:])
     return {item for item in aliases if item}
+
+
+def extract_market_price_samples(
+    instances: Iterable[Mapping[str, Any]],
+    *,
+    interval_seconds: int,
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
+    seen: set[tuple[str, str]] = set()
+
+    def append_sample(symbol: Any, price: Any, observed_at: Any, source: str) -> None:
+        price_value = _safe_float(price)
+        if price_value is None:
+            return
+        ts = _parse_dt(observed_at) or now
+        bucket = _bucket_start(ts, interval_seconds)
+        for alias in _symbol_aliases(symbol):
+            key = (alias, bucket.isoformat())
+            if key in seen:
+                continue
+            seen.add(key)
+            samples.append({
+                "sample_id": f"px_{alias}_{bucket.isoformat()}",
+                "symbol": alias,
+                "price": float(price_value),
+                "observed_at": ts.isoformat(),
+                "bucket_start": bucket.isoformat(),
+                "source": source,
+            })
+
+    for inst in instances or []:
+        symbol = inst.get("symbol") or inst.get("pair") or inst.get("kraken_pair")
+        tick = inst.get("last_market_tick")
+        if isinstance(tick, Mapping):
+            append_sample(symbol, tick.get("price"), tick.get("timestamp"), "runtime_last_market_tick")
+        else:
+            append_sample(symbol, inst.get("last_price") or inst.get("price"), None, "runtime_last_price")
+
+        tail = inst.get("price_history_tail")
+        if isinstance(tail, list):
+            for item in tail:
+                if isinstance(item, Mapping):
+                    append_sample(symbol, item.get("price"), item.get("timestamp"), "runtime_price_history_tail")
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    append_sample(symbol, item[-1], item[0], "runtime_price_history_tail")
+
+    return samples
 
 
 def build_price_map(instances: Iterable[Mapping[str, Any]]) -> dict[str, float]:
@@ -210,13 +288,147 @@ def _classify(status: str, net_return_bps: float, config: DecisionLearningConfig
     return "flat"
 
 
+def _samples_after_decision(
+    row: Mapping[str, Any],
+    price_samples: Iterable[Mapping[str, Any]],
+    *,
+    horizon_minutes: int,
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    created = _parse_dt(row.get("created_at"))
+    if created is None:
+        return [], "missing_decision_timestamp"
+    end = created + timedelta(minutes=max(1, int(horizon_minutes)))
+    selected: list[dict[str, Any]] = []
+    for sample in price_samples or []:
+        ts = _parse_dt(sample.get("observed_at"))
+        price = _safe_float(sample.get("price"))
+        if ts is None or price is None:
+            continue
+        if created <= ts <= end:
+            selected.append({"timestamp": ts, "price": float(price)})
+    selected.sort(key=lambda item: item["timestamp"])
+    return selected, None
+
+
+def _evaluate_triple_barrier(
+    row: Mapping[str, Any],
+    *,
+    price_samples: Iterable[Mapping[str, Any]],
+    horizon_minutes: int,
+    config: DecisionLearningConfig,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    side = _extract_side(row)
+    if side != "buy":
+        return None, "unsupported_side"
+    reference_price = _extract_reference_price(row)
+    if reference_price is None:
+        return None, "missing_reference_price"
+    selected, reason = _samples_after_decision(row, price_samples, horizon_minutes=horizon_minutes)
+    if reason is not None:
+        return None, reason
+    if len(selected) < config.min_path_samples:
+        return None, "insufficient_path_samples"
+
+    estimated_cost_bps = _extract_cost_bps(row)
+    status = str(row.get("event_status") or "unknown")
+    barrier_touched = "vertical_expiry"
+    barrier_touched_at = selected[-1]["timestamp"]
+    evaluation_price = float(selected[-1]["price"])
+    gross_return_bps = ((evaluation_price / reference_price) - 1.0) * 10_000.0
+    net_return_bps = gross_return_bps - estimated_cost_bps
+    max_net_return_bps = net_return_bps
+    min_net_return_bps = net_return_bps
+
+    for sample in selected:
+        sample_price = float(sample["price"])
+        sample_gross_bps = ((sample_price / reference_price) - 1.0) * 10_000.0
+        sample_net_bps = sample_gross_bps - estimated_cost_bps
+        max_net_return_bps = max(max_net_return_bps, sample_net_bps)
+        min_net_return_bps = min(min_net_return_bps, sample_net_bps)
+        if sample_net_bps >= config.take_profit_bps:
+            barrier_touched = "take_profit"
+            barrier_touched_at = sample["timestamp"]
+            evaluation_price = sample_price
+            gross_return_bps = sample_gross_bps
+            net_return_bps = sample_net_bps
+            break
+        if sample_net_bps <= -config.stop_loss_bps:
+            barrier_touched = "stop_loss"
+            barrier_touched_at = sample["timestamp"]
+            evaluation_price = sample_price
+            gross_return_bps = sample_gross_bps
+            net_return_bps = sample_net_bps
+            break
+
+    outcome_label = _classify(status, net_return_bps, config)
+    now = datetime.now(timezone.utc).isoformat()
+    payload = _payload(row)
+    return {
+        "outcome_id": f"out_{uuid.uuid4().hex}",
+        "decision_ledger_id": int(row.get("id")),
+        "decision_event_id": row.get("event_id"),
+        "decision_id": row.get("decision_id"),
+        "signal_id": row.get("signal_id"),
+        "instance_id": row.get("instance_id"),
+        "symbol": str(row.get("symbol") or "UNKNOWN"),
+        "strategy": row.get("strategy"),
+        "engine": row.get("engine"),
+        "side": side,
+        "original_status": status,
+        "rejection_reason": row.get("reason"),
+        "reference_price": float(reference_price),
+        "evaluation_price": float(evaluation_price),
+        "gross_return_bps": float(gross_return_bps),
+        "estimated_cost_bps": float(estimated_cost_bps),
+        "net_return_bps": float(net_return_bps),
+        "horizon_minutes": int(horizon_minutes),
+        "outcome_label": outcome_label,
+        "source": "decision_learning_triple_barrier",
+        "payload": {
+            "method": "triple_barrier",
+            "barrier_touched": barrier_touched,
+            "barrier_touched_at": barrier_touched_at.isoformat(),
+            "sample_count": len(selected),
+            "max_net_return_bps": round(float(max_net_return_bps), 6),
+            "min_net_return_bps": round(float(min_net_return_bps), 6),
+            "decision_payload": {
+                key: payload.get(key)
+                for key in (
+                    "reason",
+                    "blocking_condition",
+                    "net_edge_bps",
+                    "gross_edge_bps",
+                    "cost_bps",
+                    "signal_reason",
+                )
+                if key in payload
+            },
+        },
+        "decision_created_at": row.get("created_at"),
+        "evaluated_at": now,
+        "created_at": now,
+    }, None
+
+
 def build_outcome_for_decision(
     row: Mapping[str, Any],
     *,
     price_by_symbol: Mapping[str, float],
+    price_samples: Iterable[Mapping[str, Any]] = (),
     horizon_minutes: int,
     config: DecisionLearningConfig,
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    path_outcome, path_reason = _evaluate_triple_barrier(
+        row,
+        price_samples=price_samples,
+        horizon_minutes=horizon_minutes,
+        config=config,
+    )
+    if path_outcome is not None:
+        return path_outcome, None
+    if not config.allow_proxy_fallback:
+        return None, path_reason
+
     side = _extract_side(row)
     if side != "buy":
         return None, "unsupported_side"
@@ -287,6 +499,7 @@ def summarize_outcomes(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     by_label: dict[str, int] = {}
     by_symbol: dict[str, dict[str, Any]] = {}
     by_reason: dict[str, int] = {}
+    by_source: dict[str, int] = {}
     total_net_bps = 0.0
     count = 0
     for row in rows or []:
@@ -294,10 +507,12 @@ def summarize_outcomes(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         label = str(row.get("outcome_label") or "unknown")
         symbol = str(row.get("symbol") or "UNKNOWN")
         reason = str(row.get("rejection_reason") or "accepted")
+        source = str(row.get("source") or "unknown")
         net = float(row.get("net_return_bps") or 0.0)
         total_net_bps += net
         by_label[label] = by_label.get(label, 0) + 1
         by_reason[reason] = by_reason.get(reason, 0) + 1
+        by_source[source] = by_source.get(source, 0) + 1
         bucket = by_symbol.setdefault(symbol, {"count": 0, "avg_net_return_bps": 0.0, "labels": {}})
         bucket["count"] += 1
         bucket["avg_net_return_bps"] += net
@@ -309,6 +524,7 @@ def summarize_outcomes(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "avg_net_return_bps": round(total_net_bps / max(1, count), 3) if count else 0.0,
         "by_label": dict(sorted(by_label.items(), key=lambda kv: kv[1], reverse=True)),
         "by_reason": dict(sorted(by_reason.items(), key=lambda kv: kv[1], reverse=True)),
+        "by_source": dict(sorted(by_source.items(), key=lambda kv: kv[1], reverse=True)),
         "by_symbol": dict(sorted(by_symbol.items(), key=lambda kv: kv[1]["count"], reverse=True)),
     }
 
@@ -318,18 +534,34 @@ class DecisionLearningEngine:
         self.config = config or DecisionLearningConfig.from_env()
 
     async def refresh(self, *, persistence: Any, instances: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+        instances_list = list(instances or [])
         if not self.config.enabled:
             recent = await persistence.get_signal_outcomes(limit=self.config.recent_limit)
             return {
                 "enabled": False,
                 "config": self.config.to_dict(),
                 "refreshed": 0,
+                "price_samples_recorded": 0,
+                "price_samples_purged": 0,
                 "skipped": {},
                 "summary": summarize_outcomes(recent),
                 "recent": recent,
             }
 
-        price_by_symbol = build_price_map(instances)
+        extracted_samples = extract_market_price_samples(
+            instances_list,
+            interval_seconds=self.config.price_sample_interval_seconds,
+        )
+        samples_recorded = 0
+        samples_purged = 0
+        if hasattr(persistence, "append_market_price_samples"):
+            samples_recorded = await persistence.append_market_price_samples(extracted_samples)
+        if hasattr(persistence, "purge_market_price_samples"):
+            samples_purged = await persistence.purge_market_price_samples(
+                older_than_hours=self.config.price_retention_hours,
+            )
+
+        price_by_symbol = build_price_map(instances_list)
         refreshed = 0
         skipped: dict[str, int] = {}
         for horizon in self.config.horizons_minutes:
@@ -338,9 +570,20 @@ class DecisionLearningEngine:
                 limit=self.config.max_candidates_per_horizon,
             )
             for row in candidates:
+                price_samples = []
+                created = _parse_dt(row.get("created_at"))
+                if created is not None and hasattr(persistence, "get_market_price_samples"):
+                    end = created + timedelta(minutes=max(1, int(horizon)))
+                    price_samples = await persistence.get_market_price_samples(
+                        symbols=sorted(_symbol_aliases(row.get("symbol"))),
+                        start_at=created.isoformat(),
+                        end_at=end.isoformat(),
+                        limit=10_000,
+                    )
                 outcome, reason = build_outcome_for_decision(
                     row,
                     price_by_symbol=price_by_symbol,
+                    price_samples=price_samples,
                     horizon_minutes=horizon,
                     config=self.config,
                 )
@@ -356,6 +599,8 @@ class DecisionLearningEngine:
             "enabled": True,
             "config": self.config.to_dict(),
             "refreshed": refreshed,
+            "price_samples_recorded": samples_recorded,
+            "price_samples_purged": samples_purged,
             "skipped": skipped,
             "summary": summarize_outcomes(recent),
             "recent": recent,
@@ -367,6 +612,8 @@ class DecisionLearningEngine:
             "enabled": self.config.enabled,
             "config": self.config.to_dict(),
             "refreshed": 0,
+            "price_samples_recorded": 0,
+            "price_samples_purged": 0,
             "skipped": {},
             "summary": summarize_outcomes(recent),
             "recent": recent,

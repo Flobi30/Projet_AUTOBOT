@@ -2199,7 +2199,7 @@ async def get_decision_learning(
             "writes_orders": False,
             "changes_thresholds": False,
             "live_promotion": False,
-            "method": "post_decision_outcome_labelling",
+            "method": "post_decision_triple_barrier_labelling",
         }
         return snapshot
     except HTTPException:

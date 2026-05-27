@@ -670,6 +670,19 @@ class StatePersistence:
                     UNIQUE(decision_ledger_id, horizon_minutes)
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS market_price_samples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sample_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    bucket_start TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(symbol, bucket_start)
+                )
+            """)
             
             # Indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_instance ON trades(instance_id)")
@@ -685,6 +698,8 @@ class StatePersistence:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_symbol ON signal_outcomes(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_label ON signal_outcomes(outcome_label)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_outcomes_evaluated_at ON signal_outcomes(evaluated_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_market_price_samples_symbol_time ON market_price_samples(symbol, observed_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_market_price_samples_created_at ON market_price_samples(created_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_transitions_client_order ON order_state_transitions(client_order_id)")
             
@@ -1166,6 +1181,101 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"Erreur get_signal_outcomes: {e}")
             return []
+
+    async def append_market_price_samples(self, samples: List[Dict[str, Any]]) -> int:
+        await self.initialize()
+        if not samples:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        rows: List[tuple[Any, ...]] = []
+        for sample in samples:
+            try:
+                symbol = str(sample.get("symbol") or "").upper()
+                price = float(sample.get("price"))
+                observed_at = str(sample.get("observed_at") or now)
+                bucket_start = str(sample.get("bucket_start") or observed_at)
+                source = str(sample.get("source") or "runtime_snapshot")
+            except (TypeError, ValueError):
+                continue
+            if not symbol or price <= 0.0:
+                continue
+            rows.append((
+                sample.get("sample_id") or f"px_{symbol}_{bucket_start}",
+                symbol,
+                price,
+                observed_at,
+                bucket_start,
+                source,
+                sample.get("created_at") or now,
+            ))
+        if not rows:
+            return 0
+        query = """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol, bucket_start) DO UPDATE SET
+                sample_id=excluded.sample_id,
+                price=excluded.price,
+                observed_at=excluded.observed_at,
+                source=excluded.source,
+                created_at=excluded.created_at
+        """
+        try:
+            conn = await self.orders.get_conn()
+            await conn.executemany(query, rows)
+            await conn.commit()
+            return len(rows)
+        except Exception as e:
+            logger.exception(f"Erreur append_market_price_samples: {e}")
+            return 0
+
+    async def get_market_price_samples(
+        self,
+        *,
+        symbols: List[str],
+        start_at: str,
+        end_at: str,
+        limit: int = 5000,
+    ) -> List[Dict[str, Any]]:
+        await self.initialize()
+        clean_symbols = [str(symbol).upper() for symbol in symbols if str(symbol or "").strip()]
+        if not clean_symbols:
+            return []
+        placeholders = ",".join("?" for _ in clean_symbols)
+        query = (
+            "SELECT * FROM market_price_samples "
+            f"WHERE symbol IN ({placeholders}) "
+            "AND observed_at >= ? "
+            "AND observed_at <= ? "
+            "ORDER BY observed_at ASC, id ASC "
+            "LIMIT ?"
+        )
+        args: List[Any] = [*clean_symbols, start_at, end_at, max(1, int(limit))]
+        try:
+            conn = await self.orders.get_conn()
+            async with conn.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.exception(f"Erreur get_market_price_samples: {e}")
+            return []
+
+    async def purge_market_price_samples(self, *, older_than_hours: int) -> int:
+        await self.initialize()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(older_than_hours)))
+        try:
+            conn = await self.orders.get_conn()
+            cursor = await conn.execute(
+                "DELETE FROM market_price_samples WHERE observed_at < ?",
+                (cutoff.isoformat(),),
+            )
+            deleted = int(cursor.rowcount or 0)
+            await conn.commit()
+            return deleted
+        except Exception as e:
+            logger.exception(f"Erreur purge_market_price_samples: {e}")
+            return 0
 
     async def get_trade_ledger_metrics(self, instance_id: Optional[str] = None) -> Dict[str, float]:
         await self.initialize()

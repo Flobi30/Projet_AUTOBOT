@@ -3530,6 +3530,12 @@ class OrchestratorAsync:
                 interval=self._order_book_recovery_interval_s,
                 name="order-book-recovery",
             )
+        if _env_bool("DECISION_LEARNING_ENABLED", True):
+            self.cold_scheduler.schedule_periodic(
+                self._refresh_decision_learning,
+                interval=float(_env_int("DECISION_LEARNING_REFRESH_SECONDS", 300, 30)),
+                name="decision-learning",
+            )
 
         # Connect WS via ring dispatcher (P2). Kraken can occasionally return
         # transient 5xx responses during the opening handshake; retry startup
@@ -3713,6 +3719,44 @@ class OrchestratorAsync:
             "max_per_cycle": self._order_book_recovery_max_per_cycle,
         })
         return dict(self._order_book_recovery_stats)
+
+    async def _refresh_decision_learning(self) -> None:
+        """Cold-path learning refresh: persist price samples and label decisions."""
+        try:
+            from .decision_learning import DecisionLearningEngine
+
+            engine = getattr(self, "_decision_learning_engine", None)
+            if engine is None:
+                engine = DecisionLearningEngine()
+                self._decision_learning_engine = engine
+            persistence = get_persistence()
+            await persistence.initialize()
+            snapshot = await engine.refresh(
+                persistence=persistence,
+                instances=self.get_instances_snapshot(),
+            )
+            self._last_decision_learning_snapshot = {
+                key: value
+                for key, value in snapshot.items()
+                if key != "recent"
+            }
+            refreshed = int(snapshot.get("refreshed") or 0)
+            recorded = int(snapshot.get("price_samples_recorded") or 0)
+            if refreshed or recorded:
+                logger.info(
+                    "Decision learning refresh: outcomes=%s price_samples=%s skipped=%s",
+                    refreshed,
+                    recorded,
+                    snapshot.get("skipped", {}),
+                )
+        except Exception as exc:
+            self._last_decision_learning_snapshot = {
+                "enabled": _env_bool("DECISION_LEARNING_ENABLED", True),
+                "status": "error",
+                "error": str(exc)[:240],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            logger.warning("Decision learning refresh failed: %s", exc)
 
     def _check_leverage_all_instances(self) -> None:
         """
