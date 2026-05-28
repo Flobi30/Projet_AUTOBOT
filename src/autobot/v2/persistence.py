@@ -1021,28 +1021,50 @@ class StatePersistence:
         *,
         horizon_minutes: int,
         limit: int = 200,
+        oldest_created_at: Optional[str] = None,
+        missing_source: str = "decision_learning_triple_barrier",
     ) -> List[Dict[str, Any]]:
-        """Return mature decision events that do not yet have an outcome label."""
+        """Return mature decision events that still need a trusted outcome label."""
         await self.initialize()
         horizon = max(1, int(horizon_minutes))
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=horizon)
+        clauses = [
+            "dl.event_type = 'decision'",
+            "dl.created_at <= ?",
+            """
+            NOT EXISTS (
+                SELECT 1
+                FROM signal_outcomes so
+                WHERE so.decision_ledger_id = dl.id
+                  AND so.horizon_minutes = ?
+                  AND so.source = ?
+            )
+            """,
+        ]
+        args: List[Any] = [cutoff.isoformat(), horizon, str(missing_source)]
+        if oldest_created_at:
+            clauses.append("dl.created_at >= ?")
+            args.append(str(oldest_created_at))
         query = """
-            SELECT dl.*
+            SELECT
+                dl.*,
+                (
+                    SELECT sig.payload_json
+                    FROM decision_ledger sig
+                    WHERE sig.signal_id = dl.signal_id
+                      AND sig.event_type = 'signal'
+                    ORDER BY sig.created_at DESC, sig.id DESC
+                    LIMIT 1
+                ) AS linked_signal_payload_json
             FROM decision_ledger dl
-            WHERE dl.event_type = 'decision'
-              AND dl.created_at <= ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM signal_outcomes so
-                  WHERE so.decision_ledger_id = dl.id
-                    AND so.horizon_minutes = ?
-              )
-            ORDER BY dl.created_at ASC, dl.id ASC
+            WHERE {where_clause}
+            ORDER BY dl.created_at DESC, dl.id DESC
             LIMIT ?
-        """
+        """.format(where_clause=" AND ".join(f"({clause.strip()})" for clause in clauses))
+        args.append(max(1, int(limit)))
         try:
             conn = await self.orders.get_conn()
-            async with conn.execute(query, (cutoff.isoformat(), horizon, max(1, int(limit)))) as cursor:
+            async with conn.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
             results: List[Dict[str, Any]] = []
             for row in rows:
@@ -1055,6 +1077,14 @@ class StatePersistence:
                         item["payload"] = None
                 else:
                     item["payload"] = None
+                linked_raw = item.get("linked_signal_payload_json")
+                if isinstance(linked_raw, (str, bytes)):
+                    try:
+                        item["linked_signal_payload"] = orjson.loads(linked_raw)
+                    except Exception:
+                        item["linked_signal_payload"] = None
+                else:
+                    item["linked_signal_payload"] = None
                 results.append(item)
             return results
         except Exception as e:

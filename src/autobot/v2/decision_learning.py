@@ -267,11 +267,29 @@ def _extract_side(row: Mapping[str, Any]) -> str:
 
 
 def _extract_reference_price(row: Mapping[str, Any]) -> Optional[float]:
-    payload = _payload(row)
-    for key in ("signal_price", "price", "expected_price", "reference_price"):
-        value = _safe_float(payload.get(key))
-        if value is not None:
-            return value
+    payloads = [_payload(row)]
+    linked_signal = row.get("linked_signal_payload")
+    if isinstance(linked_signal, Mapping):
+        payloads.append(linked_signal)
+
+    for payload in payloads:
+        for key in ("signal_price", "price", "expected_price", "reference_price"):
+            value = _safe_float(payload.get(key))
+            if value is not None:
+                return value
+        for path in (
+            ("details", "price"),
+            ("signal", "price"),
+            ("signal", "signal_price"),
+            ("edge_context", "price"),
+            ("edge_context", "signal_price"),
+            ("opportunity", "price"),
+            ("opportunity", "signal_price"),
+            ("opportunity", "reference_price"),
+        ):
+            value = _nested_float(payload, *path)
+            if value is not None:
+                return value
     return None
 
 
@@ -532,6 +550,25 @@ def summarize_outcomes(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def trusted_outcome_rows(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    allow_proxy_fallback: bool,
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    """Split path-sensitive labels from legacy point-in-time proxy labels."""
+    row_list = [row for row in rows or [] if isinstance(row, Mapping)]
+    if allow_proxy_fallback:
+        return row_list, []
+    trusted: list[Mapping[str, Any]] = []
+    ignored: list[Mapping[str, Any]] = []
+    for row in row_list:
+        if str(row.get("source") or "") == "decision_learning_triple_barrier":
+            trusted.append(row)
+        else:
+            ignored.append(row)
+    return trusted, ignored
+
+
 class DecisionLearningEngine:
     def __init__(self, config: Optional[DecisionLearningConfig] = None) -> None:
         self.config = config or DecisionLearningConfig.from_env()
@@ -540,6 +577,10 @@ class DecisionLearningEngine:
         instances_list = list(instances or [])
         if not self.config.enabled:
             recent = await persistence.get_signal_outcomes(limit=self.config.recent_limit)
+            trusted, ignored = trusted_outcome_rows(
+                recent,
+                allow_proxy_fallback=self.config.allow_proxy_fallback,
+            )
             return {
                 "enabled": False,
                 "config": self.config.to_dict(),
@@ -547,7 +588,9 @@ class DecisionLearningEngine:
                 "price_samples_recorded": 0,
                 "price_samples_purged": 0,
                 "skipped": {},
-                "summary": summarize_outcomes(recent),
+                "summary": summarize_outcomes(trusted),
+                "legacy_proxy_outcomes_ignored": len(ignored),
+                "legacy_proxy_summary": summarize_outcomes(ignored),
                 "recent": recent,
             }
 
@@ -567,10 +610,16 @@ class DecisionLearningEngine:
         price_by_symbol = build_price_map(instances_list)
         refreshed = 0
         skipped: dict[str, int] = {}
+        oldest_created_at = (
+            datetime.now(timezone.utc)
+            - timedelta(hours=max(1, int(self.config.price_retention_hours)))
+        ).isoformat()
         for horizon in self.config.horizons_minutes:
             candidates = await persistence.get_decision_outcome_candidates(
                 horizon_minutes=horizon,
                 limit=self.config.max_candidates_per_horizon,
+                oldest_created_at=oldest_created_at,
+                missing_source="decision_learning_triple_barrier",
             )
             for row in candidates:
                 price_samples = []
@@ -598,6 +647,10 @@ class DecisionLearningEngine:
                     refreshed += 1
 
         recent = await persistence.get_signal_outcomes(limit=self.config.recent_limit)
+        trusted, ignored = trusted_outcome_rows(
+            recent,
+            allow_proxy_fallback=self.config.allow_proxy_fallback,
+        )
         return {
             "enabled": True,
             "config": self.config.to_dict(),
@@ -605,12 +658,18 @@ class DecisionLearningEngine:
             "price_samples_recorded": samples_recorded,
             "price_samples_purged": samples_purged,
             "skipped": skipped,
-            "summary": summarize_outcomes(recent),
+            "summary": summarize_outcomes(trusted),
+            "legacy_proxy_outcomes_ignored": len(ignored),
+            "legacy_proxy_summary": summarize_outcomes(ignored),
             "recent": recent,
         }
 
     async def snapshot(self, *, persistence: Any) -> dict[str, Any]:
         recent = await persistence.get_signal_outcomes(limit=self.config.recent_limit)
+        trusted, ignored = trusted_outcome_rows(
+            recent,
+            allow_proxy_fallback=self.config.allow_proxy_fallback,
+        )
         return {
             "enabled": self.config.enabled,
             "config": self.config.to_dict(),
@@ -618,6 +677,8 @@ class DecisionLearningEngine:
             "price_samples_recorded": 0,
             "price_samples_purged": 0,
             "skipped": {},
-            "summary": summarize_outcomes(recent),
+            "summary": summarize_outcomes(trusted),
+            "legacy_proxy_outcomes_ignored": len(ignored),
+            "legacy_proxy_summary": summarize_outcomes(ignored),
             "recent": recent,
         }

@@ -141,6 +141,169 @@ async def test_decision_learning_labels_rejected_buy_as_saved_loss(tmp_path):
         await persistence.close()
 
 
+@pytest.mark.asyncio
+async def test_decision_learning_relabels_legacy_proxy_with_linked_signal_price(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    decision_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    created_at = decision_at.isoformat()
+    try:
+        await persistence.append_decision_ledger_event(
+            event_id="dlg_signal_linked",
+            signal_id="sig_linked",
+            instance_id="inst_1",
+            symbol="TRXEUR",
+            strategy="grid",
+            engine="grid",
+            event_type="signal",
+            event_status="signal_received",
+            reason="Grid buy",
+            source="strategy_signal",
+            payload={"side": "buy", "price": 100.0},
+            created_at=_ts(decision_at, -1),
+        )
+        await persistence.append_decision_ledger_event(
+            event_id="dlg_decision_linked",
+            decision_id="dec_linked",
+            signal_id="sig_linked",
+            instance_id="inst_1",
+            symbol="TRXEUR",
+            strategy="grid",
+            engine="grid",
+            event_type="decision",
+            event_status="buy_rejected",
+            reason="opportunity_selection",
+            source="signal_handler_runtime",
+            payload={"side": "buy", "cost_bps": 10.0},
+            created_at=created_at,
+        )
+        candidates = await persistence.get_decision_outcome_candidates(horizon_minutes=15, limit=5)
+        assert len(candidates) == 1
+        await persistence.upsert_signal_outcome(
+            outcome_id="legacy_proxy",
+            decision_ledger_id=candidates[0]["id"],
+            decision_event_id="dlg_decision_linked",
+            decision_id="dec_linked",
+            signal_id="sig_linked",
+            instance_id="inst_1",
+            symbol="TRXEUR",
+            strategy="grid",
+            engine="grid",
+            side="buy",
+            original_status="buy_rejected",
+            rejection_reason="opportunity_selection",
+            reference_price=100.0,
+            evaluation_price=100.1,
+            gross_return_bps=10.0,
+            estimated_cost_bps=10.0,
+            net_return_bps=0.0,
+            horizon_minutes=15,
+            outcome_label="flat",
+            source="decision_learning_current_price_proxy",
+            payload={"method": "point_in_time_proxy"},
+            decision_created_at=created_at,
+            evaluated_at=_ts(decision_at, 16),
+            created_at=_ts(decision_at, 16),
+        )
+        await persistence.append_market_price_samples([
+            {
+                "symbol": "TRXEUR",
+                "price": 100.2,
+                "observed_at": _ts(decision_at, 5),
+                "bucket_start": _ts(decision_at, 5),
+                "source": "test",
+            },
+            {
+                "symbol": "TRXEUR",
+                "price": 100.5,
+                "observed_at": _ts(decision_at, 10),
+                "bucket_start": _ts(decision_at, 10),
+                "source": "test",
+            },
+        ])
+
+        engine = DecisionLearningEngine(
+            DecisionLearningConfig(
+                enabled=True,
+                horizons_minutes=(15,),
+                max_candidates_per_horizon=20,
+                recent_limit=10,
+                take_profit_bps=35.0,
+                stop_loss_bps=35.0,
+                allow_proxy_fallback=False,
+            )
+        )
+        snapshot = await engine.refresh(persistence=persistence, instances=[])
+
+        assert snapshot["refreshed"] == 1
+        assert snapshot["legacy_proxy_outcomes_ignored"] == 0
+        assert snapshot["summary"]["by_source"]["decision_learning_triple_barrier"] == 1
+        rows = await persistence.get_signal_outcomes(limit=5, symbol="TRXEUR")
+        assert len(rows) == 1
+        assert rows[0]["source"] == "decision_learning_triple_barrier"
+        assert rows[0]["outcome_label"] == "missed_profit"
+        assert rows[0]["payload"]["barrier_touched"] == "take_profit"
+    finally:
+        await persistence.close()
+
+
+@pytest.mark.asyncio
+async def test_decision_learning_summary_ignores_legacy_proxy_when_strict(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    decision_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    try:
+        await persistence.append_decision_ledger_event(
+            event_id="dlg_proxy_only",
+            decision_id="dec_proxy_only",
+            signal_id="sig_proxy_only",
+            instance_id="inst_1",
+            symbol="TRXEUR",
+            strategy="grid",
+            engine="grid",
+            event_type="decision",
+            event_status="buy_rejected",
+            reason="opportunity_selection",
+            source="signal_handler_runtime",
+            payload={"side": "buy", "signal_price": 100.0},
+            created_at=decision_at.isoformat(),
+        )
+        candidates = await persistence.get_decision_outcome_candidates(horizon_minutes=15, limit=5)
+        await persistence.upsert_signal_outcome(
+            outcome_id="proxy_only",
+            decision_ledger_id=candidates[0]["id"],
+            decision_event_id="dlg_proxy_only",
+            decision_id="dec_proxy_only",
+            signal_id="sig_proxy_only",
+            instance_id="inst_1",
+            symbol="TRXEUR",
+            strategy="grid",
+            engine="grid",
+            side="buy",
+            original_status="buy_rejected",
+            rejection_reason="opportunity_selection",
+            reference_price=100.0,
+            evaluation_price=101.0,
+            gross_return_bps=100.0,
+            estimated_cost_bps=10.0,
+            net_return_bps=90.0,
+            horizon_minutes=15,
+            outcome_label="missed_profit",
+            source="decision_learning_current_price_proxy",
+            payload={"method": "point_in_time_proxy"},
+            decision_created_at=decision_at.isoformat(),
+            evaluated_at=_ts(decision_at, 16),
+            created_at=_ts(decision_at, 16),
+        )
+
+        engine = DecisionLearningEngine(DecisionLearningConfig(allow_proxy_fallback=False))
+        snapshot = await engine.snapshot(persistence=persistence)
+
+        assert snapshot["summary"]["evaluated"] == 0
+        assert snapshot["legacy_proxy_outcomes_ignored"] == 1
+        assert snapshot["legacy_proxy_summary"]["evaluated"] == 1
+    finally:
+        await persistence.close()
+
+
 class _LearningOrchestrator:
     paper_mode = True
 

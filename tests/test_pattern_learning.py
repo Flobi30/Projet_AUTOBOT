@@ -77,3 +77,28 @@ def test_pattern_learning_prefers_triple_barrier_when_available():
     assert snapshot["summary"]["outcomes_used"] == 2
     assert snapshot["summary"]["positive_patterns"] > 0
     assert not snapshot["top_negative"]
+
+
+@pytest.mark.unit
+def test_pattern_learning_ignores_proxy_without_triple_barrier_by_default():
+    proxy = _outcome(source="decision_learning_current_price_proxy", net=90.0, label="missed_profit", barrier="unknown")
+    engine = PatternLearningEngine(PatternLearningConfig(min_samples=2, prefer_triple_barrier=True))
+
+    snapshot = engine.build_snapshot([proxy, proxy, proxy])
+
+    assert snapshot["summary"]["outcomes_used"] == 0
+    assert snapshot["summary"]["legacy_proxy_outcomes_ignored"] == 3
+    assert snapshot["summary"]["positive_patterns"] == 0
+
+
+@pytest.mark.unit
+def test_pattern_learning_can_opt_into_proxy_fallback():
+    proxy = _outcome(source="decision_learning_current_price_proxy", net=90.0, label="missed_profit", barrier="unknown")
+    engine = PatternLearningEngine(
+        PatternLearningConfig(min_samples=2, prefer_triple_barrier=True, allow_proxy_fallback=True)
+    )
+
+    snapshot = engine.build_snapshot([proxy, proxy, proxy])
+
+    assert snapshot["summary"]["outcomes_used"] == 3
+    assert snapshot["summary"]["positive_patterns"] > 0

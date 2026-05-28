@@ -171,6 +171,7 @@ class PatternLearningConfig:
     good_threshold_bps: float = 35.0
     bad_threshold_bps: float = -35.0
     prefer_triple_barrier: bool = True
+    allow_proxy_fallback: bool = False
 
     @classmethod
     def from_env(cls) -> "PatternLearningConfig":
@@ -182,6 +183,7 @@ class PatternLearningConfig:
             good_threshold_bps=_env_float("PATTERN_LEARNING_GOOD_BPS", 35.0, 1.0, 10_000.0),
             bad_threshold_bps=-_env_float("PATTERN_LEARNING_BAD_BPS", 35.0, 1.0, 10_000.0),
             prefer_triple_barrier=_env_bool("PATTERN_LEARNING_PREFER_TRIPLE_BARRIER", True),
+            allow_proxy_fallback=_env_bool("PATTERN_LEARNING_ALLOW_PROXY_FALLBACK", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -193,6 +195,7 @@ class PatternLearningConfig:
             "good_threshold_bps": self.good_threshold_bps,
             "bad_threshold_bps": self.bad_threshold_bps,
             "prefer_triple_barrier": self.prefer_triple_barrier,
+            "allow_proxy_fallback": self.allow_proxy_fallback,
         }
 
 
@@ -204,10 +207,15 @@ class PatternLearningEngine:
 
     def build_snapshot(self, outcomes: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         rows = [row for row in outcomes or [] if isinstance(row, Mapping)]
+        ignored_proxy_outcomes = 0
         if self.config.prefer_triple_barrier:
             triple_rows = [row for row in rows if str(row.get("source") or "") == "decision_learning_triple_barrier"]
             if triple_rows:
+                ignored_proxy_outcomes = len(rows) - len(triple_rows)
                 rows = triple_rows
+            elif not self.config.allow_proxy_fallback:
+                ignored_proxy_outcomes = len(rows)
+                rows = []
         patterns = self._patterns(rows)
         ranked = sorted(patterns.values(), key=lambda item: (item["confidence"], item["samples"]), reverse=True)
         reliable = [row for row in ranked if row["samples"] >= self.config.min_samples]
@@ -220,6 +228,7 @@ class PatternLearningEngine:
             "config": self.config.to_dict(),
             "summary": {
                 "outcomes_used": len(rows),
+                "legacy_proxy_outcomes_ignored": ignored_proxy_outcomes,
                 "patterns": len(ranked),
                 "reliable_patterns": len(reliable),
                 "positive_patterns": len(positive),
