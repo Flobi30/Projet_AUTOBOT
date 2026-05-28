@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
 from .pair_strategy_health import symbol_key
+from .strategy_promotion_gate import StrategyPromotionGate, StrategyPromotionGateConfig
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -102,8 +103,13 @@ class StrategyRouterConfig:
 class StrategyRouter:
     """Rank candidate engines per symbol from shadow evidence."""
 
-    def __init__(self, config: Optional[StrategyRouterConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[StrategyRouterConfig] = None,
+        promotion_gate_config: Optional[StrategyPromotionGateConfig] = None,
+    ) -> None:
         self.config = config or StrategyRouterConfig.from_env()
+        self.promotion_gate = StrategyPromotionGate(promotion_gate_config)
 
     def build_snapshot(
         self,
@@ -143,7 +149,13 @@ class StrategyRouter:
             ranked = sorted([*engines, no_trade], key=lambda item: item["router_score"], reverse=True)
             selected = ranked[0]
             action, reason = self._recommendation(selected, ranked)
-            paper_execution_policy = self._paper_execution_policy(selected, action, paper_mode=paper_mode)
+            promotion_gate = self.promotion_gate.evaluate(selected, action, paper_mode=paper_mode)
+            paper_execution_policy = self._paper_execution_policy(
+                selected,
+                action,
+                paper_mode=paper_mode,
+                promotion_gate=promotion_gate,
+            )
             opp = opp_by_symbol.get(symbol, {})
             rows.append(
                 {
@@ -161,12 +173,20 @@ class StrategyRouter:
                     "opportunity_score": opp.get("score") if isinstance(opp, Mapping) else None,
                     "opportunity_status": opp.get("status") if isinstance(opp, Mapping) else None,
                     "opportunity_reason": opp.get("reason") if isinstance(opp, Mapping) else None,
+                    "promotion_gate": promotion_gate,
                     "paper_execution_policy": paper_execution_policy,
                     "engines": ranked,
                 }
             )
 
         candidate_count = sum(1 for row in rows if row["recommended_action"] == "shadow_candidate_review")
+        official_candidate_count = sum(1 for row in rows if row["paper_execution_policy"].get("support") == "paper_official_candidate")
+        promotion_blocked_count = sum(
+            1
+            for row in rows
+            if row["recommended_action"] == "shadow_candidate_review"
+            and row["paper_execution_policy"].get("support") != "paper_official_candidate"
+        )
         no_trade_count = sum(1 for row in rows if row["selected_engine"] == "no_trade")
         learning_count = sum(1 for row in rows if row["recommended_action"] == "continue_shadow_learning")
         paper_official_execution_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
@@ -180,9 +200,17 @@ class StrategyRouter:
             "official_execution_enabled": paper_official_execution_enabled,
             "paper_official_execution_enabled": paper_official_execution_enabled,
             "config": self.config.to_dict(),
+            "promotion_gate": {
+                "enabled": self.promotion_gate.config.enabled,
+                "config": self.promotion_gate.config.to_dict(),
+                "passed_symbols": official_candidate_count,
+                "blocked_symbols": promotion_blocked_count,
+            },
             "summary": {
                 "symbols": len(rows),
                 "candidate_symbols": candidate_count,
+                "paper_official_candidate_symbols": official_candidate_count,
+                "promotion_blocked_symbols": promotion_blocked_count,
                 "learning_symbols": learning_count,
                 "no_trade_symbols": no_trade_count,
             },
@@ -241,6 +269,7 @@ class StrategyRouter:
             "realized_pnl_eur": best.get("realized_pnl_eur"),
             "profit_factor": best.get("profit_factor"),
             "win_rate": best.get("win_rate"),
+            "max_drawdown_eur": best.get("max_drawdown_eur"),
             "closed_trades": closed,
             "open_positions": _safe_int(best.get("open_positions"), 0),
             "sample_count": sample_count,
@@ -291,6 +320,7 @@ class StrategyRouter:
             "net_pnl_eur": 0.0,
             "profit_factor": None,
             "win_rate": None,
+            "max_drawdown_eur": None,
             "closed_trades": 0,
             "open_positions": 0,
             "sample_count": 0,
@@ -321,22 +351,35 @@ class StrategyRouter:
         action: str,
         *,
         paper_mode: bool,
+        promotion_gate: Mapping[str, Any],
     ) -> dict[str, Any]:
         paper_router_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
         engine = str(selected.get("engine") or "no_trade")
+        gate_passed = bool(promotion_gate.get("passed"))
+        gate_reason = str(promotion_gate.get("reason") or "promotion_gate_unknown")
         if engine == "dynamic_grid":
-            if action == "shadow_candidate_review" and paper_router_enabled:
+            if action == "shadow_candidate_review" and paper_router_enabled and gate_passed:
                 return {
                     "support": "paper_official_candidate",
                     "reason": "dynamic_grid_adapter_available",
                     "paper_execution_enabled": True,
                     "live_enabled": False,
+                    "promotion_gate": promotion_gate,
+                }
+            if action == "shadow_candidate_review" and paper_router_enabled and not gate_passed:
+                return {
+                    "support": "paper_observation",
+                    "reason": gate_reason,
+                    "paper_execution_enabled": paper_router_enabled,
+                    "live_enabled": False,
+                    "promotion_gate": promotion_gate,
                 }
             return {
                 "support": "paper_observation",
                 "reason": "dynamic_grid_waiting_for_candidate_evidence" if paper_router_enabled else "paper_execution_router_disabled",
                 "paper_execution_enabled": paper_router_enabled,
                 "live_enabled": False,
+                "promotion_gate": promotion_gate,
             }
         if engine in {"trend_momentum", "mean_reversion"}:
             adapter_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ADAPTER_ENABLED", True)
@@ -345,26 +388,32 @@ class StrategyRouter:
             engine_enabled = (
                 trend_enabled if engine == "trend_momentum" else mean_reversion_enabled
             )
-            if action == "shadow_candidate_review" and paper_router_enabled and adapter_enabled and engine_enabled:
+            if action == "shadow_candidate_review" and paper_router_enabled and adapter_enabled and engine_enabled and gate_passed:
                 return {
                     "support": "paper_official_candidate",
                     "reason": "shadow_paper_execution_adapter_available",
                     "paper_execution_enabled": True,
                     "live_enabled": False,
+                    "promotion_gate": promotion_gate,
                 }
             return {
                 "support": "shadow_only",
                 "reason": (
+                    gate_reason
+                    if action == "shadow_candidate_review" and not gate_passed
+                    else
                     "paper_execution_adapter_disabled"
                     if not adapter_enabled or not engine_enabled
                     else "shadow_candidate_waiting_for_review"
                 ),
                 "paper_execution_enabled": False,
                 "live_enabled": False,
+                "promotion_gate": promotion_gate,
             }
         return {
             "support": "abstain",
             "reason": "router_selected_no_trade",
             "paper_execution_enabled": False,
             "live_enabled": False,
+            "promotion_gate": promotion_gate,
         }

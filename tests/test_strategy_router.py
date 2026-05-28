@@ -1,12 +1,13 @@
 import pytest
 
+from autobot.v2.strategy_promotion_gate import StrategyPromotionGateConfig
 from autobot.v2.strategy_router import StrategyRouter, StrategyRouterConfig
 
 
 pytestmark = pytest.mark.unit
 
 
-def _router() -> StrategyRouter:
+def _router(promotion_gate_config: StrategyPromotionGateConfig | None = None) -> StrategyRouter:
     return StrategyRouter(
         StrategyRouterConfig(
             min_shadow_closed_trades=3,
@@ -15,7 +16,16 @@ def _router() -> StrategyRouter:
             weak_score=40.0,
             no_trade_score=50.0,
             evidence_cap_learning_score=62.0,
-        )
+        ),
+        promotion_gate_config
+        or StrategyPromotionGateConfig(
+            min_closed_trades=3,
+            min_sample_count=20,
+            min_profit_factor=1.2,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+            no_loss_min_closed_trades=10,
+        ),
     )
 
 
@@ -33,6 +43,7 @@ def _symbol_payload(engine: str, variant: str, score: float, status: str, net: f
             "realized_pnl_eur": net,
             "profit_factor": 1.5 if net > 0 else 0.6,
             "win_rate": 60.0 if net > 0 else 35.0,
+            "max_drawdown_eur": 0.5,
             "closed_trades": closed,
             "open_positions": 0,
             "sample_count": 100,
@@ -83,6 +94,38 @@ def test_strategy_router_marks_validated_grid_candidate_as_paper_official_candid
     assert row["paper_official_execution_enabled"] is True
     assert row["paper_execution_policy"]["support"] == "paper_official_candidate"
     assert row["paper_execution_policy"]["live_enabled"] is False
+    assert row["promotion_gate"]["passed"] is True
+
+
+def test_strategy_router_blocks_official_paper_when_promotion_gate_fails():
+    snapshot = _router(
+        StrategyPromotionGateConfig(
+            min_closed_trades=30,
+            min_sample_count=100,
+            min_profit_factor=1.25,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+            no_loss_min_closed_trades=50,
+        )
+    ).build_snapshot(
+        instances=[{"symbol": "NEWEUR"}],
+        paper_mode=True,
+        trend_shadow_by_symbol={
+            "NEWEUR": _symbol_payload("trend_momentum", "trend_tiny_sample", 90.0, "candidate", 3.0, 5)
+        },
+        opportunities=[],
+    )
+
+    row = snapshot["by_symbol"]["NEWEUR"]
+    assert row["selected_engine"] == "trend_momentum"
+    assert row["recommended_action"] == "shadow_candidate_review"
+    assert row["official_execution_enabled"] is False
+    assert row["paper_official_execution_enabled"] is False
+    assert row["paper_execution_policy"]["support"] == "shadow_only"
+    assert row["promotion_gate"]["passed"] is False
+    assert row["promotion_gate"]["status"] == "learning"
+    assert "closed_trades" in row["promotion_gate"]["reason"]
+    assert snapshot["summary"]["promotion_blocked_symbols"] == 1
 
 
 def test_strategy_router_uses_no_trade_when_all_engines_weak():
