@@ -17,6 +17,7 @@ from autobot.v2.strategy_validation_registry import (
     evaluate_promotion,
     load_registry,
     validate_registry,
+    validate_strategy_entry,
 )
 
 
@@ -208,6 +209,21 @@ def test_registry_entries_define_official_paper_and_live_review_eligibility():
     assert can_request_live_review(dynamic_grid) is False
     assert can_execute_official_paper(no_trade) is True
     assert can_request_live_review(no_trade) is True
+
+
+def test_malformed_strategy_entry_blocks_paper_and_live_eligibility():
+    payload = load_registry(REGISTRY_PATH)
+    no_trade = dict(entry_by_strategy_id(payload, "no_trade_baseline"))
+    no_trade["validation_status"] = "paper_validated"
+    no_trade["baseline_comparison"] = {}
+    no_trade.pop("fees_model")
+
+    errors = validate_strategy_entry(no_trade, label="no_trade_baseline")
+
+    assert "no_trade_baseline:baseline_comparison_missing" in errors
+    assert "no_trade_baseline:fees_model_missing" in errors
+    assert can_execute_official_paper(no_trade) is False
+    assert can_request_live_review(no_trade) is False
 
 
 def test_thresholds_can_be_configured_for_low_sample_research_tests():

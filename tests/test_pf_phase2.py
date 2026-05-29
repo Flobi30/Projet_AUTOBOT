@@ -19,33 +19,36 @@ pytestmark = pytest.mark.integration
 async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(str(db))
-    await p.append_trade_ledger(
-        trade_id="t1",
-        instance_id="i1",
-        symbol="XXBTZEUR",
-        side="sell",
-        executed_price=101.0,
-        volume=1.0,
-        fees=0.2,
-        realized_pnl=10.0,
-        is_closing_leg=True,
-    )
-    await p.append_trade_ledger(
-        trade_id="t2",
-        instance_id="i1",
-        symbol="XXBTZEUR",
-        side="sell",
-        executed_price=99.0,
-        volume=1.0,
-        fees=0.2,
-        realized_pnl=-5.0,
-        is_closing_leg=True,
-    )
-    metrics = await p.get_trade_ledger_metrics("i1")
-    assert metrics["trade_count"] == 2.0
-    assert metrics["profit_factor"] == 2.0
-    assert metrics["expectancy"] == 2.5
-    assert metrics["total_fees"] == 0.4
+    try:
+        await p.append_trade_ledger(
+            trade_id="t1",
+            instance_id="i1",
+            symbol="XXBTZEUR",
+            side="sell",
+            executed_price=101.0,
+            volume=1.0,
+            fees=0.2,
+            realized_pnl=10.0,
+            is_closing_leg=True,
+        )
+        await p.append_trade_ledger(
+            trade_id="t2",
+            instance_id="i1",
+            symbol="XXBTZEUR",
+            side="sell",
+            executed_price=99.0,
+            volume=1.0,
+            fees=0.2,
+            realized_pnl=-5.0,
+            is_closing_leg=True,
+        )
+        metrics = await p.get_trade_ledger_metrics("i1")
+        assert metrics["trade_count"] == 2.0
+        assert metrics["profit_factor"] == 2.0
+        assert metrics["expectancy"] == 2.5
+        assert metrics["total_fees"] == 0.4
+    finally:
+        await p.close()
 
 
 @dataclass

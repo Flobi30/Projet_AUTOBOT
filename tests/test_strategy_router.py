@@ -1,6 +1,6 @@
 import pytest
 
-from autobot.v2.strategy_promotion_gate import StrategyPromotionGateConfig
+from autobot.v2.strategy_promotion_gate import StrategyPromotionGate, StrategyPromotionGateConfig
 from autobot.v2.strategy_router import StrategyRouter, StrategyRouterConfig
 
 
@@ -160,6 +160,91 @@ def test_strategy_router_blocks_official_paper_without_research_workflow_stage()
     assert row["official_execution_enabled"] is False
     assert row["promotion_gate"]["passed"] is False
     assert "research_validation_status" in row["promotion_gate"]["reason"]
+
+
+def test_promotion_gate_blocks_learning_strategy_directly():
+    gate = StrategyPromotionGate(
+        StrategyPromotionGateConfig(
+            min_closed_trades=3,
+            min_sample_count=20,
+            min_profit_factor=1.2,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+        )
+    )
+    result = gate.evaluate(
+        {
+            "engine": "dynamic_grid",
+            "validation_status": "learning",
+            "closed_trades": 10,
+            "sample_count": 100,
+            "net_pnl_eur": 3.0,
+            "profit_factor": 1.5,
+            "win_rate": 60.0,
+        },
+        "shadow_candidate_review",
+        paper_mode=True,
+    )
+
+    assert result["passed"] is False
+    assert "research_validation_status" in result["reason"]
+
+
+def test_promotion_gate_blocks_unknown_strategy_engine_by_default():
+    gate = StrategyPromotionGate(
+        StrategyPromotionGateConfig(
+            min_closed_trades=3,
+            min_sample_count=20,
+            min_profit_factor=1.2,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+        )
+    )
+    result = gate.evaluate(
+        {
+            "engine": "mystery_engine",
+            "validation_status": "paper_validated",
+            "closed_trades": 100,
+            "sample_count": 500,
+            "net_pnl_eur": 30.0,
+            "profit_factor": 2.0,
+            "win_rate": 70.0,
+        },
+        "shadow_candidate_review",
+        paper_mode=True,
+    )
+
+    assert result["passed"] is False
+    assert result["reason"] == "unknown_strategy_engine"
+
+
+def test_promotion_gate_keeps_paper_validated_strategy_blocked_in_live_mode():
+    gate = StrategyPromotionGate(
+        StrategyPromotionGateConfig(
+            min_closed_trades=3,
+            min_sample_count=20,
+            min_profit_factor=1.2,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+        )
+    )
+    result = gate.evaluate(
+        {
+            "engine": "dynamic_grid",
+            "validation_status": "paper_validated",
+            "closed_trades": 100,
+            "sample_count": 500,
+            "net_pnl_eur": 30.0,
+            "profit_factor": 2.0,
+            "win_rate": 70.0,
+        },
+        "shadow_candidate_review",
+        paper_mode=False,
+    )
+
+    assert result["passed"] is False
+    assert result["reason"] == "not_paper_mode"
+    assert result["live_enabled"] is False
 
 
 def test_strategy_router_uses_no_trade_when_all_engines_weak():

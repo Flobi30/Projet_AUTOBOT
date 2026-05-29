@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .strategy_validation_registry import EXECUTION_READY_STATUSES, WORKFLOW_STATUSES
+from .strategy_validation_registry import EXECUTION_READY_STATUSES, PROMOTABLE_STRATEGY_IDS, WORKFLOW_STATUSES
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -130,6 +130,19 @@ class StrategyPromotionGate:
             return self._result(False, "learning", "router_not_requesting_promotion", {})
         if engine == "no_trade":
             return self._result(False, "blocked", "no_trade_selected", {})
+        if engine not in PROMOTABLE_STRATEGY_IDS:
+            return self._result(
+                False,
+                "blocked",
+                "unknown_strategy_engine",
+                {
+                    "engine": {
+                        "value": engine,
+                        "allowed": sorted(PROMOTABLE_STRATEGY_IDS),
+                        "passed": False,
+                    }
+                },
+            )
 
         closed_trades = _safe_int(selected.get("closed_trades"), 0)
         sample_count = _safe_int(selected.get("sample_count"), 0)

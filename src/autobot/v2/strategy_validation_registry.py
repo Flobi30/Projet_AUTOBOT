@@ -48,6 +48,7 @@ REQUIRED_STRATEGY_FIELDS: tuple[str, ...] = (
 TERMINAL_STATUSES = {"rejected", "retired_from_execution"}
 EXECUTION_READY_STATUSES = {"shadow_passed", "paper_validated"}
 LIVE_ELIGIBLE_STATUS = "paper_validated"
+PROMOTABLE_STRATEGY_IDS = frozenset({"dynamic_grid", "trend_momentum", "mean_reversion"})
 
 
 class StrategyValidationError(ValueError):
@@ -146,24 +147,7 @@ def validate_registry(payload: Mapping[str, Any]) -> list[str]:
             errors.append(f"{strategy_id}:duplicate_strategy_id")
         seen.add(strategy_id)
 
-        for field_name in REQUIRED_STRATEGY_FIELDS:
-            if field_name not in entry:
-                errors.append(f"{strategy_id or index}:{field_name}_missing")
-
-        status = str(entry.get("validation_status") or "")
-        if status not in WORKFLOW_STATUSES:
-            errors.append(f"{strategy_id or index}:invalid_validation_status:{status}")
-
-        baseline = entry.get("baseline_comparison")
-        if baseline in (None, "", [], {}):
-            errors.append(f"{strategy_id or index}:baseline_comparison_missing")
-
-        fees_model = entry.get("fees_model")
-        slippage_model = entry.get("slippage_model")
-        if fees_model in (None, "", [], {}):
-            errors.append(f"{strategy_id or index}:fees_model_missing")
-        if slippage_model in (None, "", [], {}):
-            errors.append(f"{strategy_id or index}:slippage_model_missing")
+        errors.extend(validate_strategy_entry(entry, label=strategy_id or str(index)))
 
     return errors
 
@@ -172,6 +156,32 @@ def assert_valid_registry(payload: Mapping[str, Any]) -> None:
     errors = validate_registry(payload)
     if errors:
         raise StrategyValidationError("; ".join(errors))
+
+
+def validate_strategy_entry(entry: Mapping[str, Any], *, label: str | None = None) -> list[str]:
+    """Return contract errors for one strategy hypothesis entry."""
+
+    errors: list[str] = []
+    strategy_id = label or str(entry.get("strategy_id") or entry.get("id") or "strategy")
+    for field_name in REQUIRED_STRATEGY_FIELDS:
+        if field_name not in entry:
+            errors.append(f"{strategy_id}:{field_name}_missing")
+
+    status = str(entry.get("validation_status") or "")
+    if status not in WORKFLOW_STATUSES:
+        errors.append(f"{strategy_id}:invalid_validation_status:{status}")
+
+    baseline = entry.get("baseline_comparison")
+    if baseline in (None, "", [], {}):
+        errors.append(f"{strategy_id}:baseline_comparison_missing")
+
+    fees_model = entry.get("fees_model")
+    slippage_model = entry.get("slippage_model")
+    if fees_model in (None, "", [], {}):
+        errors.append(f"{strategy_id}:fees_model_missing")
+    if slippage_model in (None, "", [], {}):
+        errors.append(f"{strategy_id}:slippage_model_missing")
+    return errors
 
 
 def can_transition(current_status: str, target_status: str) -> bool:
@@ -272,11 +282,11 @@ def evaluate_promotion(
 
 
 def can_execute_official_paper(entry: Mapping[str, Any]) -> bool:
-    return str(entry.get("validation_status") or "") in EXECUTION_READY_STATUSES
+    return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") in EXECUTION_READY_STATUSES
 
 
 def can_request_live_review(entry: Mapping[str, Any]) -> bool:
-    return str(entry.get("validation_status") or "") == LIVE_ELIGIBLE_STATUS
+    return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") == LIVE_ELIGIBLE_STATUS
 
 
 def _common_metric_checks(
