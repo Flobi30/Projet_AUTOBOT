@@ -282,11 +282,19 @@ def evaluate_promotion(
 
 
 def can_execute_official_paper(entry: Mapping[str, Any]) -> bool:
+    if _strategy_id(entry) == "no_trade_baseline":
+        return False
     return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") in EXECUTION_READY_STATUSES
 
 
 def can_request_live_review(entry: Mapping[str, Any]) -> bool:
+    if _strategy_id(entry) == "no_trade_baseline":
+        return False
     return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") == LIVE_ELIGIBLE_STATUS
+
+
+def _strategy_id(entry: Mapping[str, Any]) -> str:
+    return str(entry.get("strategy_id") or entry.get("id") or "")
 
 
 def _common_metric_checks(

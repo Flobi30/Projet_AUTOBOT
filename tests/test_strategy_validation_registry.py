@@ -207,8 +207,8 @@ def test_registry_entries_define_official_paper_and_live_review_eligibility():
     assert no_trade is not None
     assert can_execute_official_paper(dynamic_grid) is False
     assert can_request_live_review(dynamic_grid) is False
-    assert can_execute_official_paper(no_trade) is True
-    assert can_request_live_review(no_trade) is True
+    assert can_execute_official_paper(no_trade) is False
+    assert can_request_live_review(no_trade) is False
 
 
 def test_malformed_strategy_entry_blocks_paper_and_live_eligibility():
