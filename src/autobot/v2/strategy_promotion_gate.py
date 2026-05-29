@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .strategy_validation_registry import EXECUTION_READY_STATUSES, WORKFLOW_STATUSES
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -67,6 +69,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 @dataclass(frozen=True)
 class StrategyPromotionGateConfig:
     enabled: bool = True
+    research_workflow_enabled: bool = True
     min_closed_trades: int = 30
     min_sample_count: int = 100
     min_profit_factor: float = 1.25
@@ -79,6 +82,7 @@ class StrategyPromotionGateConfig:
     def from_env(cls) -> "StrategyPromotionGateConfig":
         return cls(
             enabled=_env_bool("STRATEGY_PROMOTION_GATE_ENABLED", True),
+            research_workflow_enabled=_env_bool("STRATEGY_RESEARCH_WORKFLOW_GATE_ENABLED", True),
             min_closed_trades=_env_int("STRATEGY_PROMOTION_MIN_CLOSED_TRADES", 30, 1, 100_000),
             min_sample_count=_env_int("STRATEGY_PROMOTION_MIN_SAMPLE_COUNT", 100, 1, 1_000_000),
             min_profit_factor=_env_float("STRATEGY_PROMOTION_MIN_PROFIT_FACTOR", 1.25, 0.01, 100.0),
@@ -93,6 +97,7 @@ class StrategyPromotionGateConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "enabled": self.enabled,
+            "research_workflow_enabled": self.research_workflow_enabled,
             "min_closed_trades": self.min_closed_trades,
             "min_sample_count": self.min_sample_count,
             "min_profit_factor": self.min_profit_factor,
@@ -132,6 +137,7 @@ class StrategyPromotionGate:
         profit_factor = _optional_float(selected.get("profit_factor"))
         win_rate = _optional_float(selected.get("win_rate"))
         drawdown = _optional_float(selected.get("max_drawdown_eur"))
+        validation_status = str(selected.get("validation_status") or "learning")
 
         checks = {
             "closed_trades": {
@@ -161,6 +167,13 @@ class StrategyPromotionGate:
                 "passed": drawdown is None or drawdown <= self.config.max_drawdown_eur,
             },
         }
+        if self.config.research_workflow_enabled:
+            checks["research_validation_status"] = {
+                "value": validation_status,
+                "minimum": sorted(EXECUTION_READY_STATUSES),
+                "passed": validation_status in EXECUTION_READY_STATUSES,
+                "valid_status": validation_status in WORKFLOW_STATUSES,
+            }
         failed = [name for name, check in checks.items() if not bool(check.get("passed"))]
         if failed:
             status = "learning" if "closed_trades" in failed or "sample_count" in failed else "blocked"

@@ -9,6 +9,16 @@ changes trading behavior.
   to backtest, shadow, official paper, and later human live review.
 - `strategy_hypotheses.json`: machine-readable registry of current strategy
   hypotheses, evidence status, gates, and known risks.
+- `STRATEGY_ACCEPTANCE_CRITERIA.md`: objective thresholds for backtest,
+  walk-forward, shadow and official paper validation.
+
+## Technical Guard
+
+The registry is enforced by `src/autobot/v2/strategy_validation_registry.py` and
+covered by `tests/test_strategy_validation_registry.py`. The paper promotion
+gate now also checks that a shadow candidate carries a research workflow status
+of `shadow_passed` or `paper_validated` before it can become an official paper
+candidate.
 
 ## Rule
 

@@ -164,6 +164,7 @@ class StrategyRouter:
                     "selected_variant": selected.get("variant"),
                     "router_score": round(float(selected["router_score"]), 2),
                     "status": selected["status"],
+                    "validation_status": selected.get("validation_status"),
                     "recommended_action": action,
                     "reason": reason,
                     "paper_only": True,
@@ -257,12 +258,14 @@ class StrategyRouter:
         sample_count = _safe_int(best.get("sample_count"), 0)
         net_pnl = _safe_float(best.get("net_pnl_eur"), 0.0)
         status = str(best.get("status") or "learning")
+        validation_status = str(best.get("validation_status") or best.get("research_status") or "learning")
         score = self._router_score(raw_score, status, closed, net_pnl)
         return {
             "engine": engine,
             "variant": best.get("variant") or best.get("name"),
             "source": source,
             "status": status,
+            "validation_status": validation_status,
             "router_score": round(score, 2),
             "raw_score": round(raw_score, 2),
             "net_pnl_eur": round(net_pnl, 4),

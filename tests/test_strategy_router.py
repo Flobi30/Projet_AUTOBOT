@@ -29,7 +29,15 @@ def _router(promotion_gate_config: StrategyPromotionGateConfig | None = None) ->
     )
 
 
-def _symbol_payload(engine: str, variant: str, score: float, status: str, net: float, closed: int):
+def _symbol_payload(
+    engine: str,
+    variant: str,
+    score: float,
+    status: str,
+    net: float,
+    closed: int,
+    validation_status: str = "shadow_passed",
+):
     return {
         "symbol": "NEWEUR",
         "engine": engine,
@@ -38,6 +46,7 @@ def _symbol_payload(engine: str, variant: str, score: float, status: str, net: f
             "engine": engine,
             "variant": variant,
             "status": status,
+            "validation_status": validation_status,
             "score": score,
             "net_pnl_eur": net,
             "realized_pnl_eur": net,
@@ -126,6 +135,31 @@ def test_strategy_router_blocks_official_paper_when_promotion_gate_fails():
     assert row["promotion_gate"]["status"] == "learning"
     assert "closed_trades" in row["promotion_gate"]["reason"]
     assert snapshot["summary"]["promotion_blocked_symbols"] == 1
+
+
+def test_strategy_router_blocks_official_paper_without_research_workflow_stage():
+    snapshot = _router().build_snapshot(
+        instances=[{"symbol": "NEWEUR"}],
+        paper_mode=True,
+        trend_shadow_by_symbol={
+            "NEWEUR": _symbol_payload(
+                "trend_momentum",
+                "trend_candidate_without_research_stage",
+                90.0,
+                "candidate",
+                3.0,
+                5,
+                validation_status="candidate",
+            )
+        },
+        opportunities=[],
+    )
+
+    row = snapshot["by_symbol"]["NEWEUR"]
+    assert row["recommended_action"] == "shadow_candidate_review"
+    assert row["official_execution_enabled"] is False
+    assert row["promotion_gate"]["passed"] is False
+    assert "research_validation_status" in row["promotion_gate"]["reason"]
 
 
 def test_strategy_router_uses_no_trade_when_all_engines_weak():

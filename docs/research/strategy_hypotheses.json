@@ -1,22 +1,51 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "updated_at": "2026-05-29",
   "mode": "paper_first",
   "live_auto_promotion_allowed": false,
   "decision_statuses": [
     "learning",
     "candidate",
-    "validated_paper",
+    "backtest_passed",
+    "walk_forward_passed",
+    "shadow_passed",
+    "paper_validated",
     "rejected",
-    "deferred"
+    "retired_from_execution"
   ],
+  "workflow": {
+    "order": [
+      "learning",
+      "candidate",
+      "backtest_passed",
+      "walk_forward_passed",
+      "shadow_passed",
+      "paper_validated"
+    ],
+    "terminal_statuses": [
+      "rejected",
+      "retired_from_execution"
+    ],
+    "paper_execution_min_status": "shadow_passed",
+    "live_review_min_status": "paper_validated",
+    "live_requires_human_review": true,
+    "live_auto_promotion_allowed": false
+  },
   "global_validation_gates": {
     "minimum_closed_trades": 30,
+    "minimum_shadow_closed_trades": 30,
+    "minimum_paper_closed_trades": 100,
     "minimum_profit_factor": 1.25,
+    "minimum_paper_profit_factor": 1.2,
     "minimum_net_pnl_eur": 0.0,
-    "minimum_win_rate_pct": 45.0,
-    "requires_costs": true,
-    "requires_drawdown_review": true,
+    "maximum_drawdown_pct": 12.0,
+    "maximum_paper_drawdown_pct": 10.0,
+    "minimum_sharpe": 0.25,
+    "minimum_out_of_sample_periods": 1,
+    "requires_fees": true,
+    "requires_slippage": true,
+    "requires_baseline": true,
+    "requires_regime_breakdown": true,
     "requires_reconciliation": true,
     "requires_human_live_review": true
   },
@@ -39,151 +68,370 @@
       "microstructure_filter",
       "opportunity_selection",
       "strategy_governance_reconciliation"
-    ]
+    ],
+    "interpretation": "The official paper ledger is still negative in aggregate; no strategy is live-ready."
   },
   "hypotheses": [
     {
       "id": "H001_dynamic_grid",
+      "strategy_id": "dynamic_grid",
       "name": "Dynamic grid as range-capture engine",
       "engine": "dynamic_grid",
-      "status": "candidate",
-      "evidence_level": "B/C",
-      "target_regime": [
+      "hypothesis": "A cost-aware adaptive grid can capture repeated mean-reverting moves on liquid EUR crypto pairs when spread is tight, volatility is sufficient, and trend-breakout risk is controlled.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Runtime tick stream with rolling price windows; no fixed candle backtest yet",
+      "required_data": [
+        "websocket ticker prices",
+        "order book spread",
+        "Kraken fee model",
+        "pair precision/min order",
+        "paper trade ledger",
+        "setup shadow lab variants",
+        "market regime features"
+      ],
+      "entry_logic": "Buy near selected grid levels after opportunity scoring, cost guard, ATR/regime checks, pair health guard, and strategy governance allow official paper entry.",
+      "exit_logic": "Sell at grid profit target, trailing ATR take-profit, smart recenter close, or emergency/grid invalidation close.",
+      "risk_model": "Per-symbol exposure caps, per-order sizing caps, max positions, pair health guard, opportunity score gate, no live auto-promotion.",
+      "fees_model": "Official paper ledger stores execution fees; shadow grid uses configurable per-side fee bps and includes round-trip fees in net PnL.",
+      "slippage_model": "Shadow grid applies configurable per-side slippage bps; official ledger records estimated slippage bps where available but lacks full queue/partial-fill modeling.",
+      "expected_market_regime": [
         "range",
         "moderate_volatility",
         "tight_spread"
       ],
-      "baseline": "no_trade_plus_cost_guard",
-      "current_evidence": {
-        "official_paper": "negative_aggregate",
-        "shadow": "some_candidates_pass_gate",
-        "known_positive_pair": "TRXEUR"
-      },
-      "known_risks": [
-        "fee_drag_on_small_targets",
-        "trend_breakout_against_grid",
-        "pair_specific_overfitting",
-        "official_shadow_reconciliation_gap"
+      "failure_modes": [
+        "trend move breaks grid",
+        "fee drag exceeds target profit",
+        "spread widens during execution",
+        "shadow setup diverges from official paper fills",
+        "one pair dominates evidence",
+        "adaptive recentering closes too late"
       ],
-      "next_validation": [
-        "separate range regimes from trend regimes",
-        "compare grid variants against no-trade by pair",
-        "require reconciliation before official paper promotion"
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "buy_and_hold_symbol",
+          "random_entry_same_frequency",
+          "static_grid_previous_config"
+        ],
+        "current_status": "no standardized event-driven baseline report yet"
+      },
+      "validation_status": "candidate",
+      "last_backtest_id": null,
+      "paper_status": "official_paper_running_but_negative_aggregate",
+      "decision": "continue_test_do_not_live",
+      "decision_reason": "Aggregate official paper PnL is negative and the current validation stack is not yet a full walk-forward event-driven backtest.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/strategies/dynamic_grid_validation_report.md"
       ],
       "live_allowed": false
     },
     {
       "id": "H002_trend_momentum",
+      "strategy_id": "trend_momentum",
       "name": "Trend and volatility breakout engine",
       "engine": "trend_momentum",
-      "status": "learning",
-      "evidence_level": "C",
-      "target_regime": [
+      "hypothesis": "Trend-following variants can outperform grid behavior during directional, expanding-volatility regimes if entries are delayed until momentum exceeds fees, spread and slippage.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Paper-only shadow tick windows, typically 10 second throttled updates and rolling price samples",
+      "required_data": [
+        "websocket prices",
+        "rolling high/low windows",
+        "EMA/momentum samples",
+        "ATR estimate",
+        "fees/slippage assumptions",
+        "trend shadow lab DB"
+      ],
+      "entry_logic": "Shadow variants test Donchian breakout or EMA momentum confirmation when momentum and ATR thresholds pass.",
+      "exit_logic": "ATR trailing stop, stop ATR multiple, exit-window reversal, or strategy-specific stop.",
+      "risk_model": "Shadow-only virtual capital per variant, position_pct per variant, cooldown ticks, no official live routing.",
+      "fees_model": "Trend shadow lab subtracts configurable per-side fee bps from entry and exit.",
+      "slippage_model": "Trend shadow lab subtracts configurable per-side slippage bps from entry and exit.",
+      "expected_market_regime": [
         "trend",
         "high_momentum",
         "expanding_volatility"
       ],
-      "baseline": "dynamic_grid_and_no_trade",
-      "current_evidence": {
-        "official_paper": "not_official_main_engine",
-        "shadow": "not_yet_validated"
-      },
-      "known_risks": [
-        "late_entry_after_move",
-        "false_breakouts",
-        "spread_expansion",
-        "small_sample_bias"
+      "failure_modes": [
+        "false breakout",
+        "late entry after move",
+        "spread expansion",
+        "trend exhaustion",
+        "small shadow sample",
+        "costs consume momentum edge"
       ],
-      "next_validation": [
-        "require breakout edge net of fees",
-        "measure average adverse excursion",
-        "compare per-regime against grid"
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "dynamic_grid_same_symbol",
+          "buy_and_hold_symbol",
+          "random_entry_same_frequency"
+        ],
+        "current_status": "shadow lab exists; standardized baseline report missing"
+      },
+      "validation_status": "learning",
+      "last_backtest_id": null,
+      "paper_status": "shadow_only",
+      "decision": "continue_shadow_only",
+      "decision_reason": "No sufficient official paper or walk-forward evidence yet; keep it as a shadow producer until robust samples exist.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/strategies/trend_momentum_validation_report.md"
       ],
       "live_allowed": false
     },
     {
       "id": "H003_mean_reversion",
+      "strategy_id": "mean_reversion",
       "name": "Mean reversion snapback engine",
       "engine": "mean_reversion",
-      "status": "learning",
-      "evidence_level": "C",
-      "target_regime": [
+      "hypothesis": "Bollinger/z-score snapback variants can capture temporary deviations in range-like markets when trend strength is capped and expected snapback exceeds costs.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Paper-only shadow tick windows with rolling sample buffers",
+      "required_data": [
+        "websocket prices",
+        "rolling mean/std",
+        "z-score",
+        "ATR/bandwidth",
+        "fees/slippage assumptions",
+        "mean reversion shadow lab DB"
+      ],
+      "entry_logic": "Enter shadow long when z-score deviation, bandwidth, ATR, and expected net edge filters pass.",
+      "exit_logic": "Exit near mean reversion threshold, z-score exit, or stop z-score.",
+      "risk_model": "Shadow-only virtual capital per variant, position_pct per variant, cooldown ticks, trend-strength cap.",
+      "fees_model": "Mean reversion shadow lab subtracts configurable per-side fee bps from entry and exit.",
+      "slippage_model": "Mean reversion shadow lab subtracts configurable per-side slippage bps from entry and exit.",
+      "expected_market_regime": [
         "range",
         "mean_reverting",
         "low_to_moderate_trend"
       ],
-      "baseline": "dynamic_grid_and_no_trade",
-      "current_evidence": {
-        "official_paper": "not_official_main_engine",
-        "shadow": "small_samples_only"
-      },
-      "known_risks": [
-        "catching_falling_knife",
-        "trend_too_strong",
-        "zscore_not_extreme",
-        "fees_larger_than_snapback"
+      "failure_modes": [
+        "catching a falling market",
+        "trend continuation against the snapback",
+        "z-score too weak after costs",
+        "small sample overfitting",
+        "exit too close to fees"
       ],
-      "next_validation": [
-        "gate by regime and trend strength",
-        "require expected net edge above costs",
-        "track rejected signals after outcome"
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "dynamic_grid_same_symbol",
+          "random_entry_same_frequency"
+        ],
+        "current_status": "shadow lab exists; standardized baseline report missing"
+      },
+      "validation_status": "learning",
+      "last_backtest_id": null,
+      "paper_status": "shadow_only",
+      "decision": "continue_shadow_only",
+      "decision_reason": "The production class is explicitly disabled and shadow evidence has not passed workflow gates.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/strategies/mean_reversion_validation_report.md"
       ],
       "live_allowed": false
     },
     {
-      "id": "H004_regime_scoring",
-      "name": "Regime scoring as routing modifier",
+      "id": "H004_opportunity_scoring",
+      "strategy_id": "opportunity_scoring",
+      "name": "Opportunity scoring and allocation layer",
+      "engine": "opportunity_scoring",
+      "hypothesis": "Combining gross edge, cost, ATR, spread, liquidity, signal stability, regime and pair health can improve selection by ranking opportunities before risk/execution.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Runtime snapshot from latest signal/decision context",
+      "required_data": [
+        "edge context",
+        "cost model",
+        "ATR",
+        "spread",
+        "market metrics",
+        "recent events",
+        "regime features",
+        "pair health"
+      ],
+      "entry_logic": "Does not generate entries by itself; ranks whether a signal should remain tradable and recommends paper allocation.",
+      "exit_logic": "No exit logic; downstream strategies and execution govern exits.",
+      "risk_model": "Score threshold, per-symbol and total exposure caps, paper/live gate separation, pair health adjustment.",
+      "fees_model": "Consumes edge_context total cost bps and fee bps produced by signal/cost logic.",
+      "slippage_model": "Consumes edge_context slippage bps and spread bps; does not simulate fills.",
+      "expected_market_regime": [
+        "all_regimes_as_filter"
+      ],
+      "failure_modes": [
+        "missing order book creates stale spread",
+        "component weights overfit recent samples",
+        "score hides weak absolute edge",
+        "pair health penalizes before enough sample"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "same_strategy_without_opportunity_score",
+          "no_trade",
+          "random_top_k_selection"
+        ],
+        "current_status": "needs ablation report"
+      },
+      "validation_status": "candidate",
+      "last_backtest_id": null,
+      "paper_status": "runtime_filter_active_paper_first",
+      "decision": "keep_as_guard_measure_incremental_value",
+      "decision_reason": "It is a guard/ranking layer, not a standalone alpha; it needs ablation against no-score routing.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/strategies/opportunity_scoring_validation_report.md"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H005_entropy_markov_regime",
+      "strategy_id": "entropy_markov_regime",
+      "name": "Markov/entropy regime scoring",
       "engine": "regime_feature_engine",
-      "status": "learning",
-      "evidence_level": "B/C",
-      "target_regime": [
+      "hypothesis": "A lightweight entropy plus Markov-state sensor can improve routing by detecting range, trend, chaos, high-volatility and low-activity contexts without acting as a price predictor.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Rolling runtime price history, default entropy window 64 and Markov window 96",
+      "required_data": [
+        "price history tail",
+        "log returns",
+        "entropy window",
+        "Markov transition window"
+      ],
+      "entry_logic": "Does not create entries; applies a bounded score adjustment to opportunity ranking.",
+      "exit_logic": "No exit logic.",
+      "risk_model": "Bounded adjustment by config; never a blocker by itself.",
+      "fees_model": "Not applicable directly; downstream opportunity/cost guard models fees.",
+      "slippage_model": "Not applicable directly; downstream opportunity/cost guard models slippage.",
+      "expected_market_regime": [
         "range",
         "trend",
         "chaos",
         "low_activity",
-        "high_volatility"
+        "high_vol"
       ],
-      "baseline": "opportunity_score_without_regime_adjustment",
-      "current_evidence": {
-        "official_paper": "observability_only",
-        "shadow": "used_as_score_modifier"
+      "failure_modes": [
+        "regime label noise",
+        "short history false confidence",
+        "entropy threshold overfit",
+        "state persistence not predictive of next trade"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "opportunity_score_without_regime_adjustment"
+        ],
+        "current_status": "sensor implemented; incremental value not yet proven"
       },
-      "known_risks": [
-        "regime_label_noise",
-        "overweighting_uncertain_features",
-        "false_confidence"
-      ],
-      "next_validation": [
-        "measure whether regime adjustment improves realized outcomes",
-        "keep adjustment bounded",
-        "never use as sole blocker"
+      "validation_status": "learning",
+      "last_backtest_id": null,
+      "paper_status": "score_modifier_only",
+      "decision": "keep_observing_bounded_adjustment",
+      "decision_reason": "Useful as observability and ranking context, but not validated as an alpha source.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/strategies/entropy_markov_regime_validation_report.md"
       ],
       "live_allowed": false
     },
     {
-      "id": "H005_no_trade_baseline",
-      "name": "No-trade as explicit safety baseline",
+      "id": "H006_no_trade_baseline",
+      "strategy_id": "no_trade_baseline",
+      "name": "No-trade safety baseline",
       "engine": "no_trade",
-      "status": "validated_paper",
-      "evidence_level": "A/B",
-      "target_regime": [
-        "uncertain",
-        "high_cost",
+      "hypothesis": "Abstaining is a valid baseline and should beat negative-expectancy trading after costs.",
+      "market": "All AUTOBOT monitored markets",
+      "timeframe": "All runtime horizons",
+      "required_data": [
+        "cash balance",
+        "opportunity cost estimate",
+        "rejected signal outcomes"
+      ],
+      "entry_logic": "Do not enter when evidence, cost, regime or governance gates are insufficient.",
+      "exit_logic": "Not applicable.",
+      "risk_model": "Capital preservation baseline.",
+      "fees_model": "No fees incurred.",
+      "slippage_model": "No slippage incurred.",
+      "expected_market_regime": [
         "weak_signal",
-        "reconciliation_gap"
+        "high_cost",
+        "uncertain",
+        "unsafe"
       ],
-      "baseline": "cash_preservation",
-      "current_evidence": {
-        "official_paper": "prevents_negative_expected_trades",
-        "shadow": "router_available"
+      "failure_modes": [
+        "missed profitable moves",
+        "overly conservative gate",
+        "opportunity cost not tracked"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "cash_preservation"
+        ],
+        "current_status": "available as safety choice"
       },
-      "known_risks": [
-        "missed_profitable_moves",
-        "too_much_conservatism"
+      "validation_status": "paper_validated",
+      "last_backtest_id": null,
+      "paper_status": "active_router_safety_choice",
+      "decision": "keep",
+      "decision_reason": "No-trade is the required safety baseline while official paper evidence remains weak.",
+      "evidence_level": "B",
+      "reports": [
+        "reports/strategies/no_trade_baseline_validation_report.md"
       ],
-      "next_validation": [
-        "compare rejected signals against later outcomes",
-        "track opportunity cost separately from realized PnL"
+      "live_allowed": false
+    },
+    {
+      "id": "H007_triangular_arbitrage",
+      "strategy_id": "triangular_arbitrage",
+      "name": "Triangular arbitrage prototype",
+      "engine": "triangular_arbitrage",
+      "hypothesis": "Triangular cross-rate inconsistencies could produce net profit after three legs of fees if order book depth, latency, and fill risk are modeled.",
+      "market": "Crypto cross pairs, not currently validated for Kraken EUR paper stack",
+      "timeframe": "Prototype calculation only",
+      "required_data": [
+        "synchronized multi-pair order books",
+        "depth by level",
+        "fee tier",
+        "minimum order constraints",
+        "latency/fill model"
+      ],
+      "entry_logic": "Prototype detects triangular price inconsistency above minimum net profit.",
+      "exit_logic": "Atomic multi-leg completion; not implemented as production execution.",
+      "risk_model": "Not production-ready; multi-leg execution risk not controlled.",
+      "fees_model": "Prototype applies per-leg fee percentage.",
+      "slippage_model": "No production-grade depth/slippage model.",
+      "expected_market_regime": [
+        "temporary_cross_rate_dislocation"
+      ],
+      "failure_modes": [
+        "stale quote",
+        "partial fill",
+        "leg risk",
+        "latency",
+        "fees consume edge",
+        "missing depth simulation"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "same_pairs_after_real_depth_costs"
+        ],
+        "current_status": "prototype only"
+      },
+      "validation_status": "retired_from_execution",
+      "last_backtest_id": null,
+      "paper_status": "not_routed",
+      "decision": "do_not_execute",
+      "decision_reason": "Requires synchronized depth and atomic multi-leg execution modeling before any paper/live route.",
+      "evidence_level": "D",
+      "reports": [
+        "reports/strategies/triangular_arbitrage_validation_report.md"
       ],
       "live_allowed": false
     }
