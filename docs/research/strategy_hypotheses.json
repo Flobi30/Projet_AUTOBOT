@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-05-29",
+  "mode": "paper_first",
+  "live_auto_promotion_allowed": false,
+  "decision_statuses": [
+    "learning",
+    "candidate",
+    "validated_paper",
+    "rejected",
+    "deferred"
+  ],
+  "global_validation_gates": {
+    "minimum_closed_trades": 30,
+    "minimum_profit_factor": 1.25,
+    "minimum_net_pnl_eur": 0.0,
+    "minimum_win_rate_pct": 45.0,
+    "requires_costs": true,
+    "requires_drawdown_review": true,
+    "requires_reconciliation": true,
+    "requires_human_live_review": true
+  },
+  "current_runtime_observation": {
+    "observed_at": "2026-05-29",
+    "source": "paper_trading_summary_and_strategy_router",
+    "official_paper_net_pnl_eur": -21.3979,
+    "official_paper_closed_trades": 555,
+    "positive_official_pairs": [
+      {
+        "symbol": "TRXEUR",
+        "net_pnl_eur": 0.8851,
+        "profit_factor": 1.48,
+        "win_rate_pct": 52.54
+      }
+    ],
+    "post_gate_official_trades_since_deploy": 0,
+    "main_blockers": [
+      "cost_guard",
+      "microstructure_filter",
+      "opportunity_selection",
+      "strategy_governance_reconciliation"
+    ]
+  },
+  "hypotheses": [
+    {
+      "id": "H001_dynamic_grid",
+      "name": "Dynamic grid as range-capture engine",
+      "engine": "dynamic_grid",
+      "status": "candidate",
+      "evidence_level": "B/C",
+      "target_regime": [
+        "range",
+        "moderate_volatility",
+        "tight_spread"
+      ],
+      "baseline": "no_trade_plus_cost_guard",
+      "current_evidence": {
+        "official_paper": "negative_aggregate",
+        "shadow": "some_candidates_pass_gate",
+        "known_positive_pair": "TRXEUR"
+      },
+      "known_risks": [
+        "fee_drag_on_small_targets",
+        "trend_breakout_against_grid",
+        "pair_specific_overfitting",
+        "official_shadow_reconciliation_gap"
+      ],
+      "next_validation": [
+        "separate range regimes from trend regimes",
+        "compare grid variants against no-trade by pair",
+        "require reconciliation before official paper promotion"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H002_trend_momentum",
+      "name": "Trend and volatility breakout engine",
+      "engine": "trend_momentum",
+      "status": "learning",
+      "evidence_level": "C",
+      "target_regime": [
+        "trend",
+        "high_momentum",
+        "expanding_volatility"
+      ],
+      "baseline": "dynamic_grid_and_no_trade",
+      "current_evidence": {
+        "official_paper": "not_official_main_engine",
+        "shadow": "not_yet_validated"
+      },
+      "known_risks": [
+        "late_entry_after_move",
+        "false_breakouts",
+        "spread_expansion",
+        "small_sample_bias"
+      ],
+      "next_validation": [
+        "require breakout edge net of fees",
+        "measure average adverse excursion",
+        "compare per-regime against grid"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H003_mean_reversion",
+      "name": "Mean reversion snapback engine",
+      "engine": "mean_reversion",
+      "status": "learning",
+      "evidence_level": "C",
+      "target_regime": [
+        "range",
+        "mean_reverting",
+        "low_to_moderate_trend"
+      ],
+      "baseline": "dynamic_grid_and_no_trade",
+      "current_evidence": {
+        "official_paper": "not_official_main_engine",
+        "shadow": "small_samples_only"
+      },
+      "known_risks": [
+        "catching_falling_knife",
+        "trend_too_strong",
+        "zscore_not_extreme",
+        "fees_larger_than_snapback"
+      ],
+      "next_validation": [
+        "gate by regime and trend strength",
+        "require expected net edge above costs",
+        "track rejected signals after outcome"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H004_regime_scoring",
+      "name": "Regime scoring as routing modifier",
+      "engine": "regime_feature_engine",
+      "status": "learning",
+      "evidence_level": "B/C",
+      "target_regime": [
+        "range",
+        "trend",
+        "chaos",
+        "low_activity",
+        "high_volatility"
+      ],
+      "baseline": "opportunity_score_without_regime_adjustment",
+      "current_evidence": {
+        "official_paper": "observability_only",
+        "shadow": "used_as_score_modifier"
+      },
+      "known_risks": [
+        "regime_label_noise",
+        "overweighting_uncertain_features",
+        "false_confidence"
+      ],
+      "next_validation": [
+        "measure whether regime adjustment improves realized outcomes",
+        "keep adjustment bounded",
+        "never use as sole blocker"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H005_no_trade_baseline",
+      "name": "No-trade as explicit safety baseline",
+      "engine": "no_trade",
+      "status": "validated_paper",
+      "evidence_level": "A/B",
+      "target_regime": [
+        "uncertain",
+        "high_cost",
+        "weak_signal",
+        "reconciliation_gap"
+      ],
+      "baseline": "cash_preservation",
+      "current_evidence": {
+        "official_paper": "prevents_negative_expected_trades",
+        "shadow": "router_available"
+      },
+      "known_risks": [
+        "missed_profitable_moves",
+        "too_much_conservatism"
+      ],
+      "next_validation": [
+        "compare rejected signals against later outcomes",
+        "track opportunity cost separately from realized PnL"
+      ],
+      "live_allowed": false
+    }
+  ]
+}
