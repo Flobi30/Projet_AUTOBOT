@@ -9,6 +9,7 @@ from .backtest_engine import BacktestConfig, BacktestDecision, BacktestEngine, B
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult, RoundTripPnL
 from .market_data_repository import MarketBar, MarketDataQualityReport, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
+from .strategy_adapters import ResearchStrategyInstance, RuntimeStrategyBacktestAdapter, TradingSignalAdapter
 from .trade_journal import TradeJournal, TradeRecord
 from .walk_forward import (
     WalkForwardConfig,
@@ -34,8 +35,11 @@ __all__ = [
     "MetricsEngine",
     "MetricsResult",
     "RoundTripPnL",
+    "ResearchStrategyInstance",
+    "RuntimeStrategyBacktestAdapter",
     "TradeJournal",
     "TradeRecord",
+    "TradingSignalAdapter",
     "WalkForwardConfig",
     "WalkForwardDecision",
     "WalkForwardFoldResult",
