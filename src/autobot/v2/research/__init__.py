@@ -10,6 +10,13 @@ from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillR
 from .market_data_repository import MarketBar, MarketDataQualityReport, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
 from .trade_journal import TradeJournal, TradeRecord
+from .walk_forward import (
+    WalkForwardConfig,
+    WalkForwardDecision,
+    WalkForwardFoldResult,
+    WalkForwardResult,
+    WalkForwardValidator,
+)
 
 __all__ = [
     "ExecutionCostConfig",
@@ -29,4 +36,9 @@ __all__ = [
     "RoundTripPnL",
     "TradeJournal",
     "TradeRecord",
+    "WalkForwardConfig",
+    "WalkForwardDecision",
+    "WalkForwardFoldResult",
+    "WalkForwardResult",
+    "WalkForwardValidator",
 ]

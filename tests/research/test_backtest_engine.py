@@ -65,7 +65,11 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
     assert result.trade_count == 1
     assert result.metrics.total_fees_eur > 0
     assert result.metrics.total_slippage_eur > 0
-    assert {baseline.name for baseline in result.baselines} == {"no_trade", "buy_and_hold"}
+    assert {baseline.name for baseline in result.baselines} == {
+        "no_trade",
+        "buy_and_hold",
+        "random_signal_same_frequency",
+    }
     assert result.decision.live_promotion_allowed is False
     assert (tmp_path / "pytest_backtest.md").exists()
     assert (tmp_path / "pytest_backtest.json").exists()
@@ -129,3 +133,23 @@ def test_backtest_engine_rejects_illiquid_signal_without_trade(tmp_path):
     assert result.fill_count == 0
     assert result.rejected_fill_count == 1
     assert result.trade_count == 0
+
+
+def test_backtest_engine_random_baseline_is_deterministic(tmp_path):
+    def strategy(bar, history):
+        if len(history) in {1, 3}:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="entry")]
+        if len(history) in {2, 4}:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    bars = [_bar(0, 1.0), _bar(1, 1.02), _bar(2, 1.01), _bar(3, 1.04), _bar(4, 1.03)]
+    engine = BacktestEngine(_config(tmp_path))
+
+    first = engine.run(bars, strategy, write_reports=False)
+    second = engine.run(bars, strategy, write_reports=False)
+
+    first_random = next(baseline for baseline in first.baselines if baseline.name == "random_signal_same_frequency")
+    second_random = next(baseline for baseline in second.baselines if baseline.name == "random_signal_same_frequency")
+    assert first_random.net_pnl_eur == second_random.net_pnl_eur
+    assert "requested trades=2" in first_random.notes

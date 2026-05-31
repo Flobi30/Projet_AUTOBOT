@@ -9,6 +9,8 @@ immutable JSON/Markdown reports.
 from __future__ import annotations
 
 import json
+import random
+from hashlib import sha256
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Protocol, Sequence
@@ -214,13 +216,13 @@ class BacktestEngine:
                 else:
                     rejected_fill_count += 1
 
-        baselines = self._baselines(ordered_bars)
-        buy_hold = next((baseline for baseline in baselines if baseline.name == "buy_and_hold"), None)
+        baselines = self._baselines(ordered_bars, strategy_trade_count=len(journal.records))
+        comparison_baseline = max(baselines, key=lambda baseline: baseline.total_return_pct)
         metrics = self.metrics_engine.calculate(
             journal.records,
             initial_capital_eur=self.config.initial_capital_eur,
-            baseline_name=buy_hold.name if buy_hold else "no_trade",
-            baseline_return_pct=buy_hold.total_return_pct if buy_hold else 0.0,
+            baseline_name=comparison_baseline.name,
+            baseline_return_pct=comparison_baseline.total_return_pct,
         )
         decision = self._decide(metrics)
         result = BacktestResult(
@@ -297,7 +299,7 @@ class BacktestEngine:
             metadata={"entry": position.signal.metadata, "exit": exit_signal.metadata},
         )
 
-    def _baselines(self, bars: Sequence[MarketBar]) -> tuple[BaselineResult, ...]:
+    def _baselines(self, bars: Sequence[MarketBar], *, strategy_trade_count: int) -> tuple[BaselineResult, ...]:
         no_trade = BaselineResult(name="no_trade", net_pnl_eur=0.0, total_return_pct=0.0)
         by_symbol: dict[str, list[MarketBar]] = {}
         for bar in bars:
@@ -324,7 +326,76 @@ class BacktestEngine:
             total_return_pct=(net_pnl / self.config.initial_capital_eur) * 100.0,
             notes="Equal capital allocation per symbol, net of configured costs.",
         )
-        return (no_trade, buy_hold)
+        random_same_frequency = self._random_signal_baseline(by_symbol, strategy_trade_count=strategy_trade_count)
+        return (no_trade, buy_hold, random_same_frequency)
+
+    def _random_signal_baseline(
+        self,
+        by_symbol: dict[str, list[MarketBar]],
+        *,
+        strategy_trade_count: int,
+    ) -> BaselineResult:
+        if strategy_trade_count <= 0:
+            return BaselineResult(
+                name="random_signal_same_frequency",
+                net_pnl_eur=0.0,
+                total_return_pct=0.0,
+                notes="Not computed because the strategy produced no closed trades.",
+            )
+        eligible = {
+            symbol: sorted(series, key=lambda item: item.timestamp)
+            for symbol, series in by_symbol.items()
+            if len(series) >= 2
+        }
+        if not eligible:
+            return BaselineResult(
+                name="random_signal_same_frequency",
+                net_pnl_eur=0.0,
+                total_return_pct=0.0,
+                notes="Not computed because no symbol has enough bars.",
+            )
+        rng = random.Random(self._baseline_seed())
+        symbols = sorted(eligible)
+        net_pnl = 0.0
+        executed = 0
+        for _ in range(strategy_trade_count):
+            symbol = rng.choice(symbols)
+            series = eligible[symbol]
+            entry_index = rng.randrange(0, len(series) - 1)
+            exit_index = rng.randrange(entry_index + 1, len(series))
+            entry_bar = series[entry_index]
+            exit_bar = series[exit_index]
+            entry = self.cost_model.simulate_fill(
+                FillRequest(
+                    symbol=symbol,
+                    side="buy",
+                    price=entry_bar.close,
+                    notional_eur=self.config.default_order_notional_eur,
+                    timestamp=entry_bar.timestamp,
+                )
+            )
+            exit_fill = self.cost_model.simulate_fill(
+                FillRequest(
+                    symbol=symbol,
+                    side="sell",
+                    price=exit_bar.close,
+                    quantity=entry.quantity,
+                    timestamp=exit_bar.timestamp,
+                )
+            )
+            if entry.accepted and exit_fill.accepted:
+                executed += 1
+                net_pnl += self.cost_model.round_trip_pnl(entry, exit_fill).net_pnl_eur
+        return BaselineResult(
+            name="random_signal_same_frequency",
+            net_pnl_eur=net_pnl,
+            total_return_pct=(net_pnl / self.config.initial_capital_eur) * 100.0,
+            notes=f"Deterministic random long baseline, requested trades={strategy_trade_count}, executed={executed}.",
+        )
+
+    def _baseline_seed(self) -> int:
+        payload = f"{self.config.run_id}:{self.config.strategy_id}:{self.config.dataset_id}".encode("utf-8")
+        return int.from_bytes(sha256(payload).digest()[:8], "big")
 
     def _decide(self, metrics: MetricsResult) -> BacktestDecision:
         if metrics.trade_count < self.config.min_closed_trades:
