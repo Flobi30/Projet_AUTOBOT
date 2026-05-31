@@ -12,6 +12,8 @@ import csv
 import json
 import math
 import random
+import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1035,6 +1037,211 @@ class ResearchValidationHarness:
             raise ValueError("JSON dataset must be a list or an object with an events list")
         return [MarketEvent.from_mapping(row, default_symbol=default_symbol) for row in rows]
 
+    def load_market_events_from_state_db(
+        self,
+        db_path: str | Path,
+        *,
+        symbol: str | None = None,
+        symbols: Sequence[str] | None = None,
+        start_at: Any | None = None,
+        end_at: Any | None = None,
+        limit: int | None = None,
+    ) -> list[MarketEvent]:
+        """Load recorded AUTOBOT market price samples from ``autobot_state.db``.
+
+        These rows are runtime price observations captured by AUTOBOT. They are
+        suitable replay inputs when enough samples exist, unlike trade ledgers
+        which only reconstruct execution traces.
+        """
+        path = Path(db_path)
+        if not path.exists():
+            return []
+        try:
+            with closing(_connect_sqlite_readonly(path)) as conn:
+                if not _sqlite_table_exists(conn, "market_price_samples"):
+                    return []
+                where, args = _sqlite_filters(
+                    symbol_column="symbol",
+                    time_column="observed_at",
+                    symbols=_merge_symbols(symbol, symbols),
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+                query = (
+                    "SELECT sample_id, symbol, price, observed_at, bucket_start, source, created_at "
+                    "FROM market_price_samples "
+                    f"{where} "
+                    "ORDER BY observed_at ASC, id ASC"
+                )
+                if limit is not None:
+                    query += " LIMIT ?"
+                    args.append(max(1, int(limit)))
+                rows = conn.execute(query, args).fetchall()
+        except Exception:
+            return []
+
+        events: list[MarketEvent] = []
+        for row in rows:
+            price = _safe_float(row["price"], 0.0)
+            if price <= 0.0:
+                continue
+            events.append(
+                MarketEvent(
+                    timestamp=_parse_timestamp(row["observed_at"]),
+                    symbol=str(row["symbol"] or "UNKNOWN").upper(),
+                    price=price,
+                    volume=0.0,
+                    timeframe="runtime_sample",
+                    metadata={
+                        "source": "market_price_samples",
+                        "sample_id": row["sample_id"],
+                        "bucket_start": row["bucket_start"],
+                        "sample_source": row["source"],
+                        "created_at": row["created_at"],
+                    },
+                )
+            )
+        return events
+
+    def load_market_events_from_trade_ledger(
+        self,
+        db_path: str | Path,
+        *,
+        symbol: str | None = None,
+        symbols: Sequence[str] | None = None,
+        include_opening: bool = True,
+        include_closing: bool = True,
+        start_at: Any | None = None,
+        end_at: Any | None = None,
+        limit: int | None = None,
+    ) -> list[MarketEvent]:
+        """Load execution-trace events from AUTOBOT ``trade_ledger`` rows.
+
+        This is not a full market dataset: it only exposes prices where AUTOBOT
+        actually recorded an opening or closing leg. It is useful for replay
+        diagnostics and audit reconstruction, but strategy validation should
+        prefer ``load_market_events_from_state_db`` when market samples exist.
+        """
+        return self._load_execution_trace_events(
+            db_path,
+            table="trade_ledger",
+            source="trade_ledger_execution_trace",
+            symbol=symbol,
+            symbols=symbols,
+            include_opening=include_opening,
+            include_closing=include_closing,
+            start_at=start_at,
+            end_at=end_at,
+            limit=limit,
+        )
+
+    def load_market_events_from_paper_trades_db(
+        self,
+        db_path: str | Path,
+        *,
+        symbol: str | None = None,
+        symbols: Sequence[str] | None = None,
+        statuses: Sequence[str] = ("filled", "closed"),
+        start_at: Any | None = None,
+        end_at: Any | None = None,
+        limit: int | None = None,
+    ) -> list[MarketEvent]:
+        """Load execution-trace events from the paper executor trades table."""
+        return self._load_execution_trace_events(
+            db_path,
+            table="trades",
+            source="paper_trades_db_execution_trace",
+            symbol=symbol,
+            symbols=symbols,
+            statuses=statuses,
+            start_at=start_at,
+            end_at=end_at,
+            limit=limit,
+        )
+
+    def _load_execution_trace_events(
+        self,
+        db_path: str | Path,
+        *,
+        table: str,
+        source: str,
+        symbol: str | None = None,
+        symbols: Sequence[str] | None = None,
+        statuses: Sequence[str] | None = None,
+        include_opening: bool = True,
+        include_closing: bool = True,
+        start_at: Any | None = None,
+        end_at: Any | None = None,
+        limit: int | None = None,
+    ) -> list[MarketEvent]:
+        path = Path(db_path)
+        if not path.exists():
+            return []
+        try:
+            with closing(_connect_sqlite_readonly(path)) as conn:
+                if not _sqlite_table_exists(conn, table):
+                    return []
+                columns = _sqlite_columns(conn, table)
+                time_column = "created_at" if "created_at" in columns else ("timestamp" if "timestamp" in columns else None)
+                where, args = _sqlite_filters(
+                    symbol_column="symbol" if "symbol" in columns else None,
+                    time_column=time_column,
+                    symbols=_merge_symbols(symbol, symbols),
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+                if statuses and "status" in columns:
+                    placeholders = ",".join("?" for _ in statuses)
+                    where = f"{where} {'AND' if where else 'WHERE'} LOWER(status) IN ({placeholders})"
+                    args.extend(str(status).lower() for status in statuses)
+                order_column = time_column or ("id" if "id" in columns else "rowid")
+                query = f"SELECT * FROM {table} {where} ORDER BY {order_column} ASC"
+                if limit is not None:
+                    query += " LIMIT ?"
+                    args.append(max(1, int(limit)))
+                rows = conn.execute(query, args).fetchall()
+        except Exception:
+            return []
+
+        events: list[MarketEvent] = []
+        for row in rows:
+            if not _include_ledger_leg(row, include_opening=include_opening, include_closing=include_closing):
+                continue
+            price = _first_positive(row, ("executed_price", "price", "expected_price"))
+            if price <= 0.0:
+                continue
+            volume = _safe_float(_row_get(row, "volume"), 0.0)
+            timestamp = _row_get(row, "created_at") or _row_get(row, "timestamp")
+            if timestamp in (None, ""):
+                continue
+            symbol_value = str(_row_get(row, "symbol") or "UNKNOWN").upper()
+            events.append(
+                MarketEvent(
+                    timestamp=_parse_timestamp(timestamp),
+                    symbol=symbol_value,
+                    price=price,
+                    volume=volume,
+                    liquidity_eur=price * volume if volume > 0.0 else None,
+                    timeframe="execution_trace",
+                    metadata={
+                        "source": source,
+                        "table": table,
+                        "side": _row_get(row, "side"),
+                        "status": _row_get(row, "status"),
+                        "txid": _row_get(row, "txid"),
+                        "trade_id": _row_get(row, "trade_id") or _row_get(row, "id"),
+                        "position_id": _row_get(row, "position_id"),
+                        "instance_id": _row_get(row, "instance_id"),
+                        "fees": _row_get(row, "fees"),
+                        "slippage_bps": _row_get(row, "slippage_bps"),
+                        "realized_pnl": _row_get(row, "realized_pnl") or _row_get(row, "profit"),
+                        "is_opening_leg": _row_get(row, "is_opening_leg"),
+                        "is_closing_leg": _row_get(row, "is_closing_leg"),
+                    },
+                )
+            )
+        return events
+
     def run(
         self,
         *,
@@ -1423,3 +1630,77 @@ def _conclusion_text(result: ValidationRunResult) -> str:
 
 def load_events_from_rows(rows: Iterable[Mapping[str, Any]], *, default_symbol: str | None = None) -> list[MarketEvent]:
     return [MarketEvent.from_mapping(row, default_symbol=default_symbol) for row in rows]
+
+
+def _connect_sqlite_readonly(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _sqlite_table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _sqlite_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _merge_symbols(symbol: str | None, symbols: Sequence[str] | None) -> list[str]:
+    values: list[str] = []
+    if symbol:
+        values.append(symbol)
+    if symbols:
+        values.extend(symbols)
+    return [str(value).upper() for value in values if str(value or "").strip()]
+
+
+def _sqlite_filters(
+    *,
+    symbol_column: str | None,
+    time_column: str | None,
+    symbols: Sequence[str],
+    start_at: Any | None,
+    end_at: Any | None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    args: list[Any] = []
+    if symbol_column and symbols:
+        placeholders = ",".join("?" for _ in symbols)
+        clauses.append(f"{symbol_column} IN ({placeholders})")
+        args.extend(symbols)
+    if time_column and start_at is not None:
+        clauses.append(f"{time_column} >= ?")
+        args.append(_parse_timestamp(start_at).isoformat())
+    if time_column and end_at is not None:
+        clauses.append(f"{time_column} <= ?")
+        args.append(_parse_timestamp(end_at).isoformat())
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else "", args)
+
+
+def _row_get(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    return row[key] if key in row.keys() else default
+
+
+def _first_positive(row: sqlite3.Row, keys: Sequence[str]) -> float:
+    for key in keys:
+        value = _safe_float(_row_get(row, key), 0.0)
+        if value > 0.0:
+            return value
+    return 0.0
+
+
+def _include_ledger_leg(row: sqlite3.Row, *, include_opening: bool, include_closing: bool) -> bool:
+    opening = _row_get(row, "is_opening_leg")
+    closing = _row_get(row, "is_closing_leg")
+    if opening is None and closing is None:
+        return True
+    if bool(opening) and not include_opening:
+        return False
+    if bool(closing) and not include_closing:
+        return False
+    return True

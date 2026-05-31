@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -280,3 +281,142 @@ def test_validation_harness_never_authorizes_live_promotion(tmp_path):
     assert result.decision.live_promotion_allowed is False
     assert result.registry_update_proposal["live_auto_promotion_allowed"] is False
     assert result.decision.checks["live_promotion_allowed"] is False
+
+
+def test_loads_market_events_from_autobot_state_db(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("px2", "TRXEUR", 0.25, "2026-05-01T00:02:00+00:00", "b2", "runtime", "c2"),
+                ("px1", "TRXEUR", 0.24, "2026-05-01T00:01:00+00:00", "b1", "runtime", "c1"),
+                ("px3", "ETHEUR", 3000.0, "2026-05-01T00:03:00+00:00", "b3", "runtime", "c3"),
+            ],
+        )
+
+    harness = ResearchValidationHarness(_config(tmp_path))
+    events = harness.load_market_events_from_state_db(db_path, symbol="TRXEUR")
+
+    assert [event.price for event in events] == [0.24, 0.25]
+    assert all(event.symbol == "TRXEUR" for event in events)
+    assert events[0].timeframe == "runtime_sample"
+    assert events[0].metadata["source"] == "market_price_samples"
+    assert events[0].metadata["sample_id"] == "px1"
+
+
+def test_state_db_loader_returns_empty_when_table_is_missing(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
+
+    harness = ResearchValidationHarness(_config(tmp_path))
+
+    assert harness.load_market_events_from_state_db(db_path) == []
+
+
+def test_loads_trade_ledger_execution_trace_events(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trade_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT,
+                position_id TEXT,
+                instance_id TEXT,
+                symbol TEXT,
+                side TEXT,
+                expected_price REAL,
+                executed_price REAL,
+                volume REAL,
+                fees REAL,
+                slippage_bps REAL,
+                realized_pnl REAL,
+                is_opening_leg INTEGER,
+                is_closing_leg INTEGER,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price, volume,
+             fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("t-open", "pos-1", "inst-1", "TRXEUR", "buy", 0.24, 0.241, 100.0, 0.02, 4.0, None, 1, 0, "2026-05-01T00:01:00+00:00"),
+                ("t-close", "pos-1", "inst-1", "TRXEUR", "sell", 0.26, 0.259, 100.0, 0.02, 4.0, 1.75, 0, 1, "2026-05-01T00:03:00+00:00"),
+            ],
+        )
+
+    harness = ResearchValidationHarness(_config(tmp_path))
+    events = harness.load_market_events_from_trade_ledger(db_path, include_opening=False)
+
+    assert len(events) == 1
+    assert events[0].price == pytest.approx(0.259)
+    assert events[0].volume == pytest.approx(100.0)
+    assert events[0].liquidity_eur == pytest.approx(25.9)
+    assert events[0].timeframe == "execution_trace"
+    assert events[0].metadata["source"] == "trade_ledger_execution_trace"
+    assert events[0].metadata["realized_pnl"] == 1.75
+
+
+def test_loads_paper_trades_execution_trace_events(tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trades (
+                id TEXT PRIMARY KEY,
+                txid TEXT,
+                symbol TEXT,
+                side TEXT,
+                volume REAL,
+                price REAL,
+                fees REAL,
+                timestamp TEXT,
+                status TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO trades
+            (id, txid, symbol, side, volume, price, fees, timestamp, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("1", "tx1", "TRXEUR", "buy", 100.0, 0.24, 0.02, "2026-05-01T00:01:00+00:00", "filled", "2026-05-01T00:01:01+00:00"),
+                ("2", "tx2", "TRXEUR", "sell", 100.0, 0.25, 0.02, "2026-05-01T00:02:00+00:00", "closed", "2026-05-01T00:02:01+00:00"),
+                ("3", "tx3", "TRXEUR", "buy", 100.0, 0.26, 0.02, "2026-05-01T00:03:00+00:00", "cancelled", "2026-05-01T00:03:01+00:00"),
+            ],
+        )
+
+    harness = ResearchValidationHarness(_config(tmp_path))
+    events = harness.load_market_events_from_paper_trades_db(db_path)
+
+    assert [event.price for event in events] == [0.24, 0.25]
+    assert [event.metadata["status"] for event in events] == ["filled", "closed"]
+    assert events[0].metadata["source"] == "paper_trades_db_execution_trace"
