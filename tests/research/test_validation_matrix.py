@@ -1,0 +1,77 @@
+import pytest
+
+from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
+
+
+pytestmark = pytest.mark.integration
+
+
+def _write_csv(path):
+    path.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,timeframe,open,high,low,close,volume",
+                "2026-05-31T00:00:00+00:00,TRXEUR,1m,100,101,99,100,1000",
+                "2026-05-31T00:01:00+00:00,TRXEUR,1m,99.05,100,98,99.05,1000",
+                "2026-05-31T00:02:00+00:00,TRXEUR,1m,99.6,100,98,99.6,1000",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _config(tmp_path, csv_path, *, strategy_configs=None):
+    return MatrixRunConfig(
+        run_id="pytest_matrix",
+        data_source="csv",
+        data_path=csv_path,
+        symbols=("TRXEUR",),
+        strategies=("grid", "trend"),
+        output_dir=tmp_path / "matrix",
+        min_closed_trades=1,
+        cost_config=ExecutionCostConfig(taker_fee_bps=0.0, fallback_spread_bps=0.0, slippage_bps=0.0),
+        strategy_configs=strategy_configs
+        or {
+            "grid": {"range_percent": 4.0, "num_levels": 5, "entry_touch_bps": 20.0, "take_profit_bps": 40.0},
+            "trend": {"breakout_window": 2, "momentum_window": 1, "atr_window": 1},
+        },
+    )
+
+
+def test_validation_matrix_runs_strategy_symbol_grid_and_writes_summary(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_csv(csv_path)
+
+    result = run_validation_matrix(_config(tmp_path, csv_path))
+
+    assert result.cell_count == 2
+    assert result.success_count == 2
+    assert result.error_count == 0
+    assert {cell.strategy for cell in result.results} == {"grid", "trend"}
+    assert all(cell.status == "ok" for cell in result.results)
+    assert all(cell.report_path for cell in result.results)
+    assert (tmp_path / "matrix" / "pytest_matrix.md").exists()
+    assert (tmp_path / "matrix" / "pytest_matrix.json").exists()
+
+
+def test_validation_matrix_records_cell_errors_without_aborting(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_csv(csv_path)
+    config = _config(
+        tmp_path,
+        csv_path,
+        strategy_configs={
+            "grid": {"unknown_parameter": True},
+            "trend": {"breakout_window": 2, "momentum_window": 1, "atr_window": 1},
+        },
+    )
+
+    result = run_validation_matrix(config, write_reports=False)
+
+    assert result.cell_count == 2
+    assert result.success_count == 1
+    assert result.error_count == 1
+    error_cell = next(cell for cell in result.results if cell.status == "error")
+    assert error_cell.strategy == "grid"
+    assert "unknown_parameter" in (error_cell.error or "")

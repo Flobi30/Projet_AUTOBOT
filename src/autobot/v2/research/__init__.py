@@ -20,6 +20,7 @@ from .strategy_signal_generators import (
 )
 from .trade_journal import TradeJournal, TradeRecord
 from .validation_runner import ValidationRunnerConfig, ValidationRunnerResult, run_validation
+from .validation_matrix import MatrixCellResult, MatrixRunConfig, MatrixRunResult, run_validation_matrix
 from .walk_forward import (
     WalkForwardConfig,
     WalkForwardDecision,
@@ -43,6 +44,9 @@ __all__ = [
     "MarketDataRepository",
     "MetricsEngine",
     "MetricsResult",
+    "MatrixCellResult",
+    "MatrixRunConfig",
+    "MatrixRunResult",
     "RoundTripPnL",
     "GridResearchConfig",
     "GridResearchSignalGenerator",
@@ -63,4 +67,5 @@ __all__ = [
     "WalkForwardResult",
     "WalkForwardValidator",
     "run_validation",
+    "run_validation_matrix",
 ]
