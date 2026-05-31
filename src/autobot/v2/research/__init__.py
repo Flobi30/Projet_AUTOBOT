@@ -19,6 +19,7 @@ from .strategy_signal_generators import (
     TrendResearchSignalGenerator,
 )
 from .trade_journal import TradeJournal, TradeRecord
+from .validation_runner import ValidationRunnerConfig, ValidationRunnerResult, run_validation
 from .walk_forward import (
     WalkForwardConfig,
     WalkForwardDecision,
@@ -52,6 +53,8 @@ __all__ = [
     "TradeJournal",
     "TradeRecord",
     "TradingSignalAdapter",
+    "ValidationRunnerConfig",
+    "ValidationRunnerResult",
     "TrendResearchConfig",
     "TrendResearchSignalGenerator",
     "WalkForwardConfig",
@@ -59,4 +62,5 @@ __all__ = [
     "WalkForwardFoldResult",
     "WalkForwardResult",
     "WalkForwardValidator",
+    "run_validation",
 ]
