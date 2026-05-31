@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import sqlite3
 
 import pytest
 
@@ -86,3 +87,50 @@ def test_market_bar_rejects_impossible_ohlc():
                 "volume": 1,
             }
         )
+
+
+def test_market_data_repository_loads_autobot_state_db_price_samples(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("px2", "TRXEUR", 0.25, "2026-05-01T00:02:00+00:00", "b2", "runtime", "c2"),
+                ("px1", "TRXEUR", 0.24, "2026-05-01T00:01:00+00:00", "b1", "runtime", "c1"),
+                ("px3", "ETHEUR", 3000.0, "2026-05-01T00:03:00+00:00", "b3", "runtime", "c3"),
+            ],
+        )
+
+    bars = MarketDataRepository().load_autobot_state_db(db_path, symbol="TRXEUR")
+
+    assert [bar.close for bar in bars] == [0.24, 0.25]
+    assert all(bar.open == bar.high == bar.low == bar.close for bar in bars)
+    assert bars[0].timeframe == "runtime_sample"
+    assert bars[0].metadata["source"] == "market_price_samples"
+    assert bars[0].metadata["sample_id"] == "px1"
+
+
+def test_market_data_repository_state_db_loader_handles_missing_table(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
+
+    assert MarketDataRepository().load_autobot_state_db(db_path) == []

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import math
+import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,6 +182,80 @@ class MarketDataRepository:
             for row in frame.to_dict(orient="records")
         )
 
+    def load_autobot_state_db(
+        self,
+        db_path: str | Path,
+        *,
+        symbol: str | None = None,
+        symbols: Sequence[str] | None = None,
+        start_at: Any | None = None,
+        end_at: Any | None = None,
+        limit: int | None = None,
+        timeframe: str = "runtime_sample",
+    ) -> list[MarketBar]:
+        """Load AUTOBOT runtime price samples from ``autobot_state.db``.
+
+        The loader is read-only. Runtime samples are tick-like observations, so
+        each row is represented as a one-price OHLC bar with zero volume.
+        """
+        path = Path(db_path)
+        if not path.exists():
+            return []
+        wanted_symbols = _merge_symbols(symbol, symbols)
+        try:
+            with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
+                conn.row_factory = sqlite3.Row
+                if not _sqlite_table_exists(conn, "market_price_samples"):
+                    return []
+                where, args = _sqlite_filters(
+                    symbol_column="symbol",
+                    time_column="observed_at",
+                    symbols=wanted_symbols,
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+                query = (
+                    "SELECT sample_id, symbol, price, observed_at, bucket_start, source, created_at "
+                    "FROM market_price_samples "
+                    f"{where} "
+                    "ORDER BY observed_at ASC, id ASC"
+                )
+                if limit is not None:
+                    query += " LIMIT ?"
+                    args.append(max(1, int(limit)))
+                rows = conn.execute(query, args).fetchall()
+        except sqlite3.Error:
+            return []
+
+        bars: list[MarketBar] = []
+        for row in rows:
+            try:
+                price = _safe_float(row["price"], field_name="price")
+            except ValueError:
+                continue
+            if price <= 0.0:
+                continue
+            bars.append(
+                MarketBar(
+                    timestamp=_parse_timestamp(row["observed_at"]),
+                    symbol=str(row["symbol"] or "UNKNOWN").upper(),
+                    timeframe=timeframe,
+                    open=price,
+                    high=price,
+                    low=price,
+                    close=price,
+                    volume=0.0,
+                    metadata={
+                        "source": "market_price_samples",
+                        "sample_id": row["sample_id"],
+                        "bucket_start": row["bucket_start"],
+                        "sample_source": row["source"],
+                        "created_at": row["created_at"],
+                    },
+                )
+            )
+        return self.normalize(bars)
+
     def save_parquet(self, bars: Sequence[MarketBar], path: str | Path) -> Path:
         try:
             import pandas as pd  # type: ignore
@@ -286,3 +362,43 @@ class MarketDataRepository:
         for bar in bars:
             groups.setdefault((bar.symbol, bar.timeframe), []).append(bar)
         return groups
+
+
+def _sqlite_table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _merge_symbols(symbol: str | None, symbols: Sequence[str] | None) -> list[str]:
+    values: list[str] = []
+    if symbol:
+        values.append(symbol)
+    if symbols:
+        values.extend(symbols)
+    return [str(value).upper() for value in values if str(value or "").strip()]
+
+
+def _sqlite_filters(
+    *,
+    symbol_column: str,
+    time_column: str,
+    symbols: Sequence[str],
+    start_at: Any | None,
+    end_at: Any | None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    args: list[Any] = []
+    if symbols:
+        placeholders = ",".join("?" for _ in symbols)
+        clauses.append(f"{symbol_column} IN ({placeholders})")
+        args.extend(symbols)
+    if start_at is not None:
+        clauses.append(f"{time_column} >= ?")
+        args.append(_parse_timestamp(start_at).isoformat())
+    if end_at is not None:
+        clauses.append(f"{time_column} <= ?")
+        args.append(_parse_timestamp(end_at).isoformat())
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else "", args)
