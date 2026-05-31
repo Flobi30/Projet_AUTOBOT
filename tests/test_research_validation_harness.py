@@ -199,9 +199,16 @@ def test_harness_generates_ledger_metrics_baselines_and_report(tmp_path):
 
     result = harness.run(strategy=RoundTripStrategy(sell_on_event=3), market_events=events)
 
+    assert result.market_event_count == 3
+    assert result.signal_count == 2
+    assert result.simulated_order_count == 2
+    assert result.fill_count == 2
     assert result.metrics.trade_count == 1
     assert result.metrics.total_fees_eur > 0
     assert result.metrics.total_slippage_eur > 0
+    assert result.metrics.realized_gross_pnl_eur > result.metrics.realized_net_pnl_eur
+    assert result.metrics.realized_net_pnl_eur == pytest.approx(result.metrics.total_net_pnl_eur)
+    assert result.metrics.total_net_pnl_eur == pytest.approx(result.metrics.final_equity_eur - 1_000.0)
     assert len(result.ledger) == 2
     assert {baseline.name for baseline in result.baselines} == {
         "no_trade_baseline",

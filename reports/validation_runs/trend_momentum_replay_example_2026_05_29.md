@@ -4,6 +4,7 @@ Strategy: `trend_momentum`
 Symbol: `TRXEUR`
 Dataset: `synthetic_trend_reversal_inline`
 Period: `2026-05-29T08:00:00+00:00` to `2026-05-29T08:10:00+00:00`
+Market events replayed: `11`
 
 ## Hypothesis
 
@@ -15,14 +16,17 @@ Existing TrendStrategy replay on synthetic trend/reversal data to prove the vali
 | --- | ---: |
 | Initial capital | 1000.00 |
 | Final equity | 1000.31 |
+| Realized gross PnL | 0.634593 |
+| Realized net PnL | 0.313321 |
+| Total net PnL | 0.313321 |
 | Total return gross | 0.0635% |
 | Total return net | 0.0313% |
 | Max drawdown | 0.0242% |
 | Profit factor | inf |
 | Winrate | 100.00% |
-| Expectancy | 0.233003 |
+| Expectancy | 0.313321 |
 | Closed trades | 1 |
-| Average win | 0.233003 |
+| Average win | 0.313321 |
 | Average loss | 0.000000 |
 | Average duration seconds | 60.000000 |
 | Sharpe | N/A |
@@ -47,6 +51,9 @@ Live promotion allowed: `False`
 
 ## Replay Ledger
 
+Signals generated: 2
+Simulated orders: 2
+Fills: 2
 Ledger entries: 2
 Rejected signals: 0
 

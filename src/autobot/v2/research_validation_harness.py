@@ -260,6 +260,9 @@ class StrategyMetrics:
     symbol: str
     initial_capital_eur: float
     final_equity_eur: float
+    realized_gross_pnl_eur: float
+    realized_net_pnl_eur: float
+    total_net_pnl_eur: float
     total_return_gross_pct: float
     total_return_net_pct: float
     max_drawdown_eur: float
@@ -328,6 +331,10 @@ class ValidationRunResult:
     ledger: list[LedgerEntry]
     rejected_signals: list[RiskDecision]
     registry_update_proposal: dict[str, Any]
+    market_event_count: int = 0
+    signal_count: int = 0
+    simulated_order_count: int = 0
+    fill_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -341,6 +348,10 @@ class ValidationRunResult:
             "metrics": self.metrics.to_dict(),
             "baselines": [item.to_dict() for item in self.baselines],
             "decision": self.decision.to_dict(),
+            "market_event_count": self.market_event_count,
+            "signal_count": self.signal_count,
+            "simulated_order_count": self.simulated_order_count,
+            "fill_count": self.fill_count,
             "ledger": [entry.to_dict() for entry in self.ledger],
             "rejected_signals": [decision.to_dict() for decision in self.rejected_signals],
             "registry_update_proposal": dict(self.registry_update_proposal),
@@ -694,7 +705,9 @@ class ReplayLedger:
         gross_pnl = (fill.execution_price - float(position["entry_price"])) * quantity
         fees = float(position["entry_fee_eur"]) + fill.fee_eur
         slippage = float(position["entry_slippage_eur"]) + fill.slippage_eur
-        net_pnl = gross_pnl - fees - slippage
+        # Slippage is already baked into the execution prices. Keep it as a
+        # cost attribution, but do not subtract it a second time from PnL.
+        net_pnl = gross_pnl - fees
         self.portfolio.cash_eur += fill.notional_eur - fill.fee_eur
         equity = self.portfolio.mark_to_market(event.price)
         duration = (fill.timestamp - position["entry_time"]).total_seconds()
@@ -767,14 +780,20 @@ class ReplayMetricsEngine:
         sharpe = _sharpe(returns)
         sortino = _sortino(returns)
         by_regime = _by_regime(closing)
+        realized_gross_pnl = sum(gross)
+        realized_net_pnl = sum(pnl)
+        total_net_pnl = final_equity_eur - initial_capital_eur
         return StrategyMetrics(
             strategy_id=strategy_id,
             run_id=run_id,
             symbol=symbol,
             initial_capital_eur=initial_capital_eur,
             final_equity_eur=final_equity_eur,
-            total_return_gross_pct=(sum(gross) / initial_capital_eur * 100.0) if initial_capital_eur else 0.0,
-            total_return_net_pct=((final_equity_eur - initial_capital_eur) / initial_capital_eur * 100.0) if initial_capital_eur else 0.0,
+            realized_gross_pnl_eur=realized_gross_pnl,
+            realized_net_pnl_eur=realized_net_pnl,
+            total_net_pnl_eur=total_net_pnl,
+            total_return_gross_pct=(realized_gross_pnl / initial_capital_eur * 100.0) if initial_capital_eur else 0.0,
+            total_return_net_pct=(total_net_pnl / initial_capital_eur * 100.0) if initial_capital_eur else 0.0,
             max_drawdown_eur=max_dd,
             max_drawdown_pct=(max_dd / initial_capital_eur * 100.0) if initial_capital_eur else 0.0,
             profit_factor=profit_factor,
@@ -1030,10 +1049,14 @@ class ResearchValidationHarness:
         ledger = ReplayLedger(self.config.run_id, self.config.strategy_id, self.config.initial_capital_eur)
         rejected: list[RiskDecision] = []
         history_by_symbol: dict[str, list[tuple[datetime, float]]] = {}
+        signal_count = 0
+        simulated_order_count = 0
+        fill_count = 0
         for event in events:
             history_by_symbol.setdefault(event.symbol, []).append((event.timestamp, event.price))
             ledger.portfolio.mark_to_market(event.price)
             for signal in strategy.on_market_event(event):
+                signal_count += 1
                 opportunity = self._score_signal(signal, event, ledger, history_by_symbol.get(event.symbol, []))
                 risk = self.risk.evaluate(
                     signal=signal,
@@ -1045,12 +1068,14 @@ class ResearchValidationHarness:
                     rejected.append(risk)
                     continue
                 order = self._order_from_risk(risk, event)
+                simulated_order_count += 1
                 fill = self.execution.execute(order, event)
                 if not fill.filled:
                     rejected.append(
                         RiskDecision(False, fill.reason, signal, opportunity.result, checks={"execution_rejected": True})
                     )
                     continue
+                fill_count += 1
                 entry = ledger.apply_fill(fill, signal=signal, event=event)
                 if entry is not None and hasattr(strategy, "on_fill"):
                     strategy.on_fill(fill)
@@ -1085,6 +1110,10 @@ class ResearchValidationHarness:
             ledger=ledger.entries,
             rejected_signals=rejected,
             registry_update_proposal=self._registry_proposal(decision, metrics),
+            market_event_count=len(events),
+            signal_count=signal_count,
+            simulated_order_count=simulated_order_count,
+            fill_count=fill_count,
         )
         if write_report:
             self.write_report(result)
@@ -1244,6 +1273,7 @@ def render_validation_report(result: ValidationRunResult) -> str:
         f"Symbol: `{result.symbol}`",
         f"Dataset: `{result.dataset_id}`",
         f"Period: `{result.started_at.isoformat()}` to `{result.ended_at.isoformat()}`",
+        f"Market events replayed: `{result.market_event_count}`",
         "",
         "## Hypothesis",
         "",
@@ -1255,6 +1285,9 @@ def render_validation_report(result: ValidationRunResult) -> str:
         "| --- | ---: |",
         f"| Initial capital | {metrics.initial_capital_eur:.2f} |",
         f"| Final equity | {metrics.final_equity_eur:.2f} |",
+        f"| Realized gross PnL | {metrics.realized_gross_pnl_eur:.6f} |",
+        f"| Realized net PnL | {metrics.realized_net_pnl_eur:.6f} |",
+        f"| Total net PnL | {metrics.total_net_pnl_eur:.6f} |",
         f"| Total return gross | {metrics.total_return_gross_pct:.4f}% |",
         f"| Total return net | {metrics.total_return_net_pct:.4f}% |",
         f"| Max drawdown | {metrics.max_drawdown_pct:.4f}% |",
@@ -1292,6 +1325,9 @@ def render_validation_report(result: ValidationRunResult) -> str:
             "",
             "## Replay Ledger",
             "",
+            f"Signals generated: {result.signal_count}",
+            f"Simulated orders: {result.simulated_order_count}",
+            f"Fills: {result.fill_count}",
             f"Ledger entries: {len(result.ledger)}",
             f"Rejected signals: {len(result.rejected_signals)}",
             "",
