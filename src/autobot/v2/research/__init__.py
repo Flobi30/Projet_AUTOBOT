@@ -10,6 +10,14 @@ from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillR
 from .market_data_repository import MarketBar, MarketDataQualityReport, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
 from .strategy_adapters import ResearchStrategyInstance, RuntimeStrategyBacktestAdapter, TradingSignalAdapter
+from .strategy_signal_generators import (
+    GridResearchConfig,
+    GridResearchSignalGenerator,
+    MeanReversionResearchConfig,
+    MeanReversionResearchSignalGenerator,
+    TrendResearchConfig,
+    TrendResearchSignalGenerator,
+)
 from .trade_journal import TradeJournal, TradeRecord
 from .walk_forward import (
     WalkForwardConfig,
@@ -35,11 +43,17 @@ __all__ = [
     "MetricsEngine",
     "MetricsResult",
     "RoundTripPnL",
+    "GridResearchConfig",
+    "GridResearchSignalGenerator",
+    "MeanReversionResearchConfig",
+    "MeanReversionResearchSignalGenerator",
     "ResearchStrategyInstance",
     "RuntimeStrategyBacktestAdapter",
     "TradeJournal",
     "TradeRecord",
     "TradingSignalAdapter",
+    "TrendResearchConfig",
+    "TrendResearchSignalGenerator",
     "WalkForwardConfig",
     "WalkForwardDecision",
     "WalkForwardFoldResult",
