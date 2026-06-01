@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .trade_journal import TradeJournal, TradeRecord
+from .validation_matrix import MatrixRunResult
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,59 @@ class LossAttributionResult:
         }
 
 
+@dataclass(frozen=True)
+class MatrixCellLossAttribution:
+    run_id: str
+    strategy: str
+    symbol: str
+    decision: str | None
+    reason: str | None
+    journal_path: str
+    attribution_report_path: str | None
+    trade_count: int
+    gross_pnl_eur: float
+    net_pnl_eur: float
+    total_cost_eur: float
+    cost_flipped_trade_count: int
+    worst_exit_reason: str | None
+    worst_entry_reason: str | None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MatrixLossAttributionReport:
+    matrix_run_id: str
+    mode: str
+    analyzed_cell_count: int
+    missing_journal_count: int
+    total_trades: int
+    aggregate_gross_pnl_eur: float
+    aggregate_net_pnl_eur: float
+    aggregate_cost_eur: float
+    aggregate_cost_flipped_trade_count: int
+    cells: tuple[MatrixCellLossAttribution, ...]
+    json_report_path: str | None = None
+    markdown_report_path: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "matrix_run_id": self.matrix_run_id,
+            "mode": self.mode,
+            "analyzed_cell_count": self.analyzed_cell_count,
+            "missing_journal_count": self.missing_journal_count,
+            "total_trades": self.total_trades,
+            "aggregate_gross_pnl_eur": self.aggregate_gross_pnl_eur,
+            "aggregate_net_pnl_eur": self.aggregate_net_pnl_eur,
+            "aggregate_cost_eur": self.aggregate_cost_eur,
+            "aggregate_cost_flipped_trade_count": self.aggregate_cost_flipped_trade_count,
+            "cells": [cell.to_dict() for cell in self.cells],
+            "json_report_path": self.json_report_path,
+            "markdown_report_path": self.markdown_report_path,
+        }
+
+
 def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None = None) -> LossAttributionResult:
     trades = tuple(records)
     inferred_run_id = run_id or _single_value((trade.run_id for trade in trades), default="mixed_runs")
@@ -142,6 +196,68 @@ def write_loss_attribution_report(
     return replace(result, json_report_path=str(json_path), markdown_report_path=str(md_path))
 
 
+def write_matrix_loss_attribution_report(
+    matrix: MatrixRunResult,
+    output_dir: str | Path,
+    *,
+    write_cell_reports: bool = True,
+) -> MatrixLossAttributionReport:
+    """Write attribution reports for all matrix cells that have trade journals."""
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    cell_output_dir = output_path / "cells"
+    analyzed: list[MatrixCellLossAttribution] = []
+    missing = 0
+
+    for cell in matrix.results:
+        journal_path = _journal_path_from_cell(cell.report_path)
+        if not journal_path or not journal_path.exists():
+            if cell.closed_trades > 0:
+                missing += 1
+            continue
+        attribution = analyze_trade_journal(journal_path, run_id=cell.run_id)
+        if write_cell_reports:
+            attribution = write_loss_attribution_report(attribution, cell_output_dir)
+        analyzed.append(
+            MatrixCellLossAttribution(
+                run_id=cell.run_id,
+                strategy=cell.strategy,
+                symbol=cell.symbol,
+                decision=cell.decision,
+                reason=cell.reason,
+                journal_path=str(journal_path),
+                attribution_report_path=attribution.markdown_report_path,
+                trade_count=attribution.trade_count,
+                gross_pnl_eur=attribution.gross_pnl_eur,
+                net_pnl_eur=attribution.net_pnl_eur,
+                total_cost_eur=attribution.total_cost_eur,
+                cost_flipped_trade_count=attribution.cost_flipped_trade_count,
+                worst_exit_reason=attribution.by_exit_reason[0].key if attribution.by_exit_reason else None,
+                worst_entry_reason=attribution.by_entry_reason[0].key if attribution.by_entry_reason else None,
+            )
+        )
+
+    sorted_cells = tuple(sorted(analyzed, key=lambda item: (item.net_pnl_eur, -item.trade_count)))
+    report = MatrixLossAttributionReport(
+        matrix_run_id=matrix.run_id,
+        mode=matrix.mode,
+        analyzed_cell_count=len(sorted_cells),
+        missing_journal_count=missing,
+        total_trades=sum(cell.trade_count for cell in sorted_cells),
+        aggregate_gross_pnl_eur=sum(cell.gross_pnl_eur for cell in sorted_cells),
+        aggregate_net_pnl_eur=sum(cell.net_pnl_eur for cell in sorted_cells),
+        aggregate_cost_eur=sum(cell.total_cost_eur for cell in sorted_cells),
+        aggregate_cost_flipped_trade_count=sum(cell.cost_flipped_trade_count for cell in sorted_cells),
+        cells=sorted_cells,
+    )
+    json_path = output_path / f"{matrix.run_id}_matrix_loss_attribution.json"
+    md_path = output_path / f"{matrix.run_id}_matrix_loss_attribution.md"
+    json_path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    md_path.write_text(render_matrix_loss_attribution_report(report), encoding="utf-8")
+    return replace(report, json_report_path=str(json_path), markdown_report_path=str(md_path))
+
+
 def render_loss_attribution_report(result: LossAttributionResult) -> str:
     lines = [
         f"# Loss Attribution - {result.run_id}",
@@ -173,6 +289,48 @@ def render_loss_attribution_report(result: LossAttributionResult) -> str:
     lines.extend(_bucket_table(result.by_entry_reason))
     lines.extend(["", "## By Symbol", ""])
     lines.extend(_bucket_table(result.by_symbol))
+    lines.extend(
+        [
+            "",
+            "## Safety",
+            "",
+            "This report is research-only. It does not authorize paper or live execution.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -> str:
+    lines = [
+        f"# Matrix Loss Attribution - {report.matrix_run_id}",
+        "",
+        f"Mode: `{report.mode}`",
+        f"Analyzed cells: `{report.analyzed_cell_count}`",
+        f"Missing journals: `{report.missing_journal_count}`",
+        "",
+        "## Aggregate",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Trades | {report.total_trades} |",
+        f"| Gross PnL | {report.aggregate_gross_pnl_eur:.6f} |",
+        f"| Net PnL | {report.aggregate_net_pnl_eur:.6f} |",
+        f"| Total Cost | {report.aggregate_cost_eur:.6f} |",
+        f"| Cost-Flipped Trades | {report.aggregate_cost_flipped_trade_count} |",
+        "",
+        "## Worst Cells",
+        "",
+        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | Worst Exit | Worst Entry |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    ]
+    for cell in report.cells:
+        lines.append(
+            f"| {cell.symbol} | {cell.strategy} | {cell.decision or ''} | {cell.reason or ''} | "
+            f"{cell.trade_count} | {cell.gross_pnl_eur:.6f} | {cell.net_pnl_eur:.6f} | "
+            f"{cell.total_cost_eur:.6f} | {cell.cost_flipped_trade_count} | "
+            f"{cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
+        )
     lines.extend(
         [
             "",
@@ -231,3 +389,12 @@ def _single_value(values: Iterable[str], *, default: str) -> str:
     if len(unique) == 1:
         return next(iter(unique))
     return default
+
+
+def _journal_path_from_cell(report_path: str | None) -> Path | None:
+    if not report_path:
+        return None
+    path = Path(report_path)
+    if path.suffix != ".md":
+        return None
+    return path.with_name(f"{path.stem}_journal.json")

@@ -123,6 +123,7 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
             "--registry-path",
             str(registry_path),
             "--write-registry-recommendations",
+            "--write-loss-attribution",
         ]
     )
 
@@ -131,9 +132,16 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
     assert exit_code == 0
     assert output["cell_count"] == 1
     assert output["registry_recommendation_report"]["recommendations"][0]["live_promotion_allowed"] is False
+    assert output["loss_attribution_report"]["analyzed_cell_count"] == 1
     assert (
         tmp_path
         / "matrix"
         / "registry_recommendations"
         / "pytest_matrix_cli_registry_recommendations.md"
+    ).exists()
+    assert (
+        tmp_path
+        / "matrix"
+        / "loss_attribution"
+        / "pytest_matrix_cli_matrix_loss_attribution.md"
     ).exists()
