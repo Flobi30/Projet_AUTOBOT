@@ -124,6 +124,7 @@ class MatrixCellLossAttribution:
     mfe_above_cost_trade_count: int
     average_mfe_bps: float | None
     average_mae_bps: float | None
+    average_mfe_to_cost_ratio: float | None
     worst_exit_reason: str | None
     worst_entry_reason: str | None
 
@@ -142,6 +143,10 @@ class MatrixLossAttributionReport:
     aggregate_net_pnl_eur: float
     aggregate_cost_eur: float
     aggregate_cost_flipped_trade_count: int
+    aggregate_mfe_above_cost_trade_count: int
+    aggregate_average_mfe_bps: float | None
+    aggregate_average_mae_bps: float | None
+    aggregate_average_mfe_to_cost_ratio: float | None
     cells: tuple[MatrixCellLossAttribution, ...]
     json_report_path: str | None = None
     markdown_report_path: str | None = None
@@ -157,6 +162,10 @@ class MatrixLossAttributionReport:
             "aggregate_net_pnl_eur": self.aggregate_net_pnl_eur,
             "aggregate_cost_eur": self.aggregate_cost_eur,
             "aggregate_cost_flipped_trade_count": self.aggregate_cost_flipped_trade_count,
+            "aggregate_mfe_above_cost_trade_count": self.aggregate_mfe_above_cost_trade_count,
+            "aggregate_average_mfe_bps": self.aggregate_average_mfe_bps,
+            "aggregate_average_mae_bps": self.aggregate_average_mae_bps,
+            "aggregate_average_mfe_to_cost_ratio": self.aggregate_average_mfe_to_cost_ratio,
             "cells": [cell.to_dict() for cell in self.cells],
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
@@ -254,6 +263,7 @@ def write_matrix_loss_attribution_report(
                 mfe_above_cost_trade_count=attribution.mfe_above_cost_trade_count,
                 average_mfe_bps=attribution.average_mfe_bps,
                 average_mae_bps=attribution.average_mae_bps,
+                average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio,
                 worst_exit_reason=attribution.by_exit_reason[0].key if attribution.by_exit_reason else None,
                 worst_entry_reason=attribution.by_entry_reason[0].key if attribution.by_entry_reason else None,
             )
@@ -270,6 +280,19 @@ def write_matrix_loss_attribution_report(
         aggregate_net_pnl_eur=sum(cell.net_pnl_eur for cell in sorted_cells),
         aggregate_cost_eur=sum(cell.total_cost_eur for cell in sorted_cells),
         aggregate_cost_flipped_trade_count=sum(cell.cost_flipped_trade_count for cell in sorted_cells),
+        aggregate_mfe_above_cost_trade_count=sum(cell.mfe_above_cost_trade_count for cell in sorted_cells),
+        aggregate_average_mfe_bps=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_mfe_bps,
+        ),
+        aggregate_average_mae_bps=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_mae_bps,
+        ),
+        aggregate_average_mfe_to_cost_ratio=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_mfe_to_cost_ratio,
+        ),
         cells=sorted_cells,
     )
     json_path = output_path / f"{matrix.run_id}_matrix_loss_attribution.json"
@@ -343,11 +366,15 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
         f"| Net PnL | {report.aggregate_net_pnl_eur:.6f} |",
         f"| Total Cost | {report.aggregate_cost_eur:.6f} |",
         f"| Cost-Flipped Trades | {report.aggregate_cost_flipped_trade_count} |",
+        f"| MFE Above Cost Trades | {report.aggregate_mfe_above_cost_trade_count} |",
+        f"| Average MFE | {_fmt_optional(report.aggregate_average_mfe_bps)} bps |",
+        f"| Average MAE | {_fmt_optional(report.aggregate_average_mae_bps)} bps |",
+        f"| Average MFE/Cost Ratio | {_fmt_optional(report.aggregate_average_mfe_to_cost_ratio)} |",
         "",
         "## Worst Cells",
         "",
-        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | Avg MFE | Avg MAE | Worst Exit | Worst Entry |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | Avg MFE | Avg MAE | Avg MFE/Cost | Worst Exit | Worst Entry |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for cell in report.cells:
         lines.append(
@@ -355,7 +382,7 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
             f"{cell.trade_count} | {cell.gross_pnl_eur:.6f} | {cell.net_pnl_eur:.6f} | "
             f"{cell.total_cost_eur:.6f} | {cell.cost_flipped_trade_count} | "
             f"{cell.mfe_above_cost_trade_count} | {_fmt_optional(cell.average_mfe_bps)} | "
-            f"{_fmt_optional(cell.average_mae_bps)} | "
+            f"{_fmt_optional(cell.average_mae_bps)} | {_fmt_optional(cell.average_mfe_to_cost_ratio)} | "
             f"{cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
         )
     lines.extend(
@@ -451,6 +478,24 @@ def _average_optional(values: Iterable[float | None]) -> float | None:
     if not cleaned:
         return None
     return sum(cleaned) / len(cleaned)
+
+
+def _weighted_cell_average(
+    cells: Iterable[MatrixCellLossAttribution],
+    *,
+    value_func,
+) -> float | None:
+    weighted_total = 0.0
+    weight = 0
+    for cell in cells:
+        value = value_func(cell)
+        if value is None or cell.trade_count <= 0:
+            continue
+        weighted_total += float(value) * cell.trade_count
+        weight += cell.trade_count
+    if weight <= 0:
+        return None
+    return weighted_total / weight
 
 
 def _fmt_optional(value: float | None) -> str:

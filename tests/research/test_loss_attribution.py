@@ -118,8 +118,31 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
     report_path.write_text("# cell", encoding="utf-8")
     TradeJournal(
         [
-            _trade(gross=0.5, net=0.25),
-            _trade(gross=0.1, net=-0.05, exit_reason="cost_stop"),
+            _trade(
+                gross=0.5,
+                net=0.25,
+                metadata={
+                    "path": {
+                        "max_favorable_excursion_bps": 40.0,
+                        "max_adverse_excursion_bps": -5.0,
+                        "total_cost_bps": 20.0,
+                        "mfe_to_cost_ratio": 2.0,
+                    }
+                },
+            ),
+            _trade(
+                gross=0.1,
+                net=-0.05,
+                exit_reason="cost_stop",
+                metadata={
+                    "path": {
+                        "max_favorable_excursion_bps": 10.0,
+                        "max_adverse_excursion_bps": -30.0,
+                        "total_cost_bps": 20.0,
+                        "mfe_to_cost_ratio": 0.5,
+                    }
+                },
+            ),
         ]
     ).to_json(backtest_dir / "cell_run_journal.json")
     matrix = MatrixRunResult(
@@ -149,5 +172,9 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
     assert report.analyzed_cell_count == 1
     assert report.total_trades == 2
     assert report.aggregate_cost_flipped_trade_count == 1
+    assert report.aggregate_mfe_above_cost_trade_count == 1
+    assert report.aggregate_average_mfe_bps == pytest.approx(25.0)
+    assert report.aggregate_average_mae_bps == pytest.approx(-17.5)
+    assert report.aggregate_average_mfe_to_cost_ratio == pytest.approx(1.25)
     assert report.cells[0].worst_exit_reason == "cost_stop"
     assert (tmp_path / "losses" / "pytest_matrix_matrix_loss_attribution.md").exists()
