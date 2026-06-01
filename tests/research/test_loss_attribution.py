@@ -59,6 +59,10 @@ def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
                     "path": {
                         "max_favorable_excursion_bps": 40.0,
                         "max_adverse_excursion_bps": -5.0,
+                        "entry_to_exit_bps": 20.0,
+                        "mfe_giveback_bps": 20.0,
+                        "mfe_capture_ratio": 0.5,
+                        "positive_mfe_capture_ratio": 0.5,
                         "total_cost_bps": 20.0,
                         "mfe_to_cost_ratio": 2.0,
                     }
@@ -70,10 +74,14 @@ def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
                 exit_reason="cost_stop",
                 metadata={
                     "path": {
-                        "max_favorable_excursion_bps": 10.0,
+                        "max_favorable_excursion_bps": 25.0,
                         "max_adverse_excursion_bps": -30.0,
+                        "entry_to_exit_bps": -5.0,
+                        "mfe_giveback_bps": 30.0,
+                        "mfe_capture_ratio": -0.2,
+                        "positive_mfe_capture_ratio": 0.0,
                         "total_cost_bps": 20.0,
-                        "mfe_to_cost_ratio": 0.5,
+                        "mfe_to_cost_ratio": 1.25,
                     }
                 },
             ),
@@ -86,10 +94,15 @@ def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
     assert result.net_pnl_eur == pytest.approx(-0.4)
     assert result.total_cost_eur == pytest.approx(0.51)
     assert result.cost_flipped_trade_count == 1
-    assert result.mfe_above_cost_trade_count == 1
-    assert result.average_mfe_bps == pytest.approx(25.0)
+    assert result.mfe_above_cost_trade_count == 2
+    assert result.mfe_above_cost_lost_trade_count == 1
+    assert result.average_mfe_bps == pytest.approx(32.5)
     assert result.average_mae_bps == pytest.approx(-17.5)
-    assert result.average_mfe_to_cost_ratio == pytest.approx(1.25)
+    assert result.average_exit_capture_bps == pytest.approx(7.5)
+    assert result.average_mfe_giveback_bps == pytest.approx(25.0)
+    assert result.average_mfe_capture_ratio == pytest.approx(0.15)
+    assert result.average_positive_mfe_capture_ratio == pytest.approx(0.25)
+    assert result.average_mfe_to_cost_ratio == pytest.approx(1.625)
     assert result.losing_trade_count == 2
     assert result.winning_trade_count == 1
     assert result.by_exit_reason[0].key == "stop_loss"
@@ -125,6 +138,10 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
                     "path": {
                         "max_favorable_excursion_bps": 40.0,
                         "max_adverse_excursion_bps": -5.0,
+                        "entry_to_exit_bps": 20.0,
+                        "mfe_giveback_bps": 20.0,
+                        "mfe_capture_ratio": 0.5,
+                        "positive_mfe_capture_ratio": 0.5,
                         "total_cost_bps": 20.0,
                         "mfe_to_cost_ratio": 2.0,
                     }
@@ -136,10 +153,14 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
                 exit_reason="cost_stop",
                 metadata={
                     "path": {
-                        "max_favorable_excursion_bps": 10.0,
+                        "max_favorable_excursion_bps": 25.0,
                         "max_adverse_excursion_bps": -30.0,
+                        "entry_to_exit_bps": -5.0,
+                        "mfe_giveback_bps": 30.0,
+                        "mfe_capture_ratio": -0.2,
+                        "positive_mfe_capture_ratio": 0.0,
                         "total_cost_bps": 20.0,
-                        "mfe_to_cost_ratio": 0.5,
+                        "mfe_to_cost_ratio": 1.25,
                     }
                 },
             ),
@@ -172,9 +193,14 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
     assert report.analyzed_cell_count == 1
     assert report.total_trades == 2
     assert report.aggregate_cost_flipped_trade_count == 1
-    assert report.aggregate_mfe_above_cost_trade_count == 1
-    assert report.aggregate_average_mfe_bps == pytest.approx(25.0)
+    assert report.aggregate_mfe_above_cost_trade_count == 2
+    assert report.aggregate_mfe_above_cost_lost_trade_count == 1
+    assert report.aggregate_average_mfe_bps == pytest.approx(32.5)
     assert report.aggregate_average_mae_bps == pytest.approx(-17.5)
-    assert report.aggregate_average_mfe_to_cost_ratio == pytest.approx(1.25)
+    assert report.aggregate_average_exit_capture_bps == pytest.approx(7.5)
+    assert report.aggregate_average_mfe_giveback_bps == pytest.approx(25.0)
+    assert report.aggregate_average_mfe_capture_ratio == pytest.approx(0.15)
+    assert report.aggregate_average_positive_mfe_capture_ratio == pytest.approx(0.25)
+    assert report.aggregate_average_mfe_to_cost_ratio == pytest.approx(1.625)
     assert report.cells[0].worst_exit_reason == "cost_stop"
     assert (tmp_path / "losses" / "pytest_matrix_matrix_loss_attribution.md").exists()

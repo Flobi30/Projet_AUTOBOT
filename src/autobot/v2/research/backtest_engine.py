@@ -340,6 +340,9 @@ class BacktestEngine:
         raw_mae_bps = ((position.lowest_price - entry_price) / entry_price) * 10_000.0
         max_favorable_excursion_bps = max(0.0, raw_mfe_bps)
         max_adverse_excursion_bps = min(0.0, raw_mae_bps)
+        entry_to_exit_bps = ((exit_price - entry_price) / entry_price) * 10_000.0
+        positive_exit_capture_bps = max(0.0, entry_to_exit_bps)
+        mfe_giveback_bps = max(0.0, max_favorable_excursion_bps - entry_to_exit_bps)
         total_cost_bps = (float(pnl.total_cost_eur) / entry_notional) * 10_000.0
         return {
             "bars_held": position.bars_held,
@@ -349,7 +352,17 @@ class BacktestEngine:
             "max_adverse_excursion_bps": max_adverse_excursion_bps,
             "max_favorable_excursion_eur": max(0.0, (position.highest_price - entry_price) * quantity),
             "max_adverse_excursion_eur": min(0.0, (position.lowest_price - entry_price) * quantity),
-            "entry_to_exit_bps": ((exit_price - entry_price) / entry_price) * 10_000.0,
+            "entry_to_exit_bps": entry_to_exit_bps,
+            "positive_exit_capture_bps": positive_exit_capture_bps,
+            "mfe_giveback_bps": mfe_giveback_bps,
+            "mfe_capture_ratio": (
+                entry_to_exit_bps / max_favorable_excursion_bps if max_favorable_excursion_bps > 0.0 else None
+            ),
+            "positive_mfe_capture_ratio": (
+                positive_exit_capture_bps / max_favorable_excursion_bps
+                if max_favorable_excursion_bps > 0.0
+                else None
+            ),
             "net_return_bps": (float(pnl.net_pnl_eur) / entry_notional) * 10_000.0,
             "total_cost_bps": total_cost_bps,
             "mfe_to_cost_ratio": (

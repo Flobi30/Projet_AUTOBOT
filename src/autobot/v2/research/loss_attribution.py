@@ -53,8 +53,13 @@ class LossAttributionResult:
     spread_cost_eur: float
     cost_flipped_trade_count: int
     mfe_above_cost_trade_count: int
+    mfe_above_cost_lost_trade_count: int
     average_mfe_bps: float | None
     average_mae_bps: float | None
+    average_exit_capture_bps: float | None
+    average_mfe_giveback_bps: float | None
+    average_mfe_capture_ratio: float | None
+    average_positive_mfe_capture_ratio: float | None
     average_mfe_to_cost_ratio: float | None
     losing_trade_count: int
     winning_trade_count: int
@@ -92,8 +97,13 @@ class LossAttributionResult:
             "cost_drag_vs_gross_abs_pct": self.cost_drag_vs_gross_abs_pct,
             "cost_flipped_trade_count": self.cost_flipped_trade_count,
             "mfe_above_cost_trade_count": self.mfe_above_cost_trade_count,
+            "mfe_above_cost_lost_trade_count": self.mfe_above_cost_lost_trade_count,
             "average_mfe_bps": self.average_mfe_bps,
             "average_mae_bps": self.average_mae_bps,
+            "average_exit_capture_bps": self.average_exit_capture_bps,
+            "average_mfe_giveback_bps": self.average_mfe_giveback_bps,
+            "average_mfe_capture_ratio": self.average_mfe_capture_ratio,
+            "average_positive_mfe_capture_ratio": self.average_positive_mfe_capture_ratio,
             "average_mfe_to_cost_ratio": self.average_mfe_to_cost_ratio,
             "losing_trade_count": self.losing_trade_count,
             "winning_trade_count": self.winning_trade_count,
@@ -122,8 +132,13 @@ class MatrixCellLossAttribution:
     total_cost_eur: float
     cost_flipped_trade_count: int
     mfe_above_cost_trade_count: int
+    mfe_above_cost_lost_trade_count: int
     average_mfe_bps: float | None
     average_mae_bps: float | None
+    average_exit_capture_bps: float | None
+    average_mfe_giveback_bps: float | None
+    average_mfe_capture_ratio: float | None
+    average_positive_mfe_capture_ratio: float | None
     average_mfe_to_cost_ratio: float | None
     worst_exit_reason: str | None
     worst_entry_reason: str | None
@@ -144,8 +159,13 @@ class MatrixLossAttributionReport:
     aggregate_cost_eur: float
     aggregate_cost_flipped_trade_count: int
     aggregate_mfe_above_cost_trade_count: int
+    aggregate_mfe_above_cost_lost_trade_count: int
     aggregate_average_mfe_bps: float | None
     aggregate_average_mae_bps: float | None
+    aggregate_average_exit_capture_bps: float | None
+    aggregate_average_mfe_giveback_bps: float | None
+    aggregate_average_mfe_capture_ratio: float | None
+    aggregate_average_positive_mfe_capture_ratio: float | None
     aggregate_average_mfe_to_cost_ratio: float | None
     cells: tuple[MatrixCellLossAttribution, ...]
     json_report_path: str | None = None
@@ -163,8 +183,13 @@ class MatrixLossAttributionReport:
             "aggregate_cost_eur": self.aggregate_cost_eur,
             "aggregate_cost_flipped_trade_count": self.aggregate_cost_flipped_trade_count,
             "aggregate_mfe_above_cost_trade_count": self.aggregate_mfe_above_cost_trade_count,
+            "aggregate_mfe_above_cost_lost_trade_count": self.aggregate_mfe_above_cost_lost_trade_count,
             "aggregate_average_mfe_bps": self.aggregate_average_mfe_bps,
             "aggregate_average_mae_bps": self.aggregate_average_mae_bps,
+            "aggregate_average_exit_capture_bps": self.aggregate_average_exit_capture_bps,
+            "aggregate_average_mfe_giveback_bps": self.aggregate_average_mfe_giveback_bps,
+            "aggregate_average_mfe_capture_ratio": self.aggregate_average_mfe_capture_ratio,
+            "aggregate_average_positive_mfe_capture_ratio": self.aggregate_average_positive_mfe_capture_ratio,
             "aggregate_average_mfe_to_cost_ratio": self.aggregate_average_mfe_to_cost_ratio,
             "cells": [cell.to_dict() for cell in self.cells],
             "json_report_path": self.json_report_path,
@@ -180,6 +205,10 @@ def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None =
     net_values = [trade.net_pnl_eur for trade in trades]
     mfe_values = [_path_float(trade, "max_favorable_excursion_bps") for trade in trades]
     mae_values = [_path_float(trade, "max_adverse_excursion_bps") for trade in trades]
+    exit_capture_values = [_path_float(trade, "entry_to_exit_bps") for trade in trades]
+    mfe_giveback_values = [_path_float(trade, "mfe_giveback_bps") for trade in trades]
+    mfe_capture_ratios = [_path_float(trade, "mfe_capture_ratio") for trade in trades]
+    positive_mfe_capture_ratios = [_path_float(trade, "positive_mfe_capture_ratio") for trade in trades]
     mfe_cost_ratios = [_path_float(trade, "mfe_to_cost_ratio") for trade in trades]
     return LossAttributionResult(
         run_id=inferred_run_id,
@@ -193,8 +222,15 @@ def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None =
         spread_cost_eur=sum(trade.spread_cost_eur for trade in trades),
         cost_flipped_trade_count=sum(1 for trade in trades if trade.gross_pnl_eur > 0.0 >= trade.net_pnl_eur),
         mfe_above_cost_trade_count=sum(1 for trade in trades if _mfe_exceeds_cost(trade)),
+        mfe_above_cost_lost_trade_count=sum(
+            1 for trade in trades if _mfe_exceeds_cost(trade) and trade.net_pnl_eur <= 0.0
+        ),
         average_mfe_bps=_average_optional(mfe_values),
         average_mae_bps=_average_optional(mae_values),
+        average_exit_capture_bps=_average_optional(exit_capture_values),
+        average_mfe_giveback_bps=_average_optional(mfe_giveback_values),
+        average_mfe_capture_ratio=_average_optional(mfe_capture_ratios),
+        average_positive_mfe_capture_ratio=_average_optional(positive_mfe_capture_ratios),
         average_mfe_to_cost_ratio=_average_optional(mfe_cost_ratios),
         losing_trade_count=sum(1 for trade in trades if trade.net_pnl_eur < 0.0),
         winning_trade_count=sum(1 for trade in trades if trade.net_pnl_eur > 0.0),
@@ -261,8 +297,13 @@ def write_matrix_loss_attribution_report(
                 total_cost_eur=attribution.total_cost_eur,
                 cost_flipped_trade_count=attribution.cost_flipped_trade_count,
                 mfe_above_cost_trade_count=attribution.mfe_above_cost_trade_count,
+                mfe_above_cost_lost_trade_count=attribution.mfe_above_cost_lost_trade_count,
                 average_mfe_bps=attribution.average_mfe_bps,
                 average_mae_bps=attribution.average_mae_bps,
+                average_exit_capture_bps=attribution.average_exit_capture_bps,
+                average_mfe_giveback_bps=attribution.average_mfe_giveback_bps,
+                average_mfe_capture_ratio=attribution.average_mfe_capture_ratio,
+                average_positive_mfe_capture_ratio=attribution.average_positive_mfe_capture_ratio,
                 average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio,
                 worst_exit_reason=attribution.by_exit_reason[0].key if attribution.by_exit_reason else None,
                 worst_entry_reason=attribution.by_entry_reason[0].key if attribution.by_entry_reason else None,
@@ -281,6 +322,9 @@ def write_matrix_loss_attribution_report(
         aggregate_cost_eur=sum(cell.total_cost_eur for cell in sorted_cells),
         aggregate_cost_flipped_trade_count=sum(cell.cost_flipped_trade_count for cell in sorted_cells),
         aggregate_mfe_above_cost_trade_count=sum(cell.mfe_above_cost_trade_count for cell in sorted_cells),
+        aggregate_mfe_above_cost_lost_trade_count=sum(
+            cell.mfe_above_cost_lost_trade_count for cell in sorted_cells
+        ),
         aggregate_average_mfe_bps=_weighted_cell_average(
             sorted_cells,
             value_func=lambda cell: cell.average_mfe_bps,
@@ -288,6 +332,22 @@ def write_matrix_loss_attribution_report(
         aggregate_average_mae_bps=_weighted_cell_average(
             sorted_cells,
             value_func=lambda cell: cell.average_mae_bps,
+        ),
+        aggregate_average_exit_capture_bps=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_exit_capture_bps,
+        ),
+        aggregate_average_mfe_giveback_bps=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_mfe_giveback_bps,
+        ),
+        aggregate_average_mfe_capture_ratio=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_mfe_capture_ratio,
+        ),
+        aggregate_average_positive_mfe_capture_ratio=_weighted_cell_average(
+            sorted_cells,
+            value_func=lambda cell: cell.average_positive_mfe_capture_ratio,
         ),
         aggregate_average_mfe_to_cost_ratio=_weighted_cell_average(
             sorted_cells,
@@ -323,8 +383,13 @@ def render_loss_attribution_report(result: LossAttributionResult) -> str:
         f"| Cost Drag vs Gross Abs | {result.cost_drag_vs_gross_abs_pct:.4f}% |",
         f"| Cost-Flipped Trades | {result.cost_flipped_trade_count} |",
         f"| MFE Above Cost Trades | {result.mfe_above_cost_trade_count} |",
+        f"| MFE Above Cost Lost Trades | {result.mfe_above_cost_lost_trade_count} |",
         f"| Average MFE | {_fmt_optional(result.average_mfe_bps)} bps |",
         f"| Average MAE | {_fmt_optional(result.average_mae_bps)} bps |",
+        f"| Average Exit Capture | {_fmt_optional(result.average_exit_capture_bps)} bps |",
+        f"| Average MFE Giveback | {_fmt_optional(result.average_mfe_giveback_bps)} bps |",
+        f"| Average MFE Capture Ratio | {_fmt_optional(result.average_mfe_capture_ratio)} |",
+        f"| Average Positive MFE Capture Ratio | {_fmt_optional(result.average_positive_mfe_capture_ratio)} |",
         f"| Average MFE/Cost Ratio | {_fmt_optional(result.average_mfe_to_cost_ratio)} |",
         f"| Winning Trades | {result.winning_trade_count} |",
         f"| Losing Trades | {result.losing_trade_count} |",
@@ -367,22 +432,31 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
         f"| Total Cost | {report.aggregate_cost_eur:.6f} |",
         f"| Cost-Flipped Trades | {report.aggregate_cost_flipped_trade_count} |",
         f"| MFE Above Cost Trades | {report.aggregate_mfe_above_cost_trade_count} |",
+        f"| MFE Above Cost Lost Trades | {report.aggregate_mfe_above_cost_lost_trade_count} |",
         f"| Average MFE | {_fmt_optional(report.aggregate_average_mfe_bps)} bps |",
         f"| Average MAE | {_fmt_optional(report.aggregate_average_mae_bps)} bps |",
+        f"| Average Exit Capture | {_fmt_optional(report.aggregate_average_exit_capture_bps)} bps |",
+        f"| Average MFE Giveback | {_fmt_optional(report.aggregate_average_mfe_giveback_bps)} bps |",
+        f"| Average MFE Capture Ratio | {_fmt_optional(report.aggregate_average_mfe_capture_ratio)} |",
+        f"| Average Positive MFE Capture Ratio | {_fmt_optional(report.aggregate_average_positive_mfe_capture_ratio)} |",
         f"| Average MFE/Cost Ratio | {_fmt_optional(report.aggregate_average_mfe_to_cost_ratio)} |",
         "",
         "## Worst Cells",
         "",
-        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | Avg MFE | Avg MAE | Avg MFE/Cost | Worst Exit | Worst Entry |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | MFE>Cost Lost | Avg MFE | Avg MAE | Avg Exit | Avg Giveback | Avg Capture | Avg MFE/Cost | Worst Exit | Worst Entry |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for cell in report.cells:
         lines.append(
             f"| {cell.symbol} | {cell.strategy} | {cell.decision or ''} | {cell.reason or ''} | "
             f"{cell.trade_count} | {cell.gross_pnl_eur:.6f} | {cell.net_pnl_eur:.6f} | "
             f"{cell.total_cost_eur:.6f} | {cell.cost_flipped_trade_count} | "
-            f"{cell.mfe_above_cost_trade_count} | {_fmt_optional(cell.average_mfe_bps)} | "
-            f"{_fmt_optional(cell.average_mae_bps)} | {_fmt_optional(cell.average_mfe_to_cost_ratio)} | "
+            f"{cell.mfe_above_cost_trade_count} | {cell.mfe_above_cost_lost_trade_count} | "
+            f"{_fmt_optional(cell.average_mfe_bps)} | {_fmt_optional(cell.average_mae_bps)} | "
+            f"{_fmt_optional(cell.average_exit_capture_bps)} | "
+            f"{_fmt_optional(cell.average_mfe_giveback_bps)} | "
+            f"{_fmt_optional(cell.average_mfe_capture_ratio)} | "
+            f"{_fmt_optional(cell.average_mfe_to_cost_ratio)} | "
             f"{cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
         )
     lines.extend(

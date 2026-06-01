@@ -194,6 +194,9 @@ def test_backtest_engine_records_trade_path_without_entry_bar_lookahead(tmp_path
     assert path["bars_held"] == 2
     assert path["max_favorable_excursion_bps"] > 0.0
     assert path["max_adverse_excursion_bps"] < 0.0
+    assert path["mfe_giveback_bps"] >= 0.0
+    assert path["mfe_capture_ratio"] is not None
+    assert path["positive_mfe_capture_ratio"] is not None
     assert path["total_cost_bps"] > 0.0
     assert path["mfe_to_cost_ratio"] is not None
     assert path["highest_price"] != 150.0
