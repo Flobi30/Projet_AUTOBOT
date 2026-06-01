@@ -9,6 +9,14 @@ from .backtest_engine import BacktestConfig, BacktestDecision, BacktestEngine, B
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult, RoundTripPnL
 from .market_data_repository import MarketBar, MarketDataQualityReport, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
+from .registry_recommendations import (
+    RegistryRecommendationCriteria,
+    RegistryRecommendationReport,
+    StrategyRecommendation,
+    load_matrix_result,
+    recommend_from_matrix,
+    write_registry_recommendation_report,
+)
 from .strategy_adapters import ResearchStrategyInstance, RuntimeStrategyBacktestAdapter, TradingSignalAdapter
 from .strategy_signal_generators import (
     GridResearchConfig,
@@ -47,6 +55,8 @@ __all__ = [
     "MatrixCellResult",
     "MatrixRunConfig",
     "MatrixRunResult",
+    "RegistryRecommendationCriteria",
+    "RegistryRecommendationReport",
     "RoundTripPnL",
     "GridResearchConfig",
     "GridResearchSignalGenerator",
@@ -54,6 +64,7 @@ __all__ = [
     "MeanReversionResearchSignalGenerator",
     "ResearchStrategyInstance",
     "RuntimeStrategyBacktestAdapter",
+    "StrategyRecommendation",
     "TradeJournal",
     "TradeRecord",
     "TradingSignalAdapter",
@@ -66,6 +77,9 @@ __all__ = [
     "WalkForwardFoldResult",
     "WalkForwardResult",
     "WalkForwardValidator",
+    "load_matrix_result",
+    "recommend_from_matrix",
     "run_validation",
     "run_validation_matrix",
+    "write_registry_recommendation_report",
 ]
