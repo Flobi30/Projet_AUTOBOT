@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import argparse
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
+
+from autobot.v2.strategy_validation_registry import load_registry
 
 from .execution_cost_model import ExecutionCostConfig
 from .validation_runner import DataSource, RunMode, StrategyName, ValidationRunnerConfig, run_validation
@@ -247,3 +250,88 @@ def render_matrix_report(result: MatrixRunResult) -> str:
 
 def _fmt(value: float | None) -> str:
     return "" if value is None else f"{value:.6f}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run AUTOBOT research validation matrix")
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-source", choices=["csv", "autobot_state_db"], required=True)
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--symbols", required=True, help="Comma-separated symbol list, for example TRXEUR,BTCEUR")
+    parser.add_argument("--strategies", default="grid,trend,mean_reversion")
+    parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
+    parser.add_argument("--output-dir", default="reports/research_matrix")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--train-window-bars", type=int, default=200)
+    parser.add_argument("--test-window-bars", type=int, default=100)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--strategy-config-json", default="{}")
+    parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument("--write-registry-recommendations", action="store_true")
+    args = parser.parse_args(argv)
+
+    symbols = tuple(item.strip().upper() for item in args.symbols.split(",") if item.strip())
+    strategies = tuple(item.strip() for item in args.strategies.split(",") if item.strip())
+    strategy_configs = json.loads(args.strategy_config_json)
+    if not isinstance(strategy_configs, dict):
+        raise ValueError("--strategy-config-json must decode to an object")
+
+    config = MatrixRunConfig(
+        run_id=args.run_id,
+        data_source=args.data_source,
+        data_path=Path(args.data_path),
+        symbols=symbols,
+        strategies=strategies,
+        mode=args.mode,
+        output_dir=Path(args.output_dir),
+        initial_capital_eur=args.initial_capital_eur,
+        order_notional_eur=args.order_notional_eur,
+        min_closed_trades=args.min_closed_trades,
+        min_profit_factor=args.min_profit_factor,
+        max_drawdown_pct=args.max_drawdown_pct,
+        cost_config=ExecutionCostConfig(
+            taker_fee_bps=args.fee_bps,
+            fallback_spread_bps=args.spread_bps,
+            slippage_bps=args.slippage_bps,
+        ),
+        strategy_configs=strategy_configs,
+        start_at=args.start_at,
+        end_at=args.end_at,
+        limit=args.limit,
+        train_window_bars=args.train_window_bars,
+        test_window_bars=args.test_window_bars,
+        step_window_bars=args.step_window_bars,
+        min_folds=args.min_folds,
+        min_passing_folds=args.min_passing_folds,
+    )
+    result = run_validation_matrix(config)
+    output: dict[str, Any] = result.to_dict()
+
+    if args.write_registry_recommendations:
+        from .registry_recommendations import recommend_from_matrix, write_registry_recommendation_report
+
+        registry_payload = load_registry(args.registry_path) if Path(args.registry_path).exists() else None
+        recommendation_report = write_registry_recommendation_report(
+            recommend_from_matrix(result, registry_payload=registry_payload),
+            Path(args.output_dir) / "registry_recommendations",
+        )
+        output["registry_recommendation_report"] = recommendation_report.to_dict()
+
+    print(json.dumps(output, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

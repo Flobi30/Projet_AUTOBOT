@@ -1,7 +1,8 @@
 import pytest
+import json
 
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
-from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
+from autobot.v2.research.validation_matrix import MatrixRunConfig, main, run_validation_matrix
 
 
 pytestmark = pytest.mark.integration
@@ -75,3 +76,64 @@ def test_validation_matrix_records_cell_errors_without_aborting(tmp_path):
     error_cell = next(cell for cell in result.results if cell.status == "error")
     assert error_cell.strategy == "grid"
     assert "unknown_parameter" in (error_cell.error or "")
+
+
+def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_csv(csv_path)
+    registry_path = tmp_path / "strategy_hypotheses.json"
+    registry_path.write_text(
+        json.dumps({"hypotheses": [{"strategy_id": "dynamic_grid", "validation_status": "candidate"}]}),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--run-id",
+            "pytest_matrix_cli",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--output-dir",
+            str(tmp_path / "matrix"),
+            "--min-closed-trades",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+            "--registry-path",
+            str(registry_path),
+            "--write-registry-recommendations",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["cell_count"] == 1
+    assert output["registry_recommendation_report"]["recommendations"][0]["live_promotion_allowed"] is False
+    assert (
+        tmp_path
+        / "matrix"
+        / "registry_recommendations"
+        / "pytest_matrix_cli_registry_recommendations.md"
+    ).exists()
