@@ -52,6 +52,10 @@ class LossAttributionResult:
     slippage_eur: float
     spread_cost_eur: float
     cost_flipped_trade_count: int
+    mfe_above_cost_trade_count: int
+    average_mfe_bps: float | None
+    average_mae_bps: float | None
+    average_mfe_to_cost_ratio: float | None
     losing_trade_count: int
     winning_trade_count: int
     largest_loss_eur: float | None
@@ -87,6 +91,10 @@ class LossAttributionResult:
             "total_cost_eur": self.total_cost_eur,
             "cost_drag_vs_gross_abs_pct": self.cost_drag_vs_gross_abs_pct,
             "cost_flipped_trade_count": self.cost_flipped_trade_count,
+            "mfe_above_cost_trade_count": self.mfe_above_cost_trade_count,
+            "average_mfe_bps": self.average_mfe_bps,
+            "average_mae_bps": self.average_mae_bps,
+            "average_mfe_to_cost_ratio": self.average_mfe_to_cost_ratio,
             "losing_trade_count": self.losing_trade_count,
             "winning_trade_count": self.winning_trade_count,
             "largest_loss_eur": self.largest_loss_eur,
@@ -113,6 +121,9 @@ class MatrixCellLossAttribution:
     net_pnl_eur: float
     total_cost_eur: float
     cost_flipped_trade_count: int
+    mfe_above_cost_trade_count: int
+    average_mfe_bps: float | None
+    average_mae_bps: float | None
     worst_exit_reason: str | None
     worst_entry_reason: str | None
 
@@ -158,6 +169,9 @@ def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None =
     strategy_id = _single_value((trade.strategy_id for trade in trades), default="mixed_strategies")
     symbol = _single_value((trade.symbol for trade in trades), default="multi_symbol")
     net_values = [trade.net_pnl_eur for trade in trades]
+    mfe_values = [_path_float(trade, "max_favorable_excursion_bps") for trade in trades]
+    mae_values = [_path_float(trade, "max_adverse_excursion_bps") for trade in trades]
+    mfe_cost_ratios = [_path_float(trade, "mfe_to_cost_ratio") for trade in trades]
     return LossAttributionResult(
         run_id=inferred_run_id,
         strategy_id=strategy_id,
@@ -169,6 +183,10 @@ def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None =
         slippage_eur=sum(trade.slippage_eur for trade in trades),
         spread_cost_eur=sum(trade.spread_cost_eur for trade in trades),
         cost_flipped_trade_count=sum(1 for trade in trades if trade.gross_pnl_eur > 0.0 >= trade.net_pnl_eur),
+        mfe_above_cost_trade_count=sum(1 for trade in trades if _mfe_exceeds_cost(trade)),
+        average_mfe_bps=_average_optional(mfe_values),
+        average_mae_bps=_average_optional(mae_values),
+        average_mfe_to_cost_ratio=_average_optional(mfe_cost_ratios),
         losing_trade_count=sum(1 for trade in trades if trade.net_pnl_eur < 0.0),
         winning_trade_count=sum(1 for trade in trades if trade.net_pnl_eur > 0.0),
         largest_loss_eur=min(net_values) if net_values else None,
@@ -233,6 +251,9 @@ def write_matrix_loss_attribution_report(
                 net_pnl_eur=attribution.net_pnl_eur,
                 total_cost_eur=attribution.total_cost_eur,
                 cost_flipped_trade_count=attribution.cost_flipped_trade_count,
+                mfe_above_cost_trade_count=attribution.mfe_above_cost_trade_count,
+                average_mfe_bps=attribution.average_mfe_bps,
+                average_mae_bps=attribution.average_mae_bps,
                 worst_exit_reason=attribution.by_exit_reason[0].key if attribution.by_exit_reason else None,
                 worst_entry_reason=attribution.by_entry_reason[0].key if attribution.by_entry_reason else None,
             )
@@ -278,6 +299,10 @@ def render_loss_attribution_report(result: LossAttributionResult) -> str:
         f"| Total Cost | {result.total_cost_eur:.6f} |",
         f"| Cost Drag vs Gross Abs | {result.cost_drag_vs_gross_abs_pct:.4f}% |",
         f"| Cost-Flipped Trades | {result.cost_flipped_trade_count} |",
+        f"| MFE Above Cost Trades | {result.mfe_above_cost_trade_count} |",
+        f"| Average MFE | {_fmt_optional(result.average_mfe_bps)} bps |",
+        f"| Average MAE | {_fmt_optional(result.average_mae_bps)} bps |",
+        f"| Average MFE/Cost Ratio | {_fmt_optional(result.average_mfe_to_cost_ratio)} |",
         f"| Winning Trades | {result.winning_trade_count} |",
         f"| Losing Trades | {result.losing_trade_count} |",
         "",
@@ -321,14 +346,16 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
         "",
         "## Worst Cells",
         "",
-        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | Worst Exit | Worst Entry |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | Avg MFE | Avg MAE | Worst Exit | Worst Entry |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for cell in report.cells:
         lines.append(
             f"| {cell.symbol} | {cell.strategy} | {cell.decision or ''} | {cell.reason or ''} | "
             f"{cell.trade_count} | {cell.gross_pnl_eur:.6f} | {cell.net_pnl_eur:.6f} | "
             f"{cell.total_cost_eur:.6f} | {cell.cost_flipped_trade_count} | "
+            f"{cell.mfe_above_cost_trade_count} | {_fmt_optional(cell.average_mfe_bps)} | "
+            f"{_fmt_optional(cell.average_mae_bps)} | "
             f"{cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
         )
     lines.extend(
@@ -398,3 +425,33 @@ def _journal_path_from_cell(report_path: str | None) -> Path | None:
     if path.suffix != ".md":
         return None
     return path.with_name(f"{path.stem}_journal.json")
+
+
+def _path_float(trade: TradeRecord, key: str) -> float | None:
+    path = trade.metadata.get("path") if isinstance(trade.metadata, dict) else None
+    if not isinstance(path, dict):
+        return None
+    value = path.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _mfe_exceeds_cost(trade: TradeRecord) -> bool:
+    mfe = _path_float(trade, "max_favorable_excursion_bps")
+    cost = _path_float(trade, "total_cost_bps")
+    return mfe is not None and cost is not None and mfe >= cost > 0.0
+
+
+def _average_optional(values: Iterable[float | None]) -> float | None:
+    cleaned = [value for value in values if value is not None]
+    if not cleaned:
+        return None
+    return sum(cleaned) / len(cleaned)
+
+
+def _fmt_optional(value: float | None) -> str:
+    return "N/A" if value is None else f"{value:.6f}"

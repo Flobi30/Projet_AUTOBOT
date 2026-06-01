@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import random
 from hashlib import sha256
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Protocol, Sequence
 
@@ -120,6 +120,9 @@ class BacktestResult:
 class _OpenPosition:
     signal: BacktestSignal
     fill: FillResult
+    highest_price: float
+    lowest_price: float
+    bars_held: int = 0
 
 
 class BacktestEngine:
@@ -161,6 +164,9 @@ class BacktestEngine:
 
         for bar in ordered_bars:
             latest_by_symbol[bar.symbol] = bar
+            current_position = positions.get(bar.symbol)
+            if current_position is not None:
+                positions[bar.symbol] = self._update_position_path(current_position, bar)
             history = history_by_symbol.setdefault(bar.symbol, [])
             history.append(bar)
             signals = list(signal_generator(bar, tuple(history)))
@@ -176,7 +182,12 @@ class BacktestEngine:
                     fill = self._simulate_signal(signal)
                     if fill.accepted:
                         fill_count += 1
-                        positions[signal.symbol] = _OpenPosition(signal=signal, fill=fill)
+                        positions[signal.symbol] = _OpenPosition(
+                            signal=signal,
+                            fill=fill,
+                            highest_price=fill.execution_price,
+                            lowest_price=fill.execution_price,
+                        )
                     else:
                         rejected_fill_count += 1
                 elif signal.side.lower() == "sell":
@@ -275,6 +286,22 @@ class BacktestEngine:
             metadata=dict(signal.metadata),
         )
 
+    @staticmethod
+    def _update_position_path(position: _OpenPosition, bar: MarketBar) -> _OpenPosition:
+        """Update post-entry path diagnostics without changing trading decisions.
+
+        A position opened on the current bar is inserted after signal handling,
+        so this method only observes bars that occur after the entry bar. That
+        avoids using the entry bar high/low as an accidental look-ahead path.
+        """
+
+        return replace(
+            position,
+            highest_price=max(position.highest_price, float(bar.high)),
+            lowest_price=min(position.lowest_price, float(bar.low)),
+            bars_held=position.bars_held + 1,
+        )
+
     def _trade_record(self, position: _OpenPosition, exit_signal: BacktestSignal, exit_fill: FillResult) -> TradeRecord:
         pnl = self.cost_model.round_trip_pnl(position.fill, exit_fill)
         return TradeRecord(
@@ -296,8 +323,42 @@ class BacktestEngine:
             entry_reason=position.signal.reason,
             exit_reason=exit_signal.reason,
             regime=str(position.signal.metadata.get("regime") or exit_signal.metadata.get("regime") or "unknown"),
-            metadata={"entry": position.signal.metadata, "exit": exit_signal.metadata},
+            metadata={
+                "entry": position.signal.metadata,
+                "exit": exit_signal.metadata,
+                "path": self._trade_path_metadata(position, pnl),
+            },
         )
+
+    @staticmethod
+    def _trade_path_metadata(position: _OpenPosition, pnl) -> dict[str, float | int | None]:
+        entry_price = max(float(pnl.entry_price), 1e-12)
+        exit_price = float(pnl.exit_price)
+        quantity = float(pnl.quantity)
+        entry_notional = max(float(position.fill.notional_eur), 1e-12)
+        raw_mfe_bps = ((position.highest_price - entry_price) / entry_price) * 10_000.0
+        raw_mae_bps = ((position.lowest_price - entry_price) / entry_price) * 10_000.0
+        max_favorable_excursion_bps = max(0.0, raw_mfe_bps)
+        max_adverse_excursion_bps = min(0.0, raw_mae_bps)
+        total_cost_bps = (float(pnl.total_cost_eur) / entry_notional) * 10_000.0
+        return {
+            "bars_held": position.bars_held,
+            "highest_price": position.highest_price,
+            "lowest_price": position.lowest_price,
+            "max_favorable_excursion_bps": max_favorable_excursion_bps,
+            "max_adverse_excursion_bps": max_adverse_excursion_bps,
+            "max_favorable_excursion_eur": max(0.0, (position.highest_price - entry_price) * quantity),
+            "max_adverse_excursion_eur": min(0.0, (position.lowest_price - entry_price) * quantity),
+            "entry_to_exit_bps": ((exit_price - entry_price) / entry_price) * 10_000.0,
+            "net_return_bps": (float(pnl.net_pnl_eur) / entry_notional) * 10_000.0,
+            "total_cost_bps": total_cost_bps,
+            "mfe_to_cost_ratio": (
+                max_favorable_excursion_bps / total_cost_bps if total_cost_bps > 0.0 else None
+            ),
+            "mae_to_cost_ratio": (
+                abs(max_adverse_excursion_bps) / total_cost_bps if total_cost_bps > 0.0 else None
+            ),
+        }
 
     def _baselines(self, bars: Sequence[MarketBar], *, strategy_trade_count: int) -> tuple[BaselineResult, ...]:
         no_trade = BaselineResult(name="no_trade", net_pnl_eur=0.0, total_return_pct=0.0)

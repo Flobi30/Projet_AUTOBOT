@@ -26,6 +26,7 @@ def _trade(
     fees=0.1,
     slippage=0.05,
     spread=0.02,
+    metadata=None,
 ):
     return TradeRecord(
         run_id="pytest_loss_run",
@@ -44,14 +45,38 @@ def _trade(
         spread_cost_eur=spread,
         entry_reason=entry_reason,
         exit_reason=exit_reason,
+        metadata=dict(metadata or {}),
     )
 
 
 def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
     result = analyze_trade_losses(
         [
-            _trade(gross=0.5, net=0.25),
-            _trade(gross=0.1, net=-0.05, exit_reason="cost_stop"),
+            _trade(
+                gross=0.5,
+                net=0.25,
+                metadata={
+                    "path": {
+                        "max_favorable_excursion_bps": 40.0,
+                        "max_adverse_excursion_bps": -5.0,
+                        "total_cost_bps": 20.0,
+                        "mfe_to_cost_ratio": 2.0,
+                    }
+                },
+            ),
+            _trade(
+                gross=0.1,
+                net=-0.05,
+                exit_reason="cost_stop",
+                metadata={
+                    "path": {
+                        "max_favorable_excursion_bps": 10.0,
+                        "max_adverse_excursion_bps": -30.0,
+                        "total_cost_bps": 20.0,
+                        "mfe_to_cost_ratio": 0.5,
+                    }
+                },
+            ),
             _trade(gross=-0.4, net=-0.6, symbol="XLMZEUR", exit_reason="stop_loss"),
         ]
     )
@@ -61,6 +86,10 @@ def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
     assert result.net_pnl_eur == pytest.approx(-0.4)
     assert result.total_cost_eur == pytest.approx(0.51)
     assert result.cost_flipped_trade_count == 1
+    assert result.mfe_above_cost_trade_count == 1
+    assert result.average_mfe_bps == pytest.approx(25.0)
+    assert result.average_mae_bps == pytest.approx(-17.5)
+    assert result.average_mfe_to_cost_ratio == pytest.approx(1.25)
     assert result.losing_trade_count == 2
     assert result.winning_trade_count == 1
     assert result.by_exit_reason[0].key == "stop_loss"
@@ -78,6 +107,7 @@ def test_loss_attribution_report_writer_round_trips_journal(tmp_path):
     assert result.markdown_report_path
     assert (tmp_path / "reports" / "pytest_loss_run_loss_attribution.json").exists()
     assert "Cost-Flipped Trades" in markdown
+    assert "Average MFE" in markdown
     assert "research-only" in markdown
 
 

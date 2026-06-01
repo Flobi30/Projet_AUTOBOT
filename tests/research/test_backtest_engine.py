@@ -5,6 +5,7 @@ import pytest
 from autobot.v2.research.backtest_engine import BacktestConfig, BacktestEngine, BacktestSignal
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.market_data_repository import MarketBar
+from autobot.v2.research.trade_journal import TradeJournal
 
 
 pytestmark = pytest.mark.integration
@@ -19,6 +20,20 @@ def _bar(minute, close, symbol="TRXEUR"):
         open=close,
         high=close * 1.01,
         low=close * 0.99,
+        close=close,
+        volume=1000.0,
+    )
+
+
+def _custom_bar(minute, *, open_, high, low, close, symbol="TRXEUR"):
+    timestamp = datetime(2026, 5, 31, 0, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return MarketBar(
+        timestamp=timestamp,
+        symbol=symbol,
+        timeframe="1m",
+        open=open_,
+        high=high,
+        low=low,
         close=close,
         volume=1000.0,
     )
@@ -153,3 +168,33 @@ def test_backtest_engine_random_baseline_is_deterministic(tmp_path):
     second_random = next(baseline for baseline in second.baselines if baseline.name == "random_signal_same_frequency")
     assert first_random.net_pnl_eur == second_random.net_pnl_eur
     assert "requested trades=2" in first_random.notes
+
+
+def test_backtest_engine_records_trade_path_without_entry_bar_lookahead(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="entry")]
+        if len(history) == 3:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    bars = [
+        _custom_bar(0, open_=100.0, high=150.0, low=50.0, close=100.0),
+        _custom_bar(1, open_=101.0, high=106.0, low=96.0, close=102.0),
+        _custom_bar(2, open_=102.0, high=104.0, low=98.0, close=103.0),
+    ]
+
+    engine = BacktestEngine(_config(tmp_path))
+    result = engine.run(bars, strategy)
+    journal = TradeJournal.from_json(result.journal_path)
+    path = journal.records[0].metadata["path"]
+
+    assert path["highest_price"] == pytest.approx(106.0)
+    assert path["lowest_price"] == pytest.approx(96.0)
+    assert path["bars_held"] == 2
+    assert path["max_favorable_excursion_bps"] > 0.0
+    assert path["max_adverse_excursion_bps"] < 0.0
+    assert path["total_cost_bps"] > 0.0
+    assert path["mfe_to_cost_ratio"] is not None
+    assert path["highest_price"] != 150.0
+    assert path["lowest_price"] != 50.0
