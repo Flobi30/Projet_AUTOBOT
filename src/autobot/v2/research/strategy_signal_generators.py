@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from statistics import mean, pstdev
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Literal, Mapping, Sequence
 
 from .backtest_engine import BacktestSignal
 from .market_data_repository import MarketBar
@@ -140,6 +140,12 @@ class TrendResearchConfig:
     trailing_atr_mult: float = 2.5
     stop_atr_mult: float = 2.0
     order_notional_eur: float | None = None
+    exit_mode: Literal["baseline", "cost_buffer_tp", "mfe_trailing", "time_stop"] = "baseline"
+    take_profit_bps: float | None = None
+    mfe_trailing_activation_bps: float = 55.0
+    mfe_trailing_drawdown_bps: float = 30.0
+    max_hold_bars: int | None = None
+    min_profit_before_time_exit_bps: float = 0.0
 
 
 class TrendResearchSignalGenerator:
@@ -150,22 +156,62 @@ class TrendResearchSignalGenerator:
         self._in_position = False
         self._entry_price: float | None = None
         self._highest_price: float | None = None
+        self._bars_in_position = 0
 
     def __call__(self, bar: MarketBar, history: Sequence[MarketBar]) -> Iterable[BacktestSignal]:
         prices = [float(item.close) for item in history]
         previous = prices[:-1]
         price = float(bar.close)
         if self._in_position:
+            self._bars_in_position += 1
             self._highest_price = max(float(self._highest_price or price), price)
             features = self._features(prices)
+            entry_price = float(self._entry_price or price)
+            gross_edge = ((price / max(entry_price, 1e-12)) - 1.0) * 10_000.0
+            highest_profit_bps = ((float(self._highest_price or price) / max(entry_price, 1e-12)) - 1.0) * 10_000.0
+            giveback_bps = max(0.0, highest_profit_bps - gross_edge)
+            bars_in_position = self._bars_in_position
+            exit_reason = self._research_exit_reason(
+                gross_edge_bps=gross_edge,
+                highest_profit_bps=highest_profit_bps,
+                giveback_bps=giveback_bps,
+            )
+            if exit_reason is not None:
+                self._reset_position()
+                return [
+                    self._signal(
+                        bar,
+                        "sell",
+                        exit_reason,
+                        gross_edge_bps=gross_edge,
+                        features=features,
+                        position_features={
+                            "bars_in_position": bars_in_position,
+                            "highest_profit_bps": highest_profit_bps,
+                            "giveback_bps": giveback_bps,
+                        },
+                    )
+                ]
             atr_price = price * _bps_to_rate(max(features.get("atr_bps", 0.0), 1.0))
-            stop_price = float(self._entry_price or price) - (self.config.stop_atr_mult * atr_price)
+            stop_price = entry_price - (self.config.stop_atr_mult * atr_price)
             trailing_stop = float(self._highest_price or price) - (self.config.trailing_atr_mult * atr_price)
             exit_low = features.get("exit_low")
             if price <= max(stop_price, trailing_stop) or (exit_low is not None and price < float(exit_low)):
-                self._in_position = False
-                gross_edge = ((price / max(float(self._entry_price or price), 1e-12)) - 1.0) * 10_000.0
-                return [self._signal(bar, "sell", "trend_exit", gross_edge_bps=gross_edge, features=features)]
+                self._reset_position()
+                return [
+                    self._signal(
+                        bar,
+                        "sell",
+                        "trend_exit",
+                        gross_edge_bps=gross_edge,
+                        features=features,
+                        position_features={
+                            "bars_in_position": bars_in_position,
+                            "highest_profit_bps": highest_profit_bps,
+                            "giveback_bps": giveback_bps,
+                        },
+                    )
+                ]
             return []
 
         if len(previous) < max(self.config.breakout_window, self.config.momentum_window, self.config.atr_window):
@@ -183,9 +229,42 @@ class TrendResearchSignalGenerator:
             self._in_position = True
             self._entry_price = price
             self._highest_price = price
+            self._bars_in_position = 0
             features = {"breakout_bps": breakout_bps, "momentum_bps": momentum_bps, "atr_bps": atr_bps}
             return [self._signal(bar, "buy", "trend_breakout", gross_edge_bps=momentum_bps, features=features)]
         return []
+
+    def _research_exit_reason(
+        self,
+        *,
+        gross_edge_bps: float,
+        highest_profit_bps: float,
+        giveback_bps: float,
+    ) -> str | None:
+        if self.config.exit_mode == "cost_buffer_tp":
+            take_profit_bps = self.config.take_profit_bps
+            if take_profit_bps is not None and gross_edge_bps >= take_profit_bps:
+                return "trend_cost_buffer_take_profit"
+        if self.config.exit_mode == "mfe_trailing":
+            if (
+                highest_profit_bps >= self.config.mfe_trailing_activation_bps
+                and giveback_bps >= self.config.mfe_trailing_drawdown_bps
+            ):
+                return "trend_mfe_trailing_exit"
+        if self.config.exit_mode == "time_stop":
+            if (
+                self.config.max_hold_bars is not None
+                and self._bars_in_position >= self.config.max_hold_bars
+                and gross_edge_bps <= self.config.min_profit_before_time_exit_bps
+            ):
+                return "trend_time_stop"
+        return None
+
+    def _reset_position(self) -> None:
+        self._in_position = False
+        self._entry_price = None
+        self._highest_price = None
+        self._bars_in_position = 0
 
     def _features(self, prices: Sequence[float]) -> dict[str, float | None]:
         return {
@@ -201,6 +280,7 @@ class TrendResearchSignalGenerator:
         *,
         gross_edge_bps: float,
         features: Mapping[str, float | None],
+        position_features: Mapping[str, float | int] | None = None,
     ) -> BacktestSignal:
         return BacktestSignal(
             symbol=bar.symbol,
@@ -213,7 +293,9 @@ class TrendResearchSignalGenerator:
                 "strategy_id": self.config.strategy_id,
                 "strategy_family": "trend",
                 "gross_edge_bps": gross_edge_bps,
+                "exit_mode": self.config.exit_mode,
                 **dict(features),
+                **dict(position_features or {}),
                 "regime": bar.metadata.get("regime", "unknown"),
             },
         )

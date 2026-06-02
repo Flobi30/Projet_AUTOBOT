@@ -13,6 +13,7 @@ from autobot.v2.research.strategy_signal_generators import (
     TrendResearchConfig,
     TrendResearchSignalGenerator,
 )
+from autobot.v2.research.trade_journal import TradeJournal
 
 
 pytestmark = pytest.mark.integration
@@ -87,6 +88,95 @@ def test_trend_research_generator_uses_prior_breakout_and_exits_on_reversal(tmp_
     assert result.signal_count == 2
     assert result.trade_count == 1
     assert result.metrics.total_net_pnl_eur < 0.0
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_trend_research_generator_can_test_cost_buffer_take_profit(tmp_path):
+    generator = TrendResearchSignalGenerator(
+        TrendResearchConfig(
+            breakout_window=2,
+            exit_window=2,
+            momentum_window=1,
+            atr_window=1,
+            confirm_bps=1.0,
+            min_momentum_bps=1.0,
+            min_atr_bps=1.0,
+            trailing_atr_mult=100.0,
+            stop_atr_mult=100.0,
+            exit_mode="cost_buffer_tp",
+            take_profit_bps=50.0,
+        )
+    )
+    bars = [_bar(index, price) for index, price in enumerate([100.0, 101.0, 103.0, 104.0])]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "trend_momentum")).run(bars, generator)
+    journal = TradeJournal.from_json(result.journal_path)
+
+    assert result.signal_count == 2
+    assert result.trade_count == 1
+    assert journal.records[0].exit_reason == "trend_cost_buffer_take_profit"
+    assert journal.records[0].metadata["exit"]["exit_mode"] == "cost_buffer_tp"
+    assert journal.records[0].metadata["exit"]["bars_in_position"] == 1
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_trend_research_generator_can_test_mfe_trailing_exit(tmp_path):
+    generator = TrendResearchSignalGenerator(
+        TrendResearchConfig(
+            breakout_window=2,
+            exit_window=2,
+            momentum_window=1,
+            atr_window=1,
+            confirm_bps=1.0,
+            min_momentum_bps=1.0,
+            min_atr_bps=1.0,
+            trailing_atr_mult=100.0,
+            stop_atr_mult=100.0,
+            exit_mode="mfe_trailing",
+            mfe_trailing_activation_bps=60.0,
+            mfe_trailing_drawdown_bps=30.0,
+        )
+    )
+    bars = [_bar(index, price) for index, price in enumerate([100.0, 101.0, 103.0, 105.0, 104.5])]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "trend_momentum")).run(bars, generator)
+    journal = TradeJournal.from_json(result.journal_path)
+
+    assert result.signal_count == 2
+    assert result.trade_count == 1
+    assert journal.records[0].exit_reason == "trend_mfe_trailing_exit"
+    assert journal.records[0].metadata["exit"]["exit_mode"] == "mfe_trailing"
+    assert journal.records[0].metadata["exit"]["giveback_bps"] > 30.0
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_trend_research_generator_can_test_time_stop_exit(tmp_path):
+    generator = TrendResearchSignalGenerator(
+        TrendResearchConfig(
+            breakout_window=2,
+            exit_window=2,
+            momentum_window=1,
+            atr_window=1,
+            confirm_bps=1.0,
+            min_momentum_bps=1.0,
+            min_atr_bps=1.0,
+            trailing_atr_mult=100.0,
+            stop_atr_mult=100.0,
+            exit_mode="time_stop",
+            max_hold_bars=2,
+            min_profit_before_time_exit_bps=0.0,
+        )
+    )
+    bars = [_bar(index, price) for index, price in enumerate([100.0, 101.0, 103.0, 103.1, 103.0])]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "trend_momentum")).run(bars, generator)
+    journal = TradeJournal.from_json(result.journal_path)
+
+    assert result.signal_count == 2
+    assert result.trade_count == 1
+    assert journal.records[0].exit_reason == "trend_time_stop"
+    assert journal.records[0].metadata["exit"]["exit_mode"] == "time_stop"
+    assert journal.records[0].metadata["exit"]["bars_in_position"] == 2
     assert result.decision.live_promotion_allowed is False
 
 
