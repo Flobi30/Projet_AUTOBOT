@@ -290,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-setup-quality", action="store_true")
     parser.add_argument("--write-strategy-regime", action="store_true")
     parser.add_argument("--write-strategy-regime-baselines", action="store_true")
+    parser.add_argument("--write-strategy-regime-walk-forward", action="store_true")
     args = parser.parse_args(argv)
 
     symbols = tuple(item.strip().upper() for item in args.symbols.split(",") if item.strip())
@@ -377,6 +378,16 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output_dir) / "strategy_regime_baselines",
         )
         output["strategy_regime_baseline_report"] = baseline_report.to_dict()
+
+    if args.write_strategy_regime_walk_forward:
+        from .strategy_regime_walk_forward import write_matrix_strategy_regime_walk_forward_report
+
+        walk_forward_report = write_matrix_strategy_regime_walk_forward_report(
+            config,
+            result,
+            Path(args.output_dir) / "strategy_regime_walk_forward",
+        )
+        output["strategy_regime_walk_forward_report"] = walk_forward_report.to_dict()
 
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0

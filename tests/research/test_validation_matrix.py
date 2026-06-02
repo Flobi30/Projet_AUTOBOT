@@ -127,6 +127,7 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
             "--write-setup-quality",
             "--write-strategy-regime",
             "--write-strategy-regime-baselines",
+            "--write-strategy-regime-walk-forward",
         ]
     )
 
@@ -144,6 +145,9 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
         "pytest_matrix_cli_strategy_regime_baseline_comparison"
     )
     assert output["strategy_regime_baseline_report"]["bucket_count"] == 1
+    assert output["strategy_regime_walk_forward_report"]["run_id"] == (
+        "pytest_matrix_cli_strategy_regime_walk_forward"
+    )
     assert (
         tmp_path
         / "matrix"
@@ -173,4 +177,10 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
         / "matrix"
         / "strategy_regime_baselines"
         / "pytest_matrix_cli_strategy_regime_baseline_comparison.md"
+    ).exists()
+    assert (
+        tmp_path
+        / "matrix"
+        / "strategy_regime_walk_forward"
+        / "pytest_matrix_cli_strategy_regime_walk_forward.md"
     ).exists()

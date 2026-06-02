@@ -35,6 +35,10 @@ __all__ = [
     "StrategyRegimeBucket",
     "StrategyRegimeBaselineBucket",
     "StrategyRegimeBaselineReport",
+    "StrategyRegimeWalkForwardFold",
+    "StrategyRegimeWalkForwardFoldBucket",
+    "StrategyRegimeWalkForwardReport",
+    "StrategyRegimeWalkForwardSummary",
     "StrategyRegimeReport",
     "RegimeBaselineResult",
     "GridResearchConfig",
@@ -64,6 +68,8 @@ __all__ = [
     "analyze_strategy_regime_journals",
     "analyze_strategy_regimes",
     "enrich_bars_with_regime_context",
+    "evaluate_strategy_regime_walk_forward",
+    "evaluate_strategy_regime_walk_forward_journals",
     "load_matrix_result",
     "load_strategy_regime_report",
     "recommend_from_matrix",
@@ -72,6 +78,7 @@ __all__ = [
     "render_setup_quality_report",
     "render_strategy_regime_report",
     "render_strategy_regime_baseline_report",
+    "render_strategy_regime_walk_forward_report",
     "run_validation",
     "run_validation_matrix",
     "write_loss_attribution_report",
@@ -82,6 +89,8 @@ __all__ = [
     "write_strategy_regime_report",
     "write_matrix_strategy_regime_baseline_report",
     "write_strategy_regime_baseline_report",
+    "write_matrix_strategy_regime_walk_forward_report",
+    "write_strategy_regime_walk_forward_report",
     "write_registry_recommendation_report",
 ]
 
@@ -130,6 +139,33 @@ _LAZY_EXPORTS = {
     "write_strategy_regime_baseline_report": (
         "strategy_regime_baselines",
         "write_strategy_regime_baseline_report",
+    ),
+    "StrategyRegimeWalkForwardFold": ("strategy_regime_walk_forward", "StrategyRegimeWalkForwardFold"),
+    "StrategyRegimeWalkForwardFoldBucket": (
+        "strategy_regime_walk_forward",
+        "StrategyRegimeWalkForwardFoldBucket",
+    ),
+    "StrategyRegimeWalkForwardReport": ("strategy_regime_walk_forward", "StrategyRegimeWalkForwardReport"),
+    "StrategyRegimeWalkForwardSummary": ("strategy_regime_walk_forward", "StrategyRegimeWalkForwardSummary"),
+    "evaluate_strategy_regime_walk_forward": (
+        "strategy_regime_walk_forward",
+        "evaluate_strategy_regime_walk_forward",
+    ),
+    "evaluate_strategy_regime_walk_forward_journals": (
+        "strategy_regime_walk_forward",
+        "evaluate_strategy_regime_walk_forward_journals",
+    ),
+    "render_strategy_regime_walk_forward_report": (
+        "strategy_regime_walk_forward",
+        "render_strategy_regime_walk_forward_report",
+    ),
+    "write_matrix_strategy_regime_walk_forward_report": (
+        "strategy_regime_walk_forward",
+        "write_matrix_strategy_regime_walk_forward_report",
+    ),
+    "write_strategy_regime_walk_forward_report": (
+        "strategy_regime_walk_forward",
+        "write_strategy_regime_walk_forward_report",
     ),
     "ExecutionCostConfig": ("execution_cost_model", "ExecutionCostConfig"),
     "ExecutionCostModel": ("execution_cost_model", "ExecutionCostModel"),
