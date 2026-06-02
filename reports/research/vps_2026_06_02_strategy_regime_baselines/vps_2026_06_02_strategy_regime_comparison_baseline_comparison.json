@@ -1,0 +1,382 @@
+{
+  "bucket_count": 11,
+  "buckets": [
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -3.3424147266005866,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -0.33424147266005866,
+          "trade_count": 14
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 125.0007850203975,
+          "notes": "Deterministic random long baseline in same regime, requested trades=496.",
+          "total_return_pct": 12.500078502039749,
+          "trade_count": 496
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "random_signal_same_frequency_regime",
+      "best_baseline_net_pnl_eur": 125.0007850203975,
+      "delta_vs_best_baseline_eur": -367.4712973934255,
+      "regime": "chaos",
+      "strategy_id": "mean_reversion",
+      "strategy_net_pnl_eur": -242.470512373028,
+      "strategy_trade_count": 496
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": 338.818134281531,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": 33.8818134281531,
+          "trade_count": 1
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 192.24828019540928,
+          "notes": "Deterministic random long baseline in same regime, requested trades=27.",
+          "total_return_pct": 19.224828019540926,
+          "trade_count": 27
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "buy_and_hold_regime_segments",
+      "best_baseline_net_pnl_eur": 338.818134281531,
+      "delta_vs_best_baseline_eur": -348.3645999686929,
+      "regime": "high_vol",
+      "strategy_id": "dynamic_grid",
+      "strategy_net_pnl_eur": -9.546465687161922,
+      "strategy_trade_count": 27
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": 338.818134281531,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": 33.8818134281531,
+          "trade_count": 1
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 39.52949281986622,
+          "notes": "Deterministic random long baseline in same regime, requested trades=6.",
+          "total_return_pct": 3.9529492819866223,
+          "trade_count": 6
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "buy_and_hold_regime_segments",
+      "best_baseline_net_pnl_eur": 338.818134281531,
+      "delta_vs_best_baseline_eur": -346.4272516056397,
+      "regime": "high_vol",
+      "strategy_id": "trend_momentum",
+      "strategy_net_pnl_eur": -7.60911732410871,
+      "strategy_trade_count": 6
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": 338.818134281531,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": 33.8818134281531,
+          "trade_count": 1
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 28.2219844290924,
+          "notes": "Deterministic random long baseline in same regime, requested trades=4.",
+          "total_return_pct": 2.82219844290924,
+          "trade_count": 4
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": true,
+      "best_baseline_name": "buy_and_hold_regime_segments",
+      "best_baseline_net_pnl_eur": 338.818134281531,
+      "delta_vs_best_baseline_eur": -338.1038307467967,
+      "regime": "high_vol",
+      "strategy_id": "mean_reversion",
+      "strategy_net_pnl_eur": 0.7143035347343105,
+      "strategy_trade_count": 4
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": 252.4958616563749,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": 25.24958616563749,
+          "trade_count": 2
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 131.46215295839642,
+          "notes": "Deterministic random long baseline in same regime, requested trades=24.",
+          "total_return_pct": 13.146215295839642,
+          "trade_count": 24
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": true,
+      "best_baseline_name": "buy_and_hold_regime_segments",
+      "best_baseline_net_pnl_eur": 252.4958616563749,
+      "delta_vs_best_baseline_eur": -251.25951537489973,
+      "regime": "chaos",
+      "strategy_id": "trend_momentum",
+      "strategy_net_pnl_eur": 1.2363462814751593,
+      "strategy_trade_count": 24
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -3.3424147266005866,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -0.33424147266005866,
+          "trade_count": 14
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": 50.04074439863058,
+          "notes": "Deterministic random long baseline in same regime, requested trades=312.",
+          "total_return_pct": 5.004074439863058,
+          "trade_count": 312
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "random_signal_same_frequency_regime",
+      "best_baseline_net_pnl_eur": 50.04074439863058,
+      "delta_vs_best_baseline_eur": -180.6345372637615,
+      "regime": "chaos",
+      "strategy_id": "dynamic_grid",
+      "strategy_net_pnl_eur": -130.59379286513092,
+      "strategy_trade_count": 312
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -32.0629140938463,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -3.2062914093846304,
+          "trade_count": 9
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": -72.38958341798859,
+          "notes": "Deterministic random long baseline in same regime, requested trades=200.",
+          "total_return_pct": -7.23895834179886,
+          "trade_count": 200
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "no_trade",
+      "best_baseline_net_pnl_eur": 0.0,
+      "delta_vs_best_baseline_eur": -106.17202198791588,
+      "regime": "range",
+      "strategy_id": "mean_reversion",
+      "strategy_net_pnl_eur": -106.17202198791588,
+      "strategy_trade_count": 200
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -17.800533661627814,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -1.780053366162781,
+          "trade_count": 9
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": -5.3257814357514555,
+          "notes": "Deterministic random long baseline in same regime, requested trades=13.",
+          "total_return_pct": -0.5325781435751455,
+          "trade_count": 13
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "no_trade",
+      "best_baseline_net_pnl_eur": 0.0,
+      "delta_vs_best_baseline_eur": -27.41514682245949,
+      "regime": "unknown",
+      "strategy_id": "dynamic_grid",
+      "strategy_net_pnl_eur": -27.41514682245949,
+      "strategy_trade_count": 13
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -32.0629140938463,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -3.2062914093846304,
+          "trade_count": 9
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": -16.792518490533975,
+          "notes": "Deterministic random long baseline in same regime, requested trades=37.",
+          "total_return_pct": -1.6792518490533974,
+          "trade_count": 37
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "no_trade",
+      "best_baseline_net_pnl_eur": 0.0,
+      "delta_vs_best_baseline_eur": -20.529341650591014,
+      "regime": "range",
+      "strategy_id": "dynamic_grid",
+      "strategy_net_pnl_eur": -20.529341650591014,
+      "strategy_trade_count": 37
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -22.918965822891618,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -2.2918965822891617,
+          "trade_count": 4
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": -3.732735521579481,
+          "notes": "Deterministic random long baseline in same regime, requested trades=6.",
+          "total_return_pct": -0.3732735521579481,
+          "trade_count": 6
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "no_trade",
+      "best_baseline_net_pnl_eur": 0.0,
+      "delta_vs_best_baseline_eur": -5.458526063902809,
+      "regime": "unknown",
+      "strategy_id": "mean_reversion",
+      "strategy_net_pnl_eur": -5.458526063902809,
+      "strategy_trade_count": 6
+    },
+    {
+      "baselines": [
+        {
+          "name": "no_trade",
+          "net_pnl_eur": 0.0,
+          "notes": "Abstain from this strategy/regime bucket.",
+          "total_return_pct": 0.0,
+          "trade_count": 0
+        },
+        {
+          "name": "buy_and_hold_regime_segments",
+          "net_pnl_eur": -26.24221412076596,
+          "notes": "One first-to-last long per symbol inside matching regime bars, net of costs.",
+          "total_return_pct": -2.6242214120765963,
+          "trade_count": 1
+        },
+        {
+          "name": "random_signal_same_frequency_regime",
+          "net_pnl_eur": -1.3865554699351106,
+          "notes": "Deterministic random long baseline in same regime, requested trades=2.",
+          "total_return_pct": -0.13865554699351107,
+          "trade_count": 2
+        }
+      ],
+      "beats_best_baseline": false,
+      "beats_no_trade": false,
+      "best_baseline_name": "no_trade",
+      "best_baseline_net_pnl_eur": 0.0,
+      "delta_vs_best_baseline_eur": -2.4086058537352555,
+      "regime": "low_activity",
+      "strategy_id": "dynamic_grid",
+      "strategy_net_pnl_eur": -2.4086058537352555,
+      "strategy_trade_count": 2
+    }
+  ],
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "run_id": "vps_2026_06_02_strategy_regime_comparison_baseline_comparison"
+}

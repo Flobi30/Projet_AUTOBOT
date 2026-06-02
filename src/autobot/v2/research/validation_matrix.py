@@ -289,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-loss-attribution", action="store_true")
     parser.add_argument("--write-setup-quality", action="store_true")
     parser.add_argument("--write-strategy-regime", action="store_true")
+    parser.add_argument("--write-strategy-regime-baselines", action="store_true")
     args = parser.parse_args(argv)
 
     symbols = tuple(item.strip().upper() for item in args.symbols.split(",") if item.strip())
@@ -366,6 +367,16 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output_dir) / "strategy_regime",
         )
         output["strategy_regime_report"] = strategy_regime_report.to_dict()
+
+    if args.write_strategy_regime_baselines:
+        from .strategy_regime_baselines import write_matrix_strategy_regime_baseline_report
+
+        baseline_report = write_matrix_strategy_regime_baseline_report(
+            config,
+            result,
+            Path(args.output_dir) / "strategy_regime_baselines",
+        )
+        output["strategy_regime_baseline_report"] = baseline_report.to_dict()
 
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0

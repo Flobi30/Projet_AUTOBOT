@@ -7,7 +7,7 @@ is research-only and never authorizes official paper or live execution.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -111,6 +111,25 @@ def analyze_strategy_regime_journals(
     for path in paths:
         records.extend(TradeJournal.from_json(path).records)
     return analyze_strategy_regimes(records, run_id=run_id)
+
+
+def load_strategy_regime_report(path: str | Path) -> StrategyRegimeReport:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    bucket_fields = {field.name for field in fields(StrategyRegimeBucket)}
+    buckets = []
+    for row in payload.get("buckets", []):
+        bucket_payload = {key: value for key, value in dict(row).items() if key in bucket_fields}
+        bucket_payload["symbols"] = tuple(bucket_payload.get("symbols") or ())
+        buckets.append(StrategyRegimeBucket(**bucket_payload))
+    return StrategyRegimeReport(
+        run_id=str(payload["run_id"]),
+        trade_count=int(payload.get("trade_count") or 0),
+        gross_pnl_eur=float(payload.get("gross_pnl_eur") or 0.0),
+        net_pnl_eur=float(payload.get("net_pnl_eur") or 0.0),
+        buckets=tuple(buckets),
+        json_report_path=str(path),
+        markdown_report_path=payload.get("markdown_report_path"),
+    )
 
 
 def write_matrix_strategy_regime_report(matrix_result, output_dir: str | Path) -> StrategyRegimeReport:
@@ -270,4 +289,3 @@ def _single_value(values: Iterable[str], *, default: str) -> str:
 
 def _fmt_optional(value: float | None) -> str:
     return "N/A" if value is None else f"{value:.6f}"
-

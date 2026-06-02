@@ -4,6 +4,7 @@ import pytest
 
 from autobot.v2.research.strategy_regime_report import (
     analyze_strategy_regimes,
+    load_strategy_regime_report,
     render_strategy_regime_report,
     write_strategy_regime_report,
 )
@@ -69,3 +70,8 @@ def test_strategy_regime_report_groups_by_strategy_and_regime(tmp_path):
     assert "Strategy x Regime" in markdown
     assert "research-only" in markdown
 
+    reloaded = load_strategy_regime_report(written.json_report_path)
+
+    assert reloaded.run_id == "pytest_strategy_regime"
+    assert reloaded.trade_count == 3
+    assert reloaded.buckets[0].symbols

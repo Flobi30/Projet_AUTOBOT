@@ -301,6 +301,37 @@ Interpretation:
 - Trend momentum with cost/edge gating is the closest candidate, but it is still too weak and too small-sample.
 - No strategy should be promoted or sized up.
 
+### 6. Strategy x Regime Baseline Comparison
+
+Report: `reports/research/vps_2026_06_02_strategy_regime_baselines/vps_2026_06_02_strategy_regime_comparison_baseline_comparison.md`
+
+Baselines added:
+
+- `no_trade`
+- `buy_and_hold_regime_segments`
+- `random_signal_same_frequency_regime`
+
+Result:
+
+No strategy/regime bucket beats its best baseline.
+
+Important examples:
+
+| Strategy | Regime | Trades | Strategy Net EUR | Best Baseline | Baseline Net EUR | Delta EUR |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| trend_momentum edge120 | chaos | 24 | 1.236346 | buy_and_hold_regime_segments | 252.495862 | -251.259515 |
+| mean_reversion | high_vol | 4 | 0.714304 | buy_and_hold_regime_segments | 338.818134 | -338.103831 |
+| dynamic_grid | chaos | 312 | -130.593793 | random_signal_same_frequency_regime | 50.040744 | -180.634537 |
+| dynamic_grid | range | 37 | -20.529342 | no_trade | 0.000000 | -20.529342 |
+| mean_reversion | range | 200 | -106.172022 | no_trade | 0.000000 | -106.172022 |
+
+Interpretation:
+
+- The small positive `trend_momentum / chaos` and `mean_reversion / high_vol` pockets are not evidence of strategy edge.
+- They fail against simple regime-aware references.
+- AUTOBOT should not promote or size up any of these buckets.
+- The next requirement is walk-forward strategy x regime validation with baselines.
+
 ## Main Performance Diagnosis
 
 AUTOBOT's poor performance is not explained by one single pair or one missing indicator.
@@ -496,6 +527,13 @@ Strategy x regime comparison:
 - Trend chaos bucket: 24 trades, net +1.236346 EUR, but too small to promote.
 - Mean-reversion high-vol bucket: 4 trades, net +0.714304 EUR, too tiny to trust.
 - Conclusion: all tested strategy families remain net negative overall. Regime labels are useful diagnostically, but they do not yet prove a tradable edge.
+
+Strategy x regime baseline comparison:
+- No strategy/regime bucket beats its best baseline.
+- Trend chaos bucket is positive vs no-trade but loses to regime buy-and-hold by -251.259515 EUR.
+- Mean-reversion high-vol bucket is positive vs no-trade but loses to regime buy-and-hold by -338.103831 EUR.
+- Dynamic grid chaos loses to random same-frequency by -180.634537 EUR.
+- Conclusion: the remaining positive pockets are not actionable edges.
 
 Current diagnosis:
 1. Costs consume too much of the edge.
