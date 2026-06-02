@@ -6,6 +6,8 @@ This report is designed to be copied into another advanced reasoning session for
 
 The goal is not to add another attractive trading module. The goal is to understand why AUTOBOT is still not net-profitable in validated paper/replay evidence, and to identify the smallest high-quality changes that could improve expected value without weakening live safety.
 
+Latest update: after commit `93b8856`, this audit includes strategy/regime baseline comparison and chronological walk-forward validation with a minimum sample-size guard.
+
 ## Current Verdict
 
 AUTOBOT is operational as a paper-first research/trading system, but the current validated performance evidence is not good enough for live trading.
@@ -330,7 +332,48 @@ Interpretation:
 - The small positive `trend_momentum / chaos` and `mean_reversion / high_vol` pockets are not evidence of strategy edge.
 - They fail against simple regime-aware references.
 - AUTOBOT should not promote or size up any of these buckets.
-- The next requirement is walk-forward strategy x regime validation with baselines.
+- The next requirement was walk-forward strategy x regime validation with baselines; it has now been run and still rejects promotion.
+
+### 7. Strategy x Regime Walk-Forward With Baselines
+
+Report: `reports/research/vps_strategy_regime_walk_forward_2026_06_02_summary.md`
+
+Full artifacts:
+
+- `reports/research/vps_2026_06_02_strategy_regime_walk_forward_defaults/vps_2026_06_02_strategy_regime_wf_defaults_strategy_regime_walk_forward.md`
+- `reports/research/vps_2026_06_02_strategy_regime_walk_forward_defaults/vps_2026_06_02_strategy_regime_wf_defaults_strategy_regime_walk_forward.json`
+
+Configuration:
+
+- Same VPS state database and 14 EUR crypto symbols.
+- Train window: `600` bars.
+- Test window: `30` bars.
+- Step window: `30` bars.
+- Folds evaluated: `1696`.
+- Buckets evaluated: `1057`.
+- Minimum folds: `2`.
+- Minimum passing folds: `2`.
+- Minimum total trades per strategy/regime bucket: `30`.
+- Costs: `16 bps` fee, `8 bps` spread, `4 bps` slippage.
+
+Key walk-forward results:
+
+| Strategy | Regime | Folds | Passing | Trades | Net PnL EUR | Delta vs Best Baseline EUR | Status | Reason |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| dynamic_grid | chaos | 280 | 107 | 308 | -125.063335 | -353.924994 | modify | non_positive_aggregate_net_pnl |
+| mean_reversion | chaos | 366 | 58 | 494 | -240.891029 | -347.327016 | modify | non_positive_aggregate_net_pnl |
+| trend_momentum | chaos | 174 | 28 | 203 | -101.778844 | -125.826026 | modify | non_positive_aggregate_net_pnl |
+| mean_reversion | range | 145 | 0 | 196 | -102.875530 | -102.875530 | modify | insufficient_baseline_passing_folds |
+| dynamic_grid | range | 30 | 13 | 35 | -18.333109 | -18.333109 | modify | non_positive_aggregate_net_pnl |
+| mean_reversion | high_vol | 4 | 4 | 4 | 0.714304 | 0.714304 | keep_testing | insufficient_total_trades |
+
+Interpretation:
+
+- No current strategy/regime bucket is validated for promotion.
+- `mean_reversion / high_vol` is the only positive bucket, but it has only `4` trades, so it remains `keep_testing`.
+- The heavily sampled buckets are materially negative.
+- The evidence now says the issue is not only missing regime context; even with regime context and walk-forward splits, current defaults do not prove robust edge.
+- The next bottleneck is likely canonical decision-ledger reconciliation and setup-quality filtering, not adding another strategy.
 
 ## Main Performance Diagnosis
 
@@ -351,9 +394,9 @@ The strongest evidence points to these issues:
    - MFE exists, but AUTOBOT often gives it back before closing.
    - However, tested exit variants did not solve the issue alone.
 
-4. Regime context is not yet integrated into validation journals.
-   - Recent setup quality replay reports all trades under `unknown` regime.
-   - That prevents knowing whether grid/trend/mean reversion are being used in the right market states.
+4. Regime context is now available in research validation, but not fully reconciled with official paper/shadow decisions.
+   - Strategy/regime reports and walk-forward splits exist.
+   - The official paper ledger, shadow labs, and research replay still need a canonical decision ledger so every signal, rejection, fill, exit, and PnL can be compared chronologically.
 
 5. Strategy proof is still fragmented.
    - Official paper, shadow labs, and research replays are closer than before, but still not fully reconciled.
@@ -535,12 +578,23 @@ Strategy x regime baseline comparison:
 - Dynamic grid chaos loses to random same-frequency by -180.634537 EUR.
 - Conclusion: the remaining positive pockets are not actionable edges.
 
+Strategy x regime walk-forward with baselines:
+- Folds evaluated: 1696.
+- Buckets evaluated: 1057.
+- Minimum total trades per bucket: 30.
+- Dynamic grid / chaos: 308 trades, net -125.063335 EUR, delta vs best baseline -353.924994 EUR, status modify.
+- Mean reversion / chaos: 494 trades, net -240.891029 EUR, delta vs best baseline -347.327016 EUR, status modify.
+- Trend momentum / chaos: 203 trades, net -101.778844 EUR, delta vs best baseline -125.826026 EUR, status modify.
+- Mean reversion / range: 196 trades, net -102.875530 EUR, status modify.
+- Mean reversion / high_vol: 4 trades, net +0.714 EUR, status keep_testing because sample is too small.
+- Conclusion: no current strategy/regime bucket is valid for promotion.
+
 Current diagnosis:
 1. Costs consume too much of the edge.
 2. Entry quality is weak, especially weak breakout and weak ATR trades.
 3. Exit capture is poor, but exit-only changes are insufficient.
-4. Regime labels are missing in validation journals.
-5. Grid/trend/mean-reversion evidence is fragmented between official paper, shadow, and research replay.
+4. Regime labels now exist in research validation, but official paper, shadow, and replay decisions are not fully reconciled in one canonical ledger.
+5. Grid/trend/mean-reversion evidence is still fragmented between official paper, shadow, and research replay.
 6. Dynamic grid is candidate but aggregate official paper is negative.
 7. Trend is learning-only and negative in replay.
 8. Mean reversion is learning-only and lacks standardized evidence.
@@ -568,28 +622,29 @@ Important constraints:
 - Treat all results as net after fees/spread/slippage.
 - Require baselines: no-trade, buy-and-hold, and random-entry same-frequency.
 - Require regime-labeled performance.
+- Require walk-forward stability and enough closed trades before promotion.
 ```
 
 ## Recommended Next Internal Action
 
-The next most useful AUTOBOT work item is not another strategy. It is to add regime context to the validation journals and rerun the matrix so that grid, trend, and mean-reversion are judged only in the market regimes they are designed for.
+The next most useful AUTOBOT work item is still not another strategy. Regime context and walk-forward diagnostics now exist. The next step is to make the validation evidence trace the same canonical decision path as official paper trading.
 
-Recommended immediate experiment:
+Recommended immediate work:
 
 1. Keep current production/paper runtime unchanged.
-2. In research replay only, attach regime context to every trade:
-   - regime label
-   - entropy score
-   - Markov state
-   - ATR bucket
-   - spread bucket
-   - liquidity bucket
-3. Rerun:
-   - grid replay by regime
-   - trend `strong_momentum + edge_120` by regime
-   - mean-reversion by regime
-4. Reject configurations that are only good in tiny samples.
-5. Promote nothing until a strategy beats baselines net of costs with enough closed trades.
+2. Build or complete a canonical research/paper decision ledger that records:
+   - market event;
+   - strategy signal;
+   - opportunity score;
+   - regime context;
+   - risk decision;
+   - rejection reason or simulated order;
+   - fill;
+   - exit;
+   - gross/net PnL.
+3. Reconcile official paper trades against research replay so the same setup can be explained from signal to PnL.
+4. Add setup-quality gates that reject weak breakout, weak ATR, and cost-dominated conditions before execution.
+5. Promote nothing until a strategy beats no-trade, buy-and-hold, and random same-frequency baselines net of costs across walk-forward splits with enough closed trades.
 
 ## Bottom Line
 
