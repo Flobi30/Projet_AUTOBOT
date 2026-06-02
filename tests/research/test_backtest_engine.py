@@ -150,6 +150,61 @@ def test_backtest_engine_rejects_illiquid_signal_without_trade(tmp_path):
     assert result.trade_count == 0
 
 
+def test_backtest_engine_edge_gate_rejects_buy_below_estimated_costs(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="entry",
+                    metadata={"gross_edge_bps": 40.0},
+                )
+            ]
+        return []
+
+    config = BacktestConfig(**{**_config(tmp_path).__dict__, "min_signal_net_edge_bps": 0.0})
+    result = BacktestEngine(config).run([_bar(0, 1.0), _bar(1, 1.1)], strategy, write_reports=False)
+
+    assert result.signal_count == 1
+    assert result.fill_count == 0
+    assert result.rejected_fill_count == 1
+    assert result.trade_count == 0
+
+
+def test_backtest_engine_edge_gate_passes_and_records_cost_context(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="entry",
+                    metadata={"gross_edge_bps": 80.0},
+                )
+            ]
+        if len(history) == 2:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    config = BacktestConfig(**{**_config(tmp_path).__dict__, "min_signal_net_edge_bps": 0.0})
+    result = BacktestEngine(config).run([_bar(0, 1.0), _bar(1, 1.1)], strategy)
+
+    journal = TradeJournal.from_json(result.journal_path)
+    edge_gate = journal.records[0].metadata["entry"]["edge_gate"]
+
+    assert result.trade_count == 1
+    assert edge_gate["gross_edge_bps"] == pytest.approx(80.0)
+    assert edge_gate["estimated_round_trip_cost_bps"] == pytest.approx(52.0)
+    assert edge_gate["estimated_net_edge_bps"] == pytest.approx(28.0)
+    assert edge_gate["accepted"] is True
+    assert result.decision.live_promotion_allowed is False
+
+
 def test_backtest_engine_random_baseline_is_deterministic(tmp_path):
     def strategy(bar, history):
         if len(history) in {1, 3}:

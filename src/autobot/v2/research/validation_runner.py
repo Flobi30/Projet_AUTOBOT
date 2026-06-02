@@ -48,6 +48,7 @@ class ValidationRunnerConfig:
     min_closed_trades: int = 30
     min_profit_factor: float = 1.2
     max_drawdown_pct: float = 15.0
+    min_signal_net_edge_bps: float | None = None
     cost_config: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
     strategy_config: dict[str, Any] = field(default_factory=dict)
     start_at: str | None = None
@@ -118,6 +119,7 @@ def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
         min_closed_trades=config.min_closed_trades,
         min_profit_factor=config.min_profit_factor,
         max_drawdown_pct=config.max_drawdown_pct,
+        min_signal_net_edge_bps=config.min_signal_net_edge_bps,
     )
     if config.mode == "backtest":
         result = BacktestEngine(backtest_config).run(bars, factory())
@@ -161,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-closed-trades", type=int, default=30)
     parser.add_argument("--min-profit-factor", type=float, default=1.2)
     parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--min-signal-net-edge-bps", type=float, default=None)
     parser.add_argument("--start-at", default=None)
     parser.add_argument("--end-at", default=None)
     parser.add_argument("--limit", type=int, default=None)
@@ -192,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         min_closed_trades=args.min_closed_trades,
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
+        min_signal_net_edge_bps=args.min_signal_net_edge_bps,
         cost_config=ExecutionCostConfig(
             taker_fee_bps=args.fee_bps,
             fallback_spread_bps=args.spread_bps,

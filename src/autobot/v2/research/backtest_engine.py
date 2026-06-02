@@ -9,6 +9,7 @@ immutable JSON/Markdown reports.
 from __future__ import annotations
 
 import json
+import math
 import random
 from hashlib import sha256
 from dataclasses import asdict, dataclass, field, replace
@@ -54,6 +55,7 @@ class BacktestConfig:
     min_profit_factor: float = 1.2
     max_drawdown_pct: float = 15.0
     close_open_positions_at_end: bool = True
+    min_signal_net_edge_bps: float | None = None
 
 
 @dataclass(frozen=True)
@@ -179,11 +181,15 @@ class BacktestEngine:
                     if signal.symbol in positions:
                         rejected_fill_count += 1
                         continue
-                    fill = self._simulate_signal(signal)
+                    gated_signal = self._apply_signal_edge_gate(signal)
+                    if gated_signal is None:
+                        rejected_fill_count += 1
+                        continue
+                    fill = self._simulate_signal(gated_signal)
                     if fill.accepted:
                         fill_count += 1
-                        positions[signal.symbol] = _OpenPosition(
-                            signal=signal,
+                        positions[gated_signal.symbol] = _OpenPosition(
+                            signal=gated_signal,
                             fill=fill,
                             highest_price=fill.execution_price,
                             lowest_price=fill.execution_price,
@@ -270,6 +276,54 @@ class BacktestEngine:
                 ask=signal.metadata.get("ask"),
                 metadata=dict(signal.metadata),
             )
+        )
+
+    def _apply_signal_edge_gate(self, signal: BacktestSignal) -> BacktestSignal | None:
+        """Apply optional cost-aware signal gate before simulated execution.
+
+        The gate is disabled unless ``BacktestConfig.min_signal_net_edge_bps``
+        is set. When enabled, a BUY signal must expose ``gross_edge_bps`` in
+        metadata and exceed estimated round-trip costs plus the configured
+        minimum net edge. Missing or invalid edge values are rejected by default
+        to avoid a permissive fallback in validation.
+        """
+
+        min_net_edge = self.config.min_signal_net_edge_bps
+        if min_net_edge is None or signal.side.lower() != "buy":
+            return signal
+        gross_edge = _optional_float(signal.metadata.get("gross_edge_bps"))
+        if gross_edge is None:
+            return None
+        request = FillRequest(
+            symbol=signal.symbol.upper(),
+            side=signal.side.lower(),
+            price=float(signal.price),
+            quantity=signal.quantity,
+            notional_eur=signal.notional_eur or self.config.default_order_notional_eur,
+            timestamp=signal.timestamp,
+            order_type=signal.order_type,
+            limit_price=signal.limit_price,
+            liquidity_eur=signal.metadata.get("liquidity_eur"),
+            bid=signal.metadata.get("bid"),
+            ask=signal.metadata.get("ask"),
+            metadata=dict(signal.metadata),
+        )
+        estimated_round_trip_cost_bps = self.cost_model.estimate_cost_bps(request) * 2.0
+        estimated_net_edge_bps = gross_edge - estimated_round_trip_cost_bps
+        if estimated_net_edge_bps < float(min_net_edge):
+            return None
+        return replace(
+            signal,
+            metadata={
+                **dict(signal.metadata),
+                "edge_gate": {
+                    "gross_edge_bps": gross_edge,
+                    "estimated_round_trip_cost_bps": estimated_round_trip_cost_bps,
+                    "estimated_net_edge_bps": estimated_net_edge_bps,
+                    "min_signal_net_edge_bps": float(min_net_edge),
+                    "accepted": True,
+                },
+            },
         )
 
     @staticmethod
@@ -572,3 +626,13 @@ def render_backtest_report(result: BacktestResult) -> str:
 
 def _fmt(value: float | None) -> str:
     return "N/A" if value is None else f"{value:.6f}"
+
+
+def _optional_float(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
