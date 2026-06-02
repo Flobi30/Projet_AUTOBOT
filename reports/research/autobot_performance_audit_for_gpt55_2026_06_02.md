@@ -255,6 +255,52 @@ Important:
 - The gate is disabled by default.
 - It does not alter live trading, official paper execution, Kraken integration, or dashboard behavior.
 
+### 5. Strategy x Regime Comparison
+
+Report: `reports/research/vps_2026_06_02_strategy_regime_comparison/vps_2026_06_02_strategy_regime_comparison.md`
+
+Purpose:
+
+- Compare the current research versions of grid, trend momentum, and mean reversion by market regime.
+- Keep the same conservative cost model.
+- Use regime labels only as diagnostics, not as execution permission.
+
+Configurations:
+
+- Dynamic grid: current research replay/default configuration.
+- Mean reversion: current research replay/default configuration.
+- Trend momentum: stricter candidate with `confirm_bps=40`, `min_momentum_bps=100`, `min_atr_bps=15`, and `min_signal_net_edge_bps=120`.
+
+Overall results:
+
+| Strategy | Trades | Gross PnL EUR | Net PnL EUR | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| dynamic_grid | 391 | -65.373353 | -190.493353 | High turnover and costs dominate; even decent win rates do not save it. |
+| mean_reversion | 706 | -127.466757 | -353.386757 | Current default is too loose and strongly negative. |
+| trend_momentum edge120 | 30 | 3.227229 | -6.372771 | Least bad tested setup, but still negative after costs. |
+
+Important regime buckets:
+
+| Strategy | Regime | Trades | Win Rate | Net PnL EUR | Notes |
+| --- | --- | ---: | ---: | ---: | --- |
+| dynamic_grid | chaos | 312 | 58.65% | -130.593793 | Win rate looks acceptable, but costs and poor exit capture destroy net PnL. |
+| dynamic_grid | range | 37 | 37.84% | -20.529342 | Grid is not currently proving its expected range edge. |
+| dynamic_grid | high_vol | 27 | 74.07% | -9.546466 | Good win rate but still net negative; sample concentrated on XLMZEUR. |
+| mean_reversion | chaos | 496 | 19.96% | -242.470512 | Very poor fit in this regime. |
+| mean_reversion | range | 200 | 0.50% | -106.172022 | Current mean-reversion default is not working in range either. |
+| mean_reversion | high_vol | 4 | 100.00% | 0.714304 | Positive but only 4 trades; not actionable. |
+| trend_momentum edge120 | high_vol | 6 | 0.00% | -7.609117 | This setup should likely block or penalize high-vol entries. |
+| trend_momentum edge120 | chaos | 24 | 41.67% | 1.236346 | Slightly positive, but too small for promotion. |
+
+Interpretation:
+
+- The latest evidence strengthens the conclusion that AUTOBOT's problem is not simply "wrong pair selection".
+- The current strategy defaults do not yet convert market movement into robust net profit.
+- Grid is especially concerning: it can show a high win rate while losing money after costs.
+- Mean reversion should be considered learning-only or rejected in its current default form until retested with stricter setup selection.
+- Trend momentum with cost/edge gating is the closest candidate, but it is still too weak and too small-sample.
+- No strategy should be promoted or sized up.
+
 ## Main Performance Diagnosis
 
 AUTOBOT's poor performance is not explained by one single pair or one missing indicator.
@@ -443,6 +489,14 @@ Trend cost/edge gate experiments using strong_momentum baseline:
 - edge 120: 30 trades, gross 3.227229 EUR, net -6.372771 EUR, cost 14.4 EUR, cost-dominated 11, avg exit 10.75 bps
 - Conclusion: cost-aware gating helps materially but still does not produce positive net PnL.
 
+Strategy x regime comparison:
+- Dynamic grid: 391 trades, gross -65.373353 EUR, net -190.493353 EUR.
+- Mean reversion: 706 trades, gross -127.466757 EUR, net -353.386757 EUR.
+- Trend momentum edge120: 30 trades, gross 3.227229 EUR, net -6.372771 EUR.
+- Trend chaos bucket: 24 trades, net +1.236346 EUR, but too small to promote.
+- Mean-reversion high-vol bucket: 4 trades, net +0.714304 EUR, too tiny to trust.
+- Conclusion: all tested strategy families remain net negative overall. Regime labels are useful diagnostically, but they do not yet prove a tradable edge.
+
 Current diagnosis:
 1. Costs consume too much of the edge.
 2. Entry quality is weak, especially weak breakout and weak ATR trades.
@@ -510,4 +564,3 @@ The most promising direction is not "more trades"; it is fewer, better-qualified
 - stricter entry validation;
 - better exit capture only after entry quality is proven;
 - canonical paper/replay ledger reconciliation.
-
