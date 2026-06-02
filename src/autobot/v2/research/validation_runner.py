@@ -17,6 +17,7 @@ from typing import Any, Callable, Literal
 from .backtest_engine import BacktestConfig, BacktestEngine, BacktestResult
 from .execution_cost_model import ExecutionCostConfig
 from .market_data_repository import MarketBar, MarketDataRepository
+from .regime_context import enrich_bars_with_regime_context
 from .strategy_signal_generators import (
     GridResearchConfig,
     GridResearchSignalGenerator,
@@ -59,6 +60,7 @@ class ValidationRunnerConfig:
     step_window_bars: int | None = None
     min_folds: int = 3
     min_passing_folds: int = 2
+    include_regime_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,8 @@ def make_signal_generator_factory(
 
 def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
     bars = load_bars_for_validation(config)
+    if config.include_regime_context:
+        bars = enrich_bars_with_regime_context(bars)
     factory = make_signal_generator_factory(config.strategy, config.strategy_config)
     backtest_config = BacktestConfig(
         run_id=config.run_id,
@@ -172,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--step-window-bars", type=int, default=None)
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--include-regime-context", action="store_true")
     parser.add_argument("--fee-bps", type=float, default=16.0)
     parser.add_argument("--spread-bps", type=float, default=8.0)
     parser.add_argument("--slippage-bps", type=float, default=4.0)
@@ -210,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         step_window_bars=args.step_window_bars,
         min_folds=args.min_folds,
         min_passing_folds=args.min_passing_folds,
+        include_regime_context=args.include_regime_context,
     )
     result = run_validation(config)
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

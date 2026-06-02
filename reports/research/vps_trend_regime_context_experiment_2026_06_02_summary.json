@@ -1,0 +1,48 @@
+{
+  "run_id": "vps_2026_06_02_trend_regime_context_edge_120",
+  "research_only": true,
+  "strategy": "trend",
+  "strategy_config": {
+    "confirm_bps": 40.0,
+    "min_momentum_bps": 100.0,
+    "min_atr_bps": 15.0,
+    "min_signal_net_edge_bps": 120.0
+  },
+  "cell_count": 14,
+  "success_count": 14,
+  "error_count": 0,
+  "closed_trades": 30,
+  "gross_pnl_eur": 3.2272289573664503,
+  "net_pnl_eur": -6.37277104263355,
+  "cost_dominated_trade_count": 11,
+  "mfe_above_cost_lost_trade_count": 9,
+  "by_regime": [
+    {
+      "regime": "high_vol",
+      "trade_count": 6,
+      "win_rate_pct": 0.0,
+      "gross_pnl_eur": -5.689117324108709,
+      "net_pnl_eur": -7.60911732410871,
+      "average_net_pnl_eur": -1.268186220684785,
+      "average_mfe_bps": 38.409766623693976,
+      "average_exit_capture_bps": -94.73336204264012,
+      "average_mfe_to_cost_ratio": 0.7681953324738794,
+      "cost_dominated_trade_count": 4
+    },
+    {
+      "regime": "chaos",
+      "trade_count": 24,
+      "win_rate_pct": 41.66666666666667,
+      "gross_pnl_eur": 8.91634628147516,
+      "net_pnl_eur": 1.2363462814751593,
+      "average_net_pnl_eur": 0.051514428394798306,
+      "average_mfe_bps": 169.70353994456934,
+      "average_exit_capture_bps": 37.118036606533956,
+      "average_mfe_to_cost_ratio": 3.3940707988913865,
+      "cost_dominated_trade_count": 7
+    }
+  ],
+  "decision": "do_not_promote",
+  "next_action": "rerun grid, trend and mean_reversion validation by regime with baselines and walk-forward before changing official paper execution"
+}
+

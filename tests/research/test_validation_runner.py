@@ -3,6 +3,7 @@ import json
 import pytest
 
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+from autobot.v2.research.trade_journal import TradeJournal
 from autobot.v2.research.validation_runner import ValidationRunnerConfig, main, run_validation
 
 
@@ -46,6 +47,32 @@ def test_validation_runner_runs_backtest_from_csv(tmp_path):
     assert result.result.strategy_id == "dynamic_grid"
     assert result.result.trade_count == 1
     assert (tmp_path / "reports" / "backtests" / "pytest_runner_backtest.md").exists()
+
+
+def test_validation_runner_can_attach_regime_context_to_journal(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_regime_context",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="TRXEUR",
+        dataset_id="pytest_csv",
+        output_dir=tmp_path / "reports",
+        min_closed_trades=1,
+        include_regime_context=True,
+        cost_config=ExecutionCostConfig(taker_fee_bps=0.0, fallback_spread_bps=0.0, slippage_bps=0.0),
+        strategy_config={"range_percent": 4.0, "num_levels": 5, "entry_touch_bps": 20.0, "take_profit_bps": 40.0},
+    )
+
+    result = run_validation(config)
+    journal = TradeJournal.from_json(result.result.journal_path)
+
+    assert result.result.trade_count == 1
+    assert journal.records[0].metadata["entry"]["regime_context"]["symbol"] == "TRXEUR"
+    assert journal.records[0].metadata["entry"]["regime_source"] == "research_regime_features"
+    assert result.result.decision.live_promotion_allowed is False
 
 
 def test_validation_runner_runs_walk_forward_from_csv(tmp_path):

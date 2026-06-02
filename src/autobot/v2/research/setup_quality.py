@@ -115,6 +115,32 @@ def analyze_setup_quality_journal(path: str | Path, *, run_id: str | None = None
     return analyze_setup_quality(TradeJournal.from_json(path).records, run_id=run_id)
 
 
+def analyze_setup_quality_journals(
+    paths: Iterable[str | Path],
+    *,
+    run_id: str | None = None,
+) -> SetupQualityReport:
+    records: list[TradeRecord] = []
+    for path in paths:
+        records.extend(TradeJournal.from_json(path).records)
+    return analyze_setup_quality(records, run_id=run_id)
+
+
+def write_matrix_setup_quality_report(matrix_result, output_dir: str | Path) -> SetupQualityReport:
+    journal_paths = [
+        path
+        for path in (_journal_path_from_cell(getattr(cell, "report_path", None)) for cell in matrix_result.results)
+        if path is not None and path.exists()
+    ]
+    return write_setup_quality_report(
+        analyze_setup_quality_journals(
+            journal_paths,
+            run_id=f"{matrix_result.run_id}_matrix",
+        ),
+        output_dir,
+    )
+
+
 def write_setup_quality_report(result: SetupQualityReport, output_dir: str | Path) -> SetupQualityReport:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -274,6 +300,15 @@ def _single_value(values: Iterable[str], *, default: str) -> str:
     if len(unique) == 1:
         return next(iter(unique))
     return default
+
+
+def _journal_path_from_cell(report_path: str | None) -> Path | None:
+    if not report_path:
+        return None
+    path = Path(report_path)
+    if path.suffix != ".md":
+        return None
+    return path.with_name(f"{path.stem}_journal.json")
 
 
 def _fmt_optional(value: float | None) -> str:

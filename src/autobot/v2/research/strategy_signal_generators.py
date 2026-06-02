@@ -38,6 +38,15 @@ def _atr_bps(prices: Sequence[float], window: int) -> float:
     return sum(tail) / len(tail)
 
 
+def _bar_regime_metadata(bar: MarketBar) -> dict[str, object]:
+    metadata: dict[str, object] = {"regime": bar.metadata.get("regime", "unknown")}
+    if "regime_context" in bar.metadata:
+        metadata["regime_context"] = bar.metadata["regime_context"]
+    if "regime_source" in bar.metadata:
+        metadata["regime_source"] = bar.metadata["regime_source"]
+    return metadata
+
+
 @dataclass(frozen=True)
 class GridResearchConfig:
     strategy_id: str = "dynamic_grid"
@@ -122,7 +131,7 @@ class GridResearchSignalGenerator:
                 "gross_edge_bps": gross_edge_bps,
                 "grid_center": self._center_price,
                 "grid_entry_level": self._entry_level,
-                "regime": bar.metadata.get("regime", "unknown"),
+                **_bar_regime_metadata(bar),
             },
         )
 
@@ -296,7 +305,7 @@ class TrendResearchSignalGenerator:
                 "exit_mode": self.config.exit_mode,
                 **dict(features),
                 **dict(position_features or {}),
-                "regime": bar.metadata.get("regime", "unknown"),
+                **_bar_regime_metadata(bar),
             },
         )
 
@@ -400,6 +409,6 @@ class MeanReversionResearchSignalGenerator:
                 "strategy_family": "mean_reversion",
                 "gross_edge_bps": gross_edge_bps,
                 **dict(features),
-                "regime": bar.metadata.get("regime", "unknown"),
+                **_bar_regime_metadata(bar),
             },
         )

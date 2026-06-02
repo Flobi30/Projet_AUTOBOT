@@ -39,6 +39,7 @@ class MatrixRunConfig:
     step_window_bars: int | None = None
     min_folds: int = 3
     min_passing_folds: int = 2
+    include_regime_context: bool = False
 
     def __post_init__(self) -> None:
         if not self.symbols:
@@ -123,6 +124,7 @@ def run_validation_matrix(config: MatrixRunConfig, *, write_reports: bool = True
                 step_window_bars=config.step_window_bars,
                 min_folds=config.min_folds,
                 min_passing_folds=config.min_passing_folds,
+                include_regime_context=config.include_regime_context,
             )
             try:
                 runner_result = run_validation(runner_config)
@@ -277,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--step-window-bars", type=int, default=None)
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--include-regime-context", action="store_true")
     parser.add_argument("--fee-bps", type=float, default=16.0)
     parser.add_argument("--spread-bps", type=float, default=8.0)
     parser.add_argument("--slippage-bps", type=float, default=4.0)
@@ -284,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     parser.add_argument("--write-registry-recommendations", action="store_true")
     parser.add_argument("--write-loss-attribution", action="store_true")
+    parser.add_argument("--write-setup-quality", action="store_true")
     args = parser.parse_args(argv)
 
     symbols = tuple(item.strip().upper() for item in args.symbols.split(",") if item.strip())
@@ -320,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         step_window_bars=args.step_window_bars,
         min_folds=args.min_folds,
         min_passing_folds=args.min_passing_folds,
+        include_regime_context=args.include_regime_context,
     )
     result = run_validation_matrix(config)
     output: dict[str, Any] = result.to_dict()
@@ -342,6 +347,15 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output_dir) / "loss_attribution",
         )
         output["loss_attribution_report"] = loss_report.to_dict()
+
+    if args.write_setup_quality:
+        from .setup_quality import write_matrix_setup_quality_report
+
+        setup_report = write_matrix_setup_quality_report(
+            result,
+            Path(args.output_dir) / "setup_quality",
+        )
+        output["setup_quality_report"] = setup_report.to_dict()
 
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0
