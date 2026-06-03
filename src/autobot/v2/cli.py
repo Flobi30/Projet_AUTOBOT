@@ -37,6 +37,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_validation_args(walk_forward)
     walk_forward.set_defaults(handler=lambda args: _cmd_validation(args, mode="walk_forward"))
 
+    matrix = subparsers.add_parser("matrix", help="Run a multi-symbol research validation matrix")
+    _add_matrix_args(matrix)
+    matrix.set_defaults(handler=_cmd_matrix)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -92,6 +96,43 @@ def _add_validation_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--spread-bps", type=float, default=8.0)
     parser.add_argument("--slippage-bps", type=float, default=4.0)
     parser.add_argument("--strategy-config-json", default="{}")
+
+
+def _add_matrix_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-source", choices=["csv", "autobot_state_db"], required=True)
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--symbols", required=True, help="Comma-separated symbol list, for example TRXEUR,BTCEUR")
+    parser.add_argument("--strategies", default="grid,trend,mean_reversion")
+    parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
+    parser.add_argument("--output-dir", default="reports/research_matrix")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--min-signal-net-edge-bps", type=float, default=None)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--train-window-bars", type=int, default=200)
+    parser.add_argument("--test-window-bars", type=int, default=100)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--include-regime-context", action="store_true")
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--strategy-config-json", default="{}")
+    parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument("--write-registry-recommendations", action="store_true")
+    parser.add_argument("--write-loss-attribution", action="store_true")
+    parser.add_argument("--write-setup-quality", action="store_true")
+    parser.add_argument("--write-strategy-regime", action="store_true")
+    parser.add_argument("--write-strategy-regime-baselines", action="store_true")
+    parser.add_argument("--write-strategy-regime-walk-forward", action="store_true")
+    parser.add_argument("--write-strategy-scorecard", action="store_true")
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -158,6 +199,135 @@ def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
         "No live trading permission is granted.",
     ]
     _print_json(payload)
+    return 0
+
+
+def _cmd_matrix(args: argparse.Namespace) -> int:
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+    from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
+    strategies = _csv_tuple(args.strategies, "--strategies")
+    strategy_configs = _loads_object(args.strategy_config_json, "--strategy-config-json")
+    output_dir = Path(args.output_dir)
+    config = MatrixRunConfig(
+        run_id=args.run_id,
+        data_source=args.data_source,
+        data_path=Path(args.data_path),
+        symbols=symbols,
+        strategies=strategies,  # type: ignore[arg-type]
+        mode=args.mode,
+        output_dir=output_dir,
+        initial_capital_eur=args.initial_capital_eur,
+        order_notional_eur=args.order_notional_eur,
+        min_closed_trades=args.min_closed_trades,
+        min_profit_factor=args.min_profit_factor,
+        max_drawdown_pct=args.max_drawdown_pct,
+        min_signal_net_edge_bps=args.min_signal_net_edge_bps,
+        cost_config=ExecutionCostConfig(
+            taker_fee_bps=args.fee_bps,
+            fallback_spread_bps=args.spread_bps,
+            slippage_bps=args.slippage_bps,
+        ),
+        strategy_configs=strategy_configs,
+        start_at=args.start_at,
+        end_at=args.end_at,
+        limit=args.limit,
+        train_window_bars=args.train_window_bars,
+        test_window_bars=args.test_window_bars,
+        step_window_bars=args.step_window_bars,
+        min_folds=args.min_folds,
+        min_passing_folds=args.min_passing_folds,
+        include_regime_context=args.include_regime_context,
+    )
+    result = run_validation_matrix(config)
+    output: dict[str, Any] = result.to_dict()
+
+    if args.write_registry_recommendations:
+        from autobot.v2.research.registry_recommendations import (
+            recommend_from_matrix,
+            write_registry_recommendation_report,
+        )
+        from autobot.v2.strategy_validation_registry import load_registry
+
+        registry_path = Path(args.registry_path)
+        registry_payload = load_registry(registry_path) if registry_path.exists() else None
+        recommendation_report = write_registry_recommendation_report(
+            recommend_from_matrix(result, registry_payload=registry_payload),
+            output_dir / "registry_recommendations",
+        )
+        output["registry_recommendation_report"] = recommendation_report.to_dict()
+
+    if args.write_loss_attribution:
+        from autobot.v2.research.loss_attribution import write_matrix_loss_attribution_report
+
+        loss_report = write_matrix_loss_attribution_report(
+            result,
+            output_dir / "loss_attribution",
+        )
+        output["loss_attribution_report"] = loss_report.to_dict()
+
+    if args.write_setup_quality:
+        from autobot.v2.research.setup_quality import write_matrix_setup_quality_report
+
+        setup_report = write_matrix_setup_quality_report(
+            result,
+            output_dir / "setup_quality",
+        )
+        output["setup_quality_report"] = setup_report.to_dict()
+
+    if args.write_strategy_regime:
+        from autobot.v2.research.strategy_regime_report import write_matrix_strategy_regime_report
+
+        strategy_regime_report = write_matrix_strategy_regime_report(
+            result,
+            output_dir / "strategy_regime",
+        )
+        output["strategy_regime_report"] = strategy_regime_report.to_dict()
+
+    if args.write_strategy_regime_baselines:
+        from autobot.v2.research.strategy_regime_baselines import write_matrix_strategy_regime_baseline_report
+
+        baseline_report = write_matrix_strategy_regime_baseline_report(
+            config,
+            result,
+            output_dir / "strategy_regime_baselines",
+        )
+        output["strategy_regime_baseline_report"] = baseline_report.to_dict()
+
+    if args.write_strategy_regime_walk_forward:
+        from autobot.v2.research.strategy_regime_walk_forward import write_matrix_strategy_regime_walk_forward_report
+
+        walk_forward_report = write_matrix_strategy_regime_walk_forward_report(
+            config,
+            result,
+            output_dir / "strategy_regime_walk_forward",
+        )
+        output["strategy_regime_walk_forward_report"] = walk_forward_report.to_dict()
+
+    if args.write_strategy_scorecard:
+        from autobot.v2.research.strategy_scorecard import score_matrix, write_strategy_scorecard_report
+
+        scorecard_report = write_strategy_scorecard_report(
+            score_matrix(
+                result,
+                fees_included=True,
+                slippage_included=True,
+                baseline_included=args.write_strategy_regime_baselines,
+                out_of_sample_included=(args.mode == "walk_forward" or args.write_strategy_regime_walk_forward),
+            ),
+            output_dir / "strategy_scorecard",
+        )
+        output["strategy_scorecard_report"] = scorecard_report.to_dict()
+
+    output["safety_notes"] = [
+        "Research matrix only.",
+        "No strategy registry mutation is performed by this command.",
+        "No runtime paper/live service is started.",
+        "No Kraken order can be created by this command.",
+        "No live trading permission is granted.",
+    ]
+    _print_json(output)
     return 0
 
 
@@ -262,6 +432,18 @@ def _loads_object(text: str, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{label} must decode to a JSON object")
     return payload
+
+
+def _csv_tuple(text: str, label: str, *, uppercase: bool = False) -> tuple[str, ...]:
+    values = []
+    for item in text.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        values.append(value.upper() if uppercase else value)
+    if not values:
+        raise ValueError(f"{label} must contain at least one value")
+    return tuple(values)
 
 
 def _parse_datetime(value: Any) -> datetime:

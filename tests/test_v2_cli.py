@@ -231,6 +231,64 @@ def test_cli_backtest_runs_research_validation(tmp_path, capsys):
     assert "No live trading permission is granted." in output["safety_notes"]
 
 
+def test_cli_matrix_runs_research_matrix_without_registry_mutation(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+
+    exit_code = cli.main(
+        [
+            "matrix",
+            "--run-id",
+            "pytest_cli_matrix",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--output-dir",
+            str(tmp_path / "matrix"),
+            "--min-closed-trades",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+            "--write-loss-attribution",
+            "--write-strategy-scorecard",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["run_id"] == "pytest_cli_matrix"
+    assert output["cell_count"] == 1
+    assert output["success_count"] == 1
+    assert output["results"][0]["strategy"] == "grid"
+    assert output["loss_attribution_report"]["analyzed_cell_count"] == 1
+    assert output["strategy_scorecard_report"]["results"][0]["live_promotion_allowed"] is False
+    assert "No strategy registry mutation is performed by this command." in output["safety_notes"]
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "matrix" / "pytest_cli_matrix.md").exists()
+    assert (tmp_path / "matrix" / "loss_attribution" / "pytest_cli_matrix_matrix_loss_attribution.md").exists()
+    assert (tmp_path / "matrix" / "strategy_scorecard" / "pytest_cli_matrix_strategy_scorecard.md").exists()
+
+
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):
     csv_path = tmp_path / "bars.csv"
     _write_grid_csv(csv_path)
