@@ -128,6 +128,7 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
             "--write-strategy-regime",
             "--write-strategy-regime-baselines",
             "--write-strategy-regime-walk-forward",
+            "--write-strategy-scorecard",
         ]
     )
 
@@ -148,6 +149,8 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
     assert output["strategy_regime_walk_forward_report"]["run_id"] == (
         "pytest_matrix_cli_strategy_regime_walk_forward"
     )
+    assert output["strategy_scorecard_report"]["run_id"] == "pytest_matrix_cli"
+    assert output["strategy_scorecard_report"]["results"][0]["live_promotion_allowed"] is False
     assert (
         tmp_path
         / "matrix"
@@ -183,4 +186,10 @@ def test_validation_matrix_cli_can_write_registry_recommendations(tmp_path, caps
         / "matrix"
         / "strategy_regime_walk_forward"
         / "pytest_matrix_cli_strategy_regime_walk_forward.md"
+    ).exists()
+    assert (
+        tmp_path
+        / "matrix"
+        / "strategy_scorecard"
+        / "pytest_matrix_cli_strategy_scorecard.md"
     ).exists()

@@ -291,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-strategy-regime", action="store_true")
     parser.add_argument("--write-strategy-regime-baselines", action="store_true")
     parser.add_argument("--write-strategy-regime-walk-forward", action="store_true")
+    parser.add_argument("--write-strategy-scorecard", action="store_true")
     args = parser.parse_args(argv)
 
     symbols = tuple(item.strip().upper() for item in args.symbols.split(",") if item.strip())
@@ -388,6 +389,21 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output_dir) / "strategy_regime_walk_forward",
         )
         output["strategy_regime_walk_forward_report"] = walk_forward_report.to_dict()
+
+    if args.write_strategy_scorecard:
+        from .strategy_scorecard import score_matrix, write_strategy_scorecard_report
+
+        scorecard_report = write_strategy_scorecard_report(
+            score_matrix(
+                result,
+                fees_included=True,
+                slippage_included=True,
+                baseline_included=args.write_strategy_regime_baselines,
+                out_of_sample_included=(args.mode == "walk_forward" or args.write_strategy_regime_walk_forward),
+            ),
+            Path(args.output_dir) / "strategy_scorecard",
+        )
+        output["strategy_scorecard_report"] = scorecard_report.to_dict()
 
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0
