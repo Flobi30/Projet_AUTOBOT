@@ -26,6 +26,20 @@ def _write_grid_csv(path):
     )
 
 
+def _write_symbols_csv(path, symbols):
+    lines = ["timestamp,symbol,timeframe,open,high,low,close,volume"]
+    for symbol in symbols:
+        lines.extend(
+            [
+                f"2026-06-03T00:00:00+00:00,{symbol},1m,100,101,99,100,1000",
+                f"2026-06-03T00:01:00+00:00,{symbol},1m,99.05,100,98,99.05,1000",
+                f"2026-06-03T00:02:00+00:00,{symbol},1m,99.60,100,98,99.60,1000",
+                f"2026-06-03T00:03:00+00:00,{symbol},1m,100.20,101,99,100.20,1000",
+            ]
+        )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _trade_journal(path):
     opened = datetime(2026, 6, 3, 9, tzinfo=timezone.utc)
     closed = datetime(2026, 6, 3, 10, tzinfo=timezone.utc)
@@ -287,6 +301,133 @@ def test_cli_matrix_runs_research_matrix_without_registry_mutation(tmp_path, cap
     assert (tmp_path / "matrix" / "pytest_cli_matrix.md").exists()
     assert (tmp_path / "matrix" / "loss_attribution" / "pytest_cli_matrix_matrix_loss_attribution.md").exists()
     assert (tmp_path / "matrix" / "strategy_scorecard" / "pytest_cli_matrix_strategy_scorecard.md").exists()
+
+
+def test_cli_matrix_preset_fills_top14_symbols(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_symbols_csv(csv_path, cli.AUTOBOT_TOP14_EUR_SYMBOLS)
+
+    exit_code = cli.main(
+        [
+            "matrix",
+            "--run-id",
+            "pytest_cli_top14",
+            "--preset",
+            "autobot-top14-eur",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--strategies",
+            "grid",
+            "--output-dir",
+            str(tmp_path / "top14_matrix"),
+            "--min-closed-trades",
+            "1",
+            "--train-window-bars",
+            "1",
+            "--test-window-bars",
+            "3",
+            "--step-window-bars",
+            "4",
+            "--min-folds",
+            "1",
+            "--min-passing-folds",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["preset"] == "autobot-top14-eur"
+    assert output["standard_reports_enabled"] is False
+    assert output["cell_count"] == len(cli.AUTOBOT_TOP14_EUR_SYMBOLS)
+    assert output["error_count"] == 0
+    assert {item["symbol"] for item in output["results"]} == set(cli.AUTOBOT_TOP14_EUR_SYMBOLS)
+    assert "No live trading permission is granted." in output["safety_notes"]
+
+
+def test_cli_matrix_standard_reports_writes_full_research_bundle(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+
+    exit_code = cli.main(
+        [
+            "matrix",
+            "--run-id",
+            "pytest_cli_standard_reports",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--output-dir",
+            str(tmp_path / "standard_matrix"),
+            "--min-closed-trades",
+            "1",
+            "--train-window-bars",
+            "1",
+            "--test-window-bars",
+            "3",
+            "--step-window-bars",
+            "4",
+            "--min-folds",
+            "1",
+            "--min-passing-folds",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+            "--standard-reports",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["standard_reports_enabled"] is True
+    assert output["registry_recommendation_report"]["recommendations"][0]["live_promotion_allowed"] is False
+    assert output["loss_attribution_report"]["analyzed_cell_count"] == 1
+    assert output["setup_quality_report"]["trade_count"] == 1
+    assert output["strategy_regime_report"]["trade_count"] == 1
+    assert output["strategy_regime_baseline_report"]["bucket_count"] == 1
+    assert output["strategy_regime_walk_forward_report"]["evaluated_bucket_count"] == 1
+    assert output["strategy_scorecard_report"]["results"][0]["live_promotion_allowed"] is False
+    assert (tmp_path / "standard_matrix" / "registry_recommendations").exists()
+    assert (tmp_path / "standard_matrix" / "strategy_regime_walk_forward").exists()
 
 
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):

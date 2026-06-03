@@ -13,6 +13,31 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+AUTOBOT_TOP14_EUR_SYMBOLS = (
+    "BTCZEUR",
+    "ETHZEUR",
+    "SOLEUR",
+    "LTCZEUR",
+    "XLMZEUR",
+    "XRPZEUR",
+    "TRXEUR",
+    "ADAEUR",
+    "LINKEUR",
+    "DOTEUR",
+    "BCHEUR",
+    "ATOMEUR",
+    "AVAXEUR",
+    "AAVEEUR",
+)
+AUTOBOT_STANDARD_STRATEGIES = ("grid", "trend", "mean_reversion")
+MATRIX_PRESETS = {
+    "autobot-top14-eur": {
+        "symbols": AUTOBOT_TOP14_EUR_SYMBOLS,
+        "strategies": AUTOBOT_STANDARD_STRATEGIES,
+        "description": "Standard AUTOBOT top-14 Kraken EUR research universe.",
+    }
+}
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
@@ -100,10 +125,11 @@ def _add_validation_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_matrix_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--preset", choices=sorted(MATRIX_PRESETS), default=None)
     parser.add_argument("--data-source", choices=["csv", "autobot_state_db"], required=True)
     parser.add_argument("--data-path", required=True)
-    parser.add_argument("--symbols", required=True, help="Comma-separated symbol list, for example TRXEUR,BTCEUR")
-    parser.add_argument("--strategies", default="grid,trend,mean_reversion")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbol list, for example TRXEUR,BTCEUR")
+    parser.add_argument("--strategies", default=None)
     parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
     parser.add_argument("--output-dir", default="reports/research_matrix")
     parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
@@ -126,6 +152,11 @@ def _add_matrix_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--slippage-bps", type=float, default=4.0)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument(
+        "--standard-reports",
+        action="store_true",
+        help="Write the standard AUTOBOT research report bundle for the matrix run.",
+    )
     parser.add_argument("--write-registry-recommendations", action="store_true")
     parser.add_argument("--write-loss-attribution", action="store_true")
     parser.add_argument("--write-setup-quality", action="store_true")
@@ -206,8 +237,21 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
     from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
 
-    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
-    strategies = _csv_tuple(args.strategies, "--strategies")
+    preset = MATRIX_PRESETS.get(args.preset) if args.preset else None
+    symbols = _resolve_csv_or_preset_tuple(
+        args.symbols,
+        preset,
+        "symbols",
+        "--symbols",
+        uppercase=True,
+    )
+    strategies = _resolve_csv_or_preset_tuple(
+        args.strategies,
+        preset,
+        "strategies",
+        "--strategies",
+        default=AUTOBOT_STANDARD_STRATEGIES,
+    )
     strategy_configs = _loads_object(args.strategy_config_json, "--strategy-config-json")
     output_dir = Path(args.output_dir)
     config = MatrixRunConfig(
@@ -242,8 +286,18 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
     )
     result = run_validation_matrix(config)
     output: dict[str, Any] = result.to_dict()
+    output["preset"] = args.preset
+    output["standard_reports_enabled"] = bool(args.standard_reports)
 
-    if args.write_registry_recommendations:
+    write_registry_recommendations = args.write_registry_recommendations or args.standard_reports
+    write_loss_attribution = args.write_loss_attribution or args.standard_reports
+    write_setup_quality = args.write_setup_quality or args.standard_reports
+    write_strategy_regime = args.write_strategy_regime or args.standard_reports
+    write_strategy_regime_baselines = args.write_strategy_regime_baselines or args.standard_reports
+    write_strategy_regime_walk_forward = args.write_strategy_regime_walk_forward or args.standard_reports
+    write_strategy_scorecard = args.write_strategy_scorecard or args.standard_reports
+
+    if write_registry_recommendations:
         from autobot.v2.research.registry_recommendations import (
             recommend_from_matrix,
             write_registry_recommendation_report,
@@ -258,7 +312,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["registry_recommendation_report"] = recommendation_report.to_dict()
 
-    if args.write_loss_attribution:
+    if write_loss_attribution:
         from autobot.v2.research.loss_attribution import write_matrix_loss_attribution_report
 
         loss_report = write_matrix_loss_attribution_report(
@@ -267,7 +321,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["loss_attribution_report"] = loss_report.to_dict()
 
-    if args.write_setup_quality:
+    if write_setup_quality:
         from autobot.v2.research.setup_quality import write_matrix_setup_quality_report
 
         setup_report = write_matrix_setup_quality_report(
@@ -276,7 +330,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["setup_quality_report"] = setup_report.to_dict()
 
-    if args.write_strategy_regime:
+    if write_strategy_regime:
         from autobot.v2.research.strategy_regime_report import write_matrix_strategy_regime_report
 
         strategy_regime_report = write_matrix_strategy_regime_report(
@@ -285,7 +339,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["strategy_regime_report"] = strategy_regime_report.to_dict()
 
-    if args.write_strategy_regime_baselines:
+    if write_strategy_regime_baselines:
         from autobot.v2.research.strategy_regime_baselines import write_matrix_strategy_regime_baseline_report
 
         baseline_report = write_matrix_strategy_regime_baseline_report(
@@ -295,7 +349,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["strategy_regime_baseline_report"] = baseline_report.to_dict()
 
-    if args.write_strategy_regime_walk_forward:
+    if write_strategy_regime_walk_forward:
         from autobot.v2.research.strategy_regime_walk_forward import write_matrix_strategy_regime_walk_forward_report
 
         walk_forward_report = write_matrix_strategy_regime_walk_forward_report(
@@ -305,7 +359,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         output["strategy_regime_walk_forward_report"] = walk_forward_report.to_dict()
 
-    if args.write_strategy_scorecard:
+    if write_strategy_scorecard:
         from autobot.v2.research.strategy_scorecard import score_matrix, write_strategy_scorecard_report
 
         scorecard_report = write_strategy_scorecard_report(
@@ -313,8 +367,8 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
                 result,
                 fees_included=True,
                 slippage_included=True,
-                baseline_included=args.write_strategy_regime_baselines,
-                out_of_sample_included=(args.mode == "walk_forward" or args.write_strategy_regime_walk_forward),
+                baseline_included=write_strategy_regime_baselines,
+                out_of_sample_included=(args.mode == "walk_forward" or write_strategy_regime_walk_forward),
             ),
             output_dir / "strategy_scorecard",
         )
@@ -444,6 +498,25 @@ def _csv_tuple(text: str, label: str, *, uppercase: bool = False) -> tuple[str, 
     if not values:
         raise ValueError(f"{label} must contain at least one value")
     return tuple(values)
+
+
+def _resolve_csv_or_preset_tuple(
+    text: str | None,
+    preset: dict[str, Any] | None,
+    preset_key: str,
+    label: str,
+    *,
+    uppercase: bool = False,
+    default: tuple[str, ...] | None = None,
+) -> tuple[str, ...]:
+    if text is not None:
+        return _csv_tuple(text, label, uppercase=uppercase)
+    if preset is not None:
+        values = tuple(str(value) for value in preset[preset_key])
+        return tuple(value.upper() for value in values) if uppercase else values
+    if default is not None:
+        return default
+    raise ValueError(f"{label} is required unless --preset supplies {preset_key}")
 
 
 def _parse_datetime(value: Any) -> datetime:
