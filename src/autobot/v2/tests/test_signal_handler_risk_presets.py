@@ -18,6 +18,9 @@ def _make_handler(price_history=None, preset="balanced"):
     handler._base_atr_sl_mult = 1.8
     handler._base_tp_rr = 1.6
     handler._base_min_edge_bps = 12.0
+    handler._cost_edge_profiles = RISK_REGIME_PRESETS
+    handler._edge_cost_buffer_mult = 1.0
+    handler._volatility_edge_weight = 0.25
     return handler
 
 
