@@ -90,6 +90,21 @@ class _LedgerPersistence:
         return True
 
 
+class _TracePersistence(_LedgerPersistence):
+    def __init__(self):
+        super().__init__()
+        self.decision_events = []
+        self.audit_events = []
+
+    async def append_decision_ledger_event(self, **kwargs):
+        self.decision_events.append(kwargs)
+        return True
+
+    async def append_audit_event(self, **kwargs):
+        self.audit_events.append(kwargs)
+        return True
+
+
 class _SuccessfulSellInstance(_Instance):
     def __init__(self):
         super().__init__()
@@ -171,6 +186,59 @@ class _SuccessfulSellOSM(_OSM):
 
     async def transition(self, *_args, **_kwargs):
         return True
+
+
+class _CanonicalTraceOSM(_OSM):
+    def __init__(self, persistence, accepted_status):
+        self.persistence = persistence
+        self.accepted_status = accepted_status
+        self.new_order_calls = []
+        self.transitions = []
+
+    async def is_duplicate_active(self, *_args, **_kwargs):
+        return False
+
+    async def new_order(self, **kwargs):
+        self.new_order_calls.append(kwargs)
+        decision_id = kwargs.get("decision_id")
+        signal_id = kwargs.get("signal_id")
+        assert decision_id
+        assert signal_id
+        assert any(
+            row.get("decision_id") == decision_id
+            and row.get("signal_id") == signal_id
+            and row.get("event_status") == self.accepted_status
+            for row in self.persistence.decision_events
+        )
+        return SimpleNamespace(client_order_id=f"cid-{self.accepted_status}", userref=4242)
+
+    async def transition(self, *args, **kwargs):
+        self.transitions.append((args, kwargs))
+        return True
+
+
+class _SafeKillSwitch:
+    tripped = False
+
+    @staticmethod
+    def is_globally_tripped():
+        return False
+
+    @staticmethod
+    def record_api_success():
+        return None
+
+    @staticmethod
+    async def record_api_failure(_reason):
+        return None
+
+    @staticmethod
+    def mark_partial(*_args, **_kwargs):
+        return None
+
+    @staticmethod
+    def clear_partial(*_args, **_kwargs):
+        return None
 
 
 class _Executor:
@@ -413,6 +481,7 @@ async def test_execute_buy_can_upsize_small_paper_signal_to_opportunity_budget()
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
     handler.validator = _Validator()
     handler._osm = osm
+    handler._kill_switch = _SafeKillSwitch()
     handler._post_trade_reconcile = _noop_reconcile
     handler._is_paper_mode = lambda: True
     handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": True}
@@ -439,6 +508,43 @@ async def test_execute_buy_can_upsize_small_paper_signal_to_opportunity_budget()
     assert osm.new_order_calls == 1
     assert executor.volumes == [0.4]
     assert handler._last_decision_event["opportunity_size_adjustment"]["reason"] == "paper_opportunity_upsized"
+
+
+@pytest.mark.asyncio
+async def test_buy_signal_persists_canonical_decision_before_order_and_trade():
+    persistence = _TracePersistence()
+    instance = _Instance()
+    instance._persistence = persistence
+    executor = _Executor()
+    osm = _CanonicalTraceOSM(persistence, "buy_accepted")
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = osm
+    handler._kill_switch = _SafeKillSwitch()
+    handler._post_trade_reconcile = _noop_reconcile
+    handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": False}
+    handler._passes_microstructure_hard_filter = lambda _signal: True
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=100.0,
+        volume=0.2,
+        reason="unit canonical buy trace",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"spread_bps": 1.0, "expected_move_bps": 200.0, "fee_bps": 10.0, "slippage_bps": 2.0},
+    )
+
+    await handler._on_signal(signal)
+
+    decision_id = handler._last_decision_event["decision_id"]
+    signal_id = signal.metadata["signal_id"]
+    assert any(row.get("event_status") == "signal_received" and row.get("signal_id") == signal_id for row in persistence.decision_events)
+    assert osm.new_order_calls[0]["decision_id"] == decision_id
+    assert osm.new_order_calls[0]["signal_id"] == signal_id
+    assert persistence.ledger_rows[0]["decision_id"] == decision_id
+    assert persistence.ledger_rows[0]["signal_id"] == signal_id
+    assert persistence.ledger_rows[0]["exchange_order_id"] == "buy-1"
 
 
 @pytest.mark.asyncio
@@ -521,6 +627,41 @@ async def test_execute_sell_records_realized_pnl_from_close_result():
     assert instance.close_calls[0][1]["sell_fee"] == pytest.approx(0.2)
     assert instance._persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
     assert handler._last_order_event["realized_pnl"] == pytest.approx(3.4)
+
+
+@pytest.mark.asyncio
+async def test_sell_signal_persists_canonical_decision_before_order_and_trade():
+    persistence = _TracePersistence()
+    instance = _SuccessfulSellInstance()
+    instance._persistence = persistence
+    executor = _SellExecutor()
+    osm = _CanonicalTraceOSM(persistence, "sell_accepted")
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._osm = osm
+    handler._kill_switch = _SafeKillSwitch()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+    handler._post_trade_reconcile = _noop_reconcile
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit canonical sell trace",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._on_signal(signal)
+
+    decision_id = handler._last_decision_event["decision_id"]
+    signal_id = signal.metadata["signal_id"]
+    assert any(row.get("event_status") == "signal_received" and row.get("signal_id") == signal_id for row in persistence.decision_events)
+    assert osm.new_order_calls[0]["decision_id"] == decision_id
+    assert osm.new_order_calls[0]["signal_id"] == signal_id
+    assert persistence.ledger_rows[0]["decision_id"] == decision_id
+    assert persistence.ledger_rows[0]["signal_id"] == signal_id
+    assert persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
 
 
 def test_compute_close_realized_pnl_fallback_uses_position_metadata_fee():

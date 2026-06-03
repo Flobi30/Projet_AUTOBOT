@@ -276,7 +276,7 @@ class SignalHandlerAsync:
         )
         logger.info(f"📡 SignalHandlerAsync initialisé pour {instance.id}")
 
-    def _record_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
+    def _record_runtime_event(self, attr_name: str, *, persist_async: bool = True, **payload: Any) -> dict[str, Any]:
         """Expose non-sensitive runtime trace events for the dashboard."""
         event = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -293,8 +293,14 @@ class SignalHandlerAsync:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        if loop is not None:
+        if loop is not None and persist_async:
             loop.create_task(self._persist_runtime_event(attr_name, event))
+        return event
+
+    async def _record_and_persist_runtime_event(self, attr_name: str, **payload: Any) -> dict[str, Any]:
+        """Record an event and persist it before downstream order/trade writes."""
+        event = self._record_runtime_event(attr_name, persist_async=False, **payload)
+        await self._persist_runtime_event(attr_name, event)
         return event
 
     @staticmethod
@@ -784,7 +790,7 @@ class SignalHandlerAsync:
             logger.error("🛑 Kill switch actif — signal ignoré")
             return
         logger.info(f"📡 Signal: {signal.type.value.upper()} {signal.symbol} @ {signal.price:.2f}")
-        self._record_runtime_event(
+        await self._record_and_persist_runtime_event(
             "_last_signal_event",
             event="signal_received",
             symbol=signal.symbol,
@@ -1295,7 +1301,7 @@ class SignalHandlerAsync:
             for key, value in edge_ctx.items()
             if isinstance(value, (int, float))
         }
-        self._record_runtime_event(
+        await self._record_and_persist_runtime_event(
             "_last_decision_event",
             event="buy_accepted",
             reason="all_guards_passed",
@@ -1600,7 +1606,7 @@ class SignalHandlerAsync:
                 continue
 
             decision_id = f"dec_sell_{uuid.uuid4().hex}"
-            self._record_runtime_event(
+            await self._record_and_persist_runtime_event(
                 "_last_decision_event",
                 event="sell_accepted",
                 reason="close_signal_selected_position",
