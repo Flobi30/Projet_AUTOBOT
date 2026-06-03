@@ -37,8 +37,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_validation_args(walk_forward)
     walk_forward.set_defaults(handler=lambda args: _cmd_validation(args, mode="walk_forward"))
 
-    paper = subparsers.add_parser("paper", help="Build a paper daily report from a research trade journal")
-    paper.add_argument("--journal-path", required=True, help="TradeJournal JSON file to summarize")
+    paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
+    paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
+    paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
+    paper.add_argument("--paper-trades-db", default=None, help="Read-only legacy paper_trades.db to summarize via FIFO")
     paper.add_argument("--decisions-path", default=None, help="Optional JSON list of paper decision records")
     paper.add_argument("--report-date", required=True, help="Daily report date in YYYY-MM-DD")
     paper.add_argument("--run-id", default=None)
@@ -160,13 +162,30 @@ def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
 
 
 def _cmd_paper(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.ledger_loader import load_paper_trades_db_journal, load_state_db_paper_ledger
     from autobot.v2.paper.paper_trading_engine import PaperDailyConfig, PaperDecisionRecord, PaperTradingEngine
     from autobot.v2.research.trade_journal import TradeJournal
 
-    journal = TradeJournal.from_json(args.journal_path)
-    decisions = _load_paper_decisions(Path(args.decisions_path), PaperDecisionRecord) if args.decisions_path else []
+    source_count = sum(1 for value in (args.journal_path, args.state_db, args.paper_trades_db) if value)
+    if source_count != 1:
+        raise ValueError("paper command requires exactly one of --journal-path, --state-db, or --paper-trades-db")
+    report_date = date.fromisoformat(args.report_date)
+    loader_summary = None
+    if args.state_db:
+        loaded = load_state_db_paper_ledger(args.state_db, report_date=report_date)
+        journal = loaded.journal
+        decisions = list(loaded.decisions)
+        loader_summary = loaded.to_dict()
+    elif args.paper_trades_db:
+        loaded = load_paper_trades_db_journal(args.paper_trades_db, report_date=report_date)
+        journal = loaded.journal
+        decisions = []
+        loader_summary = loaded.to_dict()
+    else:
+        journal = TradeJournal.from_json(args.journal_path)
+        decisions = _load_paper_decisions(Path(args.decisions_path), PaperDecisionRecord) if args.decisions_path else []
     config = PaperDailyConfig(
-        report_date=date.fromisoformat(args.report_date),
+        report_date=report_date,
         run_id=args.run_id,
         initial_capital_eur=args.initial_capital_eur,
         output_dir=Path(args.output_dir),
@@ -180,6 +199,8 @@ def _cmd_paper(args: argparse.Namespace) -> int:
         write_report=not args.no_write_report,
     )
     payload = report.to_dict()
+    if loader_summary is not None:
+        payload["loader"] = loader_summary
     payload["safety_notes"] = [
         "Paper report only.",
         "No orders are created by this CLI command.",

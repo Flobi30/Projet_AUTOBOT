@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
@@ -51,6 +52,129 @@ def _trade_journal(path):
         ]
     )
     journal.to_json(path)
+
+
+def _state_db_with_closed_trade(path):
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trade_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                position_id TEXT,
+                instance_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                expected_price REAL,
+                executed_price REAL NOT NULL,
+                volume REAL NOT NULL,
+                fees REAL DEFAULT 0,
+                slippage_bps REAL,
+                realized_pnl REAL,
+                is_opening_leg INTEGER DEFAULT 0,
+                is_closing_leg INTEGER DEFAULT 0,
+                exchange_order_id TEXT,
+                decision_id TEXT,
+                signal_id TEXT,
+                execution_liquidity TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE decision_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL,
+                decision_id TEXT,
+                signal_id TEXT,
+                instance_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                strategy TEXT,
+                engine TEXT,
+                event_type TEXT NOT NULL,
+                event_status TEXT,
+                reason TEXT,
+                source TEXT NOT NULL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO decision_ledger
+            (event_id, decision_id, signal_id, instance_id, symbol, strategy, engine, event_type,
+             event_status, reason, source, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "evt_sell",
+                "dec_sell",
+                "sig_sell",
+                "inst_1",
+                "TRXEUR",
+                "grid",
+                "trend_momentum",
+                "decision",
+                "sell_accepted",
+                "take_profit",
+                "signal_handler_runtime",
+                '{"side":"sell"}',
+                "2026-06-03T09:59:00+00:00",
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "buy",
+                    "pos_1",
+                    "inst_1",
+                    "TRXEUR",
+                    "buy",
+                    1.0,
+                    1.0,
+                    10.0,
+                    0.1,
+                    1.0,
+                    None,
+                    1,
+                    0,
+                    "BUY",
+                    None,
+                    None,
+                    "taker",
+                    "2026-06-03T09:00:00+00:00",
+                ),
+                (
+                    "sell",
+                    "pos_1",
+                    "inst_1",
+                    "TRXEUR",
+                    "sell",
+                    1.2,
+                    1.2,
+                    10.0,
+                    0.1,
+                    1.0,
+                    1.8,
+                    0,
+                    1,
+                    "SELL",
+                    "dec_sell",
+                    "sig_sell",
+                    "taker",
+                    "2026-06-03T10:00:00+00:00",
+                ),
+            ],
+        )
 
 
 def test_cli_audit_is_read_only(tmp_path, capsys):
@@ -189,6 +313,31 @@ def test_cli_paper_builds_daily_report_from_journal(tmp_path, capsys):
     assert output["decision"] == "CONTINUE"
     assert output["safety_notes"][-1] == "No live trading permission is granted."
     assert (tmp_path / "paper_reports" / "daily_2026-06-03.md").exists()
+
+
+def test_cli_paper_can_read_state_db_trade_ledger(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _state_db_with_closed_trade(db_path)
+
+    exit_code = cli.main(
+        [
+            "paper",
+            "--state-db",
+            str(db_path),
+            "--report-date",
+            "2026-06-03",
+            "--output-dir",
+            str(tmp_path / "paper_reports"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["loader"]["source_type"] == "state_db_trade_ledger"
+    assert output["trade_count"] == 1
+    assert output["decision_count"] == 1
+    assert output["metrics"]["total_net_pnl_eur"] == pytest.approx(1.8)
+    assert output["strategy_statuses"][0]["strategy_id"] == "trend_momentum"
 
 
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
