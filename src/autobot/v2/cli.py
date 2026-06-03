@@ -81,6 +81,21 @@ def _build_parser() -> argparse.ArgumentParser:
     paper.add_argument("--no-write-report", action="store_true")
     paper.set_defaults(handler=_cmd_paper)
 
+    compare = subparsers.add_parser(
+        "compare-paper-research",
+        help="Compare official paper ledger evidence with a research matrix report",
+    )
+    compare.add_argument("--matrix-path", required=True)
+    compare.add_argument("--journal-path", default=None, help="TradeJournal JSON file to compare")
+    compare.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
+    compare.add_argument("--paper-trades-db", default=None, help="Read-only legacy paper_trades.db to compare via FIFO")
+    compare.add_argument("--report-date", default=None, help="Optional paper close date filter in YYYY-MM-DD")
+    compare.add_argument("--run-id", required=True)
+    compare.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    compare.add_argument("--output-dir", default="reports/research/paper_research_comparison")
+    compare.add_argument("--no-write-report", action="store_true")
+    compare.set_defaults(handler=_cmd_compare_paper_research)
+
     leaderboard = subparsers.add_parser("leaderboard", help="Write a strategy scorecard from a matrix JSON report")
     leaderboard.add_argument("--matrix-path", required=True)
     leaderboard.add_argument("--output-dir", default="reports/research_scorecards")
@@ -430,6 +445,61 @@ def _cmd_paper(args: argparse.Namespace) -> int:
         "No orders are created by this CLI command.",
         "No live trading permission is granted.",
     ]
+    _print_json(payload)
+    return 0
+
+
+def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.ledger_loader import load_paper_trades_db_journal, load_state_db_paper_ledger
+    from autobot.v2.research.paper_research_comparison import (
+        compare_paper_to_research,
+        write_paper_research_comparison_report,
+    )
+    from autobot.v2.research.registry_recommendations import load_matrix_result
+    from autobot.v2.research.trade_journal import TradeJournal
+
+    source_count = sum(1 for value in (args.journal_path, args.state_db, args.paper_trades_db) if value)
+    if source_count != 1:
+        raise ValueError(
+            "compare-paper-research requires exactly one of --journal-path, --state-db, or --paper-trades-db"
+        )
+    report_date = date.fromisoformat(args.report_date) if args.report_date else None
+    loader_summary = None
+    if args.state_db:
+        loaded = load_state_db_paper_ledger(args.state_db, report_date=report_date)
+        journal = loaded.journal
+        paper_source_type = loaded.source_type
+        paper_source_path = loaded.source_path
+        warnings = loaded.warnings
+        loader_summary = loaded.to_dict()
+    elif args.paper_trades_db:
+        loaded = load_paper_trades_db_journal(args.paper_trades_db, report_date=report_date)
+        journal = loaded.journal
+        paper_source_type = loaded.source_type
+        paper_source_path = loaded.source_path
+        warnings = loaded.warnings
+        loader_summary = loaded.to_dict()
+    else:
+        journal = TradeJournal.from_json(args.journal_path)
+        paper_source_type = "trade_journal_json"
+        paper_source_path = str(Path(args.journal_path))
+        warnings = ()
+
+    matrix = load_matrix_result(args.matrix_path)
+    report = compare_paper_to_research(
+        journal,
+        matrix,
+        run_id=args.run_id,
+        paper_source_type=paper_source_type,
+        paper_source_path=paper_source_path,
+        initial_capital_eur=args.initial_capital_eur,
+        warnings=warnings,
+    )
+    if not args.no_write_report:
+        report = write_paper_research_comparison_report(report, args.output_dir)
+    payload = report.to_dict()
+    if loader_summary is not None:
+        payload["loader"] = loader_summary
     _print_json(payload)
     return 0
 
