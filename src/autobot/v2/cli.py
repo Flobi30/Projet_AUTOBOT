@@ -68,6 +68,11 @@ def _build_parser() -> argparse.ArgumentParser:
     build_dataset.add_argument("--output-dir", default="data/research")
     build_dataset.add_argument("--no-csv", action="store_true", help="Do not write CSV exports")
     build_dataset.add_argument("--parquet", action="store_true", help="Also attempt Parquet exports if dependencies exist")
+    build_dataset.add_argument(
+        "--no-canonical-symbols",
+        action="store_true",
+        help="Keep raw exchange symbols instead of canonical research aliases",
+    )
     build_dataset.set_defaults(handler=_cmd_build_dataset)
 
     backtest = subparsers.add_parser("backtest", help="Run one isolated research backtest")
@@ -233,6 +238,7 @@ def _cmd_build_dataset(args: argparse.Namespace) -> int:
         limit=args.limit,
         export_csv=not args.no_csv,
         export_parquet=bool(args.parquet),
+        canonicalize_symbols=not args.no_canonical_symbols,
     )
     result = build_dataset_from_state_db(config)
     _print_json(result.to_dict())

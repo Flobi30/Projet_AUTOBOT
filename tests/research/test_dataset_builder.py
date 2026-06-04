@@ -41,6 +41,8 @@ def _state_db_with_price_samples(path):
                 ("s1_dup", "TRXEUR", 100.0, "2026-06-04T00:00:10+00:00", "b1", "runtime", "c1"),
                 ("s2", "TRXEUR", 101.0, "2026-06-04T00:00:40+00:00", "b1", "runtime", "c2"),
                 ("s3", "TRXEUR", 102.0, "2026-06-04T00:02:00+00:00", "b3", "runtime", "c3"),
+                ("b1", "XXBTZEUR", 65000.0, "2026-06-04T00:00:00+00:00", "bb1", "runtime", "c4"),
+                ("b2", "XBTZEUR", 65010.0, "2026-06-04T00:00:50+00:00", "bb1", "runtime", "c5"),
                 ("e1", "ETHEUR", 2000.0, "2026-06-04T00:00:05+00:00", "b1", "runtime", "c4"),
             ],
         )
@@ -91,3 +93,31 @@ def test_build_dataset_aggregates_samples_dedupes_and_marks_gaps(tmp_path):
     assert manifest["raw_duplicate_count"] == 1
     assert manifest["exports"][0]["quality"]["row_count"] >= 1
     assert (tmp_path / "datasets" / "pytest_dataset_quality.md").exists()
+
+
+def test_build_dataset_canonicalizes_symbol_aliases_by_default(tmp_path):
+    db_path = tmp_path / "state.db"
+    _state_db_with_price_samples(db_path)
+
+    result = build_dataset_from_state_db(
+        DatasetBuildConfig(
+            run_id="pytest_alias_dataset",
+            state_db_path=db_path,
+            output_dir=tmp_path / "datasets",
+            symbols=("BTCZEUR",),
+            timeframes=("1m",),
+        )
+    )
+
+    assert result.raw_sample_count == 2
+    assert result.symbols == ("BTCZEUR",)
+    assert set(result.raw_symbols) == {"XBTZEUR", "XXBTZEUR"}
+    assert result.normalized_symbol_count == 2
+    assert "symbols_canonicalized" in result.warnings
+
+    export_1m = result.exports[0]
+    bars = MarketDataRepository().load_csv(export_1m.csv_path)
+    assert len(bars) == 1
+    assert bars[0].symbol == "BTCZEUR"
+    assert bars[0].high == pytest.approx(65010.0)
+    assert bars[0].metadata["sample_count"] == 2

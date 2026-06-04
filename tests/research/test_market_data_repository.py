@@ -128,6 +128,44 @@ def test_market_data_repository_loads_autobot_state_db_price_samples(tmp_path):
     assert bars[0].metadata["sample_id"] == "px1"
 
 
+def test_market_data_repository_can_canonicalize_kraken_symbol_aliases(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("btc1", "XXBTZEUR", 65000.0, "2026-05-01T00:01:00+00:00", "b1", "runtime", "c1"),
+                ("btc2", "XBTZEUR", 65010.0, "2026-05-01T00:02:00+00:00", "b2", "runtime", "c2"),
+                ("eth1", "XETHZEUR", 3000.0, "2026-05-01T00:03:00+00:00", "b3", "runtime", "c3"),
+            ],
+        )
+
+    bars = MarketDataRepository().load_autobot_state_db(db_path, symbol="BTCZEUR", canonicalize_symbols=True)
+
+    assert [bar.symbol for bar in bars] == ["BTCZEUR", "BTCZEUR"]
+    assert [bar.close for bar in bars] == [65000.0, 65010.0]
+    assert bars[0].metadata["raw_symbol"] == "XXBTZEUR"
+    assert bars[0].metadata["symbol_normalized"] is True
+
+
 def test_market_data_repository_state_db_loader_handles_missing_table(tmp_path):
     db_path = tmp_path / "state.db"
     with sqlite3.connect(db_path) as conn:

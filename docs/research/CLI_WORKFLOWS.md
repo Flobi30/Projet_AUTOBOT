@@ -32,6 +32,10 @@ Notes:
 - CSV exports are written by default.
 - Parquet export is optional with `--parquet` and depends on local pandas/parquet
   support.
+- Kraken aliases are canonicalized by default for research consistency. For
+  example `XXBTZEUR`, `XBTZEUR`, `XBT/EUR` and `BTC/EUR` are exported as
+  `BTCZEUR`; raw aliases are kept in metadata and quality reports. Use
+  `--no-canonical-symbols` only when auditing raw exchange naming.
 - Runtime samples do not contain real exchange volume, so exported OHLCV bars
   use `volume=0.0` and record `volume_source=unavailable_from_market_price_samples`
   in metadata.

@@ -59,6 +59,7 @@ __all__ = [
     "StrategyScorecardCriteria",
     "StrategyScorecardReport",
     "StrategyScorecardResult",
+    "expand_research_symbol_aliases",
     "TradeJournal",
     "TradeRecord",
     "TradingSignalAdapter",
@@ -87,6 +88,7 @@ __all__ = [
     "load_matrix_result",
     "load_strategy_regime_report",
     "parse_timeframe_seconds",
+    "normalize_research_symbol",
     "recommend_from_matrix",
     "render_loss_attribution_report",
     "render_matrix_loss_attribution_report",
@@ -113,6 +115,7 @@ __all__ = [
     "write_decision_trace_audit_report",
     "score_matrix",
     "score_strategy",
+    "symbol_alias_map",
 ]
 
 _LAZY_EXPORTS = {
@@ -122,6 +125,9 @@ _LAZY_EXPORTS = {
     "aggregate_samples_to_ohlcv": ("dataset_builder", "aggregate_samples_to_ohlcv"),
     "build_dataset_from_state_db": ("dataset_builder", "build_dataset_from_state_db"),
     "parse_timeframe_seconds": ("dataset_builder", "parse_timeframe_seconds"),
+    "expand_research_symbol_aliases": ("symbol_normalization", "expand_research_symbol_aliases"),
+    "normalize_research_symbol": ("symbol_normalization", "normalize_research_symbol"),
+    "symbol_alias_map": ("symbol_normalization", "symbol_alias_map"),
     "BacktestConfig": ("backtest_engine", "BacktestConfig"),
     "BacktestDecision": ("backtest_engine", "BacktestDecision"),
     "BacktestEngine": ("backtest_engine", "BacktestEngine"),

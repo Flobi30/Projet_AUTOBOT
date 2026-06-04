@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .symbol_normalization import expand_research_symbol_aliases, normalize_research_symbol
+
 
 REQUIRED_OHLCV_COLUMNS = {"timestamp", "open", "high", "low", "close", "volume"}
 
@@ -190,6 +192,7 @@ class MarketDataRepository:
         end_at: Any | None = None,
         limit: int | None = None,
         timeframe: str = "runtime_sample",
+        canonicalize_symbols: bool = False,
     ) -> list[MarketBar]:
         """Load AUTOBOT runtime price samples from ``autobot_state.db``.
 
@@ -200,6 +203,7 @@ class MarketDataRepository:
         if not path.exists():
             return []
         wanted_symbols = _merge_symbols(symbol, symbols)
+        query_symbols = expand_research_symbol_aliases(wanted_symbols) if canonicalize_symbols else wanted_symbols
         try:
             with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
                 conn.row_factory = sqlite3.Row
@@ -208,7 +212,7 @@ class MarketDataRepository:
                 where, args = _sqlite_filters(
                     symbol_column="symbol",
                     time_column="observed_at",
-                    symbols=wanted_symbols,
+                    symbols=query_symbols,
                     start_at=start_at,
                     end_at=end_at,
                 )
@@ -233,23 +237,29 @@ class MarketDataRepository:
                 continue
             if price <= 0.0:
                 continue
+            raw_symbol = str(row["symbol"] or "UNKNOWN").upper()
+            symbol_value = normalize_research_symbol(raw_symbol) if canonicalize_symbols else raw_symbol
+            metadata = {
+                "source": "market_price_samples",
+                "sample_id": row["sample_id"],
+                "bucket_start": row["bucket_start"],
+                "sample_source": row["source"],
+                "created_at": row["created_at"],
+            }
+            if canonicalize_symbols and symbol_value != raw_symbol:
+                metadata["raw_symbol"] = raw_symbol
+                metadata["symbol_normalized"] = True
             bars.append(
                 MarketBar(
                     timestamp=_parse_timestamp(row["observed_at"]),
-                    symbol=str(row["symbol"] or "UNKNOWN").upper(),
+                    symbol=symbol_value,
                     timeframe=timeframe,
                     open=price,
                     high=price,
                     low=price,
                     close=price,
                     volume=0.0,
-                    metadata={
-                        "source": "market_price_samples",
-                        "sample_id": row["sample_id"],
-                        "bucket_start": row["bucket_start"],
-                        "sample_source": row["source"],
-                        "created_at": row["created_at"],
-                    },
+                    metadata=metadata,
                 )
             )
         return self.normalize(bars)

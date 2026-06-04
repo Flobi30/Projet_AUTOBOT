@@ -217,6 +217,7 @@ def _state_db_with_market_samples(path):
                 ("px1", "TRXEUR", 0.25, "2026-06-04T00:00:05+00:00", "b1", "runtime", "c1"),
                 ("px2", "TRXEUR", 0.26, "2026-06-04T00:00:55+00:00", "b1", "runtime", "c2"),
                 ("px3", "TRXEUR", 0.27, "2026-06-04T00:01:10+00:00", "b2", "runtime", "c3"),
+                ("px4", "XXBTZEUR", 65000.0, "2026-06-04T00:00:10+00:00", "b1", "runtime", "c4"),
             ],
         )
 
@@ -246,7 +247,7 @@ def test_cli_build_dataset_exports_ohlcv_research_only(tmp_path, capsys):
             "--state-db",
             str(db_path),
             "--symbols",
-            "TRXEUR",
+            "TRXEUR,BTCZEUR",
             "--timeframes",
             "1m,5m",
             "--output-dir",
@@ -257,9 +258,12 @@ def test_cli_build_dataset_exports_ohlcv_research_only(tmp_path, capsys):
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["run_id"] == "pytest_build_dataset"
-    assert output["raw_sample_count"] == 3
+    assert output["raw_sample_count"] == 4
+    assert output["symbols"] == ["BTCZEUR", "TRXEUR"]
+    assert output["raw_symbols"] == ["XXBTZEUR"]
+    assert output["normalized_symbol_count"] == 1
     assert output["exports"][0]["csv_path"]
-    assert output["exports"][0]["quality"]["row_count"] == 2
+    assert output["exports"][0]["quality"]["row_count"] == 3
     assert "No runtime paper/live service is started." in output["safety_notes"]
     assert "No live trading permission is granted." in output["safety_notes"]
     assert (tmp_path / "datasets" / "pytest_build_dataset_manifest.json").exists()

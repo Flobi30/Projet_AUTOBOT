@@ -11,7 +11,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from .market_data_repository import MarketBar, MarketDataQualityReport, MarketDataRepository
 
@@ -53,6 +53,7 @@ class DatasetBuildConfig:
     limit: int | None = None
     export_csv: bool = True
     export_parquet: bool = False
+    canonicalize_symbols: bool = True
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -75,6 +76,8 @@ class DatasetBuildResult:
     timestamp_collision_count: int
     symbols: tuple[str, ...]
     exports: tuple[DatasetTimeframeExport, ...]
+    raw_symbols: tuple[str, ...] = ()
+    normalized_symbol_count: int = 0
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     warnings: tuple[str, ...] = ()
@@ -90,6 +93,8 @@ class DatasetBuildResult:
             "raw_duplicate_count": self.raw_duplicate_count,
             "timestamp_collision_count": self.timestamp_collision_count,
             "symbols": list(self.symbols),
+            "raw_symbols": list(self.raw_symbols),
+            "normalized_symbol_count": self.normalized_symbol_count,
             "exports": [export.to_dict() for export in self.exports],
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
@@ -131,6 +136,7 @@ def build_dataset_from_state_db(config: DatasetBuildConfig) -> DatasetBuildResul
         start_at=config.start_at,
         end_at=config.end_at,
         limit=config.limit,
+        canonicalize_symbols=config.canonicalize_symbols,
     )
     usable_samples, raw_duplicate_count, timestamp_collision_count = _dedupe_samples(raw_samples)
     warnings: list[str] = []
@@ -141,6 +147,9 @@ def build_dataset_from_state_db(config: DatasetBuildConfig) -> DatasetBuildResul
     if timestamp_collision_count:
         warnings.append("same_timestamp_multiple_prices")
     warnings.append("volume_unavailable_from_market_price_samples")
+    normalized_symbol_count = sum(1 for sample in usable_samples if sample.metadata.get("symbol_normalized") is True)
+    if normalized_symbol_count:
+        warnings.append("symbols_canonicalized")
 
     exports: list[DatasetTimeframeExport] = []
     for timeframe in config.timeframes:
@@ -185,6 +194,8 @@ def build_dataset_from_state_db(config: DatasetBuildConfig) -> DatasetBuildResul
         raw_duplicate_count=raw_duplicate_count,
         timestamp_collision_count=timestamp_collision_count,
         symbols=tuple(sorted({bar.symbol for bar in usable_samples})),
+        raw_symbols=tuple(sorted({str(bar.metadata.get("raw_symbol")) for bar in usable_samples if bar.metadata.get("raw_symbol")})),
+        normalized_symbol_count=normalized_symbol_count,
         exports=tuple(exports),
         warnings=tuple(warnings),
     )
@@ -253,6 +264,8 @@ def write_dataset_build_reports(result: DatasetBuildResult, output_dir: Path) ->
         timestamp_collision_count=result.timestamp_collision_count,
         symbols=result.symbols,
         exports=result.exports,
+        raw_symbols=result.raw_symbols,
+        normalized_symbol_count=result.normalized_symbol_count,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         warnings=result.warnings,
@@ -277,6 +290,8 @@ def render_dataset_build_report(result: DatasetBuildResult) -> str:
         f"- Exact duplicates removed: `{result.raw_duplicate_count}`",
         f"- Same-timestamp collisions: `{result.timestamp_collision_count}`",
         f"- Symbols: `{', '.join(result.symbols) if result.symbols else 'none'}`",
+        f"- Raw aliases normalized: `{', '.join(result.raw_symbols) if result.raw_symbols else 'none'}`",
+        f"- Normalized sample count: `{result.normalized_symbol_count}`",
         f"- Warnings: `{', '.join(result.warnings) if result.warnings else 'none'}`",
         "",
         "## Exports",
