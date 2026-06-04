@@ -79,6 +79,8 @@ def test_compare_paper_to_research_detects_strategy_symbol_divergence():
     assert bucket.symbol == "TRXEUR"
     assert bucket.alignment == "paper_positive_research_negative"
     assert bucket.delta_net_pnl_eur == pytest.approx(8.0)
+    assert "runtime_or_sample_difference" in bucket.diagnostics
+    assert "research_rejected_negative_net_pnl" in bucket.diagnostics
     assert "paper_research_divergence" in bucket.warnings
 
 
@@ -105,6 +107,7 @@ def test_compare_paper_to_research_reports_missing_research_coverage():
     assert report.divergent_bucket_count == 1
     assert report.buckets[0].alignment == "paper_has_trades_research_missing"
     assert report.buckets[0].recommendation == "check_research_adapter_coverage"
+    assert "research_adapter_missing_official_paper_trades" in report.buckets[0].diagnostics
 
 
 def test_write_paper_research_comparison_report(tmp_path):
@@ -129,3 +132,6 @@ def test_write_paper_research_comparison_report(tmp_path):
     assert written.markdown_report_path
     assert (tmp_path / "compare_write.json").exists()
     assert (tmp_path / "compare_write.md").exists()
+    markdown = (tmp_path / "compare_write.md").read_text(encoding="utf-8")
+    assert "Diagnostics" in markdown
+    assert "both_sources_unprofitable" in markdown

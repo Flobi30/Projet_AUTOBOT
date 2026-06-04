@@ -56,6 +56,7 @@ class PaperResearchComparisonBucket:
     delta_net_pnl_eur: float
     alignment: str
     recommendation: str
+    diagnostics: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +68,7 @@ class PaperResearchComparisonBucket:
             "delta_net_pnl_eur": self.delta_net_pnl_eur,
             "alignment": self.alignment,
             "recommendation": self.recommendation,
+            "diagnostics": list(self.diagnostics),
             "warnings": list(self.warnings),
         }
 
@@ -186,8 +188,8 @@ def render_paper_research_comparison_report(report: PaperResearchComparisonRepor
         "",
         "## Buckets",
         "",
-        "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Delta | Alignment | Recommendation |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Delta | Alignment | Diagnostics | Recommendation |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     for bucket in sorted(report.buckets, key=lambda item: (item.alignment, item.strategy_id, item.symbol)):
         lines.append(
@@ -195,7 +197,7 @@ def render_paper_research_comparison_report(report: PaperResearchComparisonRepor
             f"{bucket.paper.trade_count} | {bucket.paper.net_pnl_eur:.6f} | {_fmt(bucket.paper.profit_factor)} | "
             f"{bucket.research.trade_count} | {bucket.research.net_pnl_eur:.6f} | "
             f"{_fmt(bucket.research.profit_factor)} | {bucket.delta_net_pnl_eur:.6f} | "
-            f"{bucket.alignment} | {bucket.recommendation} |"
+            f"{bucket.alignment} | {', '.join(bucket.diagnostics) or 'none'} | {bucket.recommendation} |"
         )
     if report.warnings:
         lines.extend(["", "## Warnings", ""])
@@ -235,6 +237,7 @@ def _compare_bucket(
     delta = paper.net_pnl_eur - research.net_pnl_eur
     alignment = _alignment(paper, research)
     recommendation = _recommendation(alignment)
+    diagnostics = _bucket_diagnostics(paper, research, alignment)
     warnings = _bucket_warnings(paper, research, alignment)
     return PaperResearchComparisonBucket(
         strategy_id=strategy_id,
@@ -244,6 +247,7 @@ def _compare_bucket(
         delta_net_pnl_eur=delta,
         alignment=alignment,
         recommendation=recommendation,
+        diagnostics=diagnostics,
         warnings=warnings,
     )
 
@@ -335,6 +339,40 @@ def _bucket_warnings(paper: EvidenceSummary, research: EvidenceSummary, alignmen
     if research.profit_factor is None and research.trade_count:
         warnings.append("research_profit_factor_unavailable")
     return tuple(warnings)
+
+
+def _bucket_diagnostics(paper: EvidenceSummary, research: EvidenceSummary, alignment: str) -> tuple[str, ...]:
+    diagnostics: list[str] = []
+    if alignment == "paper_positive_research_negative":
+        diagnostics.append("runtime_or_sample_difference")
+    elif alignment == "paper_negative_research_positive":
+        diagnostics.append("router_risk_or_execution_gap")
+    elif alignment == "paper_missing_research_has_trades":
+        diagnostics.append("official_paper_missing_research_trades")
+    elif alignment == "paper_has_trades_research_missing":
+        diagnostics.append("research_adapter_missing_official_paper_trades")
+    elif alignment == "aligned_negative":
+        diagnostics.append("both_sources_unprofitable")
+    elif alignment == "aligned_positive":
+        diagnostics.append("both_sources_positive_requires_baseline_review")
+    elif alignment == "no_evidence":
+        diagnostics.append("no_comparable_trading_evidence")
+
+    if paper.trade_count and paper.trade_count < 30:
+        diagnostics.append("paper_sample_too_small")
+    if research.trade_count and research.trade_count < 30:
+        diagnostics.append("research_sample_too_small")
+    if paper.trade_count and paper.profit_factor is None:
+        diagnostics.append("paper_profit_factor_unavailable")
+    if research.trade_count and research.profit_factor is None:
+        diagnostics.append("research_profit_factor_unavailable")
+    if research.trade_count and (research.fees_eur is None or research.slippage_eur is None):
+        diagnostics.append("research_cost_breakdown_unavailable_from_matrix_summary")
+    if "non_positive_net_pnl" in research.reasons:
+        diagnostics.append("research_rejected_negative_net_pnl")
+    if "negative_net_pnl" in research.reasons:
+        diagnostics.append("research_rejected_negative_net_pnl")
+    return tuple(dict.fromkeys(diagnostics))
 
 
 def _canonical_strategy(strategy: str) -> str:
