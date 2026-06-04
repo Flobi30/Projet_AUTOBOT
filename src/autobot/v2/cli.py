@@ -146,6 +146,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cost_parity.add_argument("--slippage-bps", type=float, default=4.0)
     cost_parity.add_argument("--latency-buffer-bps", type=float, default=1.0)
     cost_parity.add_argument("--warning-delta-bps", type=float, default=5.0)
+    cost_parity.add_argument("--slippage-anomaly-threshold-bps", type=float, default=100.0)
     cost_parity.add_argument("--no-write-report", action="store_true")
     cost_parity.set_defaults(handler=_cmd_cost_parity)
 
@@ -781,6 +782,7 @@ def _cmd_cost_parity(args: argparse.Namespace) -> int:
             latency_buffer_bps=args.latency_buffer_bps,
         ),
         warning_delta_bps=args.warning_delta_bps,
+        slippage_anomaly_threshold_bps=args.slippage_anomaly_threshold_bps,
     )
     report = audit_cost_parity(config)
     if not args.no_write_report:

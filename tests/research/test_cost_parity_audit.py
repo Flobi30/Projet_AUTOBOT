@@ -122,6 +122,8 @@ def test_cost_parity_audit_compares_state_and_shadow_costs(tmp_path):
     assert paper.avg_slippage_bps == pytest.approx(5.0)
     assert paper.avg_total_cost_bps == pytest.approx(21.0)
     assert paper.cost_delta_bps == pytest.approx(-4.0)
+    assert paper.total_favorable_slippage_eur == pytest.approx(0.0)
+    assert paper.anomalous_slippage_row_count == 0
     assert "avg_cost_below_research_expected" not in paper.warnings
 
     trend = sources["trend_shadow"]
@@ -152,6 +154,35 @@ def test_cost_parity_audit_flags_missing_and_too_cheap_sources(tmp_path):
     assert sources["trend_shadow"].avg_total_cost_bps == pytest.approx(5.0)
     assert "avg_cost_below_research_expected" in sources["trend_shadow"].warnings
     assert "state_db_missing" in report.warnings
+
+
+def test_cost_parity_audit_separates_favorable_slippage_and_anomalies(tmp_path):
+    state_db = tmp_path / "state.db"
+    _state_db(state_db)
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, symbol, executed_price, volume, fees, slippage_bps, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("sell", "pos_2", "TRXEUR", 1.0, 100.0, 0.16, -150.0, "2026-06-04T00:02:00+00:00"),
+        )
+
+    report = audit_cost_parity(
+        CostParityAuditConfig(
+            run_id="pytest_signed_slippage",
+            state_db_path=state_db,
+            slippage_anomaly_threshold_bps=100.0,
+        )
+    )
+
+    paper = {source.source: source for source in report.sources}["official_paper_trade_ledger"]
+    assert paper.total_slippage_eur == pytest.approx(0.1)
+    assert paper.total_favorable_slippage_eur == pytest.approx(1.5)
+    assert paper.max_abs_slippage_bps == pytest.approx(150.0)
+    assert paper.anomalous_slippage_row_count == 1
+    assert "slippage_bps_anomalies" in paper.warnings
 
 
 def test_cost_parity_report_writer_outputs_json_and_markdown(tmp_path):

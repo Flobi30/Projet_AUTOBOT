@@ -204,6 +204,10 @@ Shadow rows store collapsed round-trip costs, so their report includes
 `shadow_cost_components_collapsed`; that is a transparency warning, not a live
 permission.
 
+Official paper `slippage_bps` is signed. The audit counts only adverse
+slippage as cost, reports favorable slippage separately, and flags abnormal
+absolute slippage rows with `slippage_bps_anomalies`.
+
 ## Safety Checklist
 
 Before using a matrix result as evidence:

@@ -38,6 +38,7 @@ class CostParityAuditConfig:
     output_dir: str | Path = "reports/research/cost_parity"
     research_cost_config: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
     warning_delta_bps: float = 5.0
+    slippage_anomaly_threshold_bps: float = 100.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class CostParityAuditConfig:
             "output_dir": str(self.output_dir),
             "research_cost_config": self.research_cost_config.to_dict(),
             "warning_delta_bps": float(self.warning_delta_bps),
+            "slippage_anomaly_threshold_bps": float(self.slippage_anomaly_threshold_bps),
         }
 
 
@@ -65,10 +67,14 @@ class CostSourceSummary:
     total_notional_eur: float = 0.0
     total_fees_eur: float = 0.0
     total_slippage_eur: float = 0.0
+    total_favorable_slippage_eur: float = 0.0
     total_cost_eur: float = 0.0
     avg_fee_bps: float | None = None
     avg_slippage_bps: float | None = None
+    avg_favorable_slippage_bps: float | None = None
     avg_total_cost_bps: float | None = None
+    max_abs_slippage_bps: float | None = None
+    anomalous_slippage_row_count: int = 0
     expected_cost_bps_per_side: float | None = None
     cost_delta_bps: float | None = None
     warnings: tuple[str, ...] = ()
@@ -124,6 +130,11 @@ def audit_cost_parity(config: CostParityAuditConfig) -> CostParityAuditReport:
     config.research_cost_config.validate()
     if not math.isfinite(float(config.warning_delta_bps)) or float(config.warning_delta_bps) < 0.0:
         raise ValueError("warning_delta_bps must be finite and non-negative")
+    if (
+        not math.isfinite(float(config.slippage_anomaly_threshold_bps))
+        or float(config.slippage_anomaly_threshold_bps) <= 0.0
+    ):
+        raise ValueError("slippage_anomaly_threshold_bps must be finite and positive")
 
     defaults = conservative_shadow_cost_defaults(config.research_cost_config)
     expected = defaults.effective_cost_bps_per_side
@@ -132,6 +143,7 @@ def audit_cost_parity(config: CostParityAuditConfig) -> CostParityAuditReport:
             config.state_db_path,
             expected_cost_bps=expected,
             warning_delta_bps=config.warning_delta_bps,
+            slippage_anomaly_threshold_bps=config.slippage_anomaly_threshold_bps,
         )
     ]
     shadow_paths: dict[str, str | Path | None] = {
@@ -189,16 +201,18 @@ def render_cost_parity_audit_report(report: CostParityAuditReport) -> str:
         "",
         "## Sources",
         "",
-        "| Source | Status | Trades | Cost Rows | Notional EUR | Fees EUR | Slippage EUR | Total Cost EUR | Avg Fee bps | Avg Slippage bps | Avg Total bps | Delta bps | Warnings |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Source | Status | Trades | Cost Rows | Notional EUR | Fees EUR | Adverse Slip EUR | Favorable Slip EUR | Total Cost EUR | Avg Fee bps | Avg Adverse Slip bps | Avg Total bps | Delta bps | Max Abs Slip bps | Anomaly Rows | Warnings |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for source in report.sources:
         lines.append(
             f"| {source.source} | {source.status} | {source.trade_count} | {source.cost_row_count} | "
             f"{source.total_notional_eur:.6f} | {source.total_fees_eur:.6f} | "
-            f"{source.total_slippage_eur:.6f} | {source.total_cost_eur:.6f} | "
+            f"{source.total_slippage_eur:.6f} | {source.total_favorable_slippage_eur:.6f} | "
+            f"{source.total_cost_eur:.6f} | "
             f"{_fmt(source.avg_fee_bps)} | {_fmt(source.avg_slippage_bps)} | "
             f"{_fmt(source.avg_total_cost_bps)} | {_fmt(source.cost_delta_bps)} | "
+            f"{_fmt(source.max_abs_slippage_bps)} | {source.anomalous_slippage_row_count} | "
             f"{', '.join(source.warnings) or 'none'} |"
         )
     if report.warnings:
@@ -215,6 +229,7 @@ def _audit_state_db_costs(
     *,
     expected_cost_bps: float,
     warning_delta_bps: float,
+    slippage_anomaly_threshold_bps: float,
 ) -> CostSourceSummary:
     source = "official_paper_trade_ledger"
     if path is None:
@@ -230,7 +245,10 @@ def _audit_state_db_costs(
     total_notional = 0.0
     total_fees = 0.0
     total_slippage = 0.0
+    total_favorable_slippage = 0.0
     cost_rows = 0
+    anomalous_slippage_rows = 0
+    max_abs_slippage_bps = 0.0
     position_ids: set[str] = set()
     for row in rows:
         price = _safe_float(row.get("executed_price"))
@@ -244,7 +262,13 @@ def _audit_state_db_costs(
             position_ids.add(position_id)
         total_notional += notional
         total_fees += max(0.0, _safe_float(row.get("fees")))
-        total_slippage += _slippage_cost(row)
+        raw_slippage_bps = _safe_float(row.get("slippage_bps"))
+        abs_slippage_bps = abs(raw_slippage_bps)
+        max_abs_slippage_bps = max(max_abs_slippage_bps, abs_slippage_bps)
+        if abs_slippage_bps > slippage_anomaly_threshold_bps:
+            anomalous_slippage_rows += 1
+        total_slippage += _signed_slippage_cost(row, adverse=True)
+        total_favorable_slippage += _signed_slippage_cost(row, adverse=False)
     return _summary(
         source=source,
         source_path=str(db_path),
@@ -255,6 +279,9 @@ def _audit_state_db_costs(
         total_notional_eur=total_notional,
         total_fees_eur=total_fees,
         total_slippage_eur=total_slippage,
+        total_favorable_slippage_eur=total_favorable_slippage,
+        max_abs_slippage_bps=max_abs_slippage_bps if cost_rows else None,
+        anomalous_slippage_row_count=anomalous_slippage_rows,
         expected_cost_bps=expected_cost_bps,
         warning_delta_bps=warning_delta_bps,
         extra_warnings=(),
@@ -302,6 +329,9 @@ def _audit_shadow_costs(
         total_notional_eur=total_notional,
         total_fees_eur=total_fees,
         total_slippage_eur=0.0,
+        total_favorable_slippage_eur=0.0,
+        max_abs_slippage_bps=None,
+        anomalous_slippage_row_count=0,
         expected_cost_bps=expected_cost_bps,
         warning_delta_bps=warning_delta_bps,
         extra_warnings=("shadow_cost_components_collapsed",),
@@ -319,6 +349,9 @@ def _summary(
     total_notional_eur: float,
     total_fees_eur: float,
     total_slippage_eur: float,
+    total_favorable_slippage_eur: float,
+    max_abs_slippage_bps: float | None,
+    anomalous_slippage_row_count: int,
     expected_cost_bps: float,
     warning_delta_bps: float,
     extra_warnings: Iterable[str],
@@ -326,11 +359,14 @@ def _summary(
     total_cost = total_fees_eur + total_slippage_eur
     avg_fee = _bps(total_fees_eur, total_notional_eur)
     avg_slippage = _bps(total_slippage_eur, total_notional_eur)
+    avg_favorable_slippage = _bps(total_favorable_slippage_eur, total_notional_eur)
     avg_total = _bps(total_cost, total_notional_eur)
     delta = None if avg_total is None else avg_total - expected_cost_bps
     warnings = list(extra_warnings)
     if cost_row_count == 0:
         warnings.append("no_cost_rows")
+    if anomalous_slippage_row_count:
+        warnings.append("slippage_bps_anomalies")
     if delta is not None and abs(delta) > warning_delta_bps:
         if delta < 0.0:
             warnings.append("avg_cost_below_research_expected")
@@ -346,10 +382,14 @@ def _summary(
         total_notional_eur=total_notional_eur,
         total_fees_eur=total_fees_eur,
         total_slippage_eur=total_slippage_eur,
+        total_favorable_slippage_eur=total_favorable_slippage_eur,
         total_cost_eur=total_cost,
         avg_fee_bps=avg_fee,
         avg_slippage_bps=avg_slippage,
+        avg_favorable_slippage_bps=avg_favorable_slippage,
         avg_total_cost_bps=avg_total,
+        max_abs_slippage_bps=max_abs_slippage_bps,
+        anomalous_slippage_row_count=anomalous_slippage_row_count,
         expected_cost_bps_per_side=expected_cost_bps,
         cost_delta_bps=delta,
         warnings=tuple(dict.fromkeys(warnings)),
@@ -388,11 +428,15 @@ def _select_all(conn: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def _slippage_cost(row: Mapping[str, Any]) -> float:
-    slippage_bps = abs(_safe_float(row.get("slippage_bps")))
+def _signed_slippage_cost(row: Mapping[str, Any], *, adverse: bool) -> float:
+    slippage_bps = _safe_float(row.get("slippage_bps"))
+    if adverse and slippage_bps <= 0.0:
+        return 0.0
+    if not adverse and slippage_bps >= 0.0:
+        return 0.0
     price = abs(_safe_float(row.get("executed_price")))
     volume = abs(_safe_float(row.get("volume")))
-    return (slippage_bps / 10_000.0) * price * volume
+    return (abs(slippage_bps) / 10_000.0) * price * volume
 
 
 def _bps(value: float, notional: float) -> float | None:
