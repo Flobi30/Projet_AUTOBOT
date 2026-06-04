@@ -8,10 +8,12 @@ changing runtime execution, strategy routing, risk, sizing, or the registry.
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .decision_trace_audit import DecisionTrace, DecisionTraceAuditReport
 from .metrics_engine import MetricsEngine
 from .registry_recommendations import STRATEGY_TO_REGISTRY_ID
 from .trade_journal import TradeJournal, TradeRecord
@@ -48,6 +50,24 @@ class EvidenceSummary:
 
 
 @dataclass(frozen=True)
+class DecisionTraceBucketSummary:
+    trace_count: int
+    canonical_complete_count: int
+    rejected_count: int
+    execution_count: int
+    missing_stage_counts: dict[str, int]
+    top_reasons: dict[str, int]
+    net_pnl_eur: float
+
+    @property
+    def canonical_complete_ratio(self) -> float:
+        return (self.canonical_complete_count / self.trace_count * 100.0) if self.trace_count else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self) | {"canonical_complete_ratio": self.canonical_complete_ratio}
+
+
+@dataclass(frozen=True)
 class PaperResearchComparisonBucket:
     strategy_id: str
     symbol: str
@@ -58,6 +78,7 @@ class PaperResearchComparisonBucket:
     recommendation: str
     diagnostics: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    decision_traces: DecisionTraceBucketSummary | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +91,7 @@ class PaperResearchComparisonBucket:
             "recommendation": self.recommendation,
             "diagnostics": list(self.diagnostics),
             "warnings": list(self.warnings),
+            "decision_traces": self.decision_traces.to_dict() if self.decision_traces else None,
         }
 
 
@@ -87,6 +109,7 @@ class PaperResearchComparisonReport:
     research_net_pnl_eur: float
     buckets: tuple[PaperResearchComparisonBucket, ...]
     warnings: tuple[str, ...] = ()
+    decision_trace_run_id: str | None = None
     json_report_path: str | None = None
     markdown_report_path: str | None = None
     safety_notes: tuple[str, ...] = field(
@@ -112,6 +135,7 @@ class PaperResearchComparisonReport:
             "research_net_pnl_eur": self.research_net_pnl_eur,
             "buckets": [bucket.to_dict() for bucket in self.buckets],
             "warnings": list(self.warnings),
+            "decision_trace_run_id": self.decision_trace_run_id,
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
             "safety_notes": list(self.safety_notes),
@@ -127,18 +151,21 @@ def compare_paper_to_research(
     paper_source_path: str,
     initial_capital_eur: float = 1_000.0,
     warnings: Iterable[str] = (),
+    decision_trace_report: DecisionTraceAuditReport | None = None,
 ) -> PaperResearchComparisonReport:
     """Compare paper ledger buckets with research matrix cells."""
 
     paper_groups = _group_paper_trades(journal.records)
     research_groups = _group_research_cells(matrix.results)
-    keys = sorted(set(paper_groups) | set(research_groups))
+    trace_groups = _group_decision_traces(decision_trace_report.traces if decision_trace_report else ())
+    keys = sorted(set(paper_groups) | set(research_groups) | set(trace_groups))
     buckets = tuple(
         _compare_bucket(
             strategy_id=strategy_id,
             symbol=symbol,
             paper_records=paper_groups.get((strategy_id, symbol), ()),
             research_cells=research_groups.get((strategy_id, symbol), ()),
+            decision_trace_summary=trace_groups.get((strategy_id, symbol)),
             initial_capital_eur=initial_capital_eur,
         )
         for strategy_id, symbol in keys
@@ -157,6 +184,7 @@ def compare_paper_to_research(
         research_net_pnl_eur=sum(bucket.research.net_pnl_eur for bucket in buckets),
         buckets=buckets,
         warnings=tuple(warnings),
+        decision_trace_run_id=decision_trace_report.run_id if decision_trace_report else None,
     )
 
 
@@ -188,15 +216,17 @@ def render_paper_research_comparison_report(report: PaperResearchComparisonRepor
         "",
         "## Buckets",
         "",
-        "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Delta | Alignment | Diagnostics | Recommendation |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Trace Count | Trace Missing | Delta | Alignment | Diagnostics | Recommendation |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |",
     ]
     for bucket in sorted(report.buckets, key=lambda item: (item.alignment, item.strategy_id, item.symbol)):
+        trace_count = bucket.decision_traces.trace_count if bucket.decision_traces else 0
+        trace_missing = _format_missing_stage_counts(bucket.decision_traces)
         lines.append(
             f"| {bucket.strategy_id} | {bucket.symbol} | "
             f"{bucket.paper.trade_count} | {bucket.paper.net_pnl_eur:.6f} | {_fmt(bucket.paper.profit_factor)} | "
             f"{bucket.research.trade_count} | {bucket.research.net_pnl_eur:.6f} | "
-            f"{_fmt(bucket.research.profit_factor)} | {bucket.delta_net_pnl_eur:.6f} | "
+            f"{_fmt(bucket.research.profit_factor)} | {trace_count} | {trace_missing} | {bucket.delta_net_pnl_eur:.6f} | "
             f"{bucket.alignment} | {', '.join(bucket.diagnostics) or 'none'} | {bucket.recommendation} |"
         )
     if report.warnings:
@@ -224,12 +254,39 @@ def _group_research_cells(cells: Iterable[MatrixCellResult]) -> dict[tuple[str, 
     return {key: tuple(value) for key, value in grouped.items()}
 
 
+def _group_decision_traces(traces: Iterable[DecisionTrace]) -> dict[tuple[str, str], DecisionTraceBucketSummary]:
+    grouped: dict[tuple[str, str], list[DecisionTrace]] = defaultdict(list)
+    for trace in traces:
+        symbol = str(trace.symbol or "").upper()
+        if not symbol:
+            continue
+        strategy = _canonical_strategy(trace.engine or trace.strategy or "unknown")
+        grouped[(strategy, symbol)].append(trace)
+    return {key: _decision_trace_summary(value) for key, value in grouped.items()}
+
+
+def _decision_trace_summary(traces: Iterable[DecisionTrace]) -> DecisionTraceBucketSummary:
+    trace_list = tuple(traces)
+    missing = Counter(stage for trace in trace_list for stage in trace.missing_stages)
+    reasons = Counter(reason for trace in trace_list for reason in trace.reasons)
+    return DecisionTraceBucketSummary(
+        trace_count=len(trace_list),
+        canonical_complete_count=sum(1 for trace in trace_list if trace.canonical_complete),
+        rejected_count=sum(1 for trace in trace_list if trace.is_rejected),
+        execution_count=sum(1 for trace in trace_list if trace.is_execution_path),
+        missing_stage_counts=dict(missing),
+        top_reasons=dict(reasons.most_common(8)),
+        net_pnl_eur=sum(trace.net_pnl_eur for trace in trace_list),
+    )
+
+
 def _compare_bucket(
     *,
     strategy_id: str,
     symbol: str,
     paper_records: tuple[TradeRecord, ...],
     research_cells: tuple[MatrixCellResult, ...],
+    decision_trace_summary: DecisionTraceBucketSummary | None,
     initial_capital_eur: float,
 ) -> PaperResearchComparisonBucket:
     paper = _paper_summary(paper_records, initial_capital_eur=initial_capital_eur)
@@ -237,7 +294,7 @@ def _compare_bucket(
     delta = paper.net_pnl_eur - research.net_pnl_eur
     alignment = _alignment(paper, research)
     recommendation = _recommendation(alignment)
-    diagnostics = _bucket_diagnostics(paper, research, alignment)
+    diagnostics = _bucket_diagnostics(paper, research, alignment, decision_trace_summary)
     warnings = _bucket_warnings(paper, research, alignment)
     return PaperResearchComparisonBucket(
         strategy_id=strategy_id,
@@ -249,6 +306,7 @@ def _compare_bucket(
         recommendation=recommendation,
         diagnostics=diagnostics,
         warnings=warnings,
+        decision_traces=decision_trace_summary,
     )
 
 
@@ -341,7 +399,12 @@ def _bucket_warnings(paper: EvidenceSummary, research: EvidenceSummary, alignmen
     return tuple(warnings)
 
 
-def _bucket_diagnostics(paper: EvidenceSummary, research: EvidenceSummary, alignment: str) -> tuple[str, ...]:
+def _bucket_diagnostics(
+    paper: EvidenceSummary,
+    research: EvidenceSummary,
+    alignment: str,
+    decision_trace_summary: DecisionTraceBucketSummary | None,
+) -> tuple[str, ...]:
     diagnostics: list[str] = []
     if alignment == "paper_positive_research_negative":
         diagnostics.append("runtime_or_sample_difference")
@@ -372,7 +435,42 @@ def _bucket_diagnostics(paper: EvidenceSummary, research: EvidenceSummary, align
         diagnostics.append("research_rejected_negative_net_pnl")
     if "negative_net_pnl" in research.reasons:
         diagnostics.append("research_rejected_negative_net_pnl")
+    diagnostics.extend(_decision_trace_diagnostics(paper, research, decision_trace_summary))
     return tuple(dict.fromkeys(diagnostics))
+
+
+def _decision_trace_diagnostics(
+    paper: EvidenceSummary,
+    research: EvidenceSummary,
+    summary: DecisionTraceBucketSummary | None,
+) -> tuple[str, ...]:
+    if summary is None:
+        if paper.trade_count or research.trade_count:
+            return ("decision_trace_missing_for_bucket",)
+        return ()
+
+    diagnostics: list[str] = []
+    if summary.trace_count and summary.canonical_complete_count == 0:
+        diagnostics.append("decision_trace_no_complete_pipeline")
+    if summary.rejected_count:
+        diagnostics.append("decision_trace_has_rejections")
+    if summary.execution_count and summary.canonical_complete_count < summary.execution_count:
+        diagnostics.append("decision_trace_execution_incomplete")
+    for stage in sorted(summary.missing_stage_counts):
+        diagnostics.append(f"decision_trace_missing_{stage}")
+    if paper.trade_count == 0 and summary.execution_count:
+        diagnostics.append("decision_trace_execution_without_closed_paper_trade")
+    if paper.trade_count and summary.trace_count == 0:
+        diagnostics.append("closed_paper_trade_without_decision_trace")
+    return tuple(diagnostics)
+
+
+def _format_missing_stage_counts(summary: DecisionTraceBucketSummary | None) -> str:
+    if summary is None:
+        return ""
+    if not summary.missing_stage_counts:
+        return "none"
+    return ", ".join(f"{stage}:{count}" for stage, count in sorted(summary.missing_stage_counts.items()))
 
 
 def _canonical_strategy(strategy: str) -> str:

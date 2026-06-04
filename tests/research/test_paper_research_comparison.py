@@ -2,6 +2,12 @@ from datetime import datetime, timezone
 
 import pytest
 
+from autobot.v2.research.decision_trace_audit import (
+    DecisionTrace,
+    DecisionTraceAuditConfig,
+    DecisionTraceAuditReport,
+    DecisionTraceAuditSummary,
+)
 from autobot.v2.research.paper_research_comparison import (
     compare_paper_to_research,
     write_paper_research_comparison_report,
@@ -51,6 +57,57 @@ def _matrix_cell(strategy="trend", symbol="TRXEUR", net=-3.0, trades=2):
     )
 
 
+def _decision_trace_report():
+    trace = DecisionTrace(
+        trace_id="decision_id:dec_1",
+        decision_id="dec_1",
+        signal_id="sig_1",
+        symbol="TRXEUR",
+        strategy="grid",
+        engine="trend_momentum",
+        first_seen_at="2026-06-03T09:00:00+00:00",
+        event_types=("decision",),
+        event_statuses=("accepted",),
+        reasons=("risk_accepted",),
+        has_signal=False,
+        has_decision=True,
+        is_rejected=False,
+        is_execution_path=True,
+        has_order=True,
+        has_fill=False,
+        has_trade=False,
+        has_pnl=False,
+        has_outcome=False,
+        net_pnl_eur=0.0,
+        outcome_labels=(),
+        missing_stages=("signal", "fill", "trade", "pnl"),
+        canonical_complete=False,
+    )
+    return DecisionTraceAuditReport(
+        run_id="trace_run",
+        generated_at="2026-06-03T11:00:00+00:00",
+        config=DecisionTraceAuditConfig(state_db_path="memory", run_id="trace_run"),
+        data_sources={"status": "pytest"},
+        summary=DecisionTraceAuditSummary(
+            trace_count=1,
+            canonical_complete_count=0,
+            canonical_complete_ratio=0.0,
+            signal_without_decision_count=0,
+            rejected_trace_count=0,
+            rejected_with_outcome_count=0,
+            execution_trace_count=1,
+            execution_complete_count=0,
+            orphan_order_count=0,
+            orphan_trade_count=0,
+            total_net_pnl_eur=0.0,
+            missing_stage_counts={"fill": 1, "pnl": 1, "signal": 1, "trade": 1},
+            event_type_counts={"decision": 1},
+            event_status_counts={"accepted": 1},
+        ),
+        traces=(trace,),
+    )
+
+
 def test_compare_paper_to_research_detects_strategy_symbol_divergence():
     journal = TradeJournal([_trade(net=5.0)])
     matrix = MatrixRunResult(
@@ -82,6 +139,36 @@ def test_compare_paper_to_research_detects_strategy_symbol_divergence():
     assert "runtime_or_sample_difference" in bucket.diagnostics
     assert "research_rejected_negative_net_pnl" in bucket.diagnostics
     assert "paper_research_divergence" in bucket.warnings
+
+
+def test_compare_paper_to_research_attaches_decision_trace_diagnostics():
+    journal = TradeJournal([_trade(net=5.0)])
+    matrix = MatrixRunResult(
+        run_id="matrix_run",
+        mode="backtest",
+        cell_count=1,
+        success_count=1,
+        error_count=0,
+        results=(_matrix_cell(net=-3.0),),
+    )
+
+    report = compare_paper_to_research(
+        journal,
+        matrix,
+        run_id="compare_with_trace",
+        paper_source_type="pytest",
+        paper_source_path="memory",
+        decision_trace_report=_decision_trace_report(),
+    )
+
+    bucket = report.buckets[0]
+    assert report.decision_trace_run_id == "trace_run"
+    assert bucket.decision_traces is not None
+    assert bucket.decision_traces.trace_count == 1
+    assert bucket.decision_traces.canonical_complete_ratio == 0.0
+    assert "decision_trace_execution_incomplete" in bucket.diagnostics
+    assert "decision_trace_missing_fill" in bucket.diagnostics
+    assert "decision_trace_missing_trade" in bucket.diagnostics
 
 
 def test_compare_paper_to_research_reports_missing_research_coverage():

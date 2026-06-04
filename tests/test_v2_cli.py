@@ -816,6 +816,64 @@ def test_cli_compare_paper_research_accepts_validate_strategies_output(tmp_path,
     assert "No live trading permission is granted." in output["safety_notes"]
 
 
+def test_cli_compare_paper_research_attaches_state_db_decision_trace(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _state_db_with_closed_trade(db_path)
+    matrix_path = tmp_path / "matrix.json"
+    matrix_path.write_text(
+        json.dumps(
+            {
+                "run_id": "pytest_matrix",
+                "mode": "backtest",
+                "cell_count": 1,
+                "success_count": 1,
+                "error_count": 0,
+                "results": [
+                    {
+                        "run_id": "pytest_matrix_TRXEUR_trend",
+                        "symbol": "TRXEUR",
+                        "strategy": "trend",
+                        "mode": "backtest",
+                        "status": "ok",
+                        "decision": "modify",
+                        "reason": "non_positive_net_pnl",
+                        "bar_count": 120,
+                        "closed_trades": 2,
+                        "net_pnl_eur": -2.5,
+                        "profit_factor": 0.8,
+                        "max_drawdown_pct": 4.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "compare-paper-research",
+            "--run-id",
+            "pytest_compare_trace",
+            "--matrix-path",
+            str(matrix_path),
+            "--state-db",
+            str(db_path),
+            "--output-dir",
+            str(tmp_path / "compare_reports"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    bucket = output["buckets"][0]
+    assert exit_code == 0
+    assert output["decision_trace_run_id"] == "pytest_compare_trace_decision_trace"
+    assert output["decision_trace_audit_summary"]["trace_count"] == 1
+    assert bucket["decision_traces"]["trace_count"] == 1
+    assert "decision_trace_missing_order" in bucket["diagnostics"]
+    assert "decision_trace_missing_signal" in bucket["diagnostics"]
+    assert "No live trading permission is granted." in output["safety_notes"]
+
+
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
     matrix_path = tmp_path / "matrix.json"
     matrix_path.write_text(

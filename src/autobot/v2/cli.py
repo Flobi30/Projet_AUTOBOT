@@ -117,6 +117,13 @@ def _build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--journal-path", default=None, help="TradeJournal JSON file to compare")
     compare.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
     compare.add_argument("--paper-trades-db", default=None, help="Read-only legacy paper_trades.db to compare via FIFO")
+    compare.add_argument(
+        "--decision-state-db",
+        default=None,
+        help="Optional read-only AUTOBOT state DB used to attach decision trace diagnostics",
+    )
+    compare.add_argument("--decision-trace-limit", type=int, default=10_000)
+    compare.add_argument("--decision-trace-sample-limit", type=int, default=2_000)
     compare.add_argument("--report-date", default=None, help="Optional paper close date filter in YYYY-MM-DD")
     compare.add_argument("--run-id", required=True)
     compare.add_argument("--initial-capital-eur", type=float, default=1_000.0)
@@ -666,6 +673,7 @@ def _cmd_paper(args: argparse.Namespace) -> int:
 
 def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
     from autobot.v2.paper.ledger_loader import load_paper_trades_db_journal, load_state_db_paper_ledger
+    from autobot.v2.research.decision_trace_audit import DecisionTraceAuditConfig, audit_decision_traces
     from autobot.v2.research.paper_research_comparison import (
         compare_paper_to_research,
         write_paper_research_comparison_report,
@@ -701,6 +709,17 @@ def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
         warnings = ()
 
     matrix = load_matrix_result(args.matrix_path)
+    decision_trace_report = None
+    decision_state_db = args.decision_state_db or args.state_db
+    if decision_state_db:
+        decision_trace_report = audit_decision_traces(
+            DecisionTraceAuditConfig(
+                state_db_path=str(decision_state_db),
+                run_id=f"{args.run_id}_decision_trace",
+                limit=args.decision_trace_limit,
+                trace_sample_limit=args.decision_trace_sample_limit,
+            )
+        )
     report = compare_paper_to_research(
         journal,
         matrix,
@@ -709,12 +728,15 @@ def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
         paper_source_path=paper_source_path,
         initial_capital_eur=args.initial_capital_eur,
         warnings=warnings,
+        decision_trace_report=decision_trace_report,
     )
     if not args.no_write_report:
         report = write_paper_research_comparison_report(report, args.output_dir)
     payload = report.to_dict()
     if loader_summary is not None:
         payload["loader"] = loader_summary
+    if decision_trace_report is not None:
+        payload["decision_trace_audit_summary"] = decision_trace_report.summary.to_dict()
     _print_json(payload)
     return 0
 
