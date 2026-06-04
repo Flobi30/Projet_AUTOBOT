@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 from .pair_strategy_health import symbol_key
+from .shadow_cost_bridge import conservative_shadow_cost_defaults
+
+
+_SHADOW_COST_DEFAULTS = conservative_shadow_cost_defaults()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -83,8 +87,8 @@ class MeanReversionShadowConfig:
     max_variants_per_symbol: int = 4
     max_price_samples: int = 512
     min_order_eur: float = 5.0
-    fee_bps_per_side: float = 12.0
-    slippage_bps_per_side: float = 3.0
+    fee_bps_per_side: float = _SHADOW_COST_DEFAULTS.fee_bps_per_side
+    slippage_bps_per_side: float = _SHADOW_COST_DEFAULTS.slippage_bps_per_side
     min_samples_for_signal: int = 24
     min_closed_trades_for_signal: int = 5
     candidate_score: float = 70.0
@@ -93,6 +97,7 @@ class MeanReversionShadowConfig:
 
     @classmethod
     def from_env(cls) -> "MeanReversionShadowConfig":
+        cost_defaults = conservative_shadow_cost_defaults()
         return cls(
             enabled=_env_bool("MEAN_REVERSION_SHADOW_LAB_ENABLED", True),
             continue_in_live=_env_bool("MEAN_REVERSION_SHADOW_CONTINUE_IN_LIVE", True),
@@ -103,8 +108,18 @@ class MeanReversionShadowConfig:
             max_variants_per_symbol=_env_int("MEAN_REVERSION_SHADOW_MAX_VARIANTS_PER_SYMBOL", 4, 1, 20),
             max_price_samples=_env_int("MEAN_REVERSION_SHADOW_MAX_PRICE_SAMPLES", 512, 64, 10_000),
             min_order_eur=_env_float("MEAN_REVERSION_SHADOW_MIN_ORDER_EUR", 5.0, 0.0, 10_000.0),
-            fee_bps_per_side=_env_float("MEAN_REVERSION_SHADOW_FEE_BPS_PER_SIDE", 12.0, 0.0, 500.0),
-            slippage_bps_per_side=_env_float("MEAN_REVERSION_SHADOW_SLIPPAGE_BPS_PER_SIDE", 3.0, 0.0, 500.0),
+            fee_bps_per_side=_env_float(
+                "MEAN_REVERSION_SHADOW_FEE_BPS_PER_SIDE",
+                cost_defaults.fee_bps_per_side,
+                0.0,
+                500.0,
+            ),
+            slippage_bps_per_side=_env_float(
+                "MEAN_REVERSION_SHADOW_SLIPPAGE_BPS_PER_SIDE",
+                cost_defaults.slippage_bps_per_side,
+                0.0,
+                500.0,
+            ),
             min_samples_for_signal=_env_int("MEAN_REVERSION_SHADOW_MIN_SAMPLES", 24, 1, 100_000),
             min_closed_trades_for_signal=_env_int("MEAN_REVERSION_SHADOW_MIN_CLOSED_TRADES", 5, 1, 100_000),
             candidate_score=_env_float("MEAN_REVERSION_SHADOW_CANDIDATE_SCORE", 70.0, 0.0, 100.0),
@@ -125,6 +140,8 @@ class MeanReversionShadowConfig:
             "min_order_eur": self.min_order_eur,
             "fee_bps_per_side": self.fee_bps_per_side,
             "slippage_bps_per_side": self.slippage_bps_per_side,
+            "effective_cost_bps_per_side": self.fee_bps_per_side + self.slippage_bps_per_side,
+            "cost_model_source": _SHADOW_COST_DEFAULTS.source,
             "min_samples_for_signal": self.min_samples_for_signal,
             "min_closed_trades_for_signal": self.min_closed_trades_for_signal,
             "candidate_score": self.candidate_score,

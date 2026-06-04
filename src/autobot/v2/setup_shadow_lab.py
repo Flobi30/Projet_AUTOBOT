@@ -20,8 +20,12 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 from .pair_strategy_health import symbol_key
+from .shadow_cost_bridge import conservative_shadow_cost_defaults
 from .setup_optimizer import DEFAULT_VARIANTS, PairSetupOptimizer, SetupVariant
 from .strategies.adaptive_grid_config import get_default_registry
+
+
+_SHADOW_COST_DEFAULTS = conservative_shadow_cost_defaults()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -84,8 +88,8 @@ class SetupShadowLabConfig:
     persist_interval_seconds: int = 60
     max_variants_per_symbol: int = 5
     min_order_eur: float = 5.0
-    fee_bps_per_side: float = 8.0
-    slippage_bps_per_side: float = 2.0
+    fee_bps_per_side: float = _SHADOW_COST_DEFAULTS.fee_bps_per_side
+    slippage_bps_per_side: float = _SHADOW_COST_DEFAULTS.slippage_bps_per_side
     stop_loss_multiplier: float = 3.0
     min_samples_for_signal: int = 20
     min_closed_trades_for_signal: int = 8
@@ -96,6 +100,7 @@ class SetupShadowLabConfig:
 
     @classmethod
     def from_env(cls) -> "SetupShadowLabConfig":
+        cost_defaults = conservative_shadow_cost_defaults()
         return cls(
             enabled=_env_bool("SETUP_SHADOW_LAB_ENABLED", True),
             continue_in_live=_env_bool("SETUP_SHADOW_CONTINUE_IN_LIVE", True),
@@ -105,8 +110,13 @@ class SetupShadowLabConfig:
             persist_interval_seconds=_env_int("SETUP_SHADOW_PERSIST_INTERVAL_SECONDS", 60, 1, 86_400),
             max_variants_per_symbol=_env_int("SETUP_SHADOW_MAX_VARIANTS_PER_SYMBOL", 5, 1, 20),
             min_order_eur=_env_float("SETUP_SHADOW_MIN_ORDER_EUR", 5.0, 0.0, 10_000.0),
-            fee_bps_per_side=_env_float("SETUP_SHADOW_FEE_BPS_PER_SIDE", 8.0, 0.0, 500.0),
-            slippage_bps_per_side=_env_float("SETUP_SHADOW_SLIPPAGE_BPS_PER_SIDE", 2.0, 0.0, 500.0),
+            fee_bps_per_side=_env_float("SETUP_SHADOW_FEE_BPS_PER_SIDE", cost_defaults.fee_bps_per_side, 0.0, 500.0),
+            slippage_bps_per_side=_env_float(
+                "SETUP_SHADOW_SLIPPAGE_BPS_PER_SIDE",
+                cost_defaults.slippage_bps_per_side,
+                0.0,
+                500.0,
+            ),
             stop_loss_multiplier=_env_float("SETUP_SHADOW_STOP_LOSS_MULTIPLIER", 3.0, 0.1, 50.0),
             min_samples_for_signal=_env_int("SETUP_SHADOW_MIN_SAMPLES", 20, 1, 100_000),
             min_closed_trades_for_signal=_env_int("SETUP_SHADOW_MIN_CLOSED_TRADES", 8, 1, 100_000),
@@ -130,6 +140,8 @@ class SetupShadowLabConfig:
             "min_order_eur": self.min_order_eur,
             "fee_bps_per_side": self.fee_bps_per_side,
             "slippage_bps_per_side": self.slippage_bps_per_side,
+            "effective_cost_bps_per_side": self.fee_bps_per_side + self.slippage_bps_per_side,
+            "cost_model_source": _SHADOW_COST_DEFAULTS.source,
             "stop_loss_multiplier": self.stop_loss_multiplier,
             "min_samples_for_signal": self.min_samples_for_signal,
             "min_closed_trades_for_signal": self.min_closed_trades_for_signal,

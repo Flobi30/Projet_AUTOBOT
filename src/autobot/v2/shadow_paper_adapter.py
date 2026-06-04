@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
+from .shadow_cost_bridge import conservative_shadow_cost_defaults
 from .strategies import SignalType, TradingSignal
 
 
@@ -271,8 +272,9 @@ class ShadowPaperExecutionAdapter:
         last_decision: Mapping[str, Any],
     ) -> dict[str, Any]:
         features = last_signal.get("features") if isinstance(last_signal.get("features"), Mapping) else {}
-        fee_per_side = 12.0
-        slippage_per_side = 3.0
+        cost_defaults = conservative_shadow_cost_defaults()
+        fee_per_side = cost_defaults.fee_bps_per_side
+        slippage_per_side = cost_defaults.slippage_bps_per_side
         if engine == "mean_reversion":
             expected_move_bps = max(
                 _safe_float(features.get("expected_gross_edge_bps")),
@@ -301,5 +303,7 @@ class ShadowPaperExecutionAdapter:
             "fee_bps": fee_per_side,
             "exit_fee_bps": fee_per_side,
             "slippage_bps": slippage_per_side,
+            "effective_cost_bps_per_side": cost_defaults.effective_cost_bps_per_side,
+            "cost_model_source": cost_defaults.source,
             "regime": regime,
         }
