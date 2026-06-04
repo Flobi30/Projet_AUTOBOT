@@ -191,6 +191,36 @@ def _state_db_with_closed_trade(path):
         )
 
 
+def _state_db_with_market_samples(path):
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("px1", "TRXEUR", 0.25, "2026-06-04T00:00:05+00:00", "b1", "runtime", "c1"),
+                ("px2", "TRXEUR", 0.26, "2026-06-04T00:00:55+00:00", "b1", "runtime", "c2"),
+                ("px3", "TRXEUR", 0.27, "2026-06-04T00:01:10+00:00", "b2", "runtime", "c3"),
+            ],
+        )
+
+
 def test_cli_audit_is_read_only(tmp_path, capsys):
     report_path = tmp_path / "audit.md"
     report_path.write_text("# Audit\n", encoding="utf-8")
@@ -202,6 +232,38 @@ def test_cli_audit_is_read_only(tmp_path, capsys):
     assert output["exists"] is True
     assert output["live_trading_changed"] is False
     assert output["registry_mutated"] is False
+
+
+def test_cli_build_dataset_exports_ohlcv_research_only(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _state_db_with_market_samples(db_path)
+
+    exit_code = cli.main(
+        [
+            "build-dataset",
+            "--run-id",
+            "pytest_build_dataset",
+            "--state-db",
+            str(db_path),
+            "--symbols",
+            "TRXEUR",
+            "--timeframes",
+            "1m,5m",
+            "--output-dir",
+            str(tmp_path / "datasets"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["run_id"] == "pytest_build_dataset"
+    assert output["raw_sample_count"] == 3
+    assert output["exports"][0]["csv_path"]
+    assert output["exports"][0]["quality"]["row_count"] == 2
+    assert "No runtime paper/live service is started." in output["safety_notes"]
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "datasets" / "pytest_build_dataset_manifest.json").exists()
+    assert (tmp_path / "datasets" / "pytest_build_dataset_quality.md").exists()
 
 
 def test_cli_backtest_runs_research_validation(tmp_path, capsys):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 import sqlite3
 from contextlib import closing
@@ -62,6 +63,7 @@ class MarketBar:
         missing = REQUIRED_OHLCV_COLUMNS - set(row.keys())
         if missing:
             raise ValueError(f"missing OHLCV columns: {sorted(missing)}")
+        metadata = _extract_metadata(row)
         bar = cls(
             timestamp=_parse_timestamp(row["timestamp"]),
             open=_safe_float(row["open"], field_name="open"),
@@ -71,11 +73,7 @@ class MarketBar:
             volume=_safe_float(row["volume"], field_name="volume"),
             symbol=str(row.get("symbol") or default_symbol).upper(),
             timeframe=str(row.get("timeframe") or default_timeframe),
-            metadata={
-                key: value
-                for key, value in row.items()
-                if key not in REQUIRED_OHLCV_COLUMNS | {"symbol", "timeframe"}
-            },
+            metadata=metadata,
         )
         bar.validate()
         return bar
@@ -269,7 +267,11 @@ class MarketDataRepository:
     def save_csv(self, bars: Sequence[MarketBar], path: str | Path) -> Path:
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
-        rows = [bar.to_dict() for bar in bars]
+        rows = []
+        for bar in bars:
+            row = bar.to_dict()
+            row["metadata"] = json.dumps(row.get("metadata") or {}, sort_keys=True)
+            rows.append(row)
         with output.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(
                 handle,
@@ -370,6 +372,28 @@ def _sqlite_table_exists(conn: sqlite3.Connection, table: str) -> bool:
         (table,),
     ).fetchone()
     return row is not None
+
+
+def _extract_metadata(row: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = {
+        key: value
+        for key, value in row.items()
+        if key not in REQUIRED_OHLCV_COLUMNS | {"symbol", "timeframe", "metadata"}
+    }
+    raw_metadata = row.get("metadata")
+    if isinstance(raw_metadata, Mapping):
+        metadata.update(dict(raw_metadata))
+    elif raw_metadata not in (None, ""):
+        try:
+            decoded = json.loads(str(raw_metadata))
+        except json.JSONDecodeError:
+            metadata["metadata"] = raw_metadata
+        else:
+            if isinstance(decoded, Mapping):
+                metadata.update(dict(decoded))
+            else:
+                metadata["metadata"] = decoded
+    return metadata
 
 
 def _merge_symbols(symbol: str | None, symbols: Sequence[str] | None) -> list[str]:

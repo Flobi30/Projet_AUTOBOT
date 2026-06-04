@@ -10,6 +10,51 @@ Use this workflow when a fresh VPS state database has been copied locally and
 the goal is to compare the current research strategy families on the standard
 AUTOBOT EUR universe.
 
+## Build Clean OHLCV Datasets
+
+Use this workflow first when a fresh VPS state database has been copied locally.
+It aggregates runtime `market_price_samples` into deterministic OHLCV bars,
+removes exact duplicate samples, reports same-timestamp collisions and data
+gaps, and exports research datasets.
+
+```powershell
+$env:PYTHONPATH='.codex_python_deps;src'
+& '<python3.12.exe>' -m autobot.v2.cli build-dataset `
+  --run-id vps_YYYY_MM_DD_dataset `
+  --state-db data/vps_autobot_state_YYYY-MM-DD.db `
+  --symbols BTCZEUR,ETHZEUR,TRXEUR `
+  --timeframes 1m,5m,15m `
+  --output-dir data/research/vps_YYYY_MM_DD
+```
+
+Notes:
+
+- CSV exports are written by default.
+- Parquet export is optional with `--parquet` and depends on local pandas/parquet
+  support.
+- Runtime samples do not contain real exchange volume, so exported OHLCV bars
+  use `volume=0.0` and record `volume_source=unavailable_from_market_price_samples`
+  in metadata.
+- This command is research-only: it does not start the bot, does not submit
+  Kraken orders, does not mutate the strategy registry, and does not authorize
+  live trading.
+
+After building datasets, matrix validation can point at the exported CSV file:
+
+```powershell
+$env:PYTHONPATH='.codex_python_deps;src'
+& '<python3.12.exe>' -m autobot.v2.cli matrix `
+  --run-id vps_YYYY_MM_DD_top14_1m `
+  --preset autobot-top14-eur `
+  --data-source csv `
+  --data-path data/research/vps_YYYY_MM_DD/vps_YYYY_MM_DD_dataset_1m.csv `
+  --output-dir reports/research/vps_YYYY_MM_DD_top14_1m `
+  --include-regime-context `
+  --standard-reports
+```
+
+## Standard Top-14 Matrix
+
 ```powershell
 $env:PYTHONPATH='.codex_python_deps;src'
 & '<python3.12.exe>' -m autobot.v2.cli matrix `

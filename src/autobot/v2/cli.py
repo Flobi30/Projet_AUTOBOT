@@ -54,6 +54,22 @@ def _build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--strict", action="store_true", help="Return non-zero if the audit report is missing")
     audit.set_defaults(handler=_cmd_audit)
 
+    build_dataset = subparsers.add_parser(
+        "build-dataset",
+        help="Build clean research OHLCV datasets from AUTOBOT market_price_samples",
+    )
+    build_dataset.add_argument("--run-id", required=True)
+    build_dataset.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing market_price_samples")
+    build_dataset.add_argument("--symbols", default=None, help="Comma-separated symbol list; omit to export all symbols")
+    build_dataset.add_argument("--timeframes", default="1m,5m,15m", help="Comma-separated timeframes, e.g. 1m,5m,15m")
+    build_dataset.add_argument("--start-at", default=None)
+    build_dataset.add_argument("--end-at", default=None)
+    build_dataset.add_argument("--limit", type=int, default=None)
+    build_dataset.add_argument("--output-dir", default="data/research")
+    build_dataset.add_argument("--no-csv", action="store_true", help="Do not write CSV exports")
+    build_dataset.add_argument("--parquet", action="store_true", help="Also attempt Parquet exports if dependencies exist")
+    build_dataset.set_defaults(handler=_cmd_build_dataset)
+
     backtest = subparsers.add_parser("backtest", help="Run one isolated research backtest")
     _add_validation_args(backtest)
     backtest.set_defaults(handler=lambda args: _cmd_validation(args, mode="backtest"))
@@ -199,6 +215,28 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         payload["bytes"] = report_path.stat().st_size
     _print_json(payload)
     return 0 if payload["exists"] or not args.strict else 1
+
+
+def _cmd_build_dataset(args: argparse.Namespace) -> int:
+    from autobot.v2.research.dataset_builder import DatasetBuildConfig, build_dataset_from_state_db
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else ()
+    timeframes = _csv_tuple(args.timeframes, "--timeframes")
+    config = DatasetBuildConfig(
+        run_id=args.run_id,
+        state_db_path=Path(args.state_db),
+        output_dir=Path(args.output_dir),
+        symbols=symbols,
+        timeframes=timeframes,
+        start_at=args.start_at,
+        end_at=args.end_at,
+        limit=args.limit,
+        export_csv=not args.no_csv,
+        export_parquet=bool(args.parquet),
+    )
+    result = build_dataset_from_state_db(config)
+    _print_json(result.to_dict())
+    return 0
 
 
 def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
