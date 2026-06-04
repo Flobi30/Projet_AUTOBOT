@@ -103,6 +103,10 @@ def load_state_db_paper_ledger(
         closed_at = _parse_datetime(closing.get("created_at"))
         if report_date is not None and closed_at.date() != report_date:
             continue
+        if closing.get("realized_pnl") is None:
+            missing_ref = closing.get("position_id") or closing.get("trade_id") or closing.get("id")
+            warnings.append(f"realized_pnl_missing:{missing_ref}")
+            continue
         position_id = str(closing.get("position_id") or "")
         opening = opening_by_position.get(position_id)
         if opening is None:

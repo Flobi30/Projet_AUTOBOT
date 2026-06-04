@@ -226,6 +226,75 @@ def test_state_db_loader_filters_report_date_and_flags_missing_opening(tmp_path)
     assert loaded.journal.records[0].metadata["opening_leg_missing"] is True
 
 
+def test_state_db_loader_skips_closing_leg_without_realized_pnl(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_buy",
+                "pos_bad_price",
+                "inst_1",
+                "XETHZEUR",
+                "buy",
+                1900.0,
+                1900.0,
+                0.01,
+                0.01,
+                0.0,
+                None,
+                1,
+                0,
+                "PAPER_BUY",
+                None,
+                None,
+                "taker",
+                "2026-06-03T09:00:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_sell_missing_pnl",
+                "pos_bad_price",
+                "inst_1",
+                "XETHZEUR",
+                "sell",
+                1910.0,
+                60000.0,
+                0.01,
+                0.01,
+                -300000.0,
+                None,
+                0,
+                1,
+                "PAPER_SELL",
+                None,
+                None,
+                "taker",
+                "2026-06-03T10:00:00+00:00",
+            ),
+        )
+
+    loaded = load_state_db_paper_ledger(db_path)
+
+    assert loaded.trade_count == 0
+    assert loaded.warnings == ("realized_pnl_missing:pos_bad_price",)
+
+
 def test_paper_trades_db_loader_pairs_fills_fifo(tmp_path):
     db_path = tmp_path / "paper_trades.db"
     with sqlite3.connect(db_path) as conn:

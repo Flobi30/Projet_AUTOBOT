@@ -1,0 +1,2247 @@
+{
+  "bucket_count": 56,
+  "buckets": [
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 22.456307066751513,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.270401203931067,
+        "net_pnl_eur": -22.456307066751513,
+        "profit_factor": 0.19011600805465886,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 43,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "AAVEEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 27.827786696819672,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.808829125505016,
+        "net_pnl_eur": -27.827786696819672,
+        "profit_factor": 0.03940254340707602,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 38,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "ADAEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 28.762742985707337,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.8890771606811994,
+        "net_pnl_eur": -28.762742985707337,
+        "profit_factor": 0.0957063999911878,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 29,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "ATOMEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 29.101711850784874,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.9151889368923634,
+        "net_pnl_eur": -29.101711850784874,
+        "profit_factor": 0.09993818265802526,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 42,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "AVAXEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 37.00340493316346,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 3.7454895971818356,
+        "net_pnl_eur": -37.00340493316346,
+        "profit_factor": 0.0962121719521551,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 52,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "BCHEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 23.224843224765294,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.322484322476544,
+        "net_pnl_eur": -23.224843224765294,
+        "profit_factor": 0.005680404080889831,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 29,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "BTCZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 27.06518215890285,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.7827496925258286,
+        "net_pnl_eur": -27.06518215890285,
+        "profit_factor": 0.11578786681665897,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 39,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "DOTEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 24.094084134556034,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.4307960038963428,
+        "net_pnl_eur": -24.094084134556034,
+        "profit_factor": 0.03242035218390302,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 30,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "ETHZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 24.25380493641118,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.495883527605808,
+        "net_pnl_eur": -24.25380493641118,
+        "profit_factor": 0.11764615509828448,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 39,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "LINKEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 18.155557808738248,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.8253650126095236,
+        "net_pnl_eur": -18.155557808738248,
+        "profit_factor": 0.03497039816301179,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 26,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "LTCZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 25.28638690599162,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.537611382169914,
+        "net_pnl_eur": -25.28638690599162,
+        "profit_factor": 0.04043463354911256,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 35,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "SOLEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 10.098377460598583,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.0098377460598726,
+        "net_pnl_eur": -10.098377460598583,
+        "profit_factor": 0.0014605188878479588,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 11,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "TRXEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 109.91413798279238,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 11.01676135619901,
+        "net_pnl_eur": -109.91413798279238,
+        "profit_factor": 0.24167881355027573,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 265,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "XLMZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 28.68619608692759,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.8867552198185944,
+        "net_pnl_eur": -28.68619608692759,
+        "profit_factor": 0.01890967271557588,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 35,
+        "winrate_pct": null
+      },
+      "strategy_id": "dynamic_grid",
+      "symbol": "XRPZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 30.132859189853793,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 3.0598655856520396,
+        "net_pnl_eur": -30.132859189853793,
+        "profit_factor": 0.13293160402632426,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 51,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "AAVEEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 80.84448846567105,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 8.084448846567147,
+        "net_pnl_eur": -80.84448846567105,
+        "profit_factor": 0.01543770868447733,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 145,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "ADAEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 35.48579454134744,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 3.548579454134779,
+        "net_pnl_eur": -35.48579454134744,
+        "profit_factor": 0.07332291719360828,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 59,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "ATOMEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 28.284235676856017,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.8284235676856158,
+        "net_pnl_eur": -28.284235676856017,
+        "profit_factor": 0.1642123116147182,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 73,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "AVAXEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 57.41695235891605,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 5.741695235891598,
+        "net_pnl_eur": -57.41695235891605,
+        "profit_factor": 0.05810319304175577,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 78,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "BCHEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 50.8661710192273,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 5.086617101922719,
+        "net_pnl_eur": -50.8661710192273,
+        "profit_factor": 0.013210160236098683,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 102,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "BTCZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 46.5734357555914,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 4.657343575559139,
+        "net_pnl_eur": -46.5734357555914,
+        "profit_factor": 0.08421515801262695,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 84,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "DOTEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 67.28391301113274,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 6.728391301113265,
+        "net_pnl_eur": -67.28391301113274,
+        "profit_factor": 0.007074746507556119,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 129,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "ETHZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 59.741526128886676,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 5.974152612888623,
+        "net_pnl_eur": -59.741526128886676,
+        "profit_factor": 0.04077327374972506,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 99,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "LINKEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 72.28217782030048,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 7.228217782030061,
+        "net_pnl_eur": -72.28217782030048,
+        "profit_factor": 0.006722209528017651,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 129,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "LTCZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 95.02985806872513,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 9.502985806872562,
+        "net_pnl_eur": -95.02985806872513,
+        "profit_factor": 0.006582533922258817,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 161,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "SOLEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 24.18226282497654,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 2.4182262824976872,
+        "net_pnl_eur": -24.18226282497654,
+        "profit_factor": 0.0,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 38,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "TRXEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 99.17019066547728,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 9.928376701222568,
+        "net_pnl_eur": -99.17019066547728,
+        "profit_factor": 0.17466509636649982,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 196,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "XLMZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 74.72352303245239,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 7.4723523032452475,
+        "net_pnl_eur": -74.72352303245239,
+        "profit_factor": 0.009546896651747764,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 150,
+        "winrate_pct": null
+      },
+      "strategy_id": "mean_reversion",
+      "symbol": "XRPZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 12.761854466702614,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.276185446670263,
+        "net_pnl_eur": -12.761854466702614,
+        "profit_factor": 0.15494356567375733,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 20,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "AAVEEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 12.766189969680545,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.3767379159687834,
+        "net_pnl_eur": -12.766189969680545,
+        "profit_factor": 0.13460336059843145,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 24,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "ADAEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 14.262376142867335,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.4262376142867426,
+        "net_pnl_eur": -14.262376142867335,
+        "profit_factor": 0.0067860880603985785,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 23,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "ATOMEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 12.413952792954476,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.323048280759565,
+        "net_pnl_eur": -12.413952792954476,
+        "profit_factor": 0.10617802389876485,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 23,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "AVAXEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 18.038596757783235,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.9743060850640746,
+        "net_pnl_eur": -18.038596757783235,
+        "profit_factor": 0.23996684644922614,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 34,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "BCHEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 1.270525178723306,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.18219064941977195,
+        "net_pnl_eur": -1.270525178723306,
+        "profit_factor": 0.3026397442625893,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 6,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "BTCZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 17.49697095071305,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 1.8285244786657926,
+        "net_pnl_eur": -17.49697095071305,
+        "profit_factor": 0.15723774275625957,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 34,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "DOTEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 5.773906679526727,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.5773906679526931,
+        "net_pnl_eur": -5.773906679526727,
+        "profit_factor": 0.06877276228216823,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 13,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "ETHZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 4.645811084017846,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.48189413449561014,
+        "net_pnl_eur": -4.645811084017846,
+        "profit_factor": 0.5073810112486913,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 20,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "LINKEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 2.8396741846691858,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.3977543037128271,
+        "net_pnl_eur": -2.8396741846691858,
+        "profit_factor": 0.28607329746972804,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 9,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "LTCZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 5.652710917733632,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.5652710917733316,
+        "net_pnl_eur": -5.652710917733632,
+        "profit_factor": 0.19088867182718916,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 15,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "SOLEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "no_evidence",
+      "delta_net_pnl_eur": 0.0,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "collect_more_data",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.0,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "TRXEUR",
+      "warnings": []
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 82.79652671524615,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "reject"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 8.809020648917189,
+        "net_pnl_eur": -82.79652671524615,
+        "profit_factor": 0.34605261917831054,
+        "reasons": [
+          "negative_net_pnl"
+        ],
+        "slippage_eur": null,
+        "trade_count": 158,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "XLMZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_missing_research_has_trades",
+      "delta_net_pnl_eur": 6.143150862666804,
+      "paper": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "recommendation": "check_router_or_paper_gate_coverage",
+      "research": {
+        "decisions": [
+          "keep_testing"
+        ],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": 0.6143150862666971,
+        "net_pnl_eur": -6.143150862666804,
+        "profit_factor": 0.11784833105038901,
+        "reasons": [
+          "insufficient_closed_trades"
+        ],
+        "slippage_eur": null,
+        "trade_count": 17,
+        "winrate_pct": null
+      },
+      "strategy_id": "trend_momentum",
+      "symbol": "XRPZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "research_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -2.2254079754383476,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.0577705604550645,
+        "gross_pnl_eur": -0.16696143591165613,
+        "max_drawdown_pct": 0.2689041993248019,
+        "net_pnl_eur": -2.2254079754383476,
+        "profit_factor": 0.17357740798870464,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 1.0006759790716275,
+        "trade_count": 35,
+        "winrate_pct": 25.71428571428571
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "AAVEEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.164653498421543,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.0116433371449174,
+        "gross_pnl_eur": 0.7268422334855861,
+        "max_drawdown_pct": 0.1485088748217751,
+        "net_pnl_eur": -1.164653498421543,
+        "profit_factor": 0.4054936932949823,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.879852394762212,
+        "trade_count": 26,
+        "winrate_pct": 34.61538461538461
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "ADAEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -0.06984026370368124,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.3686732567036803,
+        "gross_pnl_eur": 3.373614089290527,
+        "max_drawdown_pct": 0.11274769349868775,
+        "net_pnl_eur": -0.06984026370368124,
+        "profit_factor": 0.9640827436100411,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 2.074781096290528,
+        "trade_count": 35,
+        "winrate_pct": 71.42857142857143
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "ATOMEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -0.36004688489601255,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 0.5312497048960001,
+        "gross_pnl_eur": 0.9313333401815563,
+        "max_drawdown_pct": 0.10781298944001491,
+        "net_pnl_eur": -0.36004688489601255,
+        "profit_factor": 0.6660449851486767,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.7601305201815691,
+        "trade_count": 10,
+        "winrate_pct": 10.0
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "AVAXEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.6952552477224117,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 0.7483585645709577,
+        "gross_pnl_eur": -0.42713096855478766,
+        "max_drawdown_pct": 0.1842135167274364,
+        "net_pnl_eur": -1.6952552477224117,
+        "profit_factor": 0.07973351910398625,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.5197657145966664,
+        "trade_count": 22,
+        "winrate_pct": 18.181818181818183
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "BCHEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -2.1384586920144004,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.0570976855144,
+        "gross_pnl_eur": 0.10797723344304265,
+        "max_drawdown_pct": 0.22857464971527394,
+        "net_pnl_eur": -2.1384586920144004,
+        "profit_factor": 0.19519956921162143,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 1.1893382399430428,
+        "trade_count": 18,
+        "winrate_pct": 22.22222222222222
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "DOTEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.6413254806504296,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.192203358020432,
+        "gross_pnl_eur": 0.8418199232193294,
+        "max_drawdown_pct": 0.20544953003791308,
+        "net_pnl_eur": -1.6413254806504296,
+        "profit_factor": 0.3162756594857493,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 1.290942045849327,
+        "trade_count": 31,
+        "winrate_pct": 45.16129032258064
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "LINKEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.184300015872002,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 0.8537260258719999,
+        "gross_pnl_eur": 0.07652317352763564,
+        "max_drawdown_pct": 0.14993250569045458,
+        "net_pnl_eur": -1.184300015872002,
+        "profit_factor": 0.27834483073577787,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.4070971635276379,
+        "trade_count": 22,
+        "winrate_pct": 27.27272727272727
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "SOLEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": 0.8851467460186371,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 4.44972762324437,
+        "gross_pnl_eur": 7.932323367364343,
+        "max_drawdown_pct": 0.1476829123224079,
+        "net_pnl_eur": 0.8851467460186371,
+        "profit_factor": 1.482211631347648,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 2.5974489981013327,
+        "trade_count": 57,
+        "winrate_pct": 54.385964912280706
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "TRXEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -3.071065641679447,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.214723189121028,
+        "gross_pnl_eur": -0.7761817554249628,
+        "max_drawdown_pct": 0.3286265969663224,
+        "net_pnl_eur": -3.071065641679447,
+        "profit_factor": 0.09606553536917607,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 1.0801606971334563,
+        "trade_count": 35,
+        "winrate_pct": 14.285714285714285
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "XETHZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -3.2200195346879914,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.2982782646879998,
+        "gross_pnl_eur": -1.466794599877118,
+        "max_drawdown_pct": 0.3343630501993147,
+        "net_pnl_eur": -3.2200195346879914,
+        "profit_factor": 0.037088512849877193,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.454946670122873,
+        "trade_count": 39,
+        "winrate_pct": 5.128205128205128
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "XLTCZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.3638888588800204,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.92442075888,
+        "gross_pnl_eur": 2.9405462942705585,
+        "max_drawdown_pct": 0.34363510864575253,
+        "net_pnl_eur": -1.3638888588800204,
+        "profit_factor": 0.6359993237919305,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 2.380014394270581,
+        "trade_count": 56,
+        "winrate_pct": 35.714285714285715
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "XXBTZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -2.633676470678132,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 1.2623543159507438,
+        "gross_pnl_eur": -0.6412414062216495,
+        "max_drawdown_pct": 0.28106162757674713,
+        "net_pnl_eur": -2.633676470678132,
+        "profit_factor": 0.1274829383498258,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.7300807485057379,
+        "trade_count": 42,
+        "winrate_pct": 23.809523809523807
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "XXLMZEUR",
+      "warnings": [
+        "paper_research_divergence"
+      ]
+    },
+    {
+      "alignment": "paper_has_trades_research_missing",
+      "delta_net_pnl_eur": -1.51501072966646,
+      "paper": {
+        "decisions": [],
+        "fees_eur": 0.9277730320564641,
+        "gross_pnl_eur": 0.04334845222751939,
+        "max_drawdown_pct": 0.16117551019474866,
+        "net_pnl_eur": -1.51501072966646,
+        "profit_factor": 0.21366417466367948,
+        "reasons": [
+          "trade_ledger_opening_leg"
+        ],
+        "slippage_eur": 0.6305861498375154,
+        "trade_count": 27,
+        "winrate_pct": 33.33333333333333
+      },
+      "recommendation": "check_research_adapter_coverage",
+      "research": {
+        "decisions": [],
+        "fees_eur": null,
+        "gross_pnl_eur": null,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": 0.0,
+        "profit_factor": null,
+        "reasons": [],
+        "slippage_eur": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "strategy_id": "unknown",
+      "symbol": "XXRPZEUR",
+      "warnings": [
+        "paper_research_divergence",
+        "paper_sample_below_30_trades"
+      ]
+    }
+  ],
+  "divergent_bucket_count": 55,
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "matrix_run_id": "vps_2026_06_04_top14",
+  "paper_net_pnl_eur": -21.397802548292244,
+  "paper_source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\vps_autobot_state_2026-06-04_2026-06-04_121159.db",
+  "paper_source_type": "state_db_trade_ledger",
+  "paper_trade_count": 455,
+  "research_net_pnl_eur": -1454.8101594956097,
+  "research_trade_count": 2603,
+  "run_id": "vps_2026_06_04_paper_vs_research_fixed",
+  "safety_notes": [
+    "Read-only paper/research comparison.",
+    "No paper or live order is created.",
+    "No strategy registry mutation is performed.",
+    "No live trading permission is granted."
+  ],
+  "warnings": [
+    "realized_pnl_missing:f77e9c0e",
+    "realized_pnl_missing:f1575f3a",
+    "realized_pnl_missing:e4f87f6a",
+    "realized_pnl_missing:dd342f29",
+    "realized_pnl_missing:ffd01f1c",
+    "realized_pnl_missing:dd6fee0b",
+    "realized_pnl_missing:ffd01f1c",
+    "realized_pnl_missing:d328bf4b",
+    "realized_pnl_missing:a3cba431",
+    "realized_pnl_missing:cca9e92e",
+    "realized_pnl_missing:96dc39ae",
+    "realized_pnl_missing:c6b66367",
+    "realized_pnl_missing:680e0b51",
+    "realized_pnl_missing:680e0b51",
+    "realized_pnl_missing:c398ea7e",
+    "realized_pnl_missing:5e27e2ef",
+    "realized_pnl_missing:b046a2cf",
+    "realized_pnl_missing:ff71f846",
+    "realized_pnl_missing:ba067bf3",
+    "realized_pnl_missing:aaba7fd6",
+    "realized_pnl_missing:59a86bd1",
+    "realized_pnl_missing:e57f42c9",
+    "realized_pnl_missing:e57f42c9",
+    "realized_pnl_missing:e8c0fa53",
+    "realized_pnl_missing:b40cc2dd",
+    "realized_pnl_missing:ac4dd380",
+    "realized_pnl_missing:a4710067",
+    "realized_pnl_missing:44878d56",
+    "realized_pnl_missing:44878d56",
+    "realized_pnl_missing:b1e6506c",
+    "realized_pnl_missing:d030377d",
+    "realized_pnl_missing:e14750b6",
+    "realized_pnl_missing:27eac4c0",
+    "realized_pnl_missing:d789613b",
+    "realized_pnl_missing:1471ae5c",
+    "realized_pnl_missing:d4369fc7",
+    "realized_pnl_missing:aed58910",
+    "realized_pnl_missing:446f6f1b",
+    "realized_pnl_missing:f71ae8cb",
+    "realized_pnl_missing:eaab1d8b",
+    "realized_pnl_missing:a6a00a0a",
+    "realized_pnl_missing:a23cbd51",
+    "realized_pnl_missing:f9d3b532",
+    "realized_pnl_missing:cf2c3a7b",
+    "realized_pnl_missing:9a533fa0",
+    "realized_pnl_missing:6e75a9d6",
+    "realized_pnl_missing:c2062cfc",
+    "realized_pnl_missing:677bb800",
+    "realized_pnl_missing:986be504",
+    "realized_pnl_missing:c9860283",
+    "realized_pnl_missing:769e0a81",
+    "realized_pnl_missing:50da35d5",
+    "realized_pnl_missing:57d8b651",
+    "realized_pnl_missing:4073dc1c",
+    "realized_pnl_missing:3ad71cf1",
+    "realized_pnl_missing:18f1fa8d",
+    "realized_pnl_missing:1306d518",
+    "realized_pnl_missing:f7bd262a",
+    "realized_pnl_missing:f3be9c81",
+    "realized_pnl_missing:f274ac35",
+    "realized_pnl_missing:d9aa9a8f",
+    "realized_pnl_missing:cfc9df01",
+    "realized_pnl_missing:c7fa3e7b",
+    "realized_pnl_missing:c19c99dc",
+    "realized_pnl_missing:bf6e8bce",
+    "realized_pnl_missing:da5c1925",
+    "realized_pnl_missing:da5c1925",
+    "realized_pnl_missing:adde0b73",
+    "realized_pnl_missing:5e0d8b9f",
+    "realized_pnl_missing:a508072d",
+    "realized_pnl_missing:c5db8a1d",
+    "realized_pnl_missing:a56e371b",
+    "realized_pnl_missing:a56e371b",
+    "realized_pnl_missing:a56e371b",
+    "realized_pnl_missing:7e6f251d",
+    "realized_pnl_missing:7b70524c",
+    "realized_pnl_missing:f65d384d",
+    "realized_pnl_missing:f65d384d",
+    "realized_pnl_missing:f65d384d",
+    "realized_pnl_missing:7589b420",
+    "realized_pnl_missing:59130ef2",
+    "realized_pnl_missing:2ed62267",
+    "realized_pnl_missing:d7c8b650",
+    "realized_pnl_missing:dc712f5e",
+    "realized_pnl_missing:ee85a4b5",
+    "realized_pnl_missing:ee85a4b5",
+    "realized_pnl_missing:bb3a9f23",
+    "realized_pnl_missing:dba70009",
+    "realized_pnl_missing:b7ca3a40",
+    "realized_pnl_missing:d6557df0",
+    "realized_pnl_missing:b048bf30",
+    "realized_pnl_missing:c0c64a76",
+    "realized_pnl_missing:a5a166fe",
+    "realized_pnl_missing:a5a166fe",
+    "realized_pnl_missing:93c9fd28",
+    "realized_pnl_missing:80590685",
+    "realized_pnl_missing:d58d7cdb",
+    "opening_leg_missing:d58d7cdb",
+    "realized_pnl_missing:852ee556",
+    "opening_leg_missing:852ee556",
+    "opening_leg_missing:1219cd03",
+    "realized_pnl_missing:6b56959a",
+    "opening_leg_missing:a7b1be25",
+    "realized_pnl_missing:78f68863",
+    "opening_leg_missing:78f68863"
+  ]
+}
