@@ -47,6 +47,9 @@ class ExecutionCostConfig:
         if self.max_liquidity_participation <= 0.0 or self.max_liquidity_participation > 1.0:
             raise ValueError("max_liquidity_participation must be in (0, 1]")
 
+    def to_dict(self) -> dict[str, float]:
+        return {key: float(value) for key, value in asdict(self).items()}
+
 
 @dataclass(frozen=True)
 class FillRequest:

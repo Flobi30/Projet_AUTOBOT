@@ -63,6 +63,11 @@ class MatrixCellResult:
     total_return_pct: float | None = None
     profit_factor: float | None = None
     max_drawdown_pct: float | None = None
+    fees_eur: float | None = None
+    spread_cost_eur: float | None = None
+    slippage_eur: float | None = None
+    latency_cost_eur: float | None = None
+    cost_config: dict[str, float] = field(default_factory=dict)
     report_path: str | None = None
     error: str | None = None
 
@@ -78,6 +83,7 @@ class MatrixRunResult:
     success_count: int
     error_count: int
     results: tuple[MatrixCellResult, ...]
+    cost_config: dict[str, float] = field(default_factory=dict)
     json_report_path: str | None = None
     markdown_report_path: str | None = None
 
@@ -89,6 +95,7 @@ class MatrixRunResult:
             "success_count": self.success_count,
             "error_count": self.error_count,
             "results": [result.to_dict() for result in self.results],
+            "cost_config": dict(self.cost_config),
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
         }
@@ -147,6 +154,7 @@ def run_validation_matrix(config: MatrixRunConfig, *, write_reports: bool = True
         success_count=sum(1 for cell in cells if cell.status == "ok"),
         error_count=sum(1 for cell in cells if cell.status == "error"),
         results=tuple(cells),
+        cost_config=config.cost_config.to_dict(),
     )
     if write_reports:
         result = _write_matrix_reports(config, result)
@@ -171,8 +179,14 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
             total_return_pct=metrics.total_return_pct,
             profit_factor=metrics.profit_factor,
             max_drawdown_pct=metrics.max_drawdown_pct,
+            fees_eur=metrics.total_fees_eur,
+            spread_cost_eur=metrics.total_spread_cost_eur,
+            slippage_eur=metrics.total_slippage_eur,
+            latency_cost_eur=metrics.total_latency_cost_eur,
+            cost_config=dict(result.cost_config),
             report_path=result.markdown_report_path,
         )
+    fold_metrics = [fold.backtest_result.metrics for fold in result.folds]
     return MatrixCellResult(
         run_id=cell_run_id,
         symbol=symbol.upper(),
@@ -187,6 +201,11 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
         total_return_pct=result.average_fold_return_pct,
         profit_factor=None,
         max_drawdown_pct=result.worst_fold_drawdown_pct,
+        fees_eur=sum(metrics.total_fees_eur for metrics in fold_metrics),
+        spread_cost_eur=sum(metrics.total_spread_cost_eur for metrics in fold_metrics),
+        slippage_eur=sum(metrics.total_slippage_eur for metrics in fold_metrics),
+        latency_cost_eur=sum(metrics.total_latency_cost_eur for metrics in fold_metrics),
+        cost_config=result.folds[0].backtest_result.cost_config if result.folds else {},
         report_path=result.markdown_report_path,
     )
 
@@ -205,6 +224,7 @@ def _write_matrix_reports(config: MatrixRunConfig, result: MatrixRunResult) -> M
         success_count=result.success_count,
         error_count=result.error_count,
         results=result.results,
+        cost_config=result.cost_config,
         json_report_path=str(json_path),
         markdown_report_path=str(md_path),
     )
@@ -227,17 +247,19 @@ def render_matrix_report(result: MatrixRunResult) -> str:
         f"Cells: `{result.cell_count}`",
         f"Success: `{result.success_count}`",
         f"Errors: `{result.error_count}`",
+        f"Cost config: `{json.dumps(result.cost_config, sort_keys=True)}`",
         "",
         "## Results",
         "",
-        "| Symbol | Strategy | Status | Decision | Reason | Bars | Trades | Net PnL | Return | PF | Max DD |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Symbol | Strategy | Status | Decision | Reason | Bars | Trades | Net PnL | Fees | Spread | Slippage | Return | PF | Max DD |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for cell in sorted_cells:
         lines.append(
             f"| {cell.symbol} | {cell.strategy} | {cell.status} | {cell.decision or ''} | "
             f"{cell.reason or cell.error or ''} | {cell.bar_count} | {cell.closed_trades} | "
-            f"{_fmt(cell.net_pnl_eur)} | {_fmt(cell.total_return_pct)} | {_fmt(cell.profit_factor)} | "
+            f"{_fmt(cell.net_pnl_eur)} | {_fmt(cell.fees_eur)} | {_fmt(cell.spread_cost_eur)} | "
+            f"{_fmt(cell.slippage_eur)} | {_fmt(cell.total_return_pct)} | {_fmt(cell.profit_factor)} | "
             f"{_fmt(cell.max_drawdown_pct)} |"
         )
     lines.extend(

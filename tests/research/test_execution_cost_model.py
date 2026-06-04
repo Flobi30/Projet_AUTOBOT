@@ -23,6 +23,7 @@ def test_execution_cost_model_applies_fees_spread_slippage_and_latency():
 
     fill = model.simulate_fill(FillRequest(symbol="TRXEUR", side="buy", price=1.0, notional_eur=100.0))
 
+    assert model.config.to_dict()["taker_fee_bps"] == pytest.approx(16.0)
     assert fill.accepted is True
     assert fill.reason == "filled"
     assert fill.execution_price > fill.requested_price

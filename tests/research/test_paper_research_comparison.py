@@ -39,7 +39,16 @@ def _trade(strategy_id="trend_momentum", symbol="TRXEUR", net=5.0):
     )
 
 
-def _matrix_cell(strategy="trend", symbol="TRXEUR", net=-3.0, trades=2):
+def _matrix_cell(strategy="trend", symbol="TRXEUR", net=-3.0, trades=2, include_costs=False):
+    costs = {}
+    if include_costs:
+        costs = {
+            "fees_eur": 0.4,
+            "spread_cost_eur": 0.2,
+            "slippage_eur": 0.1,
+            "latency_cost_eur": 0.05,
+            "cost_config": {"taker_fee_bps": 16.0, "fallback_spread_bps": 8.0, "slippage_bps": 4.0},
+        }
     return MatrixCellResult(
         run_id=f"matrix_{symbol}_{strategy}",
         symbol=symbol,
@@ -54,6 +63,7 @@ def _matrix_cell(strategy="trend", symbol="TRXEUR", net=-3.0, trades=2):
         total_return_pct=net / 10.0,
         profit_factor=0.7,
         max_drawdown_pct=2.0,
+        **costs,
     )
 
 
@@ -169,6 +179,32 @@ def test_compare_paper_to_research_attaches_decision_trace_diagnostics():
     assert "decision_trace_execution_incomplete" in bucket.diagnostics
     assert "decision_trace_missing_fill" in bucket.diagnostics
     assert "decision_trace_missing_trade" in bucket.diagnostics
+
+
+def test_compare_paper_to_research_uses_research_cost_breakdown_when_available():
+    journal = TradeJournal([_trade(net=5.0)])
+    matrix = MatrixRunResult(
+        run_id="matrix_run",
+        mode="backtest",
+        cell_count=1,
+        success_count=1,
+        error_count=0,
+        results=(_matrix_cell(net=-3.0, include_costs=True),),
+    )
+
+    report = compare_paper_to_research(
+        journal,
+        matrix,
+        run_id="compare_with_costs",
+        paper_source_type="pytest",
+        paper_source_path="memory",
+    )
+
+    bucket = report.buckets[0]
+    assert bucket.research.fees_eur == pytest.approx(0.4)
+    assert bucket.research.spread_cost_eur == pytest.approx(0.2)
+    assert bucket.research.slippage_eur == pytest.approx(0.1)
+    assert "research_cost_breakdown_unavailable_from_matrix_summary" not in bucket.diagnostics
 
 
 def test_compare_paper_to_research_reports_missing_research_coverage():

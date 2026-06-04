@@ -94,6 +94,7 @@ class BacktestResult:
     metrics: MetricsResult
     baselines: tuple[BaselineResult, ...]
     decision: BacktestDecision
+    cost_config: dict[str, float] = field(default_factory=dict)
     journal_path: str | None = None
     json_report_path: str | None = None
     markdown_report_path: str | None = None
@@ -112,6 +113,7 @@ class BacktestResult:
             "metrics": self.metrics.to_dict(),
             "baselines": [baseline.to_dict() for baseline in self.baselines],
             "decision": self.decision.to_dict(),
+            "cost_config": dict(self.cost_config),
             "journal_path": self.journal_path,
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
@@ -255,6 +257,7 @@ class BacktestEngine:
             metrics=metrics,
             baselines=baselines,
             decision=decision,
+            cost_config=self.config.cost_config.to_dict(),
         )
         if write_reports:
             result = self._write_reports(result, journal)
@@ -560,6 +563,7 @@ class BacktestEngine:
                 "metrics": result.metrics,
                 "baselines": result.baselines,
                 "decision": result.decision,
+                "cost_config": result.cost_config,
                 "journal_path": str(journal_path),
                 "json_report_path": str(json_path),
                 "markdown_report_path": str(md_path),
@@ -609,6 +613,17 @@ def render_backtest_report(result: BacktestResult) -> str:
         lines.append(
             f"| {baseline.name} | {baseline.net_pnl_eur:.6f} | {baseline.total_return_pct:.4f}% | {baseline.notes} |"
         )
+    lines.extend(
+        [
+            "",
+            "## Cost Assumptions",
+            "",
+            "| Parameter | Value |",
+            "| --- | ---: |",
+        ]
+    )
+    for key, value in sorted(result.cost_config.items()):
+        lines.append(f"| {key} | {value:.6f} |")
     lines.extend(
         [
             "",

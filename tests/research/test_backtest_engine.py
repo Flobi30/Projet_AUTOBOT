@@ -80,6 +80,7 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
     assert result.trade_count == 1
     assert result.metrics.total_fees_eur > 0
     assert result.metrics.total_slippage_eur > 0
+    assert result.cost_config["taker_fee_bps"] == pytest.approx(10.0)
     assert {baseline.name for baseline in result.baselines} == {
         "no_trade",
         "buy_and_hold",
@@ -89,6 +90,9 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
     assert (tmp_path / "pytest_backtest.md").exists()
     assert (tmp_path / "pytest_backtest.json").exists()
     assert (tmp_path / "pytest_backtest_journal.json").exists()
+    markdown = (tmp_path / "pytest_backtest.md").read_text(encoding="utf-8")
+    assert "Cost Assumptions" in markdown
+    assert "fallback_spread_bps" in markdown
 
 
 def test_backtest_engine_does_not_use_future_history(tmp_path):

@@ -53,6 +53,11 @@ def _cell(
         total_return_pct=1.2,
         profit_factor=profit_factor,
         max_drawdown_pct=max_drawdown_pct,
+        fees_eur=0.4,
+        spread_cost_eur=0.2,
+        slippage_eur=0.1,
+        latency_cost_eur=0.05,
+        cost_config={"taker_fee_bps": 16.0, "fallback_spread_bps": 8.0, "slippage_bps": 4.0},
         report_path=f"reports/{symbol}_{strategy}.md",
         error=error,
     )
@@ -174,6 +179,8 @@ def test_report_writer_and_loader_round_trip_matrix_json(tmp_path):
     )
 
     assert loaded.run_id == "pytest_matrix"
+    assert loaded.results[0].fees_eur == pytest.approx(0.4)
+    assert loaded.results[0].cost_config["taker_fee_bps"] == pytest.approx(16.0)
     assert report.json_report_path
     assert report.markdown_report_path
     assert (tmp_path / "recommendations" / "pytest_matrix_registry_recommendations.json").exists()

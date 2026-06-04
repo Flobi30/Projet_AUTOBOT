@@ -35,7 +35,9 @@ class EvidenceSummary:
     net_pnl_eur: float
     gross_pnl_eur: float | None = None
     fees_eur: float | None = None
+    spread_cost_eur: float | None = None
     slippage_eur: float | None = None
+    latency_cost_eur: float | None = None
     profit_factor: float | None = None
     winrate_pct: float | None = None
     max_drawdown_pct: float | None = None
@@ -319,7 +321,9 @@ def _paper_summary(records: tuple[TradeRecord, ...], *, initial_capital_eur: flo
         net_pnl_eur=metrics.total_net_pnl_eur,
         gross_pnl_eur=metrics.total_gross_pnl_eur,
         fees_eur=metrics.total_fees_eur,
+        spread_cost_eur=metrics.total_spread_cost_eur,
         slippage_eur=metrics.total_slippage_eur,
+        latency_cost_eur=metrics.total_latency_cost_eur,
         profit_factor=metrics.profit_factor,
         winrate_pct=metrics.winrate_pct,
         max_drawdown_pct=metrics.max_drawdown_pct,
@@ -336,8 +340,10 @@ def _research_summary(cells: tuple[MatrixCellResult, ...]) -> EvidenceSummary:
         trade_count=sum(max(0, cell.closed_trades) for cell in ok_cells),
         net_pnl_eur=sum(cell.net_pnl_eur or 0.0 for cell in ok_cells),
         gross_pnl_eur=None,
-        fees_eur=None,
-        slippage_eur=None,
+        fees_eur=_sum_optional(cell.fees_eur for cell in ok_cells),
+        spread_cost_eur=_sum_optional(cell.spread_cost_eur for cell in ok_cells),
+        slippage_eur=_sum_optional(cell.slippage_eur for cell in ok_cells),
+        latency_cost_eur=_sum_optional(cell.latency_cost_eur for cell in ok_cells),
         profit_factor=_max_optional(cell.profit_factor for cell in ok_cells),
         winrate_pct=None,
         max_drawdown_pct=_max_optional(cell.max_drawdown_pct for cell in ok_cells),
@@ -429,7 +435,9 @@ def _bucket_diagnostics(
         diagnostics.append("paper_profit_factor_unavailable")
     if research.trade_count and research.profit_factor is None:
         diagnostics.append("research_profit_factor_unavailable")
-    if research.trade_count and (research.fees_eur is None or research.slippage_eur is None):
+    if research.trade_count and (
+        research.fees_eur is None or research.spread_cost_eur is None or research.slippage_eur is None
+    ):
         diagnostics.append("research_cost_breakdown_unavailable_from_matrix_summary")
     if "non_positive_net_pnl" in research.reasons:
         diagnostics.append("research_rejected_negative_net_pnl")
@@ -485,6 +493,11 @@ def _canonical_strategy(strategy: str) -> str:
 def _max_optional(values: Iterable[float | None]) -> float | None:
     present = [float(value) for value in values if value is not None]
     return max(present) if present else None
+
+
+def _sum_optional(values: Iterable[float | None]) -> float | None:
+    present = [float(value) for value in values if value is not None]
+    return sum(present) if present else None
 
 
 def _fmt(value: float | None) -> str:

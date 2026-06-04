@@ -52,8 +52,15 @@ def test_validation_matrix_runs_strategy_symbol_grid_and_writes_summary(tmp_path
     assert {cell.strategy for cell in result.results} == {"grid", "trend"}
     assert all(cell.status == "ok" for cell in result.results)
     assert all(cell.report_path for cell in result.results)
+    assert result.cost_config["taker_fee_bps"] == pytest.approx(0.0)
+    assert all(cell.cost_config["fallback_spread_bps"] == pytest.approx(0.0) for cell in result.results)
+    assert all(cell.fees_eur is not None for cell in result.results)
+    assert all(cell.slippage_eur is not None for cell in result.results)
     assert (tmp_path / "matrix" / "pytest_matrix.md").exists()
     assert (tmp_path / "matrix" / "pytest_matrix.json").exists()
+    markdown = (tmp_path / "matrix" / "pytest_matrix.md").read_text(encoding="utf-8")
+    assert "Cost config" in markdown
+    assert "Slippage" in markdown
 
 
 def test_validation_matrix_records_cell_errors_without_aborting(tmp_path):

@@ -112,6 +112,11 @@ def load_matrix_result(path: str | Path) -> MatrixRunResult:
             total_return_pct=_optional_float(item.get("total_return_pct")),
             profit_factor=_optional_float(item.get("profit_factor")),
             max_drawdown_pct=_optional_float(item.get("max_drawdown_pct")),
+            fees_eur=_optional_float(item.get("fees_eur")),
+            spread_cost_eur=_optional_float(item.get("spread_cost_eur")),
+            slippage_eur=_optional_float(item.get("slippage_eur")),
+            latency_cost_eur=_optional_float(item.get("latency_cost_eur")),
+            cost_config=dict(item.get("cost_config") or {}),
             report_path=item.get("report_path"),
             error=item.get("error"),
         )
@@ -124,6 +129,7 @@ def load_matrix_result(path: str | Path) -> MatrixRunResult:
         success_count=int(payload.get("success_count") or sum(1 for result in results if result.status == "ok")),
         error_count=int(payload.get("error_count") or sum(1 for result in results if result.status == "error")),
         results=results,
+        cost_config=dict(payload.get("cost_config") or {}),
         json_report_path=payload.get("json_report_path"),
         markdown_report_path=payload.get("markdown_report_path"),
     )
