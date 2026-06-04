@@ -88,6 +88,7 @@ def load_bars_for_validation(config: ValidationRunnerConfig) -> list[MarketBar]:
             start_at=config.start_at,
             end_at=config.end_at,
             limit=config.limit,
+            canonicalize_symbols=True,
         )
     raise ValueError(f"unsupported data_source: {config.data_source}")
 

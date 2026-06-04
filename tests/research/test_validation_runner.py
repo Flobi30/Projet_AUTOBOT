@@ -1,10 +1,11 @@
 import json
+import sqlite3
 
 import pytest
 
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.trade_journal import TradeJournal
-from autobot.v2.research.validation_runner import ValidationRunnerConfig, main, run_validation
+from autobot.v2.research.validation_runner import ValidationRunnerConfig, load_bars_for_validation, main, run_validation
 
 
 pytestmark = pytest.mark.integration
@@ -47,6 +48,51 @@ def test_validation_runner_runs_backtest_from_csv(tmp_path):
     assert result.result.strategy_id == "dynamic_grid"
     assert result.result.trade_count == 1
     assert (tmp_path / "reports" / "backtests" / "pytest_runner_backtest.md").exists()
+
+
+def test_validation_runner_canonicalizes_state_db_symbols(tmp_path):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("btc1", "XXBTZEUR", 65000.0, "2026-05-31T00:00:00+00:00", "b1", "runtime", "c1"),
+                ("btc2", "XBTZEUR", 65010.0, "2026-05-31T00:01:00+00:00", "b2", "runtime", "c2"),
+                ("eth1", "XETHZEUR", 3000.0, "2026-05-31T00:02:00+00:00", "b3", "runtime", "c3"),
+            ],
+        )
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_state_db_aliases",
+        strategy="grid",
+        data_source="autobot_state_db",
+        data_path=db_path,
+        symbol="BTCZEUR",
+        dataset_id="pytest_state_db",
+    )
+
+    bars = load_bars_for_validation(config)
+
+    assert [bar.symbol for bar in bars] == ["BTCZEUR", "BTCZEUR"]
+    assert [bar.close for bar in bars] == [65000.0, 65010.0]
+    assert bars[0].metadata["raw_symbol"] == "XXBTZEUR"
 
 
 def test_validation_runner_can_attach_regime_context_to_journal(tmp_path):
