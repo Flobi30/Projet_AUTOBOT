@@ -87,6 +87,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_matrix_args(matrix)
     matrix.set_defaults(handler=_cmd_matrix)
 
+    validate_strategies = subparsers.add_parser(
+        "validate-strategies",
+        help="Build a canonical research dataset and run the standard validation matrix",
+    )
+    _add_validate_strategies_args(validate_strategies)
+    validate_strategies.set_defaults(handler=_cmd_validate_strategies)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -200,6 +207,38 @@ def _add_matrix_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--write-strategy-regime-baselines", action="store_true")
     parser.add_argument("--write-strategy-regime-walk-forward", action="store_true")
     parser.add_argument("--write-strategy-scorecard", action="store_true")
+
+
+def _add_validate_strategies_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing market_price_samples")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; defaults to AUTOBOT top-14 EUR preset")
+    parser.add_argument("--strategies", default=None, help="Comma-separated strategies; defaults to grid,trend,mean_reversion")
+    parser.add_argument("--timeframe", default="5m", help="Dataset timeframe used for validation, e.g. 1m,5m,15m")
+    parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
+    parser.add_argument("--dataset-output-dir", default=None)
+    parser.add_argument("--output-dir", default="reports/research_standard")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--min-signal-net-edge-bps", type=float, default=None)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--train-window-bars", type=int, default=200)
+    parser.add_argument("--test-window-bars", type=int, default=100)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--include-regime-context", action="store_true")
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--strategy-config-json", default="{}")
+    parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument("--parquet", action="store_true", help="Also attempt Parquet dataset export if dependencies exist")
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -356,6 +395,149 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
     write_strategy_regime_walk_forward = args.write_strategy_regime_walk_forward or args.standard_reports
     write_strategy_scorecard = args.write_strategy_scorecard or args.standard_reports
 
+    _attach_matrix_report_bundle(
+        config=config,
+        result=result,
+        output=output,
+        output_dir=output_dir,
+        registry_path=Path(args.registry_path),
+        mode=args.mode,
+        write_registry_recommendations=write_registry_recommendations,
+        write_loss_attribution=write_loss_attribution,
+        write_setup_quality=write_setup_quality,
+        write_strategy_regime=write_strategy_regime,
+        write_strategy_regime_baselines=write_strategy_regime_baselines,
+        write_strategy_regime_walk_forward=write_strategy_regime_walk_forward,
+        write_strategy_scorecard=write_strategy_scorecard,
+    )
+
+    output["safety_notes"] = [
+        "Research matrix only.",
+        "No strategy registry mutation is performed by this command.",
+        "No runtime paper/live service is started.",
+        "No Kraken order can be created by this command.",
+        "No live trading permission is granted.",
+    ]
+    _print_json(output)
+    return 0
+
+
+def _cmd_validate_strategies(args: argparse.Namespace) -> int:
+    from autobot.v2.research.dataset_builder import DatasetBuildConfig, build_dataset_from_state_db
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+    from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
+    strategies = (
+        _csv_tuple(args.strategies, "--strategies")
+        if args.strategies
+        else AUTOBOT_STANDARD_STRATEGIES
+    )
+    strategy_configs = _loads_object(args.strategy_config_json, "--strategy-config-json")
+    dataset_output_dir = Path(args.dataset_output_dir) if args.dataset_output_dir else Path("data/research") / args.run_id
+    dataset_run_id = f"{args.run_id}_dataset"
+    timeframe = args.timeframe.lower()
+    dataset_result = build_dataset_from_state_db(
+        DatasetBuildConfig(
+            run_id=dataset_run_id,
+            state_db_path=Path(args.state_db),
+            output_dir=dataset_output_dir,
+            symbols=symbols,
+            timeframes=(timeframe,),
+            start_at=args.start_at,
+            end_at=args.end_at,
+            limit=args.limit,
+            export_csv=True,
+            export_parquet=bool(args.parquet),
+            canonicalize_symbols=True,
+        )
+    )
+    export = next((item for item in dataset_result.exports if item.timeframe == timeframe), None)
+    if export is None or not export.csv_path:
+        raise ValueError(f"dataset export for timeframe {timeframe!r} did not produce a CSV path")
+    output_dir = Path(args.output_dir)
+    matrix_config = MatrixRunConfig(
+        run_id=args.run_id,
+        data_source="csv",
+        data_path=Path(export.csv_path),
+        symbols=symbols,
+        strategies=strategies,  # type: ignore[arg-type]
+        mode=args.mode,
+        output_dir=output_dir,
+        initial_capital_eur=args.initial_capital_eur,
+        order_notional_eur=args.order_notional_eur,
+        min_closed_trades=args.min_closed_trades,
+        min_profit_factor=args.min_profit_factor,
+        max_drawdown_pct=args.max_drawdown_pct,
+        min_signal_net_edge_bps=args.min_signal_net_edge_bps,
+        cost_config=ExecutionCostConfig(
+            taker_fee_bps=args.fee_bps,
+            fallback_spread_bps=args.spread_bps,
+            slippage_bps=args.slippage_bps,
+        ),
+        strategy_configs=strategy_configs,
+        start_at=args.start_at,
+        end_at=args.end_at,
+        limit=None,
+        train_window_bars=args.train_window_bars,
+        test_window_bars=args.test_window_bars,
+        step_window_bars=args.step_window_bars,
+        min_folds=args.min_folds,
+        min_passing_folds=args.min_passing_folds,
+        include_regime_context=args.include_regime_context,
+    )
+    matrix_result = run_validation_matrix(matrix_config)
+    output: dict[str, Any] = {
+        "command": "validate-strategies",
+        "run_id": args.run_id,
+        "dataset": dataset_result.to_dict(),
+        "matrix": matrix_result.to_dict(),
+        "preset": "autobot-top14-eur" if not args.symbols else None,
+        "standard_reports_enabled": True,
+    }
+    _attach_matrix_report_bundle(
+        config=matrix_config,
+        result=matrix_result,
+        output=output,
+        output_dir=output_dir,
+        registry_path=Path(args.registry_path),
+        mode=args.mode,
+        write_registry_recommendations=True,
+        write_loss_attribution=True,
+        write_setup_quality=True,
+        write_strategy_regime=True,
+        write_strategy_regime_baselines=True,
+        write_strategy_regime_walk_forward=True,
+        write_strategy_scorecard=True,
+    )
+    output["safety_notes"] = [
+        "Standard research validation workflow only.",
+        "Builds canonical datasets and research reports.",
+        "No strategy registry mutation is performed by this command.",
+        "No runtime paper/live service is started.",
+        "No Kraken order can be created by this command.",
+        "No live trading permission is granted.",
+    ]
+    _print_json(output)
+    return 0
+
+
+def _attach_matrix_report_bundle(
+    *,
+    config: Any,
+    result: Any,
+    output: dict[str, Any],
+    output_dir: Path,
+    registry_path: Path,
+    mode: str,
+    write_registry_recommendations: bool,
+    write_loss_attribution: bool,
+    write_setup_quality: bool,
+    write_strategy_regime: bool,
+    write_strategy_regime_baselines: bool,
+    write_strategy_regime_walk_forward: bool,
+    write_strategy_scorecard: bool,
+) -> None:
     if write_registry_recommendations:
         from autobot.v2.research.registry_recommendations import (
             recommend_from_matrix,
@@ -363,7 +545,6 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         )
         from autobot.v2.strategy_validation_registry import load_registry
 
-        registry_path = Path(args.registry_path)
         registry_payload = load_registry(registry_path) if registry_path.exists() else None
         recommendation_report = write_registry_recommendation_report(
             recommend_from_matrix(result, registry_payload=registry_payload),
@@ -427,21 +608,11 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
                 fees_included=True,
                 slippage_included=True,
                 baseline_included=write_strategy_regime_baselines,
-                out_of_sample_included=(args.mode == "walk_forward" or write_strategy_regime_walk_forward),
+                out_of_sample_included=(mode == "walk_forward" or write_strategy_regime_walk_forward),
             ),
             output_dir / "strategy_scorecard",
         )
         output["strategy_scorecard_report"] = scorecard_report.to_dict()
-
-    output["safety_notes"] = [
-        "Research matrix only.",
-        "No strategy registry mutation is performed by this command.",
-        "No runtime paper/live service is started.",
-        "No Kraken order can be created by this command.",
-        "No live trading permission is granted.",
-    ]
-    _print_json(output)
-    return 0
 
 
 def _cmd_paper(args: argparse.Namespace) -> int:

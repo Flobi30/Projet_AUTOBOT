@@ -496,6 +496,100 @@ def test_cli_matrix_standard_reports_writes_full_research_bundle(tmp_path, capsy
     assert (tmp_path / "standard_matrix" / "strategy_regime_walk_forward").exists()
 
 
+def test_cli_validate_strategies_builds_dataset_and_standard_matrix(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE market_price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_id TEXT,
+                symbol TEXT,
+                price REAL,
+                observed_at TEXT,
+                bucket_start TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO market_price_samples
+            (sample_id, symbol, price, observed_at, bucket_start, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("s1", "TRXEUR", 100.0, "2026-06-03T00:00:00+00:00", "b1", "runtime", "c1"),
+                ("s2", "TRXEUR", 99.05, "2026-06-03T00:01:00+00:00", "b2", "runtime", "c2"),
+                ("s3", "TRXEUR", 99.60, "2026-06-03T00:02:00+00:00", "b3", "runtime", "c3"),
+                ("s4", "TRXEUR", 100.20, "2026-06-03T00:03:00+00:00", "b4", "runtime", "c4"),
+            ],
+        )
+
+    exit_code = cli.main(
+        [
+            "validate-strategies",
+            "--run-id",
+            "pytest_cli_validate_strategies",
+            "--state-db",
+            str(db_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--timeframe",
+            "1m",
+            "--dataset-output-dir",
+            str(tmp_path / "datasets"),
+            "--output-dir",
+            str(tmp_path / "validation"),
+            "--min-closed-trades",
+            "1",
+            "--train-window-bars",
+            "1",
+            "--test-window-bars",
+            "3",
+            "--step-window-bars",
+            "4",
+            "--min-folds",
+            "1",
+            "--min-passing-folds",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["command"] == "validate-strategies"
+    assert output["dataset"]["symbols"] == ["TRXEUR"]
+    assert output["matrix"]["cell_count"] == 1
+    assert output["matrix"]["success_count"] == 1
+    assert output["strategy_scorecard_report"]["results"][0]["live_promotion_allowed"] is False
+    assert "No runtime paper/live service is started." in output["safety_notes"]
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "datasets" / "pytest_cli_validate_strategies_dataset_1m.csv").exists()
+    assert (tmp_path / "validation" / "pytest_cli_validate_strategies.json").exists()
+    assert (tmp_path / "validation" / "strategy_scorecard").exists()
+
+
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):
     csv_path = tmp_path / "bars.csv"
     _write_grid_csv(csv_path)

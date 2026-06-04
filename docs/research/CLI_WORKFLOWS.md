@@ -10,6 +10,24 @@ Use this workflow when a fresh VPS state database has been copied locally and
 the goal is to compare the current research strategy families on the standard
 AUTOBOT EUR universe.
 
+The preferred one-command workflow is:
+
+```powershell
+$env:PYTHONPATH='.codex_python_deps;src'
+& '<python3.12.exe>' -m autobot.v2.cli validate-strategies `
+  --run-id vps_YYYY_MM_DD_standard_validation `
+  --state-db data/vps_autobot_state_YYYY-MM-DD.db `
+  --timeframe 5m `
+  --output-dir reports/research/vps_YYYY_MM_DD_standard_validation `
+  --dataset-output-dir data/research/vps_YYYY_MM_DD_standard_validation `
+  --include-regime-context
+```
+
+This builds a canonical research CSV dataset first, then runs the standard
+top-14 strategy matrix and writes the normal report bundle. It is the safest
+default when comparing fresh VPS evidence because it avoids manually mixing raw
+Kraken aliases or forgetting `--standard-reports`.
+
 ## Build Clean OHLCV Datasets
 
 Use this workflow first when a fresh VPS state database has been copied locally.
