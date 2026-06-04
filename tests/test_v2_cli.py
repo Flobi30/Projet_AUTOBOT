@@ -756,6 +756,66 @@ def test_cli_compare_paper_research_reports_divergence(tmp_path, capsys):
     assert (tmp_path / "compare_reports" / "pytest_compare.md").exists()
 
 
+def test_cli_compare_paper_research_accepts_validate_strategies_output(tmp_path, capsys):
+    journal_path = tmp_path / "journal.json"
+    _trade_journal(journal_path)
+    workflow_path = tmp_path / "validate_strategies.json"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "command": "validate-strategies",
+                "run_id": "pytest_validate",
+                "dataset": {"run_id": "pytest_validate_dataset"},
+                "matrix": {
+                    "run_id": "pytest_matrix_nested",
+                    "mode": "backtest",
+                    "cell_count": 1,
+                    "success_count": 1,
+                    "error_count": 0,
+                    "results": [
+                        {
+                            "run_id": "pytest_matrix_TRXEUR_trend",
+                            "symbol": "TRXEUR",
+                            "strategy": "trend",
+                            "mode": "backtest",
+                            "status": "ok",
+                            "decision": "modify",
+                            "reason": "non_positive_net_pnl",
+                            "bar_count": 120,
+                            "closed_trades": 2,
+                            "net_pnl_eur": -2.5,
+                            "profit_factor": 0.8,
+                            "max_drawdown_pct": 4.0,
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "compare-paper-research",
+            "--run-id",
+            "pytest_compare_nested",
+            "--matrix-path",
+            str(workflow_path),
+            "--journal-path",
+            str(journal_path),
+            "--output-dir",
+            str(tmp_path / "compare_reports"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["matrix_run_id"] == "pytest_matrix_nested"
+    assert output["divergent_bucket_count"] == 1
+    assert output["buckets"][0]["alignment"] == "paper_positive_research_negative"
+    assert "No live trading permission is granted." in output["safety_notes"]
+
+
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
     matrix_path = tmp_path / "matrix.json"
     matrix_path.write_text(

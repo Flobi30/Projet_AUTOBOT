@@ -87,9 +87,16 @@ class RegistryRecommendationReport:
 
 
 def load_matrix_result(path: str | Path) -> MatrixRunResult:
-    """Load a matrix JSON report created by ``run_validation_matrix``."""
+    """Load a matrix JSON report.
+
+    Supports both the raw ``run_validation_matrix`` JSON and the combined
+    ``validate-strategies`` workflow JSON, where the matrix payload is nested
+    under the ``matrix`` key.
+    """
 
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, Mapping) and isinstance(payload.get("matrix"), Mapping):
+        payload = dict(payload["matrix"])
     results = tuple(
         MatrixCellResult(
             run_id=str(item["run_id"]),

@@ -181,3 +181,24 @@ def test_report_writer_and_loader_round_trip_matrix_json(tmp_path):
         encoding="utf-8"
     )
     assert "No live trading permission is granted" in markdown
+
+
+def test_loader_accepts_validate_strategies_workflow_json(tmp_path):
+    matrix = _matrix([_cell("grid")])
+    workflow_json = tmp_path / "validate_strategies.json"
+    workflow_json.write_text(
+        json.dumps(
+            {
+                "command": "validate-strategies",
+                "dataset": {"run_id": "pytest_dataset"},
+                "matrix": matrix.to_dict(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_matrix_result(workflow_json)
+
+    assert loaded.run_id == "pytest_matrix"
+    assert loaded.cell_count == 1
+    assert loaded.results[0].strategy == "grid"
