@@ -50,6 +50,35 @@ def test_validation_runner_runs_backtest_from_csv(tmp_path):
     assert (tmp_path / "reports" / "backtests" / "pytest_runner_backtest.md").exists()
 
 
+def test_validation_runner_filters_multi_symbol_csv_to_requested_symbol(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,timeframe,open,high,low,close,volume",
+                "2026-05-31T00:00:00+00:00,TRXEUR,1m,1.0,1.1,0.9,1.0,1000",
+                "2026-05-31T00:01:00+00:00,XXBTZEUR,1m,65000,65100,64900,65000,1000",
+                "2026-05-31T00:02:00+00:00,BTCZEUR,1m,65010,65110,64910,65010,1000",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_csv_symbol_filter",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="BTCZEUR",
+        dataset_id="pytest_multi_symbol_csv",
+    )
+
+    bars = load_bars_for_validation(config)
+
+    assert [bar.symbol for bar in bars] == ["BTCZEUR", "BTCZEUR"]
+    assert [bar.close for bar in bars] == [65000.0, 65010.0]
+    assert bars[0].metadata["raw_symbol"] == "XXBTZEUR"
+
+
 def test_validation_runner_canonicalizes_state_db_symbols(tmp_path):
     db_path = tmp_path / "state.db"
     with sqlite3.connect(db_path) as conn:

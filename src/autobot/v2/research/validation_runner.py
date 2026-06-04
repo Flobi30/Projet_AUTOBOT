@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -26,6 +26,7 @@ from .strategy_signal_generators import (
     TrendResearchConfig,
     TrendResearchSignalGenerator,
 )
+from .symbol_normalization import normalize_research_symbol
 from .walk_forward import WalkForwardConfig, WalkForwardResult, WalkForwardValidator
 
 
@@ -80,7 +81,8 @@ class ValidationRunnerResult:
 def load_bars_for_validation(config: ValidationRunnerConfig) -> list[MarketBar]:
     repository = MarketDataRepository()
     if config.data_source == "csv":
-        return repository.load_csv(config.data_path, default_symbol=config.symbol, default_timeframe="csv")
+        bars = repository.load_csv(config.data_path, default_symbol=config.symbol, default_timeframe="csv")
+        return _filter_bars_for_symbol(bars, config.symbol)
     if config.data_source == "autobot_state_db":
         return repository.load_autobot_state_db(
             config.data_path,
@@ -91,6 +93,23 @@ def load_bars_for_validation(config: ValidationRunnerConfig) -> list[MarketBar]:
             canonicalize_symbols=True,
         )
     raise ValueError(f"unsupported data_source: {config.data_source}")
+
+
+def _filter_bars_for_symbol(bars: list[MarketBar], symbol: str) -> list[MarketBar]:
+    expected_symbol = normalize_research_symbol(symbol)
+    filtered: list[MarketBar] = []
+    for bar in bars:
+        canonical_symbol = normalize_research_symbol(bar.symbol)
+        if canonical_symbol != expected_symbol:
+            continue
+        if bar.symbol == canonical_symbol:
+            filtered.append(bar)
+            continue
+        metadata = dict(bar.metadata)
+        metadata.setdefault("raw_symbol", bar.symbol)
+        metadata["symbol_normalized"] = True
+        filtered.append(replace(bar, symbol=canonical_symbol, metadata=metadata))
+    return MarketDataRepository.normalize(filtered)
 
 
 def make_signal_generator_factory(
