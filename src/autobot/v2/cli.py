@@ -131,6 +131,24 @@ def _build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--no-write-report", action="store_true")
     compare.set_defaults(handler=_cmd_compare_paper_research)
 
+    cost_parity = subparsers.add_parser(
+        "cost-parity",
+        help="Audit read-only parity between research, official paper and shadow cost assumptions",
+    )
+    cost_parity.add_argument("--run-id", required=True)
+    cost_parity.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
+    cost_parity.add_argument("--trend-shadow-db", default=None, help="Read-only trend shadow SQLite DB")
+    cost_parity.add_argument("--mean-reversion-shadow-db", default=None, help="Read-only mean reversion shadow SQLite DB")
+    cost_parity.add_argument("--setup-shadow-db", default=None, help="Read-only setup shadow SQLite DB")
+    cost_parity.add_argument("--output-dir", default="reports/research/cost_parity")
+    cost_parity.add_argument("--fee-bps", type=float, default=16.0)
+    cost_parity.add_argument("--spread-bps", type=float, default=8.0)
+    cost_parity.add_argument("--slippage-bps", type=float, default=4.0)
+    cost_parity.add_argument("--latency-buffer-bps", type=float, default=1.0)
+    cost_parity.add_argument("--warning-delta-bps", type=float, default=5.0)
+    cost_parity.add_argument("--no-write-report", action="store_true")
+    cost_parity.set_defaults(handler=_cmd_cost_parity)
+
     leaderboard = subparsers.add_parser("leaderboard", help="Write a strategy scorecard from a matrix JSON report")
     leaderboard.add_argument("--matrix-path", required=True)
     leaderboard.add_argument("--output-dir", default="reports/research_scorecards")
@@ -738,6 +756,36 @@ def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
     if decision_trace_report is not None:
         payload["decision_trace_audit_summary"] = decision_trace_report.summary.to_dict()
     _print_json(payload)
+    return 0
+
+
+def _cmd_cost_parity(args: argparse.Namespace) -> int:
+    from autobot.v2.research.cost_parity_audit import (
+        CostParityAuditConfig,
+        audit_cost_parity,
+        write_cost_parity_audit_report,
+    )
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+
+    config = CostParityAuditConfig(
+        run_id=args.run_id,
+        state_db_path=args.state_db,
+        trend_shadow_db_path=args.trend_shadow_db,
+        mean_reversion_shadow_db_path=args.mean_reversion_shadow_db,
+        setup_shadow_db_path=args.setup_shadow_db,
+        output_dir=Path(args.output_dir),
+        research_cost_config=ExecutionCostConfig(
+            taker_fee_bps=args.fee_bps,
+            fallback_spread_bps=args.spread_bps,
+            slippage_bps=args.slippage_bps,
+            latency_buffer_bps=args.latency_buffer_bps,
+        ),
+        warning_delta_bps=args.warning_delta_bps,
+    )
+    report = audit_cost_parity(config)
+    if not args.no_write_report:
+        report = write_cost_parity_audit_report(report, args.output_dir)
+    _print_json(report.to_dict())
     return 0
 
 

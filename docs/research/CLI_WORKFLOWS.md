@@ -182,6 +182,28 @@ strategy/symbol bucket. Useful outcomes:
 - `paper_missing_research_has_trades`: paper gates/router blocked what research
   replay expected.
 
+## Cost Parity Audit
+
+When paper, shadow and research results disagree, first verify that they use
+comparable fee/slippage assumptions:
+
+```powershell
+$env:PYTHONPATH='.codex_python_deps;src'
+& '<python3.12.exe>' -m autobot.v2.cli cost-parity `
+  --run-id vps_YYYY_MM_DD_cost_parity `
+  --state-db data/vps_autobot_state_YYYY-MM-DD.db `
+  --trend-shadow-db data/vps_trend_shadow.db `
+  --mean-reversion-shadow-db data/vps_mean_reversion_shadow.db `
+  --setup-shadow-db data/vps_setup_shadow.db `
+  --output-dir reports/research/vps_YYYY_MM_DD_cost_parity
+```
+
+This audit is read-only. It compares observed official paper ledger costs and
+closed shadow trade costs against the research `ExecutionCostModel` baseline.
+Shadow rows store collapsed round-trip costs, so their report includes
+`shadow_cost_components_collapsed`; that is a transparency warning, not a live
+permission.
+
 ## Safety Checklist
 
 Before using a matrix result as evidence:

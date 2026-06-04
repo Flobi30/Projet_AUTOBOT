@@ -222,6 +222,53 @@ def _state_db_with_market_samples(path):
         )
 
 
+def _trend_shadow_db_with_trade(path):
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE trend_shadow_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                variant TEXT,
+                position_id TEXT,
+                entry_price REAL,
+                exit_price REAL,
+                volume REAL,
+                notional REAL,
+                fees REAL,
+                realized_pnl REAL,
+                reason TEXT,
+                opened_at TEXT,
+                closed_at TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO trend_shadow_trades
+            (symbol, variant, position_id, entry_price, exit_price, volume, notional, fees,
+             realized_pnl, reason, opened_at, closed_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "TRXEUR",
+                "pytest",
+                "shadow_pos_1",
+                1.0,
+                1.01,
+                100.0,
+                100.0,
+                0.5,
+                0.5,
+                "take_profit",
+                "2026-06-04T00:00:00+00:00",
+                "2026-06-04T00:01:00+00:00",
+                "2026-06-04T00:01:00+00:00",
+            ),
+        )
+
+
 def test_cli_audit_is_read_only(tmp_path, capsys):
     report_path = tmp_path / "audit.md"
     report_path.write_text("# Audit\n", encoding="utf-8")
@@ -872,6 +919,38 @@ def test_cli_compare_paper_research_attaches_state_db_decision_trace(tmp_path, c
     assert "decision_trace_missing_order" in bucket["diagnostics"]
     assert "decision_trace_missing_signal" in bucket["diagnostics"]
     assert "No live trading permission is granted." in output["safety_notes"]
+
+
+def test_cli_cost_parity_audits_read_only_cost_sources(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    shadow_db = tmp_path / "trend_shadow.db"
+    _state_db_with_closed_trade(db_path)
+    _trend_shadow_db_with_trade(shadow_db)
+
+    exit_code = cli.main(
+        [
+            "cost-parity",
+            "--run-id",
+            "pytest_cost_parity_cli",
+            "--state-db",
+            str(db_path),
+            "--trend-shadow-db",
+            str(shadow_db),
+            "--output-dir",
+            str(tmp_path / "cost_parity_reports"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["run_id"] == "pytest_cost_parity_cli"
+    assert output["expected_cost_bps_per_side"] == pytest.approx(25.0)
+    sources = {source["source"]: source for source in output["sources"]}
+    assert sources["official_paper_trade_ledger"]["status"] == "ok"
+    assert sources["trend_shadow"]["status"] == "ok"
+    assert sources["trend_shadow"]["avg_total_cost_bps"] == pytest.approx(25.0)
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "cost_parity_reports" / "pytest_cost_parity_cli.md").exists()
 
 
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
