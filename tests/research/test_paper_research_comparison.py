@@ -149,6 +149,12 @@ def test_compare_paper_to_research_detects_strategy_symbol_divergence():
     assert "runtime_or_sample_difference" in bucket.diagnostics
     assert "research_rejected_negative_net_pnl" in bucket.diagnostics
     assert "paper_research_divergence" in bucket.warnings
+    assert report.alignment_counts == {"paper_positive_research_negative": 1}
+    assert report.diagnostic_counts["runtime_or_sample_difference"] == 1
+    assert report.warning_counts["paper_research_divergence"] == 1
+    assert report.recommendation_counts["investigate_runtime_or_sample_difference"] == 1
+    assert report.priority_buckets[0]["symbol"] == "TRXEUR"
+    assert report.priority_buckets[0]["primary_diagnostic"] == "runtime_or_sample_difference"
 
 
 def test_compare_paper_to_research_attaches_decision_trace_diagnostics():
@@ -233,6 +239,35 @@ def test_compare_paper_to_research_reports_missing_research_coverage():
     assert "research_adapter_missing_official_paper_trades" in report.buckets[0].diagnostics
 
 
+def test_compare_paper_to_research_flags_unknown_paper_strategy():
+    journal = TradeJournal([_trade(strategy_id="unknown", symbol="ETHEUR", net=-2.0)])
+    matrix = MatrixRunResult(
+        run_id="matrix_run",
+        mode="backtest",
+        cell_count=0,
+        success_count=0,
+        error_count=0,
+        results=(),
+    )
+
+    report = compare_paper_to_research(
+        journal,
+        matrix,
+        run_id="compare_unknown_strategy",
+        paper_source_type="pytest",
+        paper_source_path="memory",
+    )
+
+    bucket = report.buckets[0]
+    assert bucket.strategy_id == "unknown"
+    assert "paper_strategy_attribution_missing" in bucket.diagnostics
+    assert "paper_strategy_unknown" in bucket.warnings
+    assert bucket.recommendation == "fix_paper_strategy_attribution_before_strategy_comparison"
+    assert report.diagnostic_counts["paper_strategy_attribution_missing"] == 1
+    assert report.warning_counts["paper_strategy_unknown"] == 1
+    assert report.priority_buckets[0]["primary_diagnostic"] == "paper_strategy_attribution_missing"
+
+
 def test_write_paper_research_comparison_report(tmp_path):
     report = compare_paper_to_research(
         TradeJournal([_trade(net=-1.0)]),
@@ -256,5 +291,7 @@ def test_write_paper_research_comparison_report(tmp_path):
     assert (tmp_path / "compare_write.json").exists()
     assert (tmp_path / "compare_write.md").exists()
     markdown = (tmp_path / "compare_write.md").read_text(encoding="utf-8")
+    assert "Triage Summary" in markdown
+    assert "Priority Buckets" in markdown
     assert "Diagnostics" in markdown
     assert "both_sources_unprofitable" in markdown

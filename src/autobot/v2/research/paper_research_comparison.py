@@ -110,6 +110,11 @@ class PaperResearchComparisonReport:
     paper_net_pnl_eur: float
     research_net_pnl_eur: float
     buckets: tuple[PaperResearchComparisonBucket, ...]
+    alignment_counts: dict[str, int] = field(default_factory=dict)
+    diagnostic_counts: dict[str, int] = field(default_factory=dict)
+    recommendation_counts: dict[str, int] = field(default_factory=dict)
+    warning_counts: dict[str, int] = field(default_factory=dict)
+    priority_buckets: tuple[dict[str, Any], ...] = ()
     warnings: tuple[str, ...] = ()
     decision_trace_run_id: str | None = None
     json_report_path: str | None = None
@@ -136,6 +141,11 @@ class PaperResearchComparisonReport:
             "paper_net_pnl_eur": self.paper_net_pnl_eur,
             "research_net_pnl_eur": self.research_net_pnl_eur,
             "buckets": [bucket.to_dict() for bucket in self.buckets],
+            "alignment_counts": dict(self.alignment_counts),
+            "diagnostic_counts": dict(self.diagnostic_counts),
+            "recommendation_counts": dict(self.recommendation_counts),
+            "warning_counts": dict(self.warning_counts),
+            "priority_buckets": list(self.priority_buckets),
             "warnings": list(self.warnings),
             "decision_trace_run_id": self.decision_trace_run_id,
             "json_report_path": self.json_report_path,
@@ -173,6 +183,10 @@ def compare_paper_to_research(
         for strategy_id, symbol in keys
     )
     divergent = sum(1 for bucket in buckets if bucket.alignment in _DIVERGENT_ALIGNMENTS)
+    alignment_counts = Counter(bucket.alignment for bucket in buckets)
+    diagnostic_counts = Counter(diagnostic for bucket in buckets for diagnostic in bucket.diagnostics)
+    recommendation_counts = Counter(bucket.recommendation for bucket in buckets)
+    warning_counts = Counter(warning for bucket in buckets for warning in bucket.warnings)
     return PaperResearchComparisonReport(
         run_id=run_id,
         matrix_run_id=matrix.run_id,
@@ -185,6 +199,11 @@ def compare_paper_to_research(
         paper_net_pnl_eur=sum(bucket.paper.net_pnl_eur for bucket in buckets),
         research_net_pnl_eur=sum(bucket.research.net_pnl_eur for bucket in buckets),
         buckets=buckets,
+        alignment_counts=dict(alignment_counts),
+        diagnostic_counts=dict(diagnostic_counts.most_common()),
+        recommendation_counts=dict(recommendation_counts.most_common()),
+        warning_counts=dict(warning_counts.most_common()),
+        priority_buckets=_priority_buckets(buckets),
         warnings=tuple(warnings),
         decision_trace_run_id=decision_trace_report.run_id if decision_trace_report else None,
     )
@@ -216,11 +235,34 @@ def render_paper_research_comparison_report(report: PaperResearchComparisonRepor
         f"Paper net PnL EUR: `{report.paper_net_pnl_eur:.6f}`",
         f"Research net PnL EUR: `{report.research_net_pnl_eur:.6f}`",
         "",
-        "## Buckets",
+        "## Triage Summary",
         "",
-        "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Trace Count | Trace Missing | Delta | Alignment | Diagnostics | Recommendation |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |",
+        f"Alignment counts: `{json.dumps(report.alignment_counts, sort_keys=True)}`",
+        f"Top diagnostics: `{json.dumps(dict(list(report.diagnostic_counts.items())[:10]), sort_keys=True)}`",
+        f"Top warnings: `{json.dumps(dict(list(report.warning_counts.items())[:10]), sort_keys=True)}`",
+        "",
+        "### Priority Buckets",
+        "",
+        "| Rank | Strategy | Symbol | Alignment | Paper Net | Research Net | Delta | Primary Diagnostic | Recommendation |",
+        "| ---: | --- | --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
+    for idx, bucket in enumerate(report.priority_buckets, start=1):
+        lines.append(
+            f"| {idx} | {bucket['strategy_id']} | {bucket['symbol']} | {bucket['alignment']} | "
+            f"{bucket['paper_net_pnl_eur']:.6f} | {bucket['research_net_pnl_eur']:.6f} | "
+            f"{bucket['delta_net_pnl_eur']:.6f} | {bucket['primary_diagnostic']} | {bucket['recommendation']} |"
+        )
+    if not report.priority_buckets:
+        lines.append("|  |  |  |  |  |  |  | none |  |")
+    lines.extend(
+        [
+            "",
+            "## Buckets",
+            "",
+            "| Strategy | Symbol | Paper Trades | Paper Net | Paper PF | Research Trades | Research Net | Research PF | Trace Count | Trace Missing | Delta | Alignment | Diagnostics | Recommendation |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |",
+        ]
+    )
     for bucket in sorted(report.buckets, key=lambda item: (item.alignment, item.strategy_id, item.symbol)):
         trace_count = bucket.decision_traces.trace_count if bucket.decision_traces else 0
         trace_missing = _format_missing_stage_counts(bucket.decision_traces)
@@ -296,8 +338,12 @@ def _compare_bucket(
     delta = paper.net_pnl_eur - research.net_pnl_eur
     alignment = _alignment(paper, research)
     recommendation = _recommendation(alignment)
-    diagnostics = _bucket_diagnostics(paper, research, alignment, decision_trace_summary)
-    warnings = _bucket_warnings(paper, research, alignment)
+    diagnostics = list(_bucket_diagnostics(paper, research, alignment, decision_trace_summary))
+    warnings = list(_bucket_warnings(paper, research, alignment))
+    if strategy_id == "unknown" and paper.trade_count:
+        diagnostics.append("paper_strategy_attribution_missing")
+        warnings.append("paper_strategy_unknown")
+        recommendation = "fix_paper_strategy_attribution_before_strategy_comparison"
     return PaperResearchComparisonBucket(
         strategy_id=strategy_id,
         symbol=symbol,
@@ -306,8 +352,8 @@ def _compare_bucket(
         delta_net_pnl_eur=delta,
         alignment=alignment,
         recommendation=recommendation,
-        diagnostics=diagnostics,
-        warnings=warnings,
+        diagnostics=tuple(dict.fromkeys(diagnostics)),
+        warnings=tuple(dict.fromkeys(warnings)),
         decision_traces=decision_trace_summary,
     )
 
@@ -445,6 +491,50 @@ def _bucket_diagnostics(
         diagnostics.append("research_rejected_negative_net_pnl")
     diagnostics.extend(_decision_trace_diagnostics(paper, research, decision_trace_summary))
     return tuple(dict.fromkeys(diagnostics))
+
+
+def _priority_buckets(buckets: tuple[PaperResearchComparisonBucket, ...], *, limit: int = 8) -> tuple[dict[str, Any], ...]:
+    ranked = sorted(
+        buckets,
+        key=lambda bucket: (
+            bucket.alignment not in _DIVERGENT_ALIGNMENTS,
+            -abs(bucket.delta_net_pnl_eur),
+            bucket.strategy_id,
+            bucket.symbol,
+        ),
+    )
+    payloads: list[dict[str, Any]] = []
+    for bucket in ranked[:limit]:
+        payloads.append(
+            {
+                "strategy_id": bucket.strategy_id,
+                "symbol": bucket.symbol,
+                "alignment": bucket.alignment,
+                "paper_trade_count": bucket.paper.trade_count,
+                "research_trade_count": bucket.research.trade_count,
+                "paper_net_pnl_eur": bucket.paper.net_pnl_eur,
+                "research_net_pnl_eur": bucket.research.net_pnl_eur,
+                "delta_net_pnl_eur": bucket.delta_net_pnl_eur,
+                "primary_diagnostic": _primary_diagnostic(bucket.diagnostics),
+                "recommendation": bucket.recommendation,
+            }
+        )
+    return tuple(payloads)
+
+
+def _primary_diagnostic(diagnostics: tuple[str, ...]) -> str:
+    priority = (
+        "paper_strategy_attribution_missing",
+        "official_paper_missing_research_trades",
+        "research_adapter_missing_official_paper_trades",
+        "router_risk_or_execution_gap",
+        "runtime_or_sample_difference",
+        "both_sources_unprofitable",
+    )
+    for item in priority:
+        if item in diagnostics:
+            return item
+    return diagnostics[0] if diagnostics else "none"
 
 
 def _decision_trace_diagnostics(
