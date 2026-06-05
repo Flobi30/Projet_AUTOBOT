@@ -215,8 +215,14 @@ def run_standard_audit(config: StandardAuditConfig) -> StandardAuditResult:
             mode=config.mode,
         )
     else:
+        loss_report = write_matrix_loss_attribution_report(
+            matrix,
+            output_dir / "quick_loss_attribution",
+            write_cell_reports=False,
+        )
         matrix_payload["standard_reports_enabled"] = False
         matrix_payload["standard_reports_skipped_reason"] = "disabled_by_standard_audit_config"
+        matrix_payload["quick_loss_attribution_report"] = loss_report.to_dict()
 
     loaded_paper = load_state_db_paper_ledger(config.state_db_path)
     report_date = config.report_date or _latest_report_date(loaded_paper.journal.records)

@@ -65,8 +65,9 @@ For broad quick evidence over many symbols, keep the same command but add:
 ```
 
 This still builds the dataset, matrix, official paper report, paper-vs-research,
-cost parity and PnL causality artifacts, but skips the extra matrix annexes that
-can be slow on wide symbol/strategy runs. Do not use the quick mode as a final
+cost parity and PnL causality artifacts. It also keeps a lightweight aggregate
+loss-attribution report, but skips the extra per-cell matrix annexes that can be
+slow on wide symbol/strategy runs. Do not use the quick mode as a final
 promotion proof.
 
 ## Build Clean OHLCV Datasets

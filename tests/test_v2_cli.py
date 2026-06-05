@@ -755,6 +755,8 @@ def test_cli_standard_audit_can_skip_matrix_annex_reports(tmp_path, capsys):
     assert exit_code == 0
     assert output["matrix"]["standard_reports_enabled"] is False
     assert output["matrix"]["standard_reports_skipped_reason"] == "disabled_by_standard_audit_config"
+    assert output["matrix"]["quick_loss_attribution_report"]["analyzed_cell_count"] == 1
+    assert output["matrix"]["quick_loss_attribution_report"]["cells"][0]["attribution_report_path"] is None
     assert output["paper_loader"]["trade_count"] == 1
     assert output["paper_vs_research"]["paper_trade_count"] == 1
     assert "No live trading permission is granted." in output["safety_notes"]
