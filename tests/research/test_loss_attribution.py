@@ -105,6 +105,11 @@ def test_loss_attribution_tracks_cost_drag_and_cost_flipped_trades():
     assert result.average_mfe_to_cost_ratio == pytest.approx(1.625)
     assert result.losing_trade_count == 2
     assert result.winning_trade_count == 1
+    assert [bucket.key for bucket in result.by_failure_mode] == [
+        "stop_loss_adverse_move",
+        "cost_flipped_positive_gross",
+        "profitable",
+    ]
     assert result.by_exit_reason[0].key == "stop_loss"
     assert {bucket.key for bucket in result.by_symbol} == {"TRXEUR", "XLMZEUR"}
 
@@ -121,6 +126,9 @@ def test_loss_attribution_report_writer_round_trips_journal(tmp_path):
     assert (tmp_path / "reports" / "pytest_loss_run_loss_attribution.json").exists()
     assert "Cost-Flipped Trades" in markdown
     assert "Average MFE" in markdown
+    assert "By Failure Mode" in markdown
+    assert "Research Recommendations" in markdown
+    assert "Dominant failure mode" in markdown
     assert "research-only" in markdown
 
 
@@ -203,4 +211,6 @@ def test_matrix_loss_attribution_finds_cell_journals_and_summarizes(tmp_path):
     assert report.aggregate_average_positive_mfe_capture_ratio == pytest.approx(0.25)
     assert report.aggregate_average_mfe_to_cost_ratio == pytest.approx(1.625)
     assert report.cells[0].worst_exit_reason == "cost_stop"
+    assert report.cells[0].primary_failure_mode == "cost_flipped_positive_gross"
+    assert [bucket.key for bucket in report.by_failure_mode] == ["cost_flipped_positive_gross", "profitable"]
     assert (tmp_path / "losses" / "pytest_matrix_matrix_loss_attribution.md").exists()

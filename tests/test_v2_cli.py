@@ -763,6 +763,7 @@ def test_cli_standard_audit_can_skip_matrix_annex_reports(tmp_path, capsys):
     markdown = (tmp_path / "quick_audit" / "pytest_standard_audit_quick.md").read_text(encoding="utf-8")
     assert "| Loss attribution |" in markdown
     assert "MFE/cost" in markdown
+    assert "main failure" in markdown
     assert "- Quick loss attribution report:" in markdown
 
 

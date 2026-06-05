@@ -374,8 +374,24 @@ def _render_loss_attribution_summary(payload: dict[str, Any]) -> str:
         f"net `{_fmt_number(payload.get('aggregate_net_pnl_eur'))}` EUR, "
         f"cost `{_fmt_number(payload.get('aggregate_cost_eur'))}` EUR, "
         f"MFE/cost `{_fmt_number(payload.get('aggregate_average_mfe_to_cost_ratio'))}`, "
-        f"exit capture `{_fmt_number(payload.get('aggregate_average_exit_capture_bps'))}` bps"
+        f"exit capture `{_fmt_number(payload.get('aggregate_average_exit_capture_bps'))}` bps, "
+        f"main failure `{_top_failure_mode(payload)}`"
     )
+
+
+def _top_failure_mode(payload: dict[str, Any]) -> str:
+    modes = payload.get("by_failure_mode")
+    if not isinstance(modes, list):
+        return "n/a"
+    for mode in modes:
+        if not isinstance(mode, dict):
+            continue
+        key = str(mode.get("key") or "")
+        if key and key != "profitable":
+            return key
+    if modes and isinstance(modes[0], dict):
+        return str(modes[0].get("key") or "n/a")
+    return "n/a"
 
 
 def _fmt_number(value: Any) -> str:

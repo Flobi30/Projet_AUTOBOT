@@ -65,6 +65,7 @@ class LossAttributionResult:
     winning_trade_count: int
     largest_loss_eur: float | None
     largest_win_eur: float | None
+    by_failure_mode: tuple[AttributionBucket, ...]
     by_entry_reason: tuple[AttributionBucket, ...]
     by_exit_reason: tuple[AttributionBucket, ...]
     by_symbol: tuple[AttributionBucket, ...]
@@ -109,6 +110,7 @@ class LossAttributionResult:
             "winning_trade_count": self.winning_trade_count,
             "largest_loss_eur": self.largest_loss_eur,
             "largest_win_eur": self.largest_win_eur,
+            "by_failure_mode": [bucket.to_dict() for bucket in self.by_failure_mode],
             "by_entry_reason": [bucket.to_dict() for bucket in self.by_entry_reason],
             "by_exit_reason": [bucket.to_dict() for bucket in self.by_exit_reason],
             "by_symbol": [bucket.to_dict() for bucket in self.by_symbol],
@@ -142,6 +144,7 @@ class MatrixCellLossAttribution:
     average_mfe_to_cost_ratio: float | None
     worst_exit_reason: str | None
     worst_entry_reason: str | None
+    primary_failure_mode: str | None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -167,6 +170,7 @@ class MatrixLossAttributionReport:
     aggregate_average_mfe_capture_ratio: float | None
     aggregate_average_positive_mfe_capture_ratio: float | None
     aggregate_average_mfe_to_cost_ratio: float | None
+    by_failure_mode: tuple[AttributionBucket, ...]
     cells: tuple[MatrixCellLossAttribution, ...]
     json_report_path: str | None = None
     markdown_report_path: str | None = None
@@ -191,6 +195,7 @@ class MatrixLossAttributionReport:
             "aggregate_average_mfe_capture_ratio": self.aggregate_average_mfe_capture_ratio,
             "aggregate_average_positive_mfe_capture_ratio": self.aggregate_average_positive_mfe_capture_ratio,
             "aggregate_average_mfe_to_cost_ratio": self.aggregate_average_mfe_to_cost_ratio,
+            "by_failure_mode": [bucket.to_dict() for bucket in self.by_failure_mode],
             "cells": [cell.to_dict() for cell in self.cells],
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
@@ -236,6 +241,7 @@ def analyze_trade_losses(records: Iterable[TradeRecord], *, run_id: str | None =
         winning_trade_count=sum(1 for trade in trades if trade.net_pnl_eur > 0.0),
         largest_loss_eur=min(net_values) if net_values else None,
         largest_win_eur=max(net_values) if net_values else None,
+        by_failure_mode=_build_buckets(trades, key_func=_failure_mode_key),
         by_entry_reason=_build_buckets(trades, key_func=lambda trade: trade.entry_reason or "unknown_entry"),
         by_exit_reason=_build_buckets(trades, key_func=lambda trade: trade.exit_reason or "unknown_exit"),
         by_symbol=_build_buckets(trades, key_func=lambda trade: trade.symbol),
@@ -271,6 +277,7 @@ def write_matrix_loss_attribution_report(
     output_path.mkdir(parents=True, exist_ok=True)
     cell_output_dir = output_path / "cells"
     analyzed: list[MatrixCellLossAttribution] = []
+    all_trades: list[TradeRecord] = []
     missing = 0
 
     for cell in matrix.results:
@@ -279,7 +286,9 @@ def write_matrix_loss_attribution_report(
             if cell.closed_trades > 0:
                 missing += 1
             continue
-        attribution = analyze_trade_journal(journal_path, run_id=cell.run_id)
+        journal = TradeJournal.from_json(journal_path)
+        all_trades.extend(journal.records)
+        attribution = analyze_trade_losses(journal.records, run_id=cell.run_id)
         if write_cell_reports:
             attribution = write_loss_attribution_report(attribution, cell_output_dir)
         analyzed.append(
@@ -307,6 +316,7 @@ def write_matrix_loss_attribution_report(
                 average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio,
                 worst_exit_reason=attribution.by_exit_reason[0].key if attribution.by_exit_reason else None,
                 worst_entry_reason=attribution.by_entry_reason[0].key if attribution.by_entry_reason else None,
+                primary_failure_mode=_primary_failure_mode(attribution.by_failure_mode),
             )
         )
 
@@ -353,6 +363,7 @@ def write_matrix_loss_attribution_report(
             sorted_cells,
             value_func=lambda cell: cell.average_mfe_to_cost_ratio,
         ),
+        by_failure_mode=_build_buckets(tuple(all_trades), key_func=_failure_mode_key),
         cells=sorted_cells,
     )
     json_path = output_path / f"{matrix.run_id}_matrix_loss_attribution.json"
@@ -394,9 +405,19 @@ def render_loss_attribution_report(result: LossAttributionResult) -> str:
         f"| Winning Trades | {result.winning_trade_count} |",
         f"| Losing Trades | {result.losing_trade_count} |",
         "",
-        "## By Exit Reason",
+        "## By Failure Mode",
         "",
     ]
+    lines.extend(_bucket_table(result.by_failure_mode))
+    lines.extend(["", "## Research Recommendations", ""])
+    lines.extend(_failure_mode_recommendations(result.by_failure_mode))
+    lines.extend(
+        [
+            "",
+            "## By Exit Reason",
+            "",
+        ]
+    )
     lines.extend(_bucket_table(result.by_exit_reason))
     lines.extend(["", "## By Entry Reason", ""])
     lines.extend(_bucket_table(result.by_entry_reason))
@@ -441,11 +462,21 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
         f"| Average Positive MFE Capture Ratio | {_fmt_optional(report.aggregate_average_positive_mfe_capture_ratio)} |",
         f"| Average MFE/Cost Ratio | {_fmt_optional(report.aggregate_average_mfe_to_cost_ratio)} |",
         "",
-        "## Worst Cells",
+        "## By Failure Mode",
         "",
-        "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | MFE>Cost Lost | Avg MFE | Avg MAE | Avg Exit | Avg Giveback | Avg Capture | Avg MFE/Cost | Worst Exit | Worst Entry |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
+    lines.extend(_bucket_table(report.by_failure_mode))
+    lines.extend(["", "## Research Recommendations", ""])
+    lines.extend(_failure_mode_recommendations(report.by_failure_mode))
+    lines.extend(
+        [
+            "",
+            "## Worst Cells",
+            "",
+            "| Symbol | Strategy | Decision | Reason | Trades | Gross PnL | Net PnL | Cost | Cost-Flipped | MFE>Cost | MFE>Cost Lost | Avg MFE | Avg MAE | Avg Exit | Avg Giveback | Avg Capture | Avg MFE/Cost | Failure Mode | Worst Exit | Worst Entry |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
     for cell in report.cells:
         lines.append(
             f"| {cell.symbol} | {cell.strategy} | {cell.decision or ''} | {cell.reason or ''} | "
@@ -457,7 +488,7 @@ def render_matrix_loss_attribution_report(report: MatrixLossAttributionReport) -
             f"{_fmt_optional(cell.average_mfe_giveback_bps)} | "
             f"{_fmt_optional(cell.average_mfe_capture_ratio)} | "
             f"{_fmt_optional(cell.average_mfe_to_cost_ratio)} | "
-            f"{cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
+            f"{cell.primary_failure_mode or ''} | {cell.worst_exit_reason or ''} | {cell.worst_entry_reason or ''} |"
         )
     lines.extend(
         [
@@ -510,6 +541,72 @@ def _bucket_table(buckets: tuple[AttributionBucket, ...]) -> list[str]:
             f"{bucket.average_duration_seconds:.6f} |"
         )
     return lines
+
+
+def _primary_failure_mode(buckets: tuple[AttributionBucket, ...]) -> str | None:
+    for bucket in buckets:
+        if bucket.key != "profitable":
+            return bucket.key
+    return buckets[0].key if buckets else None
+
+
+def _failure_mode_key(trade: TradeRecord) -> str:
+    if trade.net_pnl_eur > 0.0:
+        return "profitable"
+    if trade.gross_pnl_eur > 0.0 >= trade.net_pnl_eur:
+        return "cost_flipped_positive_gross"
+    if _mfe_exceeds_cost(trade):
+        return "mfe_giveback_loss"
+    mfe_to_cost = _path_float(trade, "mfe_to_cost_ratio")
+    if mfe_to_cost is not None and mfe_to_cost < 1.0:
+        return "weak_mfe_below_cost"
+    if "stop" in (trade.exit_reason or "").lower() and trade.gross_pnl_eur <= 0.0:
+        return "stop_loss_adverse_move"
+    if trade.gross_pnl_eur <= 0.0:
+        return "adverse_price_move"
+    return "loss_unclassified"
+
+
+def _failure_mode_recommendations(buckets: tuple[AttributionBucket, ...]) -> list[str]:
+    dominant = _primary_failure_mode(buckets)
+    if dominant is None:
+        return ["- No failure mode available yet. Collect more closed trades before changing parameters."]
+    recommendations = {
+        "weak_mfe_below_cost": (
+            "Do not lower global thresholds first. Prioritize entry-quality filters: test wider grid spacing, "
+            "stronger support confirmation, and regime/volatility filters so expected MFE clears costs."
+        ),
+        "cost_flipped_positive_gross": (
+            "The setup can move in the right direction but not far enough net of costs. Test higher net "
+            "take-profit buffers, lower trade frequency, or maker/limit assumptions before increasing size."
+        ),
+        "mfe_giveback_loss": (
+            "The setup reaches tradable MFE but gives it back before exit. Test exit-capture rules such as "
+            "MFE trailing or earlier take-profit, strictly in research/paper."
+        ),
+        "stop_loss_adverse_move": (
+            "Stop-loss losses dominate. Test trend/regime filters that block grid entries during directional "
+            "adverse moves."
+        ),
+        "adverse_price_move": (
+            "The entry is directionally wrong in this sample. Improve signal quality before tuning execution "
+            "or sizing."
+        ),
+        "loss_unclassified": (
+            "The loss source is not fully explained by recorded path metrics. Improve decision/ledger "
+            "traceability before tuning."
+        ),
+        "profitable": (
+            "No dominant losing mode in this sample. Keep collecting evidence and compare against baselines "
+            "before promotion."
+        ),
+    }
+    text = recommendations.get(dominant, "Investigate this failure mode before changing runtime trading behavior.")
+    return [
+        f"- Dominant failure mode: `{dominant}`.",
+        f"- {text}",
+        "- This is research-only guidance. It does not authorize paper/live promotion or risk increases.",
+    ]
 
 
 def _single_value(values: Iterable[str], *, default: str) -> str:
