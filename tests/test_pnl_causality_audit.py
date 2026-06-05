@@ -170,6 +170,8 @@ def _insert_trade_family(
     decision_id,
     created_suffix,
     payload,
+    open_slippage_bps=1.0,
+    close_slippage_bps=1.0,
 ):
     opened = f"2026-05-22T{created_suffix}+00:00"
     closed = f"2026-05-22T{str(int(created_suffix[:2]) + 1).zfill(2)}:00:00+00:00"
@@ -196,7 +198,7 @@ def _insert_trade_family(
             entry_price,
             volume,
             open_fee,
-            1.0,
+            open_slippage_bps,
             None,
             1,
             0,
@@ -226,7 +228,7 @@ def _insert_trade_family(
             exit_price,
             volume,
             close_fee,
-            1.0,
+            close_slippage_bps,
             realized_pnl,
             0,
             1,
@@ -288,7 +290,7 @@ def _insert_trade_family(
 def _engine() -> PnlCausalityAuditEngine:
     return PnlCausalityAuditEngine(
         PnlCausalityConfig(
-            window_hours=240,
+            window_hours=720,
             limit=100,
             fee_drag_bps=70.0,
             edge_miss_bps=25.0,
@@ -318,6 +320,90 @@ def test_pnl_causality_explains_cost_drag_and_edge_miss(tmp_path):
         "quarantine_official_paper_until_edge_review",
         "paper_review",
     }
+
+
+def test_pnl_causality_ignores_closing_legs_without_realized_pnl(tmp_path):
+    state_db = tmp_path / "state.db"
+    _create_state_db(state_db)
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_ledger (
+                trade_id, position_id, instance_id, symbol, side, expected_price,
+                executed_price, volume, fees, slippage_bps, realized_pnl,
+                is_opening_leg, is_closing_leg, exchange_order_id, decision_id,
+                signal_id, execution_liquidity, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "close-without-pnl",
+                "pos-no-pnl",
+                "inst-no-pnl",
+                "XETHZEUR",
+                "sell",
+                2000.0,
+                2001.0,
+                0.01,
+                0.02,
+                5.0,
+                None,
+                0,
+                1,
+                None,
+                None,
+                None,
+                "taker",
+                "2026-05-22T14:00:00+00:00",
+            ),
+        )
+
+    snapshot = _engine().build_snapshot(state_db_path=str(state_db), paper_mode=True)
+
+    assert snapshot["summary"]["closed_trades"] == 2
+    assert all(row["position_id"] != "pos-no-pnl" for row in snapshot["recent_trades"])
+
+
+def test_pnl_causality_treats_negative_slippage_as_favorable_not_drag(tmp_path):
+    state_db = tmp_path / "state.db"
+    _create_state_db(state_db)
+    with sqlite3.connect(state_db) as conn:
+        _insert_trade_family(
+            conn,
+            symbol="ETHEUR",
+            position_id="pos-favorable-slippage",
+            instance_id="inst-eth",
+            entry_price=10.0,
+            exit_price=10.0,
+            volume=10.0,
+            open_fee=0.02,
+            close_fee=0.02,
+            realized_pnl=-0.04,
+            engine="mean_reversion",
+            decision_id="dec-entry-favorable-slip",
+            created_suffix="12:00:00",
+            open_slippage_bps=-20.0,
+            close_slippage_bps=-30.0,
+            payload={
+                "gross_edge_bps": 20.0,
+                "cost_bps": 10.0,
+                "net_edge_bps": 10.0,
+                "min_edge_bps": 5.0,
+                "opportunity": {
+                    "regime_context": {"regime": "range", "reason": "range_stable"},
+                    "health_context": {"status": "learning", "reason": "new"},
+                },
+            },
+        )
+
+    snapshot = _engine().build_snapshot(state_db_path=str(state_db), paper_mode=True)
+
+    trade = next((row for row in snapshot["recent_trades"] if row["symbol"] == "ETHEUR"), None)
+    assert trade is not None
+    assert trade["slippage_bps"] == pytest.approx(0.0)
+    assert trade["favorable_slippage_bps"] == pytest.approx(50.0)
+    assert trade["absolute_slippage_bps"] == pytest.approx(50.0)
+    assert trade["actual_cost_bps"] == pytest.approx(trade["fee_bps"])
+    assert "slippage_drag" not in trade["root_causes"]
 
 
 class _PnlCausalityOrchestrator:

@@ -58,6 +58,24 @@ def _round(value: Any, digits: int = 4) -> float:
     return round(_safe_float(value), digits)
 
 
+def _signed_slippage_bps(*values: Any) -> dict[str, float]:
+    adverse = 0.0
+    favorable = 0.0
+    absolute = 0.0
+    for value in values:
+        signed = _safe_float(value)
+        absolute += abs(signed)
+        if signed > 0.0:
+            adverse += signed
+        elif signed < 0.0:
+            favorable += abs(signed)
+    return {
+        "adverse_bps": adverse,
+        "favorable_bps": favorable,
+        "absolute_bps": absolute,
+    }
+
+
 def _parse_ts(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
@@ -312,6 +330,7 @@ class PnlCausalityAuditEngine:
             {decision_join}
             {order_join}
             WHERE c.is_closing_leg = 1
+              AND c.realized_pnl IS NOT NULL
               AND c.created_at >= ?
             ORDER BY c.created_at DESC, c.id DESC
             LIMIT ?
@@ -340,7 +359,8 @@ class PnlCausalityAuditEngine:
         gross_return_bps = (gross_pnl / basis_notional) * 10_000.0 if basis_notional > 0.0 else 0.0
         net_return_bps = (close_pnl / basis_notional) * 10_000.0 if basis_notional > 0.0 else 0.0
         fee_bps = (total_fees / basis_notional) * 10_000.0 if basis_notional > 0.0 else 0.0
-        slippage_bps = abs(_safe_float(row.get("open_slippage_bps"))) + abs(_safe_float(row.get("close_slippage_bps")))
+        slippage = _signed_slippage_bps(row.get("open_slippage_bps"), row.get("close_slippage_bps"))
+        slippage_bps = slippage["adverse_bps"]
 
         expected_gross = _safe_float(
             payload.get("gross_edge_bps"),
@@ -402,6 +422,8 @@ class PnlCausalityAuditEngine:
             "fees_eur": _round(total_fees, 6),
             "fee_bps": round(fee_bps, 2),
             "slippage_bps": round(slippage_bps, 2),
+            "favorable_slippage_bps": round(slippage["favorable_bps"], 2),
+            "absolute_slippage_bps": round(slippage["absolute_bps"], 2),
             "actual_cost_bps": round(actual_cost_bps, 2),
             "gross_return_bps": round(gross_return_bps, 2),
             "net_return_bps": round(net_return_bps, 2),
