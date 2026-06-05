@@ -760,6 +760,10 @@ def test_cli_standard_audit_can_skip_matrix_annex_reports(tmp_path, capsys):
     assert output["paper_loader"]["trade_count"] == 1
     assert output["paper_vs_research"]["paper_trade_count"] == 1
     assert "No live trading permission is granted." in output["safety_notes"]
+    markdown = (tmp_path / "quick_audit" / "pytest_standard_audit_quick.md").read_text(encoding="utf-8")
+    assert "| Loss attribution |" in markdown
+    assert "MFE/cost" in markdown
+    assert "- Quick loss attribution report:" in markdown
 
 
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):

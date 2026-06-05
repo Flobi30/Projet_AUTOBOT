@@ -313,6 +313,7 @@ def render_standard_audit_result(result: StandardAuditResult) -> str:
     comparison = result.paper_vs_research
     cost_warnings = result.cost_parity.get("warnings") or []
     pnl_summary = result.pnl_causality.get("summary") or {}
+    loss_report = _matrix_loss_attribution_payload(matrix)
     lines = [
         f"# AUTOBOT Standard Audit - {result.run_id}",
         "",
@@ -329,23 +330,58 @@ def render_standard_audit_result(result: StandardAuditResult) -> str:
         f"| Paper vs research | {comparison.get('divergent_bucket_count', 0)} divergent bucket(s) / {comparison.get('bucket_count', 0)} |",
         f"| Cost parity | {', '.join(cost_warnings) if cost_warnings else 'no global warnings'} |",
         f"| PnL causality | {pnl_summary.get('closed_trades', 0)} closed trades, PF `{pnl_summary.get('profit_factor')}` |",
-        "",
-        "## Artifacts",
-        "",
-        f"- Dataset report: `{result.dataset.get('markdown_report_path')}`",
-        f"- Matrix report: `{matrix.get('markdown_report_path')}`",
-        f"- Paper daily report: `{paper.get('markdown_report_path')}`",
-        f"- Paper vs research report: `{comparison.get('markdown_report_path')}`",
-        f"- Decision trace report: `{result.decision_trace.get('markdown_report_path')}`",
-        f"- Cost parity report: `{result.cost_parity.get('markdown_report_path')}`",
-        f"- PnL causality report: `{result.pnl_causality.get('markdown_report_path')}`",
-        "",
-        "## Safety",
-        "",
     ]
+    if loss_report:
+        lines.append(f"| Loss attribution | {_render_loss_attribution_summary(loss_report)} |")
+    lines.extend(
+        [
+            "",
+            "## Artifacts",
+            "",
+            f"- Dataset report: `{result.dataset.get('markdown_report_path')}`",
+            f"- Matrix report: `{matrix.get('markdown_report_path')}`",
+        ]
+    )
+    if loss_report:
+        label = "Quick loss attribution report" if "quick_loss_attribution_report" in matrix else "Loss attribution report"
+        lines.append(f"- {label}: `{loss_report.get('markdown_report_path')}`")
+    lines.extend(
+        [
+            f"- Paper daily report: `{paper.get('markdown_report_path')}`",
+            f"- Paper vs research report: `{comparison.get('markdown_report_path')}`",
+            f"- Decision trace report: `{result.decision_trace.get('markdown_report_path')}`",
+            f"- Cost parity report: `{result.cost_parity.get('markdown_report_path')}`",
+            f"- PnL causality report: `{result.pnl_causality.get('markdown_report_path')}`",
+            "",
+            "## Safety",
+            "",
+        ]
+    )
     lines.extend(f"- {note}" for note in result.safety_notes)
     lines.append("")
     return "\n".join(lines)
+
+
+def _matrix_loss_attribution_payload(matrix: dict[str, Any]) -> dict[str, Any] | None:
+    payload = matrix.get("loss_attribution_report") or matrix.get("quick_loss_attribution_report")
+    return payload if isinstance(payload, dict) else None
+
+
+def _render_loss_attribution_summary(payload: dict[str, Any]) -> str:
+    return (
+        f"{payload.get('total_trades', 0)} trades, "
+        f"gross `{_fmt_number(payload.get('aggregate_gross_pnl_eur'))}` EUR, "
+        f"net `{_fmt_number(payload.get('aggregate_net_pnl_eur'))}` EUR, "
+        f"cost `{_fmt_number(payload.get('aggregate_cost_eur'))}` EUR, "
+        f"MFE/cost `{_fmt_number(payload.get('aggregate_average_mfe_to_cost_ratio'))}`, "
+        f"exit capture `{_fmt_number(payload.get('aggregate_average_exit_capture_bps'))}` bps"
+    )
+
+
+def _fmt_number(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.4f}"
+    return "n/a"
 
 
 def _attach_standard_matrix_reports(
