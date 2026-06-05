@@ -58,6 +58,17 @@ Use `validate-strategies` when you only need research validation. Use
 `standard-audit` when you also need official paper, cost parity, decision trace
 and PnL causality evidence in the same run.
 
+For broad quick evidence over many symbols, keep the same command but add:
+
+```powershell
+  --skip-standard-reports
+```
+
+This still builds the dataset, matrix, official paper report, paper-vs-research,
+cost parity and PnL causality artifacts, but skips the extra matrix annexes that
+can be slow on wide symbol/strategy runs. Do not use the quick mode as a final
+promotion proof.
+
 ## Build Clean OHLCV Datasets
 
 Use this workflow first when a fresh VPS state database has been copied locally.

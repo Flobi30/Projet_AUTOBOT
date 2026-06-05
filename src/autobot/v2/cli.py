@@ -299,6 +299,11 @@ def _add_standard_audit_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
+    parser.add_argument(
+        "--skip-standard-reports",
+        action="store_true",
+        help="Skip expensive matrix annex reports for broad quick evidence runs",
+    )
     parser.add_argument("--fee-bps", type=float, default=16.0)
     parser.add_argument("--spread-bps", type=float, default=8.0)
     parser.add_argument("--slippage-bps", type=float, default=4.0)
@@ -630,6 +635,7 @@ def _cmd_standard_audit(args: argparse.Namespace) -> int:
             min_folds=args.min_folds,
             min_passing_folds=args.min_passing_folds,
             include_regime_context=args.include_regime_context,
+            include_standard_reports=not bool(args.skip_standard_reports),
             cost_config=ExecutionCostConfig(
                 taker_fee_bps=args.fee_bps,
                 fallback_spread_bps=args.spread_bps,

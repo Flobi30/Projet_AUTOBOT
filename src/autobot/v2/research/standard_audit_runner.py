@@ -68,6 +68,7 @@ class StandardAuditConfig:
     min_folds: int = 3
     min_passing_folds: int = 2
     include_regime_context: bool = False
+    include_standard_reports: bool = True
     cost_config: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
     strategy_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     registry_path: Path = Path("docs/research/strategy_hypotheses.json")
@@ -204,14 +205,18 @@ def run_standard_audit(config: StandardAuditConfig) -> StandardAuditResult:
     )
     matrix = run_validation_matrix(matrix_config)
     matrix_payload = matrix.to_dict()
-    _attach_standard_matrix_reports(
-        config=matrix_config,
-        result=matrix,
-        output=matrix_payload,
-        output_dir=matrix_config.output_dir,
-        registry_path=config.registry_path,
-        mode=config.mode,
-    )
+    if config.include_standard_reports:
+        _attach_standard_matrix_reports(
+            config=matrix_config,
+            result=matrix,
+            output=matrix_payload,
+            output_dir=matrix_config.output_dir,
+            registry_path=config.registry_path,
+            mode=config.mode,
+        )
+    else:
+        matrix_payload["standard_reports_enabled"] = False
+        matrix_payload["standard_reports_skipped_reason"] = "disabled_by_standard_audit_config"
 
     loaded_paper = load_state_db_paper_ledger(config.state_db_path)
     report_date = config.report_date or _latest_report_date(loaded_paper.journal.records)

@@ -711,6 +711,55 @@ def test_cli_standard_audit_runs_full_read_only_bundle(tmp_path, capsys):
     assert (tmp_path / "standard_audit" / "cost_parity" / "pytest_standard_audit_cost_parity.md").exists()
 
 
+def test_cli_standard_audit_can_skip_matrix_annex_reports(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _state_db_with_closed_trade(db_path)
+    _state_db_with_market_samples(db_path)
+
+    exit_code = cli.main(
+        [
+            "standard-audit",
+            "--run-id",
+            "pytest_standard_audit_quick",
+            "--state-db",
+            str(db_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--timeframe",
+            "1m",
+            "--report-date",
+            "2026-06-03",
+            "--dataset-output-dir",
+            str(tmp_path / "quick_datasets"),
+            "--output-dir",
+            str(tmp_path / "quick_audit"),
+            "--min-closed-trades",
+            "1",
+            "--train-window-bars",
+            "1",
+            "--test-window-bars",
+            "3",
+            "--step-window-bars",
+            "4",
+            "--min-folds",
+            "1",
+            "--min-passing-folds",
+            "1",
+            "--skip-standard-reports",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["matrix"]["standard_reports_enabled"] is False
+    assert output["matrix"]["standard_reports_skipped_reason"] == "disabled_by_standard_audit_config"
+    assert output["paper_loader"]["trade_count"] == 1
+    assert output["paper_vs_research"]["paper_trade_count"] == 1
+    assert "No live trading permission is granted." in output["safety_notes"]
+
+
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):
     csv_path = tmp_path / "bars.csv"
     _write_grid_csv(csv_path)
