@@ -88,9 +88,15 @@ def load_state_db_paper_ledger(
             if include_decisions and _table_exists(conn, "decision_ledger")
             else []
         )
+        position_rows = _select_all(conn, "positions", "open_time", "id") if _table_exists(conn, "positions") else []
 
     decisions = tuple(_decision_from_row(row) for row in decision_rows)
     decision_lookup = _decision_lookup(decision_rows)
+    positions_by_id = {
+        str(row.get("id")): row
+        for row in position_rows
+        if str(row.get("id") or "")
+    }
     opening_by_position: dict[str, Mapping[str, Any]] = {}
     for row in trade_rows:
         if not _truthy(row.get("is_opening_leg")):
@@ -114,7 +120,7 @@ def load_state_db_paper_ledger(
         opening = opening_by_position.get(position_id)
         if opening is None:
             warnings.append(f"opening_leg_missing:{position_id or closing.get('trade_id') or closing.get('id')}")
-        record = _trade_record_from_ledger_pair(opening, closing, decision_lookup)
+        record = _trade_record_from_ledger_pair(opening, closing, decision_lookup, positions_by_id.get(position_id))
         if record is not None:
             if (record.metadata.get("slippage") or {}).get("anomaly"):
                 warnings.append(f"slippage_bps_anomaly:{position_id or closing.get('trade_id') or closing.get('id')}")
@@ -233,6 +239,7 @@ def _trade_record_from_ledger_pair(
     opening: Mapping[str, Any] | None,
     closing: Mapping[str, Any],
     decision_lookup: Mapping[str, Mapping[str, Any]],
+    position: Mapping[str, Any] | None = None,
 ) -> TradeRecord | None:
     exit_price = _safe_float(closing.get("executed_price"))
     quantity = _safe_float(closing.get("volume"))
@@ -256,9 +263,10 @@ def _trade_record_from_ledger_pair(
     gross_pnl = net_pnl + fees
     open_decision = _linked_decision(opening or {}, decision_lookup)
     close_decision = _linked_decision(closing, decision_lookup)
+    strategy_id = _strategy_id(open_decision, close_decision, position)
     return TradeRecord(
         run_id="official_paper_ledger",
-        strategy_id=_strategy_id(open_decision, close_decision),
+        strategy_id=strategy_id,
         symbol=str(closing.get("symbol") or (opening or {}).get("symbol") or "UNKNOWN").upper(),
         side=str((opening or {}).get("side") or "buy").lower(),
         opened_at=opened_at,
@@ -279,6 +287,8 @@ def _trade_record_from_ledger_pair(
             "opening_leg_missing": opening is None,
             "opening_leg": _compact_trade_row(opening),
             "closing_leg": _compact_trade_row(closing),
+            "position": _compact_position_row(position),
+            "strategy_source": _strategy_source(strategy_id, open_decision, close_decision, position),
             "opening_decision": _compact_decision_row(open_decision),
             "closing_decision": _compact_decision_row(close_decision),
             "slippage": {
@@ -376,16 +386,43 @@ def _linked_decision(
     return None
 
 
-def _strategy_id(*decisions: Mapping[str, Any] | None) -> str:
-    for decision in decisions:
-        if not decision:
+def _strategy_id(*sources: Mapping[str, Any] | None) -> str:
+    for source in sources:
+        if not source:
             continue
-        value = decision.get("engine") or decision.get("strategy")
+        value = source.get("engine") or source.get("strategy")
         if value:
             return str(value)
-        payload = _json_object(decision.get("payload_json"))
-        if payload.get("strategy_id"):
-            return str(payload["strategy_id"])
+        for key in ("payload_json", "metadata"):
+            payload = _json_object(source.get(key))
+            if payload.get("strategy_id"):
+                return str(payload["strategy_id"])
+            if payload.get("strategy"):
+                return str(payload["strategy"])
+    return "unknown"
+
+
+def _strategy_source(
+    strategy_id: str,
+    open_decision: Mapping[str, Any] | None,
+    close_decision: Mapping[str, Any] | None,
+    position: Mapping[str, Any] | None,
+) -> str:
+    if strategy_id == "unknown":
+        return "unknown"
+    for label, source in (
+        ("opening_decision", open_decision),
+        ("closing_decision", close_decision),
+        ("position", position),
+    ):
+        if not source:
+            continue
+        if source.get("engine") or source.get("strategy"):
+            return label
+        for key in ("payload_json", "metadata"):
+            payload = _json_object(source.get(key))
+            if payload.get("strategy_id") or payload.get("strategy"):
+                return label
     return "unknown"
 
 
@@ -473,6 +510,13 @@ def _compact_decision_row(row: Mapping[str, Any] | None) -> dict[str, Any] | Non
     if row is None:
         return None
     keys = ("event_id", "decision_id", "signal_id", "strategy", "engine", "event_type", "event_status", "reason")
+    return {key: row.get(key) for key in keys if key in row}
+
+
+def _compact_position_row(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    keys = ("id", "instance_id", "symbol", "status", "strategy", "open_time")
     return {key: row.get(key) for key in keys if key in row}
 
 

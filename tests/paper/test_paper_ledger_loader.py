@@ -270,6 +270,111 @@ def test_state_db_loader_keeps_favorable_signed_slippage_out_of_costs(tmp_path):
     assert trade.metadata["slippage"]["anomaly"] is True
 
 
+def test_state_db_loader_uses_position_strategy_when_decision_link_missing(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE positions (
+                id TEXT PRIMARY KEY,
+                instance_id TEXT,
+                buy_price REAL,
+                volume REAL,
+                status TEXT,
+                open_time TEXT,
+                strategy TEXT,
+                metadata TEXT,
+                symbol TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO positions
+            (id, instance_id, buy_price, volume, status, open_time, strategy, metadata, symbol)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "pos_grid",
+                "inst_1",
+                1.0,
+                100.0,
+                "closed",
+                "2026-06-03T09:00:00+00:00",
+                "grid",
+                '{"strategy_id":"dynamic_grid"}',
+                "TRXEUR",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_buy",
+                "pos_grid",
+                "inst_1",
+                "TRXEUR",
+                "buy",
+                1.0,
+                1.0,
+                100.0,
+                0.2,
+                0.0,
+                None,
+                1,
+                0,
+                "PAPER_BUY",
+                None,
+                None,
+                "taker",
+                "2026-06-03T09:00:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_sell",
+                "pos_grid",
+                "inst_1",
+                "TRXEUR",
+                "sell",
+                1.1,
+                1.1,
+                100.0,
+                0.2,
+                0.0,
+                9.6,
+                0,
+                1,
+                "PAPER_SELL",
+                None,
+                None,
+                "taker",
+                "2026-06-03T10:00:00+00:00",
+            ),
+        )
+
+    loaded = load_state_db_paper_ledger(db_path)
+
+    assert loaded.trade_count == 1
+    trade = loaded.journal.records[0]
+    assert trade.strategy_id == "grid"
+    assert trade.metadata["strategy_source"] == "position"
+    assert trade.metadata["position"]["strategy"] == "grid"
+
+
 def test_state_db_loader_filters_report_date_and_flags_missing_opening(tmp_path):
     db_path = tmp_path / "state.db"
     _create_state_db(db_path)
