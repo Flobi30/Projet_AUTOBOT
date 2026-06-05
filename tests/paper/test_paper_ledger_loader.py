@@ -172,17 +172,102 @@ def test_state_db_loader_pairs_opening_and_closing_legs(tmp_path):
     assert loaded.source_type == "state_db_trade_ledger"
     assert loaded.trade_count == 1
     assert loaded.decision_count == 2
+    assert loaded.warnings == ()
     trade = loaded.journal.records[0]
     assert trade.strategy_id == "trend_momentum"
     assert trade.symbol == "TRXEUR"
     assert trade.entry_price == pytest.approx(1.01)
     assert trade.exit_price == pytest.approx(1.19)
+    assert trade.gross_pnl_eur == pytest.approx(18.0)
     assert trade.net_pnl_eur == pytest.approx(17.55)
     assert trade.fees_eur == pytest.approx(0.45)
-    assert trade.slippage_eur > 0.0
+    assert trade.slippage_eur == pytest.approx(0.1219)
+    assert trade.metadata["slippage"]["adverse_eur"] == pytest.approx(0.1219)
+    assert trade.metadata["slippage"]["favorable_eur"] == pytest.approx(0.0)
+    assert trade.metadata["slippage"]["opening"]["signed_bps"] == pytest.approx(5.0)
+    assert trade.metadata["slippage"]["closing"]["signed_bps"] == pytest.approx(6.0)
+    assert trade.metadata["slippage"]["anomaly"] is False
     assert trade.entry_reason == "all_guards_passed"
     assert trade.exit_reason == "take_profit"
     assert trade.regime == "range"
+
+
+def test_state_db_loader_keeps_favorable_signed_slippage_out_of_costs(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_buy",
+                "pos_favorable",
+                "inst_1",
+                "TRXEUR",
+                "buy",
+                1.0,
+                1.0,
+                100.0,
+                0.20,
+                0.0,
+                None,
+                1,
+                0,
+                "PAPER_BUY",
+                None,
+                None,
+                "taker",
+                "2026-06-03T09:00:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             exchange_order_id, decision_id, signal_id, execution_liquidity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trd_sell",
+                "pos_favorable",
+                "inst_1",
+                "TRXEUR",
+                "sell",
+                1.0,
+                1.1,
+                100.0,
+                0.20,
+                -150.0,
+                9.60,
+                0,
+                1,
+                "PAPER_SELL",
+                None,
+                None,
+                "taker",
+                "2026-06-03T10:00:00+00:00",
+            ),
+        )
+
+    loaded = load_state_db_paper_ledger(db_path)
+
+    assert loaded.trade_count == 1
+    assert loaded.warnings == ("slippage_bps_anomaly:pos_favorable",)
+    trade = loaded.journal.records[0]
+    assert trade.gross_pnl_eur == pytest.approx(10.0)
+    assert trade.net_pnl_eur == pytest.approx(9.60)
+    assert trade.fees_eur == pytest.approx(0.40)
+    assert trade.slippage_eur == pytest.approx(0.0)
+    assert trade.metadata["slippage"]["adverse_eur"] == pytest.approx(0.0)
+    assert trade.metadata["slippage"]["favorable_eur"] == pytest.approx(1.65)
+    assert trade.metadata["slippage"]["closing"]["signed_bps"] == pytest.approx(-150.0)
+    assert trade.metadata["slippage"]["anomaly"] is True
 
 
 def test_state_db_loader_filters_report_date_and_flags_missing_opening(tmp_path):

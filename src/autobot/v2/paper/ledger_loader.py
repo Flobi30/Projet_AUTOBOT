@@ -23,6 +23,9 @@ from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
 from .paper_trading_engine import PaperDecisionRecord
 
 
+SLIPPAGE_ANOMALY_BPS = 100.0
+
+
 @dataclass(frozen=True)
 class PaperLedgerLoadResult:
     source_type: str
@@ -113,6 +116,8 @@ def load_state_db_paper_ledger(
             warnings.append(f"opening_leg_missing:{position_id or closing.get('trade_id') or closing.get('id')}")
         record = _trade_record_from_ledger_pair(opening, closing, decision_lookup)
         if record is not None:
+            if (record.metadata.get("slippage") or {}).get("anomaly"):
+                warnings.append(f"slippage_bps_anomaly:{position_id or closing.get('trade_id') or closing.get('id')}")
             records.append(record)
 
     filtered_decisions = tuple(
@@ -241,11 +246,14 @@ def _trade_record_from_ledger_pair(
     opening_fees = _safe_float(opening.get("fees")) if opening else 0.0
     closing_fees = _safe_float(closing.get("fees"))
     fees = max(0.0, opening_fees + closing_fees)
-    slippage = _slippage_cost(opening) + _slippage_cost(closing)
+    opening_slippage = _slippage_breakdown(opening)
+    closing_slippage = _slippage_breakdown(closing)
+    slippage = opening_slippage["adverse_eur"] + closing_slippage["adverse_eur"]
+    favorable_slippage = opening_slippage["favorable_eur"] + closing_slippage["favorable_eur"]
     net_pnl = _safe_float(closing.get("realized_pnl"))
     if closing.get("realized_pnl") is None:
         net_pnl = ((exit_price - entry_price) * quantity) - fees
-    gross_pnl = net_pnl + fees + slippage
+    gross_pnl = net_pnl + fees
     open_decision = _linked_decision(opening or {}, decision_lookup)
     close_decision = _linked_decision(closing, decision_lookup)
     return TradeRecord(
@@ -273,6 +281,13 @@ def _trade_record_from_ledger_pair(
             "closing_leg": _compact_trade_row(closing),
             "opening_decision": _compact_decision_row(open_decision),
             "closing_decision": _compact_decision_row(close_decision),
+            "slippage": {
+                "adverse_eur": slippage,
+                "favorable_eur": favorable_slippage,
+                "opening": opening_slippage,
+                "closing": closing_slippage,
+                "anomaly": opening_slippage["anomaly"] or closing_slippage["anomaly"],
+            },
         },
     )
 
@@ -461,12 +476,25 @@ def _compact_decision_row(row: Mapping[str, Any] | None) -> dict[str, Any] | Non
     return {key: row.get(key) for key in keys if key in row}
 
 
-def _slippage_cost(row: Mapping[str, Any] | None) -> float:
+def _slippage_breakdown(row: Mapping[str, Any] | None) -> dict[str, Any]:
     if not row:
-        return 0.0
-    slippage_bps = abs(_safe_float(row.get("slippage_bps")))
+        return {
+            "signed_bps": 0.0,
+            "abs_bps": 0.0,
+            "adverse_eur": 0.0,
+            "favorable_eur": 0.0,
+            "anomaly": False,
+        }
+    slippage_bps = _safe_float(row.get("slippage_bps"))
     notional = abs(_safe_float(row.get("volume")) * _safe_float(row.get("executed_price")))
-    return (slippage_bps / 10_000.0) * notional
+    value = (abs(slippage_bps) / 10_000.0) * notional
+    return {
+        "signed_bps": slippage_bps,
+        "abs_bps": abs(slippage_bps),
+        "adverse_eur": value if slippage_bps > 0.0 else 0.0,
+        "favorable_eur": value if slippage_bps < 0.0 else 0.0,
+        "anomaly": abs(slippage_bps) > SLIPPAGE_ANOMALY_BPS,
+    }
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
