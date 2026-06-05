@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 
 import pytest
 
@@ -65,6 +66,107 @@ def test_grid_research_generator_produces_support_entry_and_take_profit(tmp_path
     assert result.trade_count == 1
     assert result.metrics.total_net_pnl_eur > 0.0
     assert result.decision.live_promotion_allowed is False
+
+
+def test_grid_research_cost_aware_filter_blocks_weak_expected_mfe(tmp_path):
+    generator = GridResearchSignalGenerator(
+        GridResearchConfig(
+            range_percent=4.0,
+            num_levels=5,
+            entry_touch_bps=20.0,
+            take_profit_bps=45.0,
+            estimated_round_trip_cost_bps=50.0,
+            min_expected_mfe_to_cost=1.2,
+        )
+    )
+    bars = [_bar(0, 100.0), _bar(1, 99.05), _bar(2, 99.6)]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "dynamic_grid")).run(bars, generator, write_reports=False)
+
+    assert result.signal_count == 0
+    assert result.trade_count == 0
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_grid_research_regime_filter_blocks_research_entry_only(tmp_path):
+    generator = GridResearchSignalGenerator(
+        GridResearchConfig(
+            range_percent=4.0,
+            num_levels=5,
+            entry_touch_bps=20.0,
+            blocked_regimes=("trend_down", "high_volatility_breakout"),
+        )
+    )
+    bars = [
+        _bar(0, 100.0),
+        replace(_bar(1, 99.05), metadata={"regime": "trend_down"}),
+        _bar(2, 99.6),
+    ]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "dynamic_grid")).run(bars, generator, write_reports=False)
+
+    assert result.signal_count == 0
+    assert result.trade_count == 0
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_grid_research_support_confirmation_requires_prior_touches(tmp_path):
+    blocked = GridResearchSignalGenerator(
+        GridResearchConfig(range_percent=4.0, num_levels=5, entry_touch_bps=20.0, support_confirmation_bars=3)
+    )
+    bars = [_bar(0, 100.0), _bar(1, 99.05), _bar(2, 99.6)]
+    blocked_result = BacktestEngine(_backtest_config(tmp_path / "blocked", "dynamic_grid")).run(
+        bars,
+        blocked,
+        write_reports=False,
+    )
+
+    allowed = GridResearchSignalGenerator(
+        GridResearchConfig(range_percent=4.0, num_levels=5, entry_touch_bps=20.0, support_confirmation_bars=2)
+    )
+    confirmed_bars = [_bar(index, price) for index, price in enumerate([100.0, 99.2, 99.1, 99.6])]
+    allowed_result = BacktestEngine(_backtest_config(tmp_path / "allowed", "dynamic_grid")).run(
+        confirmed_bars,
+        allowed,
+        write_reports=False,
+    )
+
+    assert blocked_result.signal_count == 0
+    assert allowed_result.signal_count >= 1
+    assert allowed_result.decision.live_promotion_allowed is False
+
+
+def test_grid_research_can_test_mfe_trailing_exit(tmp_path):
+    generator = GridResearchSignalGenerator(
+        GridResearchConfig(
+            range_percent=4.0,
+            num_levels=5,
+            entry_touch_bps=20.0,
+            take_profit_bps=140.0,
+            exit_mode="mfe_trailing",
+            mfe_trailing_activation_bps=60.0,
+            mfe_trailing_drawdown_bps=30.0,
+        )
+    )
+    bars = [_bar(index, price) for index, price in enumerate([100.0, 99.05, 100.0, 99.8])]
+
+    result = BacktestEngine(_backtest_config(tmp_path, "dynamic_grid")).run(bars, generator)
+    journal = TradeJournal.from_json(result.journal_path)
+
+    assert result.signal_count == 2
+    assert result.trade_count == 1
+    assert journal.records[0].exit_reason == "grid_mfe_trailing_exit"
+    assert journal.records[0].metadata["exit"]["exit_mode"] == "mfe_trailing"
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_grid_research_rejects_invalid_experiment_parameters():
+    with pytest.raises(ValueError):
+        GridResearchConfig(range_percent=0.0)
+    with pytest.raises(ValueError):
+        GridResearchConfig(num_levels=1)
+    with pytest.raises(ValueError):
+        GridResearchConfig(exit_mode="not_supported")  # type: ignore[arg-type]
 
 
 def test_trend_research_generator_uses_prior_breakout_and_exits_on_reversal(tmp_path):
