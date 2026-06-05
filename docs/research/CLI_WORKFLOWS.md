@@ -10,6 +10,32 @@ Use this workflow when a fresh VPS state database has been copied locally and
 the goal is to compare the current research strategy families on the standard
 AUTOBOT EUR universe.
 
+For the full read-only AUTOBOT validation bundle, prefer:
+
+```powershell
+$env:PYTHONPATH='.codex_python_deps;src'
+& '<python3.12.exe>' -m autobot.v2.cli standard-audit `
+  --run-id vps_YYYY_MM_DD_standard_audit `
+  --state-db data/vps_autobot_state_YYYY-MM-DD.db `
+  --timeframe 5m `
+  --output-dir reports/research/vps_YYYY_MM_DD_standard_audit `
+  --dataset-output-dir data/research/vps_YYYY_MM_DD_standard_audit `
+  --include-regime-context
+```
+
+This single command writes:
+
+- canonical dataset quality reports;
+- the standard research matrix and report bundle;
+- official paper daily report from the canonical paper ledger loader;
+- paper vs research comparison with decision trace diagnostics;
+- cost parity audit;
+- PnL causality snapshot.
+
+It remains read-only: it does not start AUTOBOT, does not submit paper/live
+orders, does not mutate `strategy_hypotheses.json`, and does not authorize live
+trading.
+
 The preferred one-command workflow is:
 
 ```powershell
@@ -27,6 +53,10 @@ This builds a canonical research CSV dataset first, then runs the standard
 top-14 strategy matrix and writes the normal report bundle. It is the safest
 default when comparing fresh VPS evidence because it avoids manually mixing raw
 Kraken aliases or forgetting `--standard-reports`.
+
+Use `validate-strategies` when you only need research validation. Use
+`standard-audit` when you also need official paper, cost parity, decision trace
+and PnL causality evidence in the same run.
 
 ## Build Clean OHLCV Datasets
 

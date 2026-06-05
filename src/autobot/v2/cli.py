@@ -94,6 +94,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_validate_strategies_args(validate_strategies)
     validate_strategies.set_defaults(handler=_cmd_validate_strategies)
 
+    standard_audit = subparsers.add_parser(
+        "standard-audit",
+        help="Run the full read-only AUTOBOT validation bundle from a state DB",
+    )
+    _add_standard_audit_args(standard_audit)
+    standard_audit.set_defaults(handler=_cmd_standard_audit)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -264,6 +271,45 @@ def _add_validate_strategies_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--slippage-bps", type=float, default=4.0)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument("--parquet", action="store_true", help="Also attempt Parquet dataset export if dependencies exist")
+
+
+def _add_standard_audit_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; defaults to AUTOBOT top-14 EUR preset")
+    parser.add_argument("--strategies", default=None, help="Comma-separated strategies; defaults to grid,trend,mean_reversion")
+    parser.add_argument("--timeframe", default="5m", help="Dataset timeframe used for validation, e.g. 1m,5m,15m")
+    parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
+    parser.add_argument("--report-date", default=None, help="Paper daily report date; defaults to latest realized close")
+    parser.add_argument("--dataset-output-dir", default=None)
+    parser.add_argument("--output-dir", default="reports/research_standard")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--min-signal-net-edge-bps", type=float, default=None)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--train-window-bars", type=int, default=200)
+    parser.add_argument("--test-window-bars", type=int, default=100)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--min-passing-folds", type=int, default=2)
+    parser.add_argument("--include-regime-context", action="store_true")
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--strategy-config-json", default="{}")
+    parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    parser.add_argument("--trend-shadow-db", default=None)
+    parser.add_argument("--mean-reversion-shadow-db", default=None)
+    parser.add_argument("--setup-shadow-db", default=None)
+    parser.add_argument("--decision-trace-limit", type=int, default=10_000)
+    parser.add_argument("--decision-trace-sample-limit", type=int, default=2_000)
+    parser.add_argument("--pnl-causality-window-hours", type=int, default=720)
     parser.add_argument("--parquet", action="store_true", help="Also attempt Parquet dataset export if dependencies exist")
 
 
@@ -545,6 +591,64 @@ def _cmd_validate_strategies(args: argparse.Namespace) -> int:
         "No live trading permission is granted.",
     ]
     _print_json(output)
+    return 0
+
+
+def _cmd_standard_audit(args: argparse.Namespace) -> int:
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+    from autobot.v2.research.standard_audit_runner import StandardAuditConfig, run_standard_audit
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
+    strategies = (
+        _csv_tuple(args.strategies, "--strategies")
+        if args.strategies
+        else AUTOBOT_STANDARD_STRATEGIES
+    )
+    result = run_standard_audit(
+        StandardAuditConfig(
+            run_id=args.run_id,
+            state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            dataset_output_dir=Path(args.dataset_output_dir) if args.dataset_output_dir else None,
+            symbols=symbols,
+            strategies=strategies,
+            timeframe=args.timeframe.lower(),
+            mode=args.mode,
+            report_date=date.fromisoformat(args.report_date) if args.report_date else None,
+            initial_capital_eur=args.initial_capital_eur,
+            order_notional_eur=args.order_notional_eur,
+            min_closed_trades=args.min_closed_trades,
+            min_profit_factor=args.min_profit_factor,
+            max_drawdown_pct=args.max_drawdown_pct,
+            min_signal_net_edge_bps=args.min_signal_net_edge_bps,
+            start_at=args.start_at,
+            end_at=args.end_at,
+            limit=args.limit,
+            train_window_bars=args.train_window_bars,
+            test_window_bars=args.test_window_bars,
+            step_window_bars=args.step_window_bars,
+            min_folds=args.min_folds,
+            min_passing_folds=args.min_passing_folds,
+            include_regime_context=args.include_regime_context,
+            cost_config=ExecutionCostConfig(
+                taker_fee_bps=args.fee_bps,
+                fallback_spread_bps=args.spread_bps,
+                slippage_bps=args.slippage_bps,
+            ),
+            strategy_configs=_loads_object(args.strategy_config_json, "--strategy-config-json"),
+            registry_path=Path(args.registry_path),
+            trend_shadow_db_path=Path(args.trend_shadow_db) if args.trend_shadow_db else None,
+            mean_reversion_shadow_db_path=(
+                Path(args.mean_reversion_shadow_db) if args.mean_reversion_shadow_db else None
+            ),
+            setup_shadow_db_path=Path(args.setup_shadow_db) if args.setup_shadow_db else None,
+            decision_trace_limit=args.decision_trace_limit,
+            decision_trace_sample_limit=args.decision_trace_sample_limit,
+            pnl_causality_window_hours=args.pnl_causality_window_hours,
+            export_parquet=bool(args.parquet),
+        )
+    )
+    _print_json(result.to_dict())
     return 0
 
 

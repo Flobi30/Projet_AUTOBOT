@@ -195,7 +195,7 @@ def _state_db_with_market_samples(path):
     with sqlite3.connect(path) as conn:
         conn.execute(
             """
-            CREATE TABLE market_price_samples (
+            CREATE TABLE IF NOT EXISTS market_price_samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sample_id TEXT,
                 symbol TEXT,
@@ -635,6 +635,80 @@ def test_cli_validate_strategies_builds_dataset_and_standard_matrix(tmp_path, ca
     assert (tmp_path / "datasets" / "pytest_cli_validate_strategies_dataset_1m.csv").exists()
     assert (tmp_path / "validation" / "pytest_cli_validate_strategies.json").exists()
     assert (tmp_path / "validation" / "strategy_scorecard").exists()
+
+
+def test_cli_standard_audit_runs_full_read_only_bundle(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _state_db_with_closed_trade(db_path)
+    _state_db_with_market_samples(db_path)
+
+    exit_code = cli.main(
+        [
+            "standard-audit",
+            "--run-id",
+            "pytest_standard_audit",
+            "--state-db",
+            str(db_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--timeframe",
+            "1m",
+            "--report-date",
+            "2026-06-03",
+            "--dataset-output-dir",
+            str(tmp_path / "standard_datasets"),
+            "--output-dir",
+            str(tmp_path / "standard_audit"),
+            "--min-closed-trades",
+            "1",
+            "--train-window-bars",
+            "1",
+            "--test-window-bars",
+            "3",
+            "--step-window-bars",
+            "4",
+            "--min-folds",
+            "1",
+            "--min-passing-folds",
+            "1",
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps(
+                {
+                    "grid": {
+                        "range_percent": 4.0,
+                        "num_levels": 5,
+                        "entry_touch_bps": 20.0,
+                        "take_profit_bps": 40.0,
+                    }
+                }
+            ),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["command"] == "standard-audit"
+    assert output["dataset"]["symbols"] == ["TRXEUR"]
+    assert output["matrix"]["cell_count"] == 1
+    assert output["matrix"]["standard_reports_enabled"] is True
+    assert output["paper_loader"]["trade_count"] == 1
+    assert output["paper_daily"]["trade_count"] == 1
+    assert output["paper_vs_research"]["paper_trade_count"] == 1
+    assert output["decision_trace"]["summary"]["trace_count"] >= 1
+    assert output["cost_parity"]["sources"][0]["source"] == "official_paper_trade_ledger"
+    assert output["pnl_causality"]["summary"]["closed_trades"] == 1
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "standard_audit" / "pytest_standard_audit.md").exists()
+    assert (tmp_path / "standard_audit" / "paper_vs_research" / "pytest_standard_audit_paper_vs_research.md").exists()
+    assert (tmp_path / "standard_audit" / "cost_parity" / "pytest_standard_audit_cost_parity.md").exists()
 
 
 def test_cli_walk_forward_runs_research_validation(tmp_path, capsys):
