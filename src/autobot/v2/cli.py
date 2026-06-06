@@ -75,6 +75,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     build_dataset.set_defaults(handler=_cmd_build_dataset)
 
+    collect_history = subparsers.add_parser(
+        "collect-history",
+        help="Collect public Kraken OHLCV history for research datasets",
+    )
+    collect_history.add_argument("--run-id", required=True)
+    collect_history.add_argument("--symbols", required=True)
+    collect_history.add_argument("--timeframes", default="1m,5m,15m,1h")
+    collect_history.add_argument("--output-dir", default="data/research/historical")
+    collect_history.add_argument("--since", type=int, default=None)
+    collect_history.add_argument("--max-pages", type=int, default=1)
+    collect_history.add_argument("--sleep-seconds", type=float, default=0.0)
+    collect_history.add_argument("--no-csv", action="store_true")
+    collect_history.add_argument("--no-parquet", action="store_true")
+    collect_history.set_defaults(handler=_cmd_collect_history)
+
+    data_quality = subparsers.add_parser(
+        "data-quality",
+        help="Analyze CSV/Parquet research datasets for gaps, volume and book availability",
+    )
+    data_quality.add_argument("--run-id", required=True)
+    data_quality.add_argument("--paths", required=True, help="Comma-separated CSV/Parquet files")
+    data_quality.add_argument("--default-timeframe", default="unknown")
+    data_quality.add_argument("--output-dir", default="reports/research/data_foundation")
+    data_quality.set_defaults(handler=_cmd_data_quality)
+
     backtest = subparsers.add_parser("backtest", help="Run one isolated research backtest")
     _add_validation_args(backtest)
     backtest.set_defaults(handler=lambda args: _cmd_validation(args, mode="backtest"))
@@ -115,6 +140,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_strategy_experiment_args(strategy_experiments)
     strategy_experiments.set_defaults(handler=_cmd_strategy_experiments)
 
+    strategy_batch = subparsers.add_parser(
+        "strategy-experiments-batch",
+        help="Run read-only multi-window validation for grid/trend/mean_reversion",
+    )
+    _add_strategy_batch_args(strategy_batch)
+    strategy_batch.set_defaults(handler=_cmd_strategy_experiments_batch)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -152,6 +184,26 @@ def _build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--no-write-report", action="store_true")
     compare.set_defaults(handler=_cmd_compare_paper_research)
 
+    parity = subparsers.add_parser(
+        "research-paper-parity",
+        help="Replay research from a state DB and compare it with official paper ledger evidence",
+    )
+    parity.add_argument("--run-id", required=True)
+    parity.add_argument("--state-db", required=True)
+    parity.add_argument("--symbols", default=None, help="Comma-separated symbols; defaults to AUTOBOT top-14 EUR preset")
+    parity.add_argument("--strategies", default=None, help="Comma-separated strategies; defaults to grid,trend,mean_reversion")
+    parity.add_argument("--output-dir", default="reports/research/research_paper_parity")
+    parity.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parity.add_argument("--order-notional-eur", type=float, default=100.0)
+    parity.add_argument("--start-at", default=None)
+    parity.add_argument("--end-at", default=None)
+    parity.add_argument("--limit", type=int, default=None)
+    parity.add_argument("--fee-bps", type=float, default=16.0)
+    parity.add_argument("--spread-bps", type=float, default=8.0)
+    parity.add_argument("--slippage-bps", type=float, default=4.0)
+    parity.add_argument("--include-regime-context", action="store_true")
+    parity.set_defaults(handler=_cmd_research_paper_parity)
+
     cost_parity = subparsers.add_parser(
         "cost-parity",
         help="Audit read-only parity between research, official paper and shadow cost assumptions",
@@ -170,6 +222,16 @@ def _build_parser() -> argparse.ArgumentParser:
     cost_parity.add_argument("--slippage-anomaly-threshold-bps", type=float, default=100.0)
     cost_parity.add_argument("--no-write-report", action="store_true")
     cost_parity.set_defaults(handler=_cmd_cost_parity)
+
+    split_plan = subparsers.add_parser(
+        "split-plan",
+        help="Evaluate read-only instance split policy evidence without creating children",
+    )
+    split_plan.add_argument("--run-id", required=True)
+    split_plan.add_argument("--state-db", default=None)
+    split_plan.add_argument("--evidence-json", required=True, help="JSON object or list of parent evidence objects")
+    split_plan.add_argument("--output-dir", default="reports/research/instance_split")
+    split_plan.set_defaults(handler=_cmd_split_plan)
 
     leaderboard = subparsers.add_parser("leaderboard", help="Write a strategy scorecard from a matrix JSON report")
     leaderboard.add_argument("--matrix-path", required=True)
@@ -399,6 +461,25 @@ def _add_strategy_experiment_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_strategy_batch_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing market_price_samples")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; defaults to AUTOBOT top-14 EUR preset")
+    parser.add_argument("--strategies", default=None, help="Comma-separated strategies; defaults to grid,trend,mean_reversion")
+    parser.add_argument("--timeframe", default="5m")
+    parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
+    parser.add_argument("--output-dir", default="reports/research/batch_strategy_validation")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--no-regime-context", action="store_true")
+
+
 def _cmd_audit(args: argparse.Namespace) -> int:
     report_path = Path(args.report_path)
     payload = {
@@ -439,6 +520,48 @@ def _cmd_build_dataset(args: argparse.Namespace) -> int:
     )
     result = build_dataset_from_state_db(config)
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_collect_history(args: argparse.Namespace) -> int:
+    from autobot.v2.research.historical_data_collector import (
+        HistoricalDataCollectorConfig,
+        collect_historical_ohlcv,
+    )
+
+    result = collect_historical_ohlcv(
+        HistoricalDataCollectorConfig(
+            run_id=args.run_id,
+            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+            timeframes=_csv_tuple(args.timeframes, "--timeframes"),
+            output_dir=Path(args.output_dir),
+            since=args.since,
+            max_pages=args.max_pages,
+            sleep_seconds=args.sleep_seconds,
+            export_csv=not bool(args.no_csv),
+            export_parquet=not bool(args.no_parquet),
+        )
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_data_quality(args: argparse.Namespace) -> int:
+    from autobot.v2.research.data_quality_report import (
+        analyze_dataset_files,
+        build_data_foundation_readiness_report,
+        write_data_foundation_readiness_report,
+    )
+
+    file_reports = analyze_dataset_files(
+        _csv_tuple(args.paths, "--paths"),
+        default_timeframe=args.default_timeframe,
+    )
+    report = write_data_foundation_readiness_report(
+        build_data_foundation_readiness_report(run_id=args.run_id, file_reports=file_reports),
+        Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
     return 0
 
 
@@ -823,6 +946,41 @@ def _cmd_strategy_experiments(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
+    from autobot.v2.research.batch_strategy_validation import (
+        BatchStrategyValidationConfig,
+        run_batch_strategy_validation,
+    )
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
+    strategies = _csv_tuple(args.strategies, "--strategies") if args.strategies else AUTOBOT_STANDARD_STRATEGIES
+    result = run_batch_strategy_validation(
+        BatchStrategyValidationConfig(
+            run_id=args.run_id,
+            state_db_path=Path(args.state_db),
+            symbols=symbols,
+            strategies=strategies,
+            timeframe=args.timeframe.lower(),
+            mode=args.mode,
+            output_dir=Path(args.output_dir),
+            initial_capital_eur=args.initial_capital_eur,
+            order_notional_eur=args.order_notional_eur,
+            min_closed_trades=args.min_closed_trades,
+            min_profit_factor=args.min_profit_factor,
+            max_drawdown_pct=args.max_drawdown_pct,
+            include_regime_context=not bool(args.no_regime_context),
+            cost_config=ExecutionCostConfig(
+                taker_fee_bps=args.fee_bps,
+                fallback_spread_bps=args.spread_bps,
+                slippage_bps=args.slippage_bps,
+            ),
+        )
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
 def _attach_matrix_report_bundle(
     *,
     config: Any,
@@ -1035,6 +1193,42 @@ def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_research_paper_parity(args: argparse.Namespace) -> int:
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+    from autobot.v2.research.research_paper_parity import (
+        ResearchPaperParityConfig,
+        run_research_paper_parity,
+        summarize_research_paper_parity,
+    )
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
+    strategies = _csv_tuple(args.strategies, "--strategies") if args.strategies else AUTOBOT_STANDARD_STRATEGIES
+    report = run_research_paper_parity(
+        ResearchPaperParityConfig(
+            run_id=args.run_id,
+            state_db_path=Path(args.state_db),
+            symbols=symbols,
+            strategies=strategies,
+            output_dir=Path(args.output_dir),
+            initial_capital_eur=args.initial_capital_eur,
+            order_notional_eur=args.order_notional_eur,
+            start_at=args.start_at,
+            end_at=args.end_at,
+            limit=args.limit,
+            include_regime_context=bool(args.include_regime_context),
+            cost_config=ExecutionCostConfig(
+                taker_fee_bps=args.fee_bps,
+                fallback_spread_bps=args.spread_bps,
+                slippage_bps=args.slippage_bps,
+            ),
+        )
+    )
+    payload = report.to_dict()
+    payload["summary"] = summarize_research_paper_parity(report)
+    _print_json(payload)
+    return 0
+
+
 def _cmd_cost_parity(args: argparse.Namespace) -> int:
     from autobot.v2.research.cost_parity_audit import (
         CostParityAuditConfig,
@@ -1063,6 +1257,30 @@ def _cmd_cost_parity(args: argparse.Namespace) -> int:
     if not args.no_write_report:
         report = write_cost_parity_audit_report(report, args.output_dir)
     _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_split_plan(args: argparse.Namespace) -> int:
+    from autobot.v2.instance_split_planner import build_instance_split_plan, write_instance_split_plan
+
+    evidence_payload = json.loads(args.evidence_json)
+    if isinstance(evidence_payload, dict):
+        evidence = [evidence_payload]
+    elif isinstance(evidence_payload, list):
+        evidence = evidence_payload
+    else:
+        raise ValueError("--evidence-json must be an object or list")
+    if not all(isinstance(item, dict) for item in evidence):
+        raise ValueError("--evidence-json list must contain objects")
+    plan = write_instance_split_plan(
+        build_instance_split_plan(
+            run_id=args.run_id,
+            state_db_path=Path(args.state_db) if args.state_db else None,
+            parent_evidence=evidence,
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(plan.to_dict())
     return 0
 
 

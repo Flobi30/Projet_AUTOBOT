@@ -1,0 +1,345 @@
+{
+  "files": [
+    {
+      "duplicate_count": 0,
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "exclusions": [
+        "data_gaps_present"
+      ],
+      "gap_count": 18129,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 6360.0,
+      "row_count": 80920,
+      "source_path": "data\\research\\vps_2026_06_04_dataset_canonical_smoke\\vps_2026_06_04_dataset_canonical_smoke_1m.csv",
+      "source_type": "csv",
+      "start_at": "2026-05-28T09:48:00+00:00",
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "1m"
+      ],
+      "usable_for_backtest": false,
+      "volume_status": "absent_or_zero",
+      "warnings": [
+        "data_gaps_detected",
+        "data_gaps_present",
+        "volume_absent",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 80920
+    },
+    {
+      "duplicate_count": 0,
+      "end_at": "2026-06-04T09:50:00+00:00",
+      "exclusions": [
+        "data_gaps_present"
+      ],
+      "gap_count": 23989,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 6600.0,
+      "row_count": 24003,
+      "source_path": "data\\research\\vps_2026_06_04_dataset_canonical_smoke\\vps_2026_06_04_dataset_canonical_smoke_5m.csv",
+      "source_type": "csv",
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "5m"
+      ],
+      "usable_for_backtest": false,
+      "volume_status": "absent_or_zero",
+      "warnings": [
+        "data_gaps_detected",
+        "data_gaps_present",
+        "volume_absent",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 24003
+    },
+    {
+      "duplicate_count": 0,
+      "end_at": "2026-06-04T09:45:00+00:00",
+      "exclusions": [
+        "data_gaps_present"
+      ],
+      "gap_count": 9075,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 6300.0,
+      "row_count": 9089,
+      "source_path": "data\\research\\vps_2026_06_04_dataset_canonical_smoke\\vps_2026_06_04_dataset_canonical_smoke_15m.csv",
+      "source_type": "csv",
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "15m"
+      ],
+      "usable_for_backtest": false,
+      "volume_status": "absent_or_zero",
+      "warnings": [
+        "data_gaps_detected",
+        "data_gaps_present",
+        "volume_absent",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 9089
+    }
+  ],
+  "generated_at": "2026-06-06T16:47:46.326367+00:00",
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "overall_status": "not_ready",
+  "recommendations": [
+    "Use exchange OHLCV history for research conclusions; keep market_price_samples as runtime diagnostics only.",
+    "Do not promote any strategy unless the tested dataset includes costs and sufficient out-of-sample windows.",
+    "Prefer Kraken REST/CCXT OHLCV exports because market_price_samples has no real volume.",
+    "Collect bid/ask or order-book snapshots before trusting intraday cost-sensitive strategies.",
+    "Exclude or repair datasets with gaps before batch validation.",
+    "Databento is not the first priority for Kraken spot crypto here; public Kraken OHLCV plus local bid/ask/depth capture closes the immediate parity gap with less vendor complexity."
+  ],
+  "run_id": "data_foundation_readiness_2026-06-06",
+  "safety_notes": [
+    "Research data-quality report only.",
+    "No runtime paper/live service is started.",
+    "No paper or live order is created.",
+    "No Kraken order can be created by this report.",
+    "No live trading permission is granted."
+  ],
+  "symbol_coverage": {
+    "AAVEEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "ADAEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "ATOMEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "AVAXEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "BCHEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "BTCZEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "DOTEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "ETHZEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "LINKEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "LTCZEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "SOLEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "TRXEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "XLMZEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    },
+    "XRPZEUR": {
+      "end_at": "2026-06-04T09:53:00+00:00",
+      "file_count": 3,
+      "row_count": 114012,
+      "start_at": "2026-05-28T09:45:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "data_gaps_detected",
+        "data_gaps_present",
+        "order_book_depth_absent",
+        "volume_absent"
+      ]
+    }
+  },
+  "unusable_file_count": 3,
+  "usable_file_count": 0
+}

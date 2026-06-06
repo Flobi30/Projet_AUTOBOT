@@ -1,0 +1,85 @@
+{
+  "baselines": [
+    {
+      "name": "no_trade",
+      "net_pnl_eur": 0.0,
+      "notes": "",
+      "total_return_pct": 0.0
+    },
+    {
+      "name": "buy_and_hold",
+      "net_pnl_eur": 187.1953861712388,
+      "notes": "Equal capital allocation per symbol, net of configured costs.",
+      "total_return_pct": 18.71953861712388
+    },
+    {
+      "name": "random_signal_same_frequency",
+      "net_pnl_eur": -342.6299576870938,
+      "notes": "Deterministic random long baseline, requested trades=420, executed=420.",
+      "total_return_pct": -34.26299576870938
+    }
+  ],
+  "cost_config": {
+    "fallback_spread_bps": 8.0,
+    "latency_buffer_bps": 1.0,
+    "maker_fee_bps": 10.0,
+    "max_liquidity_participation": 0.05,
+    "max_spread_bps": 80.0,
+    "min_notional_eur": 5.0,
+    "slippage_bps": 4.0,
+    "taker_fee_bps": 16.0
+  },
+  "dataset_id": "autobot_state_db:XLMZEUR",
+  "decision": {
+    "live_promotion_allowed": false,
+    "proposed_registry_status": "rejected",
+    "reason": "negative_net_pnl",
+    "status": "reject"
+  },
+  "event_count": 16240,
+  "fill_count": 840,
+  "hypothesis": "mean_reversion research validation on XLMZEUR",
+  "journal_path": null,
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "metrics": {
+    "average_loss_eur": -0.7291315318844639,
+    "average_trade_duration_seconds": 365.3848714142857,
+    "average_win_eur": 0.2670245686466739,
+    "baseline_delta_pct": -37.48880535995082,
+    "baseline_name": "buy_and_hold",
+    "baseline_return_pct": 18.71953861712388,
+    "beats_baseline": false,
+    "closed_trade_count": 420,
+    "expectancy_eur": -0.4468873034006413,
+    "final_equity_eur": 812.3073325717306,
+    "initial_capital_eur": 1000.0,
+    "max_drawdown_eur": 188.22924366613847,
+    "max_drawdown_pct": 18.812829849149722,
+    "performance_by_regime": {
+      "unknown": {
+        "expectancy_eur": -0.4468873034006413,
+        "net_pnl_eur": -187.69266742826935,
+        "trade_count": 420,
+        "winrate_pct": 28.333333333333332
+      }
+    },
+    "profit_factor": 0.14478574592424306,
+    "sharpe_like": -13.368448668682017,
+    "sortino_like": -9.769632649388264,
+    "total_fees_eur": 134.39999999999856,
+    "total_gross_pnl_eur": -53.2926674282694,
+    "total_latency_cost_eur": 8.39999999999991,
+    "total_net_pnl_eur": -187.69266742826935,
+    "total_return_pct": -18.769266742826936,
+    "total_slippage_eur": 33.59999999999964,
+    "total_spread_cost_eur": 33.59999999999964,
+    "trade_count": 420,
+    "winrate_pct": 28.333333333333332
+  },
+  "rejected_fill_count": 0,
+  "run_id": "research_paper_parity_2026-06-06_matrix_XLMZEUR_mean_reversion",
+  "signal_count": 840,
+  "strategy_id": "mean_reversion",
+  "trade_count": 420
+}

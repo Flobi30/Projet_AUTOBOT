@@ -1,0 +1,85 @@
+{
+  "baselines": [
+    {
+      "name": "no_trade",
+      "net_pnl_eur": 0.0,
+      "notes": "",
+      "total_return_pct": 0.0
+    },
+    {
+      "name": "buy_and_hold",
+      "net_pnl_eur": -25.98339109203308,
+      "notes": "Equal capital allocation per symbol, net of configured costs.",
+      "total_return_pct": -2.598339109203308
+    },
+    {
+      "name": "random_signal_same_frequency",
+      "net_pnl_eur": -4.020740616157547,
+      "notes": "Deterministic random long baseline, requested trades=4, executed=4.",
+      "total_return_pct": -0.4020740616157547
+    }
+  ],
+  "cost_config": {
+    "fallback_spread_bps": 8.0,
+    "latency_buffer_bps": 1.0,
+    "maker_fee_bps": 10.0,
+    "max_liquidity_participation": 0.05,
+    "max_spread_bps": 80.0,
+    "min_notional_eur": 5.0,
+    "slippage_bps": 4.0,
+    "taker_fee_bps": 16.0
+  },
+  "dataset_id": "autobot_state_db:TRXEUR",
+  "decision": {
+    "live_promotion_allowed": false,
+    "proposed_registry_status": "candidate",
+    "reason": "insufficient_closed_trades",
+    "status": "keep_testing"
+  },
+  "event_count": 2331,
+  "fill_count": 8,
+  "hypothesis": "grid research validation on TRXEUR",
+  "journal_path": null,
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "metrics": {
+    "average_loss_eur": -0.5915977337775614,
+    "average_trade_duration_seconds": 45385.7785025,
+    "average_win_eur": null,
+    "baseline_delta_pct": -0.23663909351102458,
+    "baseline_name": "no_trade",
+    "baseline_return_pct": 0.0,
+    "beats_baseline": false,
+    "closed_trade_count": 4,
+    "expectancy_eur": -0.5915977337775614,
+    "final_equity_eur": 997.6336090648898,
+    "initial_capital_eur": 1000.0,
+    "max_drawdown_eur": 2.3663909351101893,
+    "max_drawdown_pct": 0.23663909351101892,
+    "performance_by_regime": {
+      "unknown": {
+        "expectancy_eur": -0.5915977337775614,
+        "net_pnl_eur": -2.3663909351102457,
+        "trade_count": 4,
+        "winrate_pct": 0.0
+      }
+    },
+    "profit_factor": 0.0,
+    "sharpe_like": -1.1962568316722955,
+    "sortino_like": -1.0266284835669823,
+    "total_fees_eur": 1.28,
+    "total_gross_pnl_eur": -1.0863909351102459,
+    "total_latency_cost_eur": 0.08,
+    "total_net_pnl_eur": -2.3663909351102457,
+    "total_return_pct": -0.23663909351102458,
+    "total_slippage_eur": 0.32,
+    "total_spread_cost_eur": 0.32,
+    "trade_count": 4,
+    "winrate_pct": 0.0
+  },
+  "rejected_fill_count": 0,
+  "run_id": "batch_strategy_validation_2026-06-06_early_TRXEUR_grid",
+  "signal_count": 8,
+  "strategy_id": "dynamic_grid",
+  "trade_count": 4
+}

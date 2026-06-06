@@ -1,0 +1,76 @@
+{
+  "decisions": [
+    {
+      "allowed_to_plan": false,
+      "blockers": [
+        "net_pnl_not_positive_after_costs",
+        "official_paper_net_pnl_not_positive",
+        "profit_factor_below_threshold",
+        "strategy_scorecard_below_threshold",
+        "strategy_status_not_validated",
+        "blocked_failure_mode:weak_mfe_below_cost"
+      ],
+      "config": {
+        "blocked_failure_modes": [
+          "weak_mfe_below_cost"
+        ],
+        "child_capital_pct": 25.0,
+        "executor_enabled": false,
+        "feature_flag": "ENABLE_INSTANCE_SPLIT_EXECUTOR",
+        "max_drawdown_pct": 12.0,
+        "max_splits_per_parent_lifetime": 1,
+        "min_child_capital_eur": 400.0,
+        "min_net_pnl_eur": 0.0,
+        "min_parent_capital_eur": 2000.0,
+        "min_profit_factor": 1.25,
+        "min_strategy_scorecard": 75.0,
+        "min_trade_count": 100,
+        "min_validation_days": 7,
+        "paper_mode_only": true,
+        "required_strategy_statuses": [
+          "paper_candidate",
+          "paper_validated",
+          "shadow_passed"
+        ]
+      },
+      "evidence": {
+        "dominant_failure_mode": "weak_mfe_below_cost",
+        "live_promotion_allowed": false,
+        "max_drawdown_pct": 12,
+        "metadata": {},
+        "net_pnl_eur": -333.55,
+        "official_paper_net_pnl_eur": -333.55,
+        "paper_mode": true,
+        "parent_available_eur": 2000,
+        "parent_capital_eur": 4000,
+        "parent_instance_id": "autobot_mother",
+        "parent_lifetime_split_count": 0,
+        "profit_factor": 0.4,
+        "strategy_id": "dynamic_grid",
+        "strategy_scorecard": 25,
+        "strategy_status": "research_only",
+        "trade_count": 484,
+        "validation_days": 7
+      },
+      "executable_now": false,
+      "executor_enabled": false,
+      "live_promotion_allowed": false,
+      "parent_capital_after_eur": 3000.0,
+      "planned_child_capital_eur": 1000.0,
+      "reason": "net_pnl_not_positive_after_costs,official_paper_net_pnl_not_positive,profit_factor_below_threshold,strategy_scorecard_below_threshold,strategy_status_not_validated,blocked_failure_mode:weak_mfe_below_cost",
+      "status": "blocked"
+    }
+  ],
+  "generated_at": "2026-06-06T16:50:26.670784+00:00",
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "run_id": "spinoff_duplication_safety_2026-06-06",
+  "safety_notes": [
+    "Read-only split planning only.",
+    "ENABLE_INSTANCE_SPLIT_EXECUTOR defaults to false.",
+    "No instance is created by this planner.",
+    "No paper or live order is created.",
+    "No live trading permission is granted."
+  ],
+  "state_db_path": "data\\vps_autobot_state_2026-06-04_2026-06-04_121159.db"
+}

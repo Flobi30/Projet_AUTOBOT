@@ -1,0 +1,149 @@
+{
+  "config": {
+    "mean_reversion_shadow_db_path": null,
+    "output_dir": "reports\\research\\cost_parity_2026-06-06",
+    "research_cost_config": {
+      "fallback_spread_bps": 8.0,
+      "latency_buffer_bps": 1.0,
+      "maker_fee_bps": 10.0,
+      "max_liquidity_participation": 0.05,
+      "max_spread_bps": 80.0,
+      "min_notional_eur": 5.0,
+      "slippage_bps": 4.0,
+      "taker_fee_bps": 16.0
+    },
+    "run_id": "research_paper_cost_parity_2026-06-06",
+    "setup_shadow_db_path": null,
+    "slippage_anomaly_threshold_bps": 100.0,
+    "state_db_path": "data/vps_autobot_state_2026-06-04_2026-06-04_121159.db",
+    "trend_shadow_db_path": null,
+    "warning_delta_bps": 5.0
+  },
+  "expected_cost_bps_per_side": 25.0,
+  "expected_fee_bps_per_side": 16.0,
+  "expected_legacy_shadow_slippage_bps_per_side": 9.0,
+  "generated_at": "2026-06-06T16:47:44.605434+00:00",
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "research_cost_config": {
+    "fallback_spread_bps": 8.0,
+    "latency_buffer_bps": 1.0,
+    "maker_fee_bps": 10.0,
+    "max_liquidity_participation": 0.05,
+    "max_spread_bps": 80.0,
+    "min_notional_eur": 5.0,
+    "slippage_bps": 4.0,
+    "taker_fee_bps": 16.0
+  },
+  "run_id": "research_paper_cost_parity_2026-06-06",
+  "safety_notes": [
+    "Read-only cost parity audit.",
+    "No paper or live order is created.",
+    "No strategy registry mutation is performed.",
+    "No live trading permission is granted."
+  ],
+  "sources": [
+    {
+      "anomalous_slippage_row_count": 24,
+      "avg_favorable_slippage_bps": 2216.308061924517,
+      "avg_fee_bps": 17.54405511037492,
+      "avg_slippage_bps": 7.532401073501902,
+      "avg_total_cost_bps": 25.076456183876818,
+      "cost_delta_bps": 0.07645618387681807,
+      "cost_row_count": 1142,
+      "expected_cost_bps_per_side": 25.0,
+      "max_abs_slippage_bps": 294822.28860574285,
+      "source": "official_paper_trade_ledger",
+      "source_path": "data\\vps_autobot_state_2026-06-04_2026-06-04_121159.db",
+      "status": "ok",
+      "table": "trade_ledger",
+      "total_cost_eur": 28.85068717816889,
+      "total_favorable_slippage_eur": 2549.8822527463117,
+      "total_fees_eur": 20.18459235685072,
+      "total_notional_eur": 11505.089461850974,
+      "total_slippage_eur": 8.666094821318168,
+      "trade_count": 599,
+      "warnings": [
+        "slippage_bps_anomalies"
+      ]
+    },
+    {
+      "anomalous_slippage_row_count": 0,
+      "avg_favorable_slippage_bps": null,
+      "avg_fee_bps": null,
+      "avg_slippage_bps": null,
+      "avg_total_cost_bps": null,
+      "cost_delta_bps": null,
+      "cost_row_count": 0,
+      "expected_cost_bps_per_side": 25.0,
+      "max_abs_slippage_bps": null,
+      "source": "trend_shadow",
+      "source_path": null,
+      "status": "not_configured",
+      "table": null,
+      "total_cost_eur": 0.0,
+      "total_favorable_slippage_eur": 0.0,
+      "total_fees_eur": 0.0,
+      "total_notional_eur": 0.0,
+      "total_slippage_eur": 0.0,
+      "trade_count": 0,
+      "warnings": [
+        "trend_shadow_not_configured"
+      ]
+    },
+    {
+      "anomalous_slippage_row_count": 0,
+      "avg_favorable_slippage_bps": null,
+      "avg_fee_bps": null,
+      "avg_slippage_bps": null,
+      "avg_total_cost_bps": null,
+      "cost_delta_bps": null,
+      "cost_row_count": 0,
+      "expected_cost_bps_per_side": 25.0,
+      "max_abs_slippage_bps": null,
+      "source": "mean_reversion_shadow",
+      "source_path": null,
+      "status": "not_configured",
+      "table": null,
+      "total_cost_eur": 0.0,
+      "total_favorable_slippage_eur": 0.0,
+      "total_fees_eur": 0.0,
+      "total_notional_eur": 0.0,
+      "total_slippage_eur": 0.0,
+      "trade_count": 0,
+      "warnings": [
+        "mean_reversion_shadow_not_configured"
+      ]
+    },
+    {
+      "anomalous_slippage_row_count": 0,
+      "avg_favorable_slippage_bps": null,
+      "avg_fee_bps": null,
+      "avg_slippage_bps": null,
+      "avg_total_cost_bps": null,
+      "cost_delta_bps": null,
+      "cost_row_count": 0,
+      "expected_cost_bps_per_side": 25.0,
+      "max_abs_slippage_bps": null,
+      "source": "setup_shadow",
+      "source_path": null,
+      "status": "not_configured",
+      "table": null,
+      "total_cost_eur": 0.0,
+      "total_favorable_slippage_eur": 0.0,
+      "total_fees_eur": 0.0,
+      "total_notional_eur": 0.0,
+      "total_slippage_eur": 0.0,
+      "trade_count": 0,
+      "warnings": [
+        "setup_shadow_not_configured"
+      ]
+    }
+  ],
+  "warnings": [
+    "slippage_bps_anomalies",
+    "trend_shadow_not_configured",
+    "mean_reversion_shadow_not_configured",
+    "setup_shadow_not_configured"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "baselines": [
+    {
+      "name": "no_trade",
+      "net_pnl_eur": 0.0,
+      "notes": "",
+      "total_return_pct": 0.0
+    },
+    {
+      "name": "buy_and_hold",
+      "net_pnl_eur": -79.98697967943916,
+      "notes": "Equal capital allocation per symbol, net of configured costs.",
+      "total_return_pct": -7.998697967943916
+    },
+    {
+      "name": "random_signal_same_frequency",
+      "net_pnl_eur": 0.0,
+      "notes": "Not computed because the strategy produced no closed trades.",
+      "total_return_pct": 0.0
+    }
+  ],
+  "cost_config": {
+    "fallback_spread_bps": 8.0,
+    "latency_buffer_bps": 1.0,
+    "maker_fee_bps": 10.0,
+    "max_liquidity_participation": 0.05,
+    "max_spread_bps": 80.0,
+    "min_notional_eur": 5.0,
+    "slippage_bps": 4.0,
+    "taker_fee_bps": 16.0
+  },
+  "dataset_id": "autobot_state_db:TRXEUR",
+  "decision": {
+    "live_promotion_allowed": false,
+    "proposed_registry_status": "candidate",
+    "reason": "insufficient_closed_trades",
+    "status": "keep_testing"
+  },
+  "event_count": 6841,
+  "fill_count": 0,
+  "hypothesis": "trend research validation on TRXEUR",
+  "journal_path": null,
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "metrics": {
+    "average_loss_eur": null,
+    "average_trade_duration_seconds": null,
+    "average_win_eur": null,
+    "baseline_delta_pct": 0.0,
+    "baseline_name": "no_trade",
+    "baseline_return_pct": 0.0,
+    "beats_baseline": false,
+    "closed_trade_count": 0,
+    "expectancy_eur": null,
+    "final_equity_eur": 1000.0,
+    "initial_capital_eur": 1000.0,
+    "max_drawdown_eur": 0.0,
+    "max_drawdown_pct": 0.0,
+    "performance_by_regime": {},
+    "profit_factor": null,
+    "sharpe_like": null,
+    "sortino_like": null,
+    "total_fees_eur": 0,
+    "total_gross_pnl_eur": 0,
+    "total_latency_cost_eur": 0,
+    "total_net_pnl_eur": 0,
+    "total_return_pct": 0.0,
+    "total_slippage_eur": 0,
+    "total_spread_cost_eur": 0,
+    "trade_count": 0,
+    "winrate_pct": null
+  },
+  "rejected_fill_count": 0,
+  "run_id": "batch_strategy_validation_2026-06-06_full_TRXEUR_trend",
+  "signal_count": 0,
+  "strategy_id": "trend_momentum",
+  "trade_count": 0
+}

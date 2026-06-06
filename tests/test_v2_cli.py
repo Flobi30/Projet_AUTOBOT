@@ -1083,6 +1083,90 @@ def test_cli_cost_parity_audits_read_only_cost_sources(tmp_path, capsys):
     assert (tmp_path / "cost_parity_reports" / "pytest_cost_parity_cli.md").exists()
 
 
+def test_cli_data_quality_reports_gaps_without_runtime_mutation(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,timeframe,open,high,low,close,volume",
+                "2026-06-01T00:00:00+00:00,TRXEUR,5m,100,101,99,100,0",
+                "2026-06-01T00:20:00+00:00,TRXEUR,5m,100,102,99,101,0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "data-quality",
+            "--run-id",
+            "pytest_data_quality_cli",
+            "--paths",
+            str(csv_path),
+            "--default-timeframe",
+            "5m",
+            "--output-dir",
+            str(tmp_path / "data_quality"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["overall_status"] == "not_ready"
+    assert output["files"][0]["usable_for_backtest"] is False
+    assert "data_gaps_present" in output["files"][0]["exclusions"]
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "data_quality" / "pytest_data_quality_cli.md").exists()
+
+
+def test_cli_split_plan_blocks_unvalidated_parent_without_creating_child(tmp_path, capsys):
+    evidence = json.dumps(
+        [
+            {
+                "parent_instance_id": "parent_1",
+                "strategy_id": "dynamic_grid",
+                "strategy_status": "research_only",
+                "paper_mode": True,
+                "live_promotion_allowed": False,
+                "parent_capital_eur": 4000.0,
+                "parent_available_eur": 2000.0,
+                "net_pnl_eur": -10.0,
+                "official_paper_net_pnl_eur": -10.0,
+                "profit_factor": 0.5,
+                "trade_count": 150,
+                "validation_days": 7,
+                "max_drawdown_pct": 8.0,
+                "strategy_scorecard": 20.0,
+                "dominant_failure_mode": "weak_mfe_below_cost",
+            }
+        ]
+    )
+
+    exit_code = cli.main(
+        [
+            "split-plan",
+            "--run-id",
+            "pytest_split_plan_cli",
+            "--state-db",
+            str(tmp_path / "missing_state.db"),
+            "--evidence-json",
+            evidence,
+            "--output-dir",
+            str(tmp_path / "split_plan"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    decision = output["decisions"][0]
+    assert decision["allowed_to_plan"] is False
+    assert decision["executable_now"] is False
+    assert decision["live_promotion_allowed"] is False
+    assert "blocked_failure_mode:weak_mfe_below_cost" in decision["blockers"]
+    assert "No instance is created by this planner." in output["safety_notes"]
+    assert (tmp_path / "split_plan" / "pytest_split_plan_cli.md").exists()
+
+
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
     matrix_path = tmp_path / "matrix.json"
     matrix_path.write_text(
