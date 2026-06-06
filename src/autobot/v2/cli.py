@@ -108,6 +108,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_grid_experiment_args(grid_experiments)
     grid_experiments.set_defaults(handler=_cmd_grid_experiments)
 
+    strategy_experiments = subparsers.add_parser(
+        "strategy-experiments",
+        help="Run research-only trend and mean-reversion experiments from a state DB",
+    )
+    _add_strategy_experiment_args(strategy_experiments)
+    strategy_experiments.set_defaults(handler=_cmd_strategy_experiments)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -351,6 +358,40 @@ def _add_grid_experiment_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--step-window-bars", type=int, default=None)
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--max-variants", type=int, default=None)
+    parser.add_argument(
+        "--no-regime-context",
+        action="store_true",
+        help="Do not enrich experiment bars with research regime context",
+    )
+
+
+def _add_strategy_experiment_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing market_price_samples")
+    parser.add_argument("--symbols", required=True, help="Comma-separated symbols, e.g. TRXEUR,BTCEUR")
+    parser.add_argument("--strategies", default="trend,mean_reversion", help="Comma-separated: trend,mean_reversion")
+    parser.add_argument("--timeframe", default="5m")
+    parser.add_argument("--output-dir", default="reports/research/strategy_experiments")
+    parser.add_argument("--dataset-output-dir", default="data/research/strategy_experiments")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--fee-bps", type=float, default=16.0)
+    parser.add_argument("--spread-bps", type=float, default=8.0)
+    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--latency-buffer-bps", type=float, default=1.0)
+    parser.add_argument("--min-closed-trades", type=int, default=30)
+    parser.add_argument("--candidate-min-closed-trades", type=int, default=100)
+    parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
+    parser.add_argument("--candidate-min-mfe-to-cost", type=float, default=1.50)
+    parser.add_argument("--candidate-max-drawdown-pct", type=float, default=12.0)
+    parser.add_argument("--train-window-bars", type=int, default=200)
+    parser.add_argument("--test-window-bars", type=int, default=100)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--max-variants-per-strategy", type=int, default=None)
     parser.add_argument(
         "--no-regime-context",
         action="store_true",
@@ -725,6 +766,49 @@ def _cmd_grid_experiments(args: argparse.Namespace) -> int:
             candidate_min_mfe_to_cost=args.candidate_min_mfe_to_cost,
             candidate_max_drawdown_pct=args.candidate_max_drawdown_pct,
             max_variants=args.max_variants,
+            start_at=args.start_at,
+            end_at=args.end_at,
+            limit=args.limit,
+            include_regime_context=not bool(args.no_regime_context),
+            train_window_bars=args.train_window_bars,
+            test_window_bars=args.test_window_bars,
+            step_window_bars=args.step_window_bars,
+            min_folds=args.min_folds,
+        )
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_strategy_experiments(args: argparse.Namespace) -> int:
+    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+    from autobot.v2.research.strategy_experiment_runner import StrategyExperimentConfig, run_strategy_experiments
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
+    strategies = _csv_tuple(args.strategies, "--strategies")
+    result = run_strategy_experiments(
+        StrategyExperimentConfig(
+            run_id=args.run_id,
+            state_db_path=Path(args.state_db),
+            symbols=symbols,
+            strategies=strategies,  # type: ignore[arg-type]
+            timeframe=args.timeframe.lower(),
+            output_dir=Path(args.output_dir),
+            dataset_output_dir=Path(args.dataset_output_dir),
+            initial_capital_eur=args.initial_capital_eur,
+            order_notional_eur=args.order_notional_eur,
+            cost_config=ExecutionCostConfig(
+                taker_fee_bps=args.fee_bps,
+                fallback_spread_bps=args.spread_bps,
+                slippage_bps=args.slippage_bps,
+                latency_buffer_bps=args.latency_buffer_bps,
+            ),
+            min_closed_trades=args.min_closed_trades,
+            candidate_min_closed_trades=args.candidate_min_closed_trades,
+            candidate_min_profit_factor=args.candidate_min_profit_factor,
+            candidate_min_mfe_to_cost=args.candidate_min_mfe_to_cost,
+            candidate_max_drawdown_pct=args.candidate_max_drawdown_pct,
+            max_variants_per_strategy=args.max_variants_per_strategy,
             start_at=args.start_at,
             end_at=args.end_at,
             limit=args.limit,
