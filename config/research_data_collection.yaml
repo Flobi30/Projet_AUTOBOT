@@ -1,0 +1,41 @@
+priority_symbols:
+  - BTCZEUR
+  - ETHZEUR
+  - XLMZEUR
+  - TRXEUR
+
+secondary_symbols:
+  - ADAEUR
+  - AVAXEUR
+  - SOLEUR
+  - DOTEUR
+  - LINKEUR
+  - XRPEUR
+
+timeframes:
+  - 5m
+  - 15m
+  - 1h
+
+ohlcv:
+  max_pages: 5
+  dedupe: true
+  fail_on_gaps: false
+  export_csv: true
+  export_parquet: false
+
+microstructure:
+  depth_count: 10
+  sample_interval_seconds: 60
+  samples_per_run: 60
+
+output_dirs:
+  ohlcv: data/research/daily/ohlcv
+  microstructure: data/research/daily/microstructure
+  reports: reports/research/daily_data_collection
+
+safety:
+  public_endpoints_only: true
+  no_private_keys: true
+  no_orders: true
+  research_only: true

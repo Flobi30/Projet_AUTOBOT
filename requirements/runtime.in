@@ -9,3 +9,4 @@ orjson
 aiosqlite
 python-dateutil
 psutil
+pyyaml

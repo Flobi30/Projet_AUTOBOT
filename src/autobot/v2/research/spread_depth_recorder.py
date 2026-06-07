@@ -51,6 +51,7 @@ class SpreadDepthRecorderConfig:
     samples: int = 1
     sleep_seconds: float = 0.0
     export_csv: bool = True
+    continue_on_error: bool = False
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -72,6 +73,7 @@ class SpreadDepthRecorderResult:
     provider: str
     snapshots: tuple[SpreadDepthSnapshot, ...]
     summary_by_symbol: dict[str, dict[str, float]]
+    errors: tuple[dict[str, Any], ...] = ()
     csv_path: str | None = None
     markdown_report_path: str | None = None
     safety_notes: tuple[str, ...] = (
@@ -89,6 +91,7 @@ class SpreadDepthRecorderResult:
             "provider": self.provider,
             "snapshots": [snapshot.to_dict() for snapshot in self.snapshots],
             "summary_by_symbol": self.summary_by_symbol,
+            "errors": list(self.errors),
             "csv_path": self.csv_path,
             "markdown_report_path": self.markdown_report_path,
             "safety_notes": list(self.safety_notes),
@@ -105,20 +108,33 @@ def record_spread_depth(
 ) -> SpreadDepthRecorderResult:
     fetch = fetcher or fetch_kraken_depth_page
     snapshots: list[SpreadDepthSnapshot] = []
+    errors: list[dict[str, Any]] = []
     for sample_index in range(config.samples):
         for symbol in config.symbols:
             canonical_symbol = normalize_research_symbol(symbol)
-            started = time.perf_counter()
-            payload = fetch(symbol, config.depth_count)
-            latency_ms = (time.perf_counter() - started) * 1000.0
-            snapshots.append(
-                _snapshot_from_depth_payload(
-                    payload,
-                    symbol=canonical_symbol,
-                    provider=config.provider,
-                    latency_ms=latency_ms,
+            try:
+                started = time.perf_counter()
+                payload = fetch(symbol, config.depth_count)
+                latency_ms = (time.perf_counter() - started) * 1000.0
+                snapshots.append(
+                    _snapshot_from_depth_payload(
+                        payload,
+                        symbol=canonical_symbol,
+                        provider=config.provider,
+                        latency_ms=latency_ms,
+                    )
                 )
-            )
+            except Exception as exc:
+                if not config.continue_on_error:
+                    raise
+                errors.append(
+                    {
+                        "symbol": canonical_symbol,
+                        "sample_index": sample_index,
+                        "error": str(exc),
+                        "source": config.provider,
+                    }
+                )
         if sample_index < config.samples - 1 and config.sleep_seconds:
             time.sleep(config.sleep_seconds)
     result = SpreadDepthRecorderResult(
@@ -127,6 +143,7 @@ def record_spread_depth(
         provider=config.provider,
         snapshots=tuple(snapshots),
         summary_by_symbol=_summary_by_symbol(snapshots),
+        errors=tuple(errors),
     )
     return write_spread_depth_recording(result, config.output_dir, export_csv=config.export_csv)
 
@@ -180,6 +197,7 @@ def write_spread_depth_recording(
         provider=result.provider,
         snapshots=result.snapshots,
         summary_by_symbol=result.summary_by_symbol,
+        errors=result.errors,
         csv_path=str(csv_path) if csv_path else None,
         markdown_report_path=str(markdown_path),
         safety_notes=result.safety_notes,
@@ -193,6 +211,7 @@ def render_spread_depth_report(result: SpreadDepthRecorderResult) -> str:
         f"Generated at: `{result.generated_at}`",
         f"Provider: `{result.provider}`",
         f"Snapshots: `{len(result.snapshots)}`",
+        f"Errors: `{len(result.errors)}`",
         "",
         "## Summary By Symbol",
         "",
@@ -206,6 +225,15 @@ def render_spread_depth_report(result: SpreadDepthRecorderResult) -> str:
             f"{summary['spread_p99_bps']:.6f} | {summary['bid_depth_median_eur']:.6f} | "
             f"{summary['ask_depth_median_eur']:.6f} | {summary['latency_median_ms']:.6f} |"
         )
+    if result.errors:
+        lines.extend(["", "## Errors", ""])
+        lines.append("| Symbol | Sample | Source | Error |")
+        lines.append("| --- | ---: | --- | --- |")
+        for item in result.errors:
+            lines.append(
+                f"| {item.get('symbol', '-')} | {item.get('sample_index', '-')} | "
+                f"{item.get('source', '-')} | {item.get('error', '-')} |"
+            )
     lines.extend(["", "## Safety", ""])
     lines.extend(f"- {note}" for note in result.safety_notes)
     lines.append("")

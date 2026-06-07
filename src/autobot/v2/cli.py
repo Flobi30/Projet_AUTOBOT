@@ -94,6 +94,14 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_history.add_argument("--no-parquet", action="store_true")
     collect_history.set_defaults(handler=_cmd_collect_history)
 
+    collect_research_daily = subparsers.add_parser(
+        "collect-research-daily",
+        help="Run the isolated daily research data collection bundle",
+    )
+    collect_research_daily.add_argument("--config", required=True)
+    collect_research_daily.add_argument("--run-id", required=True)
+    collect_research_daily.set_defaults(handler=_cmd_collect_research_daily)
+
     data_quality = subparsers.add_parser(
         "data-quality",
         help="Analyze CSV/Parquet research datasets for gaps, volume and book availability",
@@ -551,6 +559,17 @@ def _cmd_collect_history(args: argparse.Namespace) -> int:
             export_csv=not bool(args.no_csv),
             export_parquet=not bool(args.no_parquet),
         )
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_collect_research_daily(args: argparse.Namespace) -> int:
+    from autobot.v2.research.daily_data_collection_runner import run_daily_research_data_collection
+
+    result = run_daily_research_data_collection(
+        config_path=Path(args.config),
+        run_id=args.run_id,
     )
     _print_json(result.to_dict())
     return 0

@@ -1,0 +1,122 @@
+import json
+from datetime import datetime, timezone
+
+import pytest
+
+from autobot.v2.research.daily_data_collection_runner import (
+    load_daily_research_data_collection_config,
+    run_daily_research_data_collection,
+)
+from autobot.v2.research.historical_data_collector import KrakenOHLCPage
+
+
+pytestmark = pytest.mark.unit
+
+
+def _write_config(path, tmp_path):
+    path.write_text(
+        "\n".join(
+            [
+                "priority_symbols:",
+                "  - TRXEUR",
+                "secondary_symbols:",
+                "  - BADPAIR",
+                "timeframes:",
+                "  - 5m",
+                "ohlcv:",
+                "  max_pages: 1",
+                "  dedupe: true",
+                "  fail_on_gaps: false",
+                "  export_csv: true",
+                "  export_parquet: false",
+                "microstructure:",
+                "  depth_count: 5",
+                "  sample_interval_seconds: 0",
+                "  samples_per_run: 1",
+                "output_dirs:",
+                f"  ohlcv: {str(tmp_path / 'ohlcv').replace(chr(92), '/')}",
+                f"  microstructure: {str(tmp_path / 'micro').replace(chr(92), '/')}",
+                f"  reports: {str(tmp_path / 'reports').replace(chr(92), '/')}",
+                "safety:",
+                "  public_endpoints_only: true",
+                "  no_private_keys: true",
+                "  no_orders: true",
+                "  research_only: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _epoch_minute(minute: int) -> float:
+    return datetime(2026, 6, 7, 0, minute, tzinfo=timezone.utc).timestamp()
+
+
+def test_daily_runner_collects_public_research_data_and_reports_public_errors(tmp_path, monkeypatch):
+    monkeypatch.setenv("KRAKEN_API_KEY", "secret_key_must_not_leak")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "secret_secret_must_not_leak")
+    config_path = tmp_path / "research_daily.yaml"
+    _write_config(config_path, tmp_path)
+    ohlc_calls = []
+    depth_calls = []
+
+    def ohlc_fetcher(pair, interval_minutes, since):
+        ohlc_calls.append((pair, interval_minutes, since))
+        if pair == "BADPAIR":
+            raise ValueError("public Kraken OHLC error")
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (_epoch_minute(0), "100", "101", "99", "100.5", "100", "10", 1),
+                (_epoch_minute(5), "100.5", "102", "100", "101.0", "101", "11", 2),
+            ),
+            last=None,
+        )
+
+    def depth_fetcher(pair, depth_count):
+        depth_calls.append((pair, depth_count))
+        if pair == "BADPAIR":
+            raise ValueError("public Kraken depth error")
+        return {
+            "error": [],
+            "result": {
+                "TRXEUR": {
+                    "bids": [["100.0", "2.0", "1780272000"]],
+                    "asks": [["100.2", "3.0", "1780272001"]],
+                }
+            },
+        }
+
+    result = run_daily_research_data_collection(
+        config_path=config_path,
+        run_id="pytest_daily",
+        ohlc_fetcher=ohlc_fetcher,
+        depth_fetcher=depth_fetcher,
+    )
+
+    payload = result.to_dict()
+    encoded = json.dumps(payload)
+    assert result.live_promotion_allowed is False
+    assert "secret_key_must_not_leak" not in encoded
+    assert "secret_secret_must_not_leak" not in encoded
+    assert ohlc_calls == [("TRXEUR", 5, None), ("BADPAIR", 5, None)]
+    assert depth_calls == [("TRXEUR", 5), ("BADPAIR", 5)]
+    assert any(op["status"] == "ok" and op["operation_type"] == "ohlcv" for op in payload["operations"])
+    assert any(op["status"] == "error" and op["symbol"] == "BADPAIR" for op in payload["operations"])
+    assert any(op["status"] == "partial" and op["operation_type"] == "spread_depth" for op in payload["operations"])
+    assert payload["microstructure_result"]["errors"][0]["error"] == "public Kraken depth error"
+    assert payload["manifest_path"]
+    assert payload["markdown_report_path"]
+    assert payload["microstructure_profile_path"]
+    assert payload["data_readiness_dashboard_path"]
+    assert "No paper or live order is created." in payload["safety_notes"]
+
+
+def test_daily_runner_rejects_config_that_is_not_research_only(tmp_path):
+    config_path = tmp_path / "unsafe.yaml"
+    _write_config(config_path, tmp_path)
+    text = config_path.read_text(encoding="utf-8").replace("  research_only: true", "  research_only: false")
+    config_path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="safety.research_only must be true"):
+        load_daily_research_data_collection_config(config_path)

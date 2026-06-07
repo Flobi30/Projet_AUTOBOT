@@ -1119,6 +1119,47 @@ def test_cli_data_quality_reports_gaps_without_runtime_mutation(tmp_path, capsys
     assert (tmp_path / "data_quality" / "pytest_data_quality_cli.md").exists()
 
 
+def test_cli_collect_research_daily_is_research_only(monkeypatch, tmp_path, capsys):
+    from autobot.v2.research import daily_data_collection_runner
+    from autobot.v2.research.daily_data_collection_runner import DailyResearchDataCollectionResult
+
+    config_path = tmp_path / "research_daily.yaml"
+    config_path.write_text("safety:\n  research_only: true\n", encoding="utf-8")
+    calls = {}
+
+    def fake_runner(*, config_path, run_id):
+        calls["config_path"] = str(config_path)
+        calls["run_id"] = run_id
+        return DailyResearchDataCollectionResult(
+            run_id=run_id,
+            generated_at="2026-06-07T00:00:00+00:00",
+            config_path=str(config_path),
+            operations=(),
+            microstructure_result=None,
+            microstructure_profile_path=None,
+            data_readiness_dashboard_path=None,
+        )
+
+    monkeypatch.setattr(daily_data_collection_runner, "run_daily_research_data_collection", fake_runner)
+
+    exit_code = cli.main(
+        [
+            "collect-research-daily",
+            "--config",
+            str(config_path),
+            "--run-id",
+            "pytest_daily_cli",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert calls == {"config_path": str(config_path), "run_id": "pytest_daily_cli"}
+    assert output["run_id"] == "pytest_daily_cli"
+    assert output["live_promotion_allowed"] is False
+    assert "No paper or live order is created." in output["safety_notes"]
+
+
 def test_cli_strategy_experiments_batch_accepts_csv_dataset(tmp_path, capsys):
     csv_path = tmp_path / "bars.csv"
     _write_grid_csv(csv_path)
