@@ -1,0 +1,539 @@
+{
+  "files": [
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 900.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_15m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-31T01:00:00+00:00",
+      "symbols": [
+        "BTCZEUR"
+      ],
+      "timeframes": [
+        "15m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 3600.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1h.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "symbols": [
+        "BTCZEUR"
+      ],
+      "timeframes": [
+        "1h"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 60.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-07T01:03:00+00:00",
+      "symbols": [
+        "BTCZEUR"
+      ],
+      "timeframes": [
+        "1m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 300.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_5m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-05T01:00:00+00:00",
+      "symbols": [
+        "BTCZEUR"
+      ],
+      "timeframes": [
+        "5m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 900.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_15m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-31T01:00:00+00:00",
+      "symbols": [
+        "ETHZEUR"
+      ],
+      "timeframes": [
+        "15m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 3600.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1h.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "symbols": [
+        "ETHZEUR"
+      ],
+      "timeframes": [
+        "1h"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 60.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-07T01:03:00+00:00",
+      "symbols": [
+        "ETHZEUR"
+      ],
+      "timeframes": [
+        "1m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 19
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 300.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_5m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-05T01:00:00+00:00",
+      "symbols": [
+        "ETHZEUR"
+      ],
+      "timeframes": [
+        "5m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 900.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_15m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-31T01:00:00+00:00",
+      "symbols": [
+        "TRXEUR"
+      ],
+      "timeframes": [
+        "15m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 3600.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1h.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "symbols": [
+        "TRXEUR"
+      ],
+      "timeframes": [
+        "1h"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 60.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-07T01:03:00+00:00",
+      "symbols": [
+        "TRXEUR"
+      ],
+      "timeframes": [
+        "1m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 271
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 300.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_5m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-05T01:00:00+00:00",
+      "symbols": [
+        "TRXEUR"
+      ],
+      "timeframes": [
+        "5m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 11
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 900.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_XLMZEUR_15m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-31T01:00:00+00:00",
+      "symbols": [
+        "XLMZEUR"
+      ],
+      "timeframes": [
+        "15m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "present",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 0
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 3600.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_XLMZEUR_1h.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "symbols": [
+        "XLMZEUR"
+      ],
+      "timeframes": [
+        "1h"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 1
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 60.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_XLMZEUR_1m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-07T01:03:00+00:00",
+      "symbols": [
+        "XLMZEUR"
+      ],
+      "timeframes": [
+        "1m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 361
+    },
+    {
+      "duplicate_count": 2,
+      "end_at": "2026-06-07T13:00:00+00:00",
+      "exclusions": [],
+      "gap_count": 0,
+      "has_bid_ask": false,
+      "has_depth": false,
+      "invalid_ohlc_count": 0,
+      "max_gap_seconds": 300.0,
+      "row_count": 723,
+      "source_path": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT\\data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_XLMZEUR_5m.parquet",
+      "source_type": "parquet",
+      "start_at": "2026-06-05T01:00:00+00:00",
+      "symbols": [
+        "XLMZEUR"
+      ],
+      "timeframes": [
+        "5m"
+      ],
+      "usable_for_backtest": true,
+      "volume_status": "partial",
+      "warnings": [
+        "duplicate_bars",
+        "duplicates_present",
+        "bid_ask_absent",
+        "order_book_depth_absent"
+      ],
+      "zero_volume_count": 17
+    }
+  ],
+  "generated_at": "2026-06-07T13:04:24.828019+00:00",
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "overall_status": "ready_for_research",
+  "recommendations": [
+    "Use exchange OHLCV history for research conclusions; keep market_price_samples as runtime diagnostics only.",
+    "Do not promote any strategy unless the tested dataset includes costs and sufficient out-of-sample windows.",
+    "Prefer Kraken REST/CCXT OHLCV exports because market_price_samples has no real volume.",
+    "Collect bid/ask or order-book snapshots before trusting intraday cost-sensitive strategies.",
+    "Databento is not the first priority for Kraken spot crypto here; public Kraken OHLCV plus local bid/ask/depth capture closes the immediate parity gap with less vendor complexity."
+  ],
+  "run_id": "kraken_ohlcv_quality_2026_06_07",
+  "safety_notes": [
+    "Research data-quality report only.",
+    "No runtime paper/live service is started.",
+    "No paper or live order is created.",
+    "No Kraken order can be created by this report.",
+    "No live trading permission is granted."
+  ],
+  "symbol_coverage": {
+    "BTCZEUR": {
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "file_count": 4,
+      "row_count": 2892,
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "duplicate_bars",
+        "duplicates_present",
+        "order_book_depth_absent"
+      ]
+    },
+    "ETHZEUR": {
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "file_count": 4,
+      "row_count": 2892,
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "duplicate_bars",
+        "duplicates_present",
+        "order_book_depth_absent"
+      ]
+    },
+    "TRXEUR": {
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "file_count": 4,
+      "row_count": 2892,
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "duplicate_bars",
+        "duplicates_present",
+        "order_book_depth_absent"
+      ]
+    },
+    "XLMZEUR": {
+      "end_at": "2026-06-07T13:03:00+00:00",
+      "file_count": 4,
+      "row_count": 2892,
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "warnings": [
+        "bid_ask_absent",
+        "duplicate_bars",
+        "duplicates_present",
+        "order_book_depth_absent"
+      ]
+    }
+  },
+  "unusable_file_count": 0,
+  "usable_file_count": 16
+}

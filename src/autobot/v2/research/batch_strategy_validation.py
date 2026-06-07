@@ -15,6 +15,7 @@ from typing import Any, Sequence
 from .execution_cost_model import ExecutionCostConfig
 from .market_data_repository import MarketDataRepository
 from .validation_matrix import MatrixRunConfig, MatrixRunResult, run_validation_matrix
+from .validation_runner import DataSource
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,10 @@ class BatchWindowSummary:
 @dataclass(frozen=True)
 class BatchStrategyValidationConfig:
     run_id: str
-    state_db_path: Path
     symbols: tuple[str, ...]
+    state_db_path: Path | None = None
+    data_source: DataSource = "autobot_state_db"
+    data_path: Path | None = None
     strategies: tuple[str, ...] = ("grid", "trend", "mean_reversion")
     timeframe: str = "5m"
     mode: str = "backtest"
@@ -72,13 +75,23 @@ class BatchStrategyValidationConfig:
             raise ValueError("strategies must not be empty")
         if self.mode not in {"backtest", "walk_forward"}:
             raise ValueError("mode must be backtest or walk_forward")
+        if self.data_source not in {"autobot_state_db", "csv"}:
+            raise ValueError("data_source must be autobot_state_db or csv")
+        if self.effective_data_path is None:
+            raise ValueError("state_db_path or data_path is required")
         self.cost_config.validate()
+
+    @property
+    def effective_data_path(self) -> Path | None:
+        return self.data_path or self.state_db_path
 
 
 @dataclass(frozen=True)
 class BatchStrategyValidationReport:
     run_id: str
     generated_at: str
+    data_source: str
+    data_path: str
     state_db_path: str
     symbols: tuple[str, ...]
     strategies: tuple[str, ...]
@@ -103,6 +116,8 @@ class BatchStrategyValidationReport:
         return {
             "run_id": self.run_id,
             "generated_at": self.generated_at,
+            "data_source": self.data_source,
+            "data_path": self.data_path,
             "state_db_path": self.state_db_path,
             "symbols": list(self.symbols),
             "strategies": list(self.strategies),
@@ -120,7 +135,14 @@ class BatchStrategyValidationReport:
 
 
 def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> BatchStrategyValidationReport:
-    windows = config.windows or infer_default_windows(config.state_db_path, symbols=config.symbols)
+    effective_path = config.effective_data_path
+    if effective_path is None:
+        raise ValueError("state_db_path or data_path is required")
+    windows = config.windows or infer_default_windows(
+        effective_path,
+        symbols=config.symbols,
+        data_source=config.data_source,
+    )
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     matrix_paths: list[str] = []
@@ -131,8 +153,8 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
         matrix = run_validation_matrix(
             MatrixRunConfig(
                 run_id=f"{config.run_id}_{safe_window}",
-                data_source="autobot_state_db",
-                data_path=config.state_db_path,
+                data_source=config.data_source,
+                data_path=effective_path,
                 symbols=config.symbols,
                 strategies=config.strategies,  # type: ignore[arg-type]
                 mode=config.mode,  # type: ignore[arg-type]
@@ -155,7 +177,9 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
     report = BatchStrategyValidationReport(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
-        state_db_path=str(config.state_db_path),
+        data_source=config.data_source,
+        data_path=str(effective_path),
+        state_db_path=str(config.state_db_path or ""),
         symbols=config.symbols,
         strategies=config.strategies,
         timeframe=config.timeframe,
@@ -170,12 +194,20 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
 
 
 def infer_default_windows(
-    state_db_path: str | Path,
+    data_path: str | Path,
     *,
     symbols: Sequence[str],
+    data_source: DataSource = "autobot_state_db",
 ) -> tuple[BatchValidationWindow, ...]:
     repository = MarketDataRepository()
-    bars = repository.load_autobot_state_db(state_db_path, symbols=symbols, canonicalize_symbols=True)
+    if data_source == "autobot_state_db":
+        bars = repository.load_autobot_state_db(data_path, symbols=symbols, canonicalize_symbols=True)
+    elif data_source == "csv":
+        bars = repository.load_csv(data_path)
+        wanted = {symbol.upper() for symbol in symbols}
+        bars = [bar for bar in bars if bar.symbol.upper() in wanted]
+    else:
+        raise ValueError("data_source must be autobot_state_db or csv")
     if len(bars) < 8:
         return (
             BatchValidationWindow("full", None, None, "all", "Full available sample."),
@@ -221,6 +253,8 @@ def write_batch_strategy_validation_report(
     return BatchStrategyValidationReport(
         run_id=report.run_id,
         generated_at=report.generated_at,
+        data_source=report.data_source,
+        data_path=report.data_path,
         state_db_path=report.state_db_path,
         symbols=report.symbols,
         strategies=report.strategies,
@@ -242,6 +276,8 @@ def render_batch_strategy_validation_report(report: BatchStrategyValidationRepor
         f"# Batch Strategy Validation - {report.run_id}",
         "",
         f"Generated at: `{report.generated_at}`",
+        f"Data source: `{report.data_source}`",
+        f"Data path: `{report.data_path}`",
         f"Strategies: `{', '.join(report.strategies)}`",
         f"Symbols: `{', '.join(report.symbols)}`",
         f"Cost config: `{json.dumps(report.cost_config, sort_keys=True)}`",

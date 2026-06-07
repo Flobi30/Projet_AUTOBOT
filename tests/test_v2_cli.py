@@ -1119,6 +1119,40 @@ def test_cli_data_quality_reports_gaps_without_runtime_mutation(tmp_path, capsys
     assert (tmp_path / "data_quality" / "pytest_data_quality_cli.md").exists()
 
 
+def test_cli_strategy_experiments_batch_accepts_csv_dataset(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+
+    exit_code = cli.main(
+        [
+            "strategy-experiments-batch",
+            "--run-id",
+            "pytest_batch_csv_cli",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--symbols",
+            "TRXEUR",
+            "--strategies",
+            "grid",
+            "--output-dir",
+            str(tmp_path / "batch_csv_cli"),
+            "--min-closed-trades",
+            "1",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["data_source"] == "csv"
+    assert output["state_db_path"] == ""
+    assert output["symbols"] == ["TRXEUR"]
+    assert output["status_by_strategy"]["grid"] in {"research_only", "shadow_candidate"}
+    assert "No live trading permission is granted." in output["safety_notes"]
+    assert (tmp_path / "batch_csv_cli" / "pytest_batch_csv_cli.md").exists()
+
+
 def test_cli_split_plan_blocks_unvalidated_parent_without_creating_child(tmp_path, capsys):
     evidence = json.dumps(
         [

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -82,7 +83,8 @@ def load_bars_for_validation(config: ValidationRunnerConfig) -> list[MarketBar]:
     repository = MarketDataRepository()
     if config.data_source == "csv":
         bars = repository.load_csv(config.data_path, default_symbol=config.symbol, default_timeframe="csv")
-        return _filter_bars_for_symbol(bars, config.symbol)
+        bars = _filter_bars_for_symbol(bars, config.symbol)
+        return _apply_temporal_filters(bars, start_at=config.start_at, end_at=config.end_at, limit=config.limit)
     if config.data_source == "autobot_state_db":
         return repository.load_autobot_state_db(
             config.data_path,
@@ -93,6 +95,38 @@ def load_bars_for_validation(config: ValidationRunnerConfig) -> list[MarketBar]:
             canonicalize_symbols=True,
         )
     raise ValueError(f"unsupported data_source: {config.data_source}")
+
+
+def _apply_temporal_filters(
+    bars: list[MarketBar],
+    *,
+    start_at: str | None = None,
+    end_at: str | None = None,
+    limit: int | None = None,
+) -> list[MarketBar]:
+    start = _parse_optional_timestamp(start_at)
+    end = _parse_optional_timestamp(end_at)
+    filtered = [
+        bar
+        for bar in bars
+        if (start is None or bar.timestamp >= start)
+        and (end is None or bar.timestamp <= end)
+    ]
+    if limit is not None:
+        return filtered[: max(1, int(limit))]
+    return filtered
+
+
+def _parse_optional_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _filter_bars_for_symbol(bars: list[MarketBar], symbol: str) -> list[MarketBar]:

@@ -79,6 +79,39 @@ def test_validation_runner_filters_multi_symbol_csv_to_requested_symbol(tmp_path
     assert bars[0].metadata["raw_symbol"] == "XXBTZEUR"
 
 
+def test_validation_runner_applies_time_filters_to_csv(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "timestamp,symbol,timeframe,open,high,low,close,volume",
+                "2026-05-31T00:00:00+00:00,TRXEUR,1m,1.0,1.1,0.9,1.0,1000",
+                "2026-05-31T00:01:00+00:00,TRXEUR,1m,1.1,1.2,1.0,1.1,1000",
+                "2026-05-31T00:02:00+00:00,TRXEUR,1m,1.2,1.3,1.1,1.2,1000",
+                "2026-05-31T00:03:00+00:00,TRXEUR,1m,1.3,1.4,1.2,1.3,1000",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_csv_time_filter",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="TRXEUR",
+        dataset_id="pytest_csv_time_filter",
+        start_at="2026-05-31T00:01:00+00:00",
+        end_at="2026-05-31T00:02:00+00:00",
+        limit=1,
+    )
+
+    bars = load_bars_for_validation(config)
+
+    assert len(bars) == 1
+    assert bars[0].timestamp.isoformat() == "2026-05-31T00:01:00+00:00"
+    assert bars[0].close == 1.1
+
+
 def test_validation_runner_canonicalizes_state_db_symbols(tmp_path):
     db_path = tmp_path / "state.db"
     with sqlite3.connect(db_path) as conn:

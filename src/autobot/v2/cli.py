@@ -463,7 +463,9 @@ def _add_strategy_experiment_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_strategy_batch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing market_price_samples")
+    parser.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing market_price_samples")
+    parser.add_argument("--data-source", choices=["autobot_state_db", "csv"], default="autobot_state_db")
+    parser.add_argument("--data-path", default=None, help="Research dataset path when --data-source=csv")
     parser.add_argument("--symbols", default=None, help="Comma-separated symbols; defaults to AUTOBOT top-14 EUR preset")
     parser.add_argument("--strategies", default=None, help="Comma-separated strategies; defaults to grid,trend,mean_reversion")
     parser.add_argument("--timeframe", default="5m")
@@ -955,11 +957,20 @@ def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
     strategies = _csv_tuple(args.strategies, "--strategies") if args.strategies else AUTOBOT_STANDARD_STRATEGIES
+    data_path = Path(args.data_path) if args.data_path else None
+    state_db_path = Path(args.state_db) if args.state_db else None
+    if args.data_source == "csv":
+        if data_path is None:
+            raise ValueError("--data-path is required when --data-source=csv")
+    elif state_db_path is None:
+        raise ValueError("--state-db is required when --data-source=autobot_state_db")
     result = run_batch_strategy_validation(
         BatchStrategyValidationConfig(
             run_id=args.run_id,
-            state_db_path=Path(args.state_db),
             symbols=symbols,
+            state_db_path=state_db_path,
+            data_source=args.data_source,
+            data_path=data_path,
             strategies=strategies,
             timeframe=args.timeframe.lower(),
             mode=args.mode,
