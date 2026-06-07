@@ -47,6 +47,30 @@ class BatchWindowSummary:
 
 
 @dataclass(frozen=True)
+class StrategyBatchDecision:
+    strategy: str
+    status: str
+    reasons: tuple[str, ...]
+    blockers: tuple[str, ...]
+    supporting_windows: tuple[str, ...]
+    failing_windows: tuple[str, ...]
+    best_symbols: tuple[str, ...]
+    rejected_symbols: tuple[str, ...]
+    sample_size_warning: str | None
+    overfit_risk: str
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["reasons"] = list(self.reasons)
+        payload["blockers"] = list(self.blockers)
+        payload["supporting_windows"] = list(self.supporting_windows)
+        payload["failing_windows"] = list(self.failing_windows)
+        payload["best_symbols"] = list(self.best_symbols)
+        payload["rejected_symbols"] = list(self.rejected_symbols)
+        return payload
+
+
+@dataclass(frozen=True)
 class BatchStrategyValidationConfig:
     run_id: str
     symbols: tuple[str, ...]
@@ -100,6 +124,7 @@ class BatchStrategyValidationReport:
     windows: tuple[BatchValidationWindow, ...]
     window_summaries: tuple[BatchWindowSummary, ...]
     matrix_report_paths: tuple[str, ...]
+    strategy_decisions: tuple[StrategyBatchDecision, ...]
     status_by_strategy: dict[str, str]
     conclusion: str
     json_report_path: str | None = None
@@ -126,6 +151,7 @@ class BatchStrategyValidationReport:
             "windows": [item.to_dict() for item in self.windows],
             "window_summaries": [item.to_dict() for item in self.window_summaries],
             "matrix_report_paths": list(self.matrix_report_paths),
+            "strategy_decisions": [item.to_dict() for item in self.strategy_decisions],
             "status_by_strategy": dict(self.status_by_strategy),
             "conclusion": self.conclusion,
             "json_report_path": self.json_report_path,
@@ -174,6 +200,14 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
         if matrix.json_report_path:
             matrix_paths.append(matrix.json_report_path)
         summaries.append(_summarize_matrix(window, matrix))
+    decisions = decide_strategy_batch(
+        matrices,
+        config.strategies,
+        min_closed_trades=config.min_closed_trades,
+        min_profit_factor=config.min_profit_factor,
+        max_drawdown_pct=config.max_drawdown_pct,
+        mode=config.mode,
+    )
     report = BatchStrategyValidationReport(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -187,7 +221,8 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
         windows=tuple(windows),
         window_summaries=tuple(summaries),
         matrix_report_paths=tuple(matrix_paths),
-        status_by_strategy=_status_by_strategy(matrices, config.strategies),
+        strategy_decisions=tuple(decisions),
+        status_by_strategy={decision.strategy: decision.status for decision in decisions},
         conclusion=_batch_conclusion(summaries),
     )
     return write_batch_strategy_validation_report(report, output_dir)
@@ -263,6 +298,7 @@ def write_batch_strategy_validation_report(
         windows=report.windows,
         window_summaries=report.window_summaries,
         matrix_report_paths=report.matrix_report_paths,
+        strategy_decisions=report.strategy_decisions,
         status_by_strategy=report.status_by_strategy,
         conclusion=report.conclusion,
         json_report_path=str(json_path),
@@ -298,6 +334,16 @@ def render_batch_strategy_validation_report(report: BatchStrategyValidationRepor
         )
     lines.extend(["", "## Status By Strategy", ""])
     lines.extend(f"- `{strategy}`: `{status}`" for strategy, status in sorted(report.status_by_strategy.items()))
+    lines.extend(["", "## Strategy Decisions", ""])
+    lines.append("| Strategy | Status | Blockers | Supporting Windows | Failing Windows | Best Symbols | Rejected Symbols | Overfit Risk |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for decision in sorted(report.strategy_decisions, key=lambda item: item.strategy):
+        lines.append(
+            f"| {decision.strategy} | {decision.status} | {', '.join(decision.blockers) or 'none'} | "
+            f"{', '.join(decision.supporting_windows) or '-'} | {', '.join(decision.failing_windows) or '-'} | "
+            f"{', '.join(decision.best_symbols) or '-'} | {', '.join(decision.rejected_symbols) or '-'} | "
+            f"{decision.overfit_risk} |"
+        )
     lines.extend(["", "## Conclusion", "", report.conclusion, "", "## Safety", ""])
     lines.extend(f"- {note}" for note in report.safety_notes)
     lines.append("")
@@ -321,8 +367,16 @@ def _summarize_matrix(window: BatchValidationWindow, matrix: MatrixRunResult) ->
     )
 
 
-def _status_by_strategy(matrices: Sequence[MatrixRunResult], strategies: Sequence[str]) -> dict[str, str]:
-    statuses: dict[str, str] = {}
+def decide_strategy_batch(
+    matrices: Sequence[MatrixRunResult],
+    strategies: Sequence[str],
+    *,
+    min_closed_trades: int,
+    min_profit_factor: float,
+    max_drawdown_pct: float,
+    mode: str = "backtest",
+) -> tuple[StrategyBatchDecision, ...]:
+    decisions: list[StrategyBatchDecision] = []
     for strategy in strategies:
         cells = [
             cell
@@ -331,13 +385,148 @@ def _status_by_strategy(matrices: Sequence[MatrixRunResult], strategies: Sequenc
             if cell.strategy == strategy and cell.status == "ok"
         ]
         if not cells:
-            statuses[strategy] = "research_only:no_successful_cells"
+            decisions.append(
+                StrategyBatchDecision(
+                    strategy=strategy,
+                    status="research_only",
+                    reasons=("no successful validation cells were produced",),
+                    blockers=("no_successful_cells",),
+                    supporting_windows=(),
+                    failing_windows=tuple(matrix.run_id for matrix in matrices),
+                    best_symbols=(),
+                    rejected_symbols=(),
+                    sample_size_warning="no closed trades available",
+                    overfit_risk="unknown",
+                )
+            )
             continue
-        positive = [cell for cell in cells if (cell.net_pnl_eur or 0.0) > 0.0]
-        enough_samples = [cell for cell in positive if int(cell.closed_trades or 0) >= 100]
-        stable_positive = len(enough_samples) >= max(1, len(cells) // 4)
-        statuses[strategy] = "shadow_candidate" if stable_positive else "research_only"
-    return statuses
+        total_trades = sum(int(cell.closed_trades or 0) for cell in cells)
+        total_net = sum(float(cell.net_pnl_eur or 0.0) for cell in cells)
+        blockers: list[str] = []
+        reasons: list[str] = []
+        positive_cells = [cell for cell in cells if (cell.net_pnl_eur or 0.0) > 0.0]
+        eligible_cells = [
+            cell
+            for cell in positive_cells
+            if int(cell.closed_trades or 0) >= min_closed_trades
+            and (cell.profit_factor or 0.0) >= min_profit_factor
+            and (cell.max_drawdown_pct is None or cell.max_drawdown_pct <= max_drawdown_pct)
+        ]
+        supporting_windows, failing_windows = _window_support_for_strategy(matrices, strategy, min_closed_trades)
+        positive_by_symbol = _net_pnl_by_symbol(positive_cells)
+        all_by_symbol = _net_pnl_by_symbol(cells)
+        best_symbols = tuple(f"{symbol}:{value:.6f}" for symbol, value in sorted(positive_by_symbol.items(), key=lambda item: item[1], reverse=True)[:5])
+        rejected_symbols = tuple(
+            f"{symbol}:{value:.6f}"
+            for symbol, value in sorted(all_by_symbol.items(), key=lambda item: item[1])[:5]
+            if value <= 0.0
+        )
+        if total_net <= 0.0:
+            blockers.append("non_positive_total_net_pnl")
+        if total_trades < min_closed_trades:
+            blockers.append("insufficient_total_closed_trades")
+        if not positive_cells:
+            blockers.append("no_positive_net_pnl_cells")
+        if not any((cell.profit_factor or 0.0) >= min_profit_factor for cell in positive_cells):
+            blockers.append("profit_factor_below_threshold")
+        if any((cell.max_drawdown_pct or 0.0) > max_drawdown_pct for cell in cells):
+            blockers.append("drawdown_above_threshold")
+        required_supporting = max(1, int(len(matrices) * 0.6 + 0.999))
+        if len(supporting_windows) < required_supporting:
+            blockers.append("insufficient_window_stability")
+        if mode == "walk_forward" and len(supporting_windows) < required_supporting:
+            blockers.append("walk_forward_not_passed")
+        if _is_dominated_by_single_symbol(positive_by_symbol):
+            blockers.append("dominated_by_single_symbol")
+        if not eligible_cells:
+            blockers.append("no_cell_passes_candidate_thresholds")
+        # Current batch cells do not yet carry baseline/MFE/exit-capture fields.
+        # Keep this explicit so a positive cell cannot silently become a
+        # shadow candidate without the validation evidence requested by the
+        # research protocol.
+        blockers.extend(
+            (
+                "baseline_no_trade_unavailable",
+                "baseline_buy_and_hold_unavailable",
+                "baseline_random_signal_unavailable",
+                "mfe_to_cost_unavailable",
+                "exit_capture_unavailable",
+            )
+        )
+        if positive_cells:
+            reasons.append(f"{len(positive_cells)} positive cells exist but full validation evidence is incomplete")
+        if total_net <= 0.0:
+            reasons.append("aggregate net PnL is not positive after costs")
+        if blockers:
+            status = "research_only"
+        else:
+            status = "shadow_candidate"
+        sample_warning = None
+        if total_trades < max(min_closed_trades, min_closed_trades * max(1, len(matrices) // 2)):
+            sample_warning = f"sample too small: {total_trades} closed trades"
+        decisions.append(
+            StrategyBatchDecision(
+                strategy=strategy,
+                status=status,
+                reasons=tuple(dict.fromkeys(reasons or ("candidate thresholds not met",))),
+                blockers=tuple(dict.fromkeys(blockers)),
+                supporting_windows=tuple(supporting_windows),
+                failing_windows=tuple(failing_windows),
+                best_symbols=best_symbols,
+                rejected_symbols=rejected_symbols,
+                sample_size_warning=sample_warning,
+                overfit_risk=_overfit_risk(blockers, positive_by_symbol, positive_cells, cells),
+            )
+        )
+    return tuple(decisions)
+
+
+def _window_support_for_strategy(
+    matrices: Sequence[MatrixRunResult],
+    strategy: str,
+    min_closed_trades: int,
+) -> tuple[list[str], list[str]]:
+    supporting: list[str] = []
+    failing: list[str] = []
+    for matrix in matrices:
+        cells = [cell for cell in matrix.results if cell.strategy == strategy and cell.status == "ok"]
+        trades = sum(int(cell.closed_trades or 0) for cell in cells)
+        net_pnl = sum(float(cell.net_pnl_eur or 0.0) for cell in cells)
+        if cells and trades >= min_closed_trades and net_pnl > 0.0:
+            supporting.append(matrix.run_id)
+        else:
+            failing.append(matrix.run_id)
+    return supporting, failing
+
+
+def _net_pnl_by_symbol(cells: Sequence[Any]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for cell in cells:
+        totals[cell.symbol] = totals.get(cell.symbol, 0.0) + float(cell.net_pnl_eur or 0.0)
+    return totals
+
+
+def _is_dominated_by_single_symbol(positive_by_symbol: dict[str, float]) -> bool:
+    positive_values = [value for value in positive_by_symbol.values() if value > 0.0]
+    if len(positive_values) <= 1:
+        return bool(positive_values)
+    total = sum(positive_values)
+    return total > 0.0 and max(positive_values) / total >= 0.70
+
+
+def _overfit_risk(
+    blockers: Sequence[str],
+    positive_by_symbol: dict[str, float],
+    positive_cells: Sequence[Any],
+    all_cells: Sequence[Any],
+) -> str:
+    if any(blocker.startswith("baseline_") for blocker in blockers):
+        return "high"
+    if _is_dominated_by_single_symbol(positive_by_symbol):
+        return "high"
+    if len(positive_cells) < max(2, len(all_cells) // 4):
+        return "medium"
+    return "low"
 
 
 def _batch_conclusion(summaries: Sequence[BatchWindowSummary]) -> str:

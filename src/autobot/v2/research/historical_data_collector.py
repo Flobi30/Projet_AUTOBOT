@@ -39,6 +39,14 @@ class KrakenOHLCPage:
 
 
 @dataclass(frozen=True)
+class FetchedOHLCRows:
+    rows: tuple[tuple[Any, ...], ...]
+    last_cursor: int | None
+    pages_fetched: int
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class HistoricalDataCollectorConfig:
     run_id: str
     symbols: tuple[str, ...]
@@ -46,8 +54,12 @@ class HistoricalDataCollectorConfig:
     output_dir: Path = Path("data/research/historical")
     provider: str = "kraken_rest_public"
     since: int | None = None
+    start_at: str | None = None
+    end_at: str | None = None
     max_pages: int = 1
     sleep_seconds: float = 0.0
+    dedupe: bool = True
+    fail_on_gaps: bool = False
     export_csv: bool = True
     export_parquet: bool = True
 
@@ -62,6 +74,12 @@ class HistoricalDataCollectorConfig:
             raise ValueError("max_pages must be positive")
         if self.sleep_seconds < 0.0:
             raise ValueError("sleep_seconds cannot be negative")
+        if self.since is not None and self.start_at:
+            raise ValueError("use either since or start_at, not both")
+        start_dt = _parse_optional_datetime(self.start_at)
+        end_dt = _parse_optional_datetime(self.end_at)
+        if start_dt and end_dt and end_dt < start_dt:
+            raise ValueError("end_at must be greater than or equal to start_at")
         for timeframe in self.timeframes:
             _timeframe_to_kraken_interval(timeframe)
 
@@ -74,6 +92,13 @@ class HistoricalDataFile:
     row_count: int
     start_at: str | None
     end_at: str | None
+    requested_start_at: str | None = None
+    requested_end_at: str | None = None
+    last_cursor: int | None = None
+    pages_fetched: int = 0
+    row_count_raw: int = 0
+    row_count_deduped: int = 0
+    duplicate_count: int = 0
     csv_path: str | None = None
     parquet_path: str | None = None
     warnings: tuple[str, ...] = ()
@@ -130,18 +155,41 @@ def collect_historical_ohlcv(
     output_dir.mkdir(parents=True, exist_ok=True)
     files: list[HistoricalDataFile] = []
     file_quality_reports = []
+    start_dt = _parse_optional_datetime(config.start_at)
+    end_dt = _parse_optional_datetime(config.end_at)
+    since_cursor = config.since if start_dt is None else int(start_dt.timestamp())
 
     for symbol in config.symbols:
         canonical_symbol = normalize_research_symbol(symbol)
         for timeframe in config.timeframes:
             interval = _timeframe_to_kraken_interval(timeframe)
-            rows = _fetch_pages(fetch, symbol, interval, since=config.since, max_pages=config.max_pages, sleep_seconds=config.sleep_seconds)
-            bars = _bars_from_kraken_rows(rows, symbol=canonical_symbol, timeframe=timeframe, provider=config.provider)
+            fetched = _fetch_pages(
+                fetch,
+                symbol,
+                interval,
+                since=since_cursor,
+                start_at=start_dt,
+                end_at=end_dt,
+                max_pages=config.max_pages,
+                sleep_seconds=config.sleep_seconds,
+            )
+            raw_bars = _bars_from_kraken_rows(
+                fetched.rows,
+                symbol=canonical_symbol,
+                timeframe=timeframe,
+                provider=config.provider,
+            )
+            bars, duplicate_count = _dedupe_bars(raw_bars) if config.dedupe else (
+                MarketDataRepository.normalize(raw_bars),
+                _count_duplicate_bars(raw_bars),
+            )
             safe_symbol = canonical_symbol.replace("/", "").upper()
             safe_timeframe = timeframe.lower()
             csv_path: Path | None = None
             parquet_path: Path | None = None
-            warnings: list[str] = []
+            warnings: list[str] = list(fetched.warnings)
+            if duplicate_count:
+                warnings.append("duplicates_deduped" if config.dedupe else "duplicates_present")
             if config.export_csv:
                 csv_path = repository.save_csv(bars, output_dir / f"{config.run_id}_{safe_symbol}_{safe_timeframe}.csv")
             if config.export_parquet:
@@ -159,6 +207,10 @@ def collect_historical_ohlcv(
                 source_type=config.provider,
                 expected_interval_seconds=expected_seconds,
             )
+            if config.fail_on_gaps and quality.gap_count:
+                raise ValueError(
+                    f"data gaps detected for {canonical_symbol} {timeframe}: {quality.gap_count}"
+                )
             file_quality_reports.append(quality)
             files.append(
                 HistoricalDataFile(
@@ -168,6 +220,13 @@ def collect_historical_ohlcv(
                     row_count=len(bars),
                     start_at=bars[0].timestamp.isoformat() if bars else None,
                     end_at=bars[-1].timestamp.isoformat() if bars else None,
+                    requested_start_at=start_dt.isoformat() if start_dt else None,
+                    requested_end_at=end_dt.isoformat() if end_dt else None,
+                    last_cursor=fetched.last_cursor,
+                    pages_fetched=fetched.pages_fetched,
+                    row_count_raw=len(raw_bars),
+                    row_count_deduped=len(bars),
+                    duplicate_count=duplicate_count,
                     csv_path=str(csv_path) if csv_path else None,
                     parquet_path=str(parquet_path) if parquet_path else None,
                     warnings=tuple(dict.fromkeys([*warnings, *quality.warnings])),
@@ -246,13 +305,14 @@ def render_historical_data_collection_report(result: HistoricalDataCollectionRes
         "",
         "## Files",
         "",
-        "| Symbol | Timeframe | Rows | Start | End | CSV | Parquet | Warnings |",
-        "| --- | --- | ---: | --- | --- | --- | --- | --- |",
+        "| Symbol | Timeframe | Rows | Raw | Duplicates | Pages | Cursor | Start | End | CSV | Parquet | Warnings |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
     ]
     for item in result.files:
         lines.append(
-            f"| {item.symbol} | {item.timeframe} | {item.row_count} | {item.start_at or '-'} | "
-            f"{item.end_at or '-'} | {item.csv_path or '-'} | {item.parquet_path or '-'} | "
+            f"| {item.symbol} | {item.timeframe} | {item.row_count} | {item.row_count_raw} | "
+            f"{item.duplicate_count} | {item.pages_fetched} | {item.last_cursor or '-'} | "
+            f"{item.start_at or '-'} | {item.end_at or '-'} | {item.csv_path or '-'} | {item.parquet_path or '-'} | "
             f"{', '.join(item.warnings) or 'none'} |"
         )
     lines.extend(["", "## Safety", ""])
@@ -267,22 +327,49 @@ def _fetch_pages(
     interval: int,
     *,
     since: int | None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
     max_pages: int,
     sleep_seconds: float,
-) -> tuple[tuple[Any, ...], ...]:
+) -> FetchedOHLCRows:
     rows: list[tuple[Any, ...]] = []
     cursor = since
     seen_cursors: set[int] = set()
+    warnings: list[str] = []
+    start_epoch = int(start_at.timestamp()) if start_at else None
+    end_epoch = int(end_at.timestamp()) if end_at else None
+    pages_fetched = 0
     for page_index in range(max_pages):
         page = fetcher(pair, interval, cursor)
+        pages_fetched += 1
         rows.extend(page.rows)
+        page_epochs = [_row_epoch(row) for row in page.rows]
+        if end_epoch is not None and any(epoch is not None and epoch >= end_epoch for epoch in page_epochs):
+            break
         if page.last is None or page.last == cursor or page.last in seen_cursors:
             break
         seen_cursors.add(page.last)
         cursor = page.last
         if page_index < max_pages - 1 and sleep_seconds:
             time.sleep(sleep_seconds)
-    return tuple(rows)
+    else:
+        warnings.append("max_pages_reached")
+    filtered_rows = []
+    for row in rows:
+        epoch = _row_epoch(row)
+        if epoch is None:
+            continue
+        if start_epoch is not None and epoch < start_epoch:
+            continue
+        if end_epoch is not None and epoch > end_epoch:
+            continue
+        filtered_rows.append(row)
+    return FetchedOHLCRows(
+        rows=tuple(filtered_rows),
+        last_cursor=cursor,
+        pages_fetched=pages_fetched,
+        warnings=tuple(warnings),
+    )
 
 
 def _bars_from_kraken_rows(
@@ -334,6 +421,46 @@ def _timeframe_to_kraken_interval(timeframe: str) -> int:
     if seconds % 60 != 0 or minutes not in KRAKEN_SUPPORTED_INTERVALS:
         raise ValueError(f"timeframe {timeframe!r} is not supported by Kraken OHLC")
     return minutes
+
+
+def _dedupe_bars(bars: Sequence[MarketBar]) -> tuple[list[MarketBar], int]:
+    deduped: list[MarketBar] = []
+    seen: set[tuple[str, str, datetime]] = set()
+    duplicate_count = 0
+    for bar in MarketDataRepository.normalize(bars):
+        key = bar.key()
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
+        deduped.append(bar)
+    return deduped, duplicate_count
+
+
+def _count_duplicate_bars(bars: Sequence[MarketBar]) -> int:
+    keys = [bar.key() for bar in bars]
+    return len(keys) - len(set(keys))
+
+
+def _row_epoch(row: Sequence[Any]) -> int | None:
+    if not row:
+        return None
+    try:
+        return int(float(row[0]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _safe_int(value: Any) -> int | None:

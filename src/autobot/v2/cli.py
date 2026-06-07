@@ -84,8 +84,12 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_history.add_argument("--timeframes", default="1m,5m,15m,1h")
     collect_history.add_argument("--output-dir", default="data/research/historical")
     collect_history.add_argument("--since", type=int, default=None)
+    collect_history.add_argument("--start-at", default=None, help="ISO8601 start timestamp for forward pagination")
+    collect_history.add_argument("--end-at", default=None, help="ISO8601 end timestamp for forward pagination")
     collect_history.add_argument("--max-pages", type=int, default=1)
     collect_history.add_argument("--sleep-seconds", type=float, default=0.0)
+    collect_history.add_argument("--dedupe", choices=["true", "false"], default="true")
+    collect_history.add_argument("--fail-on-gaps", action="store_true")
     collect_history.add_argument("--no-csv", action="store_true")
     collect_history.add_argument("--no-parquet", action="store_true")
     collect_history.set_defaults(handler=_cmd_collect_history)
@@ -538,8 +542,12 @@ def _cmd_collect_history(args: argparse.Namespace) -> int:
             timeframes=_csv_tuple(args.timeframes, "--timeframes"),
             output_dir=Path(args.output_dir),
             since=args.since,
+            start_at=args.start_at,
+            end_at=args.end_at,
             max_pages=args.max_pages,
             sleep_seconds=args.sleep_seconds,
+            dedupe=_parse_bool(args.dedupe, "--dedupe"),
+            fail_on_gaps=bool(args.fail_on_gaps),
             export_csv=not bool(args.no_csv),
             export_parquet=not bool(args.no_parquet),
         )
@@ -1388,6 +1396,15 @@ def _parse_datetime(value: Any) -> datetime:
         text = f"{text[:-1]}+00:00"
     parsed = datetime.fromisoformat(text)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _parse_bool(value: str, label: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    raise ValueError(f"{label} must be true or false")
 
 
 def _print_json(payload: dict[str, Any]) -> None:

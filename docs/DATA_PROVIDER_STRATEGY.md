@@ -15,6 +15,13 @@ Use public Kraken OHLCV history first:
 
 No Kraken private key is required for OHLCV collection.
 
+Kraken REST OHLC should be treated as a convenient public bootstrap source, not a complete archive. The official endpoint documents that it returns up to 720 recent entries. AUTOBOT therefore records requested `start_at` and `end_at` in collection manifests, but long histories must come from one of these paths:
+
+- repeated local accumulation over time;
+- a CCXT/Kraken historical workflow if it can produce older OHLCV without private keys;
+- verified public CSV exports;
+- a later paid institutional feed only after the research question justifies the added complexity.
+
 ## Runtime Complement
 
 Keep `market_price_samples` as a complementary runtime source:
@@ -40,6 +47,13 @@ Grid/scalping-style strategies are highly sensitive to costs. OHLCV close prices
 - stale data events;
 - latency assumptions;
 - minimum order constraints.
+
+AUTOBOT now separates data usability tiers:
+
+- `ready_for_ohlcv_research`: candles are usable for signal research, but not enough for cost-sensitive execution conclusions.
+- `not_ready_for_cost_sensitive_intraday`: OHLCV is clean enough to inspect but missing bid/ask/depth, too short, or too coarse for intraday cost decisions.
+- `ready_for_batch_validation`: history is long enough for multi-window validation and contains no final gaps or duplicates.
+- `ready_for_paper_candidate_review`: batch-ready data also has bid/ask/depth or a reliable spread proxy.
 
 ## Why Databento Is Not Priority Now
 

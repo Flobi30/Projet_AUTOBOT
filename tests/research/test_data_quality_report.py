@@ -94,7 +94,14 @@ def test_data_foundation_report_writer_outputs_json_and_markdown(tmp_path):
 
     assert written.json_report_path
     assert written.markdown_report_path
-    assert written.overall_status in {"ready_for_research", "partial", "not_ready"}
+    assert written.overall_status in {
+        "ready_for_ohlcv_research",
+        "not_ready_for_cost_sensitive_intraday",
+        "ready_for_batch_validation",
+        "ready_for_paper_candidate_review",
+        "partial",
+        "not_ready",
+    }
     markdown = (tmp_path / "reports" / "pytest_data_foundation.md").read_text(encoding="utf-8")
     assert "Data Foundation Readiness" in markdown
     assert "No paper or live order is created." in markdown

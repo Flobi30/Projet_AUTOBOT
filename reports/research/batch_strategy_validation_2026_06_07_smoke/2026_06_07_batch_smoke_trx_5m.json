@@ -1,0 +1,547 @@
+{
+  "conclusion": "No validation window was net positive after costs; keep strategies research-only.",
+  "cost_config": {
+    "fallback_spread_bps": 8.0,
+    "latency_buffer_bps": 1.0,
+    "maker_fee_bps": 10.0,
+    "max_liquidity_participation": 0.05,
+    "max_spread_bps": 80.0,
+    "min_notional_eur": 5.0,
+    "slippage_bps": 4.0,
+    "taker_fee_bps": 16.0
+  },
+  "data_path": "data\\research\\historical_long_foundation_smoke_2026_06_07\\2026_06_07_kraken_smoke_TRXEUR_5m.csv",
+  "data_source": "csv",
+  "generated_at": "2026-06-07T15:58:19.379992+00:00",
+  "json_report_path": null,
+  "markdown_report_path": null,
+  "matrix_report_paths": [
+    "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\full\\2026_06_07_batch_smoke_trx_5m_full.json",
+    "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\early\\2026_06_07_batch_smoke_trx_5m_early.json",
+    "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\middle\\2026_06_07_batch_smoke_trx_5m_middle.json",
+    "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\late\\2026_06_07_batch_smoke_trx_5m_late.json",
+    "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\weekend\\2026_06_07_batch_smoke_trx_5m_weekend.json"
+  ],
+  "run_id": "2026_06_07_batch_smoke_trx_5m",
+  "safety_notes": [
+    "Batch strategy validation is research-only.",
+    "No runtime paper/live service is started.",
+    "No paper or live order is created.",
+    "No strategy registry mutation is performed.",
+    "No live trading permission is granted."
+  ],
+  "state_db_path": "",
+  "status_by_strategy": {
+    "grid": "research_only",
+    "mean_reversion": "research_only",
+    "trend": "research_only"
+  },
+  "strategies": [
+    "grid",
+    "trend",
+    "mean_reversion"
+  ],
+  "strategy_decisions": [
+    {
+      "best_symbols": [
+        "TRXEUR:0.112747"
+      ],
+      "blockers": [
+        "non_positive_total_net_pnl",
+        "insufficient_total_closed_trades",
+        "insufficient_window_stability",
+        "dominated_by_single_symbol",
+        "no_cell_passes_candidate_thresholds",
+        "baseline_no_trade_unavailable",
+        "baseline_buy_and_hold_unavailable",
+        "baseline_random_signal_unavailable",
+        "mfe_to_cost_unavailable",
+        "exit_capture_unavailable"
+      ],
+      "failing_windows": [
+        "2026_06_07_batch_smoke_trx_5m_full",
+        "2026_06_07_batch_smoke_trx_5m_early",
+        "2026_06_07_batch_smoke_trx_5m_middle",
+        "2026_06_07_batch_smoke_trx_5m_late",
+        "2026_06_07_batch_smoke_trx_5m_weekend"
+      ],
+      "overfit_risk": "high",
+      "reasons": [
+        "2 positive cells exist but full validation evidence is incomplete",
+        "aggregate net PnL is not positive after costs"
+      ],
+      "rejected_symbols": [
+        "TRXEUR:-1.578814"
+      ],
+      "sample_size_warning": "sample too small: 8 closed trades",
+      "status": "research_only",
+      "strategy": "grid",
+      "supporting_windows": []
+    },
+    {
+      "best_symbols": [],
+      "blockers": [
+        "non_positive_total_net_pnl",
+        "insufficient_total_closed_trades",
+        "no_positive_net_pnl_cells",
+        "profit_factor_below_threshold",
+        "insufficient_window_stability",
+        "no_cell_passes_candidate_thresholds",
+        "baseline_no_trade_unavailable",
+        "baseline_buy_and_hold_unavailable",
+        "baseline_random_signal_unavailable",
+        "mfe_to_cost_unavailable",
+        "exit_capture_unavailable"
+      ],
+      "failing_windows": [
+        "2026_06_07_batch_smoke_trx_5m_full",
+        "2026_06_07_batch_smoke_trx_5m_early",
+        "2026_06_07_batch_smoke_trx_5m_middle",
+        "2026_06_07_batch_smoke_trx_5m_late",
+        "2026_06_07_batch_smoke_trx_5m_weekend"
+      ],
+      "overfit_risk": "high",
+      "reasons": [
+        "aggregate net PnL is not positive after costs"
+      ],
+      "rejected_symbols": [
+        "TRXEUR:0.000000"
+      ],
+      "sample_size_warning": "sample too small: 0 closed trades",
+      "status": "research_only",
+      "strategy": "trend",
+      "supporting_windows": []
+    },
+    {
+      "best_symbols": [],
+      "blockers": [
+        "non_positive_total_net_pnl",
+        "no_positive_net_pnl_cells",
+        "profit_factor_below_threshold",
+        "insufficient_window_stability",
+        "no_cell_passes_candidate_thresholds",
+        "baseline_no_trade_unavailable",
+        "baseline_buy_and_hold_unavailable",
+        "baseline_random_signal_unavailable",
+        "mfe_to_cost_unavailable",
+        "exit_capture_unavailable"
+      ],
+      "failing_windows": [
+        "2026_06_07_batch_smoke_trx_5m_full",
+        "2026_06_07_batch_smoke_trx_5m_early",
+        "2026_06_07_batch_smoke_trx_5m_middle",
+        "2026_06_07_batch_smoke_trx_5m_late",
+        "2026_06_07_batch_smoke_trx_5m_weekend"
+      ],
+      "overfit_risk": "high",
+      "reasons": [
+        "aggregate net PnL is not positive after costs"
+      ],
+      "rejected_symbols": [
+        "TRXEUR:-16.920744"
+      ],
+      "sample_size_warning": "sample too small: 37 closed trades",
+      "status": "research_only",
+      "strategy": "mean_reversion",
+      "supporting_windows": []
+    }
+  ],
+  "symbols": [
+    "TRXEUR"
+  ],
+  "timeframe": "5m",
+  "window_summaries": [
+    {
+      "best_cell": {
+        "bar_count": 721,
+        "closed_trades": 0,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0,
+        "latency_cost_eur": 0,
+        "max_drawdown_pct": 0.0,
+        "mode": "backtest",
+        "net_pnl_eur": 0,
+        "profit_factor": null,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\full\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_full_TRXEUR_trend.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_full_TRXEUR_trend",
+        "slippage_eur": 0,
+        "spread_cost_eur": 0,
+        "status": "ok",
+        "strategy": "trend",
+        "symbol": "TRXEUR",
+        "total_return_pct": 0.0
+      },
+      "cell_count": 3,
+      "error_count": 0,
+      "profitable_cell_count": 0,
+      "success_count": 3,
+      "total_net_pnl_eur": -7.232615258305265,
+      "total_trades": 17,
+      "window_name": "full",
+      "worst_cell": {
+        "bar_count": 721,
+        "closed_trades": 15,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 4.8,
+        "latency_cost_eur": 0.3,
+        "max_drawdown_pct": 0.7145614554581698,
+        "mode": "backtest",
+        "net_pnl_eur": -7.145614554581607,
+        "profit_factor": 0.005098620735740872,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\full\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_full_TRXEUR_mean_reversion.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_full_TRXEUR_mean_reversion",
+        "slippage_eur": 1.2,
+        "spread_cost_eur": 1.2,
+        "status": "ok",
+        "strategy": "mean_reversion",
+        "symbol": "TRXEUR",
+        "total_return_pct": -0.7145614554581607
+      }
+    },
+    {
+      "best_cell": {
+        "bar_count": 241,
+        "closed_trades": 0,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0,
+        "latency_cost_eur": 0,
+        "max_drawdown_pct": 0.0,
+        "mode": "backtest",
+        "net_pnl_eur": 0,
+        "profit_factor": null,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\early\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_early_TRXEUR_trend.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_early_TRXEUR_trend",
+        "slippage_eur": 0,
+        "spread_cost_eur": 0,
+        "status": "ok",
+        "strategy": "trend",
+        "symbol": "TRXEUR",
+        "total_return_pct": 0.0
+      },
+      "cell_count": 3,
+      "error_count": 0,
+      "profitable_cell_count": 0,
+      "success_count": 3,
+      "total_net_pnl_eur": -6.120660304572898,
+      "total_trades": 10,
+      "window_name": "early",
+      "worst_cell": {
+        "bar_count": 241,
+        "closed_trades": 8,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 2.56,
+        "latency_cost_eur": 0.16,
+        "max_drawdown_pct": 0.4516099673182566,
+        "mode": "backtest",
+        "net_pnl_eur": -4.516099673182498,
+        "profit_factor": 0.00804343209491107,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\early\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_early_TRXEUR_mean_reversion.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_early_TRXEUR_mean_reversion",
+        "slippage_eur": 0.64,
+        "spread_cost_eur": 0.64,
+        "status": "ok",
+        "strategy": "mean_reversion",
+        "symbol": "TRXEUR",
+        "total_return_pct": -0.45160996731824976
+      }
+    },
+    {
+      "best_cell": {
+        "bar_count": 241,
+        "closed_trades": 2,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0.64,
+        "latency_cost_eur": 0.04,
+        "max_drawdown_pct": 0.0011056444945718538,
+        "mode": "backtest",
+        "net_pnl_eur": 0.038784579138058384,
+        "profit_factor": 4.507695858876745,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\middle\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_middle_TRXEUR_grid.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_middle_TRXEUR_grid",
+        "slippage_eur": 0.16,
+        "spread_cost_eur": 0.16,
+        "status": "ok",
+        "strategy": "grid",
+        "symbol": "TRXEUR",
+        "total_return_pct": 0.0038784579138058384
+      },
+      "cell_count": 3,
+      "error_count": 0,
+      "profitable_cell_count": 1,
+      "success_count": 3,
+      "total_net_pnl_eur": -1.8487878051586752,
+      "total_trades": 7,
+      "window_name": "middle",
+      "worst_cell": {
+        "bar_count": 241,
+        "closed_trades": 5,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 1.6,
+        "latency_cost_eur": 0.1,
+        "max_drawdown_pct": 0.18875723842967318,
+        "mode": "backtest",
+        "net_pnl_eur": -1.8875723842967336,
+        "profit_factor": 0.0,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\middle\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_middle_TRXEUR_mean_reversion.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_middle_TRXEUR_mean_reversion",
+        "slippage_eur": 0.4,
+        "spread_cost_eur": 0.4,
+        "status": "ok",
+        "strategy": "mean_reversion",
+        "symbol": "TRXEUR",
+        "total_return_pct": -0.18875723842967337
+      }
+    },
+    {
+      "best_cell": {
+        "bar_count": 241,
+        "closed_trades": 0,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0,
+        "latency_cost_eur": 0,
+        "max_drawdown_pct": 0.0,
+        "mode": "backtest",
+        "net_pnl_eur": 0,
+        "profit_factor": null,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\late\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_late_TRXEUR_trend.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_late_TRXEUR_trend",
+        "slippage_eur": 0,
+        "spread_cost_eur": 0,
+        "status": "ok",
+        "strategy": "trend",
+        "symbol": "TRXEUR",
+        "total_return_pct": 0.0
+      },
+      "cell_count": 3,
+      "error_count": 0,
+      "profitable_cell_count": 0,
+      "success_count": 3,
+      "total_net_pnl_eur": -0.7419424971023768,
+      "total_trades": 2,
+      "window_name": "late",
+      "worst_cell": {
+        "bar_count": 241,
+        "closed_trades": 2,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0.64,
+        "latency_cost_eur": 0.04,
+        "max_drawdown_pct": 0.07419424971024001,
+        "mode": "backtest",
+        "net_pnl_eur": -0.7419424971023768,
+        "profit_factor": 0.0,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\late\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_late_TRXEUR_mean_reversion.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_late_TRXEUR_mean_reversion",
+        "slippage_eur": 0.16,
+        "spread_cost_eur": 0.16,
+        "status": "ok",
+        "strategy": "mean_reversion",
+        "symbol": "TRXEUR",
+        "total_return_pct": -0.07419424971023768
+      }
+    },
+    {
+      "best_cell": {
+        "bar_count": 480,
+        "closed_trades": 2,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 0.64,
+        "latency_cost_eur": 0.04,
+        "max_drawdown_pct": 0.0011056056031668597,
+        "mode": "backtest",
+        "net_pnl_eur": 0.07396289524959404,
+        "profit_factor": 7.6892395674587535,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\weekend\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_weekend_TRXEUR_grid.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_weekend_TRXEUR_grid",
+        "slippage_eur": 0.16,
+        "spread_cost_eur": 0.16,
+        "status": "ok",
+        "strategy": "grid",
+        "symbol": "TRXEUR",
+        "total_return_pct": 0.007396289524959404
+      },
+      "cell_count": 3,
+      "error_count": 0,
+      "profitable_cell_count": 1,
+      "success_count": 3,
+      "total_net_pnl_eur": -2.5555519861495166,
+      "total_trades": 9,
+      "window_name": "weekend",
+      "worst_cell": {
+        "bar_count": 480,
+        "closed_trades": 7,
+        "cost_config": {
+          "fallback_spread_bps": 8.0,
+          "latency_buffer_bps": 1.0,
+          "maker_fee_bps": 10.0,
+          "max_liquidity_participation": 0.05,
+          "max_spread_bps": 80.0,
+          "min_notional_eur": 5.0,
+          "slippage_bps": 4.0,
+          "taker_fee_bps": 16.0
+        },
+        "decision": "keep_testing",
+        "error": null,
+        "fees_eur": 2.24,
+        "latency_cost_eur": 0.14,
+        "max_drawdown_pct": 0.2629514881399132,
+        "mode": "backtest",
+        "net_pnl_eur": -2.6295148813991105,
+        "profit_factor": 0.0,
+        "reason": "insufficient_closed_trades",
+        "report_path": "reports\\research\\batch_strategy_validation_2026_06_07_smoke\\matrices\\weekend\\cells\\backtests\\2026_06_07_batch_smoke_trx_5m_weekend_TRXEUR_mean_reversion.md",
+        "run_id": "2026_06_07_batch_smoke_trx_5m_weekend_TRXEUR_mean_reversion",
+        "slippage_eur": 0.56,
+        "spread_cost_eur": 0.56,
+        "status": "ok",
+        "strategy": "mean_reversion",
+        "symbol": "TRXEUR",
+        "total_return_pct": -0.26295148813991104
+      }
+    }
+  ],
+  "windows": [
+    {
+      "description": "Full available sample.",
+      "end_at": "2026-06-07T15:55:00+00:00",
+      "name": "full",
+      "regime_hint": "all",
+      "start_at": "2026-06-05T03:55:00+00:00"
+    },
+    {
+      "description": "First third.",
+      "end_at": "2026-06-05T23:55:00+00:00",
+      "name": "early",
+      "regime_hint": "sample_segment",
+      "start_at": "2026-06-05T03:55:00+00:00"
+    },
+    {
+      "description": "Middle third.",
+      "end_at": "2026-06-06T19:55:00+00:00",
+      "name": "middle",
+      "regime_hint": "sample_segment",
+      "start_at": "2026-06-05T23:55:00+00:00"
+    },
+    {
+      "description": "Final third.",
+      "end_at": "2026-06-07T15:55:00+00:00",
+      "name": "late",
+      "regime_hint": "sample_segment",
+      "start_at": "2026-06-06T19:55:00+00:00"
+    },
+    {
+      "description": "First weekend segment found in the dataset.",
+      "end_at": "2026-06-07T15:55:00+00:00",
+      "name": "weekend",
+      "regime_hint": "weekend",
+      "start_at": "2026-06-06T00:00:00+00:00"
+    }
+  ]
+}
