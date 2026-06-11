@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
@@ -86,6 +87,14 @@ class KrakenWebSocketAsync:
         self._last_callback_count: int = 0
         self._last_dispatch_duration_ms: float = 0.0
         self._dispatch_ewma_ms: float = 0.0
+        self._last_ticker_time: float = 0.0
+        self._exchange_local_lag_ms: float | None = None
+        self._explicit_drop_count: int = 0
+        self._high_message_rate_windows: int = 0
+        self._high_message_rate_log_interval_s: float = max(
+            30.0, float(os.getenv("WS_HIGH_MESSAGE_RATE_LOG_INTERVAL_S", "300.0"))
+        )
+        self._last_high_message_rate_log_at: float = 0.0
 
         # ROB-03: circuit breaker for runaway reconnects
         self._reconnect_attempts: int = 0
@@ -287,6 +296,7 @@ class KrakenWebSocketAsync:
         )
 
         self._last_prices[pair] = ticker
+        self._last_ticker_time = time.monotonic()
 
         # Feed price to market analyzer for market selector
         try:
@@ -465,13 +475,15 @@ class KrakenWebSocketAsync:
                 if rate > self._backpressure_warn_threshold:
                     self._backpressure_consecutive_windows += 1
                     self._backpressure_active = self._backpressure_consecutive_windows >= 2
-                    if self._backpressure_active or rate > (self._backpressure_warn_threshold * 1.5):
+                    self._high_message_rate_windows += 1
+                    if self._should_log_high_message_rate(now=time.monotonic()):
                         logger.warning(
-                            "WS backpressure: %.0f msg/s (window=%.1fs callbacks=%d dispatch_ewma=%.2fms)",
+                            "WS high_message_rate: %.0f msg/s (window=%.1fs callbacks=%d dispatch_ewma=%.2fms drops=%d)",
                             rate,
                             window_elapsed,
                             self._last_callback_count,
                             self._dispatch_ewma_ms,
+                            self._explicit_drop_count,
                         )
                 else:
                     if self._backpressure_active:
@@ -488,6 +500,15 @@ class KrakenWebSocketAsync:
                     logger.warning("🔌 WS déconnecté - Tentative reconnexion...")
                     await self._reconnect()
         logger.info("💓 Heartbeat monitoring arrêté (async)")
+
+    def _should_log_high_message_rate(self, *, now: float) -> bool:
+        if self._last_high_message_rate_log_at <= 0.0:
+            self._last_high_message_rate_log_at = now
+            return True
+        if now - self._last_high_message_rate_log_at >= self._high_message_rate_log_interval_s:
+            self._last_high_message_rate_log_at = now
+            return True
+        return False
 
     async def _reconnect(self) -> None:
         # ROB-03: circuit breaker — abort after too many consecutive reconnects
@@ -583,6 +604,7 @@ class KrakenWebSocketAsync:
 
     def get_health_snapshot(self) -> Dict[str, Any]:
         stale_seconds = max(0.0, time.monotonic() - self._last_message_time) if self._last_message_time else 0.0
+        last_tick_age = max(0.0, time.monotonic() - self._last_ticker_time) if self._last_ticker_time else None
         return {
             "running": self._running,
             "connected": self.is_connected(),
@@ -592,13 +614,23 @@ class KrakenWebSocketAsync:
             "book_pairs_subscribed": len(self._book_subscribed_pairs),
             "book_callback_count": sum(len(callbacks) for callbacks in self._book_callbacks.values()),
             "msg_rate_per_sec": round(self._last_msg_rate, 3),
+            "messages_per_second": round(self._last_msg_rate, 3),
             "rate_window_seconds": round(self._msg_rate_window, 3),
             "backpressure_active": self._backpressure_active,
+            "high_message_rate_active": self._backpressure_active,
             "backpressure_warn_threshold": round(self._backpressure_warn_threshold, 3),
             "consecutive_backpressure_windows": self._backpressure_consecutive_windows,
+            "high_message_rate_windows": self._high_message_rate_windows,
             "callback_count": self._last_callback_count,
             "last_dispatch_duration_ms": round(self._last_dispatch_duration_ms, 3),
             "dispatch_ewma_ms": round(self._dispatch_ewma_ms, 3),
+            "last_tick_age_seconds": round(last_tick_age, 3) if last_tick_age is not None else None,
+            "exchange_local_lag_ms": self._exchange_local_lag_ms,
+            "explicit_drop_count": self._explicit_drop_count,
+            "drop_tracking_supported": True,
+            "invalid_book_count": None,
+            "recovery_count": None,
+            "book_metric_scope": "reported_by_order_flow_and_orchestrator_recovery",
         }
 
 

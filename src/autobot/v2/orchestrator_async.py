@@ -171,6 +171,7 @@ from .decision_journal import (
 )
 from .shadow_paper_adapter import ShadowPaperExecutionAdapter
 from .strategy_governance import StrategyGovernanceEngine
+from .governance_observability import GovernanceDecisionObserver
 from .strategy_reconciliation import StrategyReconciliationEngine
 from .strategy_router import StrategyRouter
 
@@ -436,6 +437,11 @@ class OrchestratorAsync:
         self._strategy_governance_snapshot_ts: float = 0.0
         self._strategy_governance_cache_ttl_s = float(
             os.getenv("STRATEGY_GOVERNANCE_CACHE_TTL_S", "5.0")
+        )
+        self._governance_decision_observer = GovernanceDecisionObserver(
+            reminder_interval_seconds=float(
+                os.getenv("GOVERNANCE_DECISION_LEDGER_INTERVAL_S", "300.0")
+            )
         )
         self._strategy_governance_disable_legacy_ensemble = _env_bool(
             "STRATEGY_GOVERNANCE_DISABLE_LEGACY_ENSEMBLE",
@@ -1736,7 +1742,41 @@ class OrchestratorAsync:
         governance_snapshot["shadow_snapshots"] = shadow_snapshots
         self._strategy_governance_snapshot = governance_snapshot
         self._strategy_governance_snapshot_ts = now
+        await self._persist_governance_observations(
+            governance_snapshot,
+            instances=instances,
+        )
         return governance_snapshot
+
+    async def _persist_governance_observations(
+        self,
+        snapshot: Dict[str, Any],
+        *,
+        instances: List[Dict[str, Any]],
+    ) -> None:
+        """Persist bounded no-trade decisions without touching execution."""
+
+        try:
+            from .pair_strategy_health import symbol_key
+
+            instance_by_symbol = {
+                symbol_key(item.get("symbol") or item.get("pair")): item
+                for item in instances
+                if isinstance(item, dict) and symbol_key(item.get("symbol") or item.get("pair")) != "UNKNOWN"
+            }
+            events = self._governance_decision_observer.collect(
+                snapshot,
+                instance_by_symbol=instance_by_symbol,
+            )
+            if not events:
+                return
+            persistence = get_persistence()
+            for event in events:
+                await persistence.append_decision_ledger_event(
+                    **self._governance_decision_observer.event_kwargs(event)
+                )
+        except Exception:
+            logger.exception("Unable to persist bounded governance observations")
 
     def _governance_row_for_symbol(self, symbol: Any) -> Dict[str, Any]:
         from .pair_strategy_health import symbol_key

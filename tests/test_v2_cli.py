@@ -1160,6 +1160,66 @@ def test_cli_collect_research_daily_is_research_only(monkeypatch, tmp_path, caps
     assert "No paper or live order is created." in output["safety_notes"]
 
 
+def test_cli_no_trade_attribution_is_read_only(tmp_path, capsys):
+    import sqlite3
+
+    db_path = tmp_path / "state.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE decision_ledger (id INTEGER PRIMARY KEY, symbol TEXT, strategy TEXT, "
+        "event_type TEXT, event_status TEXT, reason TEXT, created_at TEXT)"
+    )
+    connection.execute(
+        "INSERT INTO decision_ledger(symbol,strategy,event_type,event_status,reason,created_at) "
+        "VALUES('TRXEUR','grid','no_trade','abstain','router_selected_no_trade','2026-06-11T10:00:00+00:00')"
+    )
+    connection.commit()
+    connection.close()
+
+    exit_code = cli.main([
+        "no-trade-attribution", "--run-id", "cli-no-trade", "--state-db", str(db_path),
+        "--output-dir", str(tmp_path / "reports"),
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["counts"]["no_trade"] == 1
+    assert output["live_promotion_allowed"] is False
+
+
+def test_cli_orphan_reconciliation_requires_dry_run_and_does_not_write(tmp_path, capsys):
+    import sqlite3
+
+    db_path = tmp_path / "state.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE positions (id TEXT, instance_id TEXT, buy_price REAL, volume REAL, "
+        "status TEXT, open_time TEXT, strategy TEXT, metadata TEXT, symbol TEXT)"
+    )
+    connection.execute("CREATE TABLE instance_state (instance_id TEXT PRIMARY KEY)")
+    connection.execute("CREATE TABLE trade_ledger (position_id TEXT, instance_id TEXT)")
+    connection.execute(
+        "INSERT INTO positions VALUES('legacy','old',1.0,1.0,'open','2026-05-01','grid','{}',NULL)"
+    )
+    connection.commit()
+    connection.close()
+
+    exit_code = cli.main([
+        "reconcile-orphan-positions", "--run-id", "cli-orphan", "--state-db", str(db_path),
+        "--dry-run", "--output-dir", str(tmp_path / "reports"),
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["orphan_count"] == 1
+    assert output["write_performed"] is False
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute("SELECT status FROM positions WHERE id='legacy'").fetchone()[0] == "open"
+    finally:
+        connection.close()
+
+
 def test_cli_strategy_experiments_batch_accepts_csv_dataset(tmp_path, capsys):
     csv_path = tmp_path / "bars.csv"
     _write_grid_csv(csv_path)

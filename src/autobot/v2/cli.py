@@ -112,6 +112,26 @@ def _build_parser() -> argparse.ArgumentParser:
     data_quality.add_argument("--output-dir", default="reports/research/data_foundation")
     data_quality.set_defaults(handler=_cmd_data_quality)
 
+    no_trade = subparsers.add_parser(
+        "no-trade-attribution",
+        help="Build a read-only attribution report from decision_ledger",
+    )
+    no_trade.add_argument("--run-id", required=True)
+    no_trade.add_argument("--state-db", required=True)
+    no_trade.add_argument("--log-path", default=None)
+    no_trade.add_argument("--output-dir", default="reports/research")
+    no_trade.set_defaults(handler=_cmd_no_trade_attribution)
+
+    orphan_positions = subparsers.add_parser(
+        "reconcile-orphan-positions",
+        help="Audit legacy open positions without modifying the database",
+    )
+    orphan_positions.add_argument("--run-id", required=True)
+    orphan_positions.add_argument("--state-db", required=True)
+    orphan_positions.add_argument("--output-dir", default="reports/research")
+    orphan_positions.add_argument("--dry-run", action="store_true", required=True)
+    orphan_positions.set_defaults(handler=_cmd_reconcile_orphan_positions)
+
     backtest = subparsers.add_parser("backtest", help="Run one isolated research backtest")
     _add_validation_args(backtest)
     backtest.set_defaults(handler=lambda args: _cmd_validation(args, mode="backtest"))
@@ -589,6 +609,38 @@ def _cmd_data_quality(args: argparse.Namespace) -> int:
     report = write_data_foundation_readiness_report(
         build_data_foundation_readiness_report(run_id=args.run_id, file_reports=file_reports),
         Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_no_trade_attribution(args: argparse.Namespace) -> int:
+    from autobot.v2.research.no_trade_attribution_report import (
+        build_no_trade_attribution_report,
+        write_no_trade_attribution_report,
+    )
+
+    report = write_no_trade_attribution_report(
+        build_no_trade_attribution_report(
+            state_db_path=args.state_db,
+            run_id=args.run_id,
+            log_path=args.log_path,
+        ),
+        args.output_dir,
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_reconcile_orphan_positions(args: argparse.Namespace) -> int:
+    from autobot.v2.research.orphan_position_reconciliation import (
+        audit_orphan_positions,
+        write_orphan_position_report,
+    )
+
+    report = write_orphan_position_report(
+        audit_orphan_positions(state_db_path=args.state_db, run_id=args.run_id),
+        args.output_dir,
     )
     _print_json(report.to_dict())
     return 0

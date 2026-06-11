@@ -1,0 +1,149 @@
+{
+  "generated_at": "2026-06-11T11:35:56.179614+00:00",
+  "json_report_path": null,
+  "live_promotion_allowed": false,
+  "markdown_report_path": null,
+  "open_position_count": 5,
+  "orphan_count": 5,
+  "orphan_notional_eur": 4.874664895825116,
+  "positions": [
+    {
+      "buy_price": 0.213959,
+      "current_instance_link": false,
+      "impact": [
+        "ignore_for_current_runtime: instance is not currently loaded",
+        "dashboard/open-position counts may be inflated",
+        "capital or drawdown reports reading raw positions may be misleading",
+        "safe_to_mark_reconciled_later only after backup and human approval"
+      ],
+      "instance_id": "c3108c7c",
+      "metadata": {
+        "buy_fee": null,
+        "buy_fee_source": null,
+        "buy_txid": null,
+        "stop_loss": null,
+        "stop_loss_txid": null,
+        "take_profit": null
+      },
+      "notional_eur": 2.2939849815235576,
+      "open_time": "2026-05-02T19:21:04.740026+00:00",
+      "position_id": "e4abb7d7",
+      "recommended_status": "legacy_orphan_candidate",
+      "strategy": "grid",
+      "symbol": null,
+      "trade_ledger_rows": 1,
+      "volume": 10.721610128686137
+    },
+    {
+      "buy_price": 69000.6,
+      "current_instance_link": false,
+      "impact": [
+        "ignore_for_current_runtime: instance is not currently loaded",
+        "dashboard/open-position counts may be inflated",
+        "capital or drawdown reports reading raw positions may be misleading",
+        "safe_to_mark_reconciled_later only after backup and human approval"
+      ],
+      "instance_id": "f63f588d",
+      "metadata": {
+        "buy_fee": null,
+        "buy_fee_source": null,
+        "buy_txid": null,
+        "stop_loss": null,
+        "stop_loss_txid": null,
+        "take_profit": null
+      },
+      "notional_eur": 0.7204864805714288,
+      "open_time": "2026-05-07T05:05:35.350381+00:00",
+      "position_id": "628648a2",
+      "recommended_status": "legacy_orphan_candidate",
+      "strategy": "grid",
+      "symbol": null,
+      "trade_ledger_rows": 0,
+      "volume": 1.0441742254001107e-05
+    },
+    {
+      "buy_price": 48.22,
+      "current_instance_link": false,
+      "impact": [
+        "ignore_for_current_runtime: instance is not currently loaded",
+        "dashboard/open-position counts may be inflated",
+        "capital or drawdown reports reading raw positions may be misleading",
+        "safe_to_mark_reconciled_later only after backup and human approval"
+      ],
+      "instance_id": "61516805",
+      "metadata": {
+        "buy_fee": null,
+        "buy_fee_source": null,
+        "buy_txid": null,
+        "stop_loss": null,
+        "stop_loss_txid": null,
+        "take_profit": null
+      },
+      "notional_eur": 0.5698534765793506,
+      "open_time": "2026-05-07T05:05:35.401477+00:00",
+      "position_id": "8e35d72e",
+      "recommended_status": "legacy_orphan_candidate",
+      "strategy": "grid",
+      "symbol": null,
+      "trade_ledger_rows": 0,
+      "volume": 0.011817782591857126
+    },
+    {
+      "buy_price": 69057.7,
+      "current_instance_link": false,
+      "impact": [
+        "ignore_for_current_runtime: instance is not currently loaded",
+        "dashboard/open-position counts may be inflated",
+        "capital or drawdown reports reading raw positions may be misleading",
+        "safe_to_mark_reconciled_later only after backup and human approval"
+      ],
+      "instance_id": "f3865cf3",
+      "metadata": {
+        "buy_fee": null,
+        "buy_fee_source": null,
+        "buy_txid": null,
+        "stop_loss": null,
+        "stop_loss_txid": null,
+        "take_profit": null
+      },
+      "notional_eur": 0.7204864805714288,
+      "open_time": "2026-05-07T05:16:48.506815+00:00",
+      "position_id": "593121a6",
+      "recommended_status": "legacy_orphan_candidate",
+      "strategy": "grid",
+      "symbol": null,
+      "trade_ledger_rows": 0,
+      "volume": 1.0433108553737366e-05
+    },
+    {
+      "buy_price": 48.34,
+      "current_instance_link": false,
+      "impact": [
+        "ignore_for_current_runtime: instance is not currently loaded",
+        "dashboard/open-position counts may be inflated",
+        "capital or drawdown reports reading raw positions may be misleading",
+        "safe_to_mark_reconciled_later only after backup and human approval"
+      ],
+      "instance_id": "212eac03",
+      "metadata": {
+        "buy_fee": null,
+        "buy_fee_source": null,
+        "buy_txid": null,
+        "stop_loss": null,
+        "stop_loss_txid": null,
+        "take_profit": null
+      },
+      "notional_eur": 0.5698534765793506,
+      "open_time": "2026-05-07T05:16:48.554900+00:00",
+      "position_id": "3d40f0a8",
+      "recommended_status": "legacy_orphan_candidate",
+      "strategy": "grid",
+      "symbol": null,
+      "trade_ledger_rows": 0,
+      "volume": 0.011788445936684952
+    }
+  ],
+  "run_id": "orphan_position_reconciliation_2026-06-11",
+  "state_db_path": "C:\\Users\\flore\\AppData\\Local\\Temp\\autobot_observability_20260611\\autobot_state.db",
+  "write_performed": false
+}
