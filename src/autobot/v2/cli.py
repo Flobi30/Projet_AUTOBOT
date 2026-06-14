@@ -13,6 +13,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
+
 AUTOBOT_TOP14_EUR_SYMBOLS = (
     "BTCZEUR",
     "ETHZEUR",
@@ -37,6 +39,32 @@ MATRIX_PRESETS = {
         "description": "Standard AUTOBOT top-14 Kraken EUR research universe.",
     }
 }
+
+
+def _add_cost_profile_args(parser: argparse.ArgumentParser, *, include_latency: bool = False) -> None:
+    parser.add_argument(
+        "--cost-profile",
+        choices=COST_PROFILE_NAMES,
+        default=DEFAULT_RESEARCH_COST_PROFILE,
+        help="Canonical cost profile; numeric cost flags are explicit overrides.",
+    )
+    parser.add_argument("--fee-bps", type=float, default=None, help="Override taker fee for this run")
+    parser.add_argument("--spread-bps", type=float, default=None, help="Override fallback spread for this run")
+    parser.add_argument("--slippage-bps", type=float, default=None, help="Override slippage per leg")
+    if include_latency:
+        parser.add_argument("--latency-buffer-bps", type=float, default=None, help="Override latency buffer per leg")
+
+
+def _cost_config_from_args(args: argparse.Namespace):
+    from autobot.v2.research.execution_cost_model import execution_cost_config_for_profile
+
+    return execution_cost_config_for_profile(
+        args.cost_profile,
+        fee_bps=args.fee_bps,
+        spread_bps=args.spread_bps,
+        slippage_bps=args.slippage_bps,
+        latency_buffer_bps=getattr(args, "latency_buffer_bps", None),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -230,9 +258,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parity.add_argument("--start-at", default=None)
     parity.add_argument("--end-at", default=None)
     parity.add_argument("--limit", type=int, default=None)
-    parity.add_argument("--fee-bps", type=float, default=16.0)
-    parity.add_argument("--spread-bps", type=float, default=8.0)
-    parity.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parity)
     parity.add_argument("--include-regime-context", action="store_true")
     parity.set_defaults(handler=_cmd_research_paper_parity)
 
@@ -246,10 +272,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cost_parity.add_argument("--mean-reversion-shadow-db", default=None, help="Read-only mean reversion shadow SQLite DB")
     cost_parity.add_argument("--setup-shadow-db", default=None, help="Read-only setup shadow SQLite DB")
     cost_parity.add_argument("--output-dir", default="reports/research/cost_parity")
-    cost_parity.add_argument("--fee-bps", type=float, default=16.0)
-    cost_parity.add_argument("--spread-bps", type=float, default=8.0)
-    cost_parity.add_argument("--slippage-bps", type=float, default=4.0)
-    cost_parity.add_argument("--latency-buffer-bps", type=float, default=1.0)
+    _add_cost_profile_args(cost_parity, include_latency=True)
     cost_parity.add_argument("--warning-delta-bps", type=float, default=5.0)
     cost_parity.add_argument("--slippage-anomaly-threshold-bps", type=float, default=100.0)
     cost_parity.add_argument("--no-write-report", action="store_true")
@@ -301,9 +324,7 @@ def _add_validation_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parser)
     parser.add_argument("--strategy-config-json", default="{}")
 
 
@@ -331,9 +352,7 @@ def _add_matrix_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parser)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     parser.add_argument(
@@ -374,9 +393,7 @@ def _add_validate_strategies_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parser)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     parser.add_argument("--parquet", action="store_true", help="Also attempt Parquet dataset export if dependencies exist")
@@ -412,9 +429,7 @@ def _add_standard_audit_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Skip expensive matrix annex reports for broad quick evidence runs",
     )
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parser)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     parser.add_argument("--trend-shadow-db", default=None)
@@ -438,10 +453,7 @@ def _add_grid_experiment_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--start-at", default=None)
     parser.add_argument("--end-at", default=None)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
-    parser.add_argument("--latency-buffer-bps", type=float, default=1.0)
+    _add_cost_profile_args(parser, include_latency=True)
     parser.add_argument("--min-closed-trades", type=int, default=30)
     parser.add_argument("--candidate-min-closed-trades", type=int, default=100)
     parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
@@ -472,10 +484,7 @@ def _add_strategy_experiment_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--start-at", default=None)
     parser.add_argument("--end-at", default=None)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
-    parser.add_argument("--latency-buffer-bps", type=float, default=1.0)
+    _add_cost_profile_args(parser, include_latency=True)
     parser.add_argument("--min-closed-trades", type=int, default=30)
     parser.add_argument("--candidate-min-closed-trades", type=int, default=100)
     parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
@@ -508,9 +517,7 @@ def _add_strategy_batch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-closed-trades", type=int, default=30)
     parser.add_argument("--min-profit-factor", type=float, default=1.2)
     parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    _add_cost_profile_args(parser)
     parser.add_argument("--no-regime-context", action="store_true")
 
 
@@ -647,7 +654,6 @@ def _cmd_reconcile_orphan_positions(args: argparse.Namespace) -> int:
 
 
 def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.validation_runner import ValidationRunnerConfig, run_validation
 
     strategy_config = _loads_object(args.strategy_config_json, "--strategy-config-json")
@@ -666,11 +672,7 @@ def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
         min_signal_net_edge_bps=args.min_signal_net_edge_bps,
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
-            slippage_bps=args.slippage_bps,
-        ),
+        cost_config=_cost_config_from_args(args),
         strategy_config=strategy_config,
         start_at=args.start_at,
         end_at=args.end_at,
@@ -694,7 +696,6 @@ def _cmd_validation(args: argparse.Namespace, *, mode: str) -> int:
 
 
 def _cmd_matrix(args: argparse.Namespace) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
 
     preset = MATRIX_PRESETS.get(args.preset) if args.preset else None
@@ -728,11 +729,7 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
         min_signal_net_edge_bps=args.min_signal_net_edge_bps,
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
-            slippage_bps=args.slippage_bps,
-        ),
+        cost_config=_cost_config_from_args(args),
         strategy_configs=strategy_configs,
         start_at=args.start_at,
         end_at=args.end_at,
@@ -786,7 +783,6 @@ def _cmd_matrix(args: argparse.Namespace) -> int:
 
 def _cmd_validate_strategies(args: argparse.Namespace) -> int:
     from autobot.v2.research.dataset_builder import DatasetBuildConfig, build_dataset_from_state_db
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.validation_matrix import MatrixRunConfig, run_validation_matrix
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
@@ -832,11 +828,7 @@ def _cmd_validate_strategies(args: argparse.Namespace) -> int:
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
         min_signal_net_edge_bps=args.min_signal_net_edge_bps,
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
-            slippage_bps=args.slippage_bps,
-        ),
+        cost_config=_cost_config_from_args(args),
         strategy_configs=strategy_configs,
         start_at=args.start_at,
         end_at=args.end_at,
@@ -885,7 +877,6 @@ def _cmd_validate_strategies(args: argparse.Namespace) -> int:
 
 
 def _cmd_standard_audit(args: argparse.Namespace) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.standard_audit_runner import StandardAuditConfig, run_standard_audit
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
@@ -921,11 +912,7 @@ def _cmd_standard_audit(args: argparse.Namespace) -> int:
             min_passing_folds=args.min_passing_folds,
             include_regime_context=args.include_regime_context,
             include_standard_reports=not bool(args.skip_standard_reports),
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
-                slippage_bps=args.slippage_bps,
-            ),
+            cost_config=_cost_config_from_args(args),
             strategy_configs=_loads_object(args.strategy_config_json, "--strategy-config-json"),
             registry_path=Path(args.registry_path),
             trend_shadow_db_path=Path(args.trend_shadow_db) if args.trend_shadow_db else None,
@@ -944,7 +931,6 @@ def _cmd_standard_audit(args: argparse.Namespace) -> int:
 
 
 def _cmd_grid_experiments(args: argparse.Namespace) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.grid_experiment_runner import GridExperimentConfig, run_grid_experiments
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
@@ -958,12 +944,7 @@ def _cmd_grid_experiments(args: argparse.Namespace) -> int:
             dataset_output_dir=Path(args.dataset_output_dir),
             initial_capital_eur=args.initial_capital_eur,
             order_notional_eur=args.order_notional_eur,
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
-                slippage_bps=args.slippage_bps,
-                latency_buffer_bps=args.latency_buffer_bps,
-            ),
+            cost_config=_cost_config_from_args(args),
             min_closed_trades=args.min_closed_trades,
             candidate_min_closed_trades=args.candidate_min_closed_trades,
             candidate_min_profit_factor=args.candidate_min_profit_factor,
@@ -985,7 +966,6 @@ def _cmd_grid_experiments(args: argparse.Namespace) -> int:
 
 
 def _cmd_strategy_experiments(args: argparse.Namespace) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.strategy_experiment_runner import StrategyExperimentConfig, run_strategy_experiments
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
@@ -1001,12 +981,7 @@ def _cmd_strategy_experiments(args: argparse.Namespace) -> int:
             dataset_output_dir=Path(args.dataset_output_dir),
             initial_capital_eur=args.initial_capital_eur,
             order_notional_eur=args.order_notional_eur,
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
-                slippage_bps=args.slippage_bps,
-                latency_buffer_bps=args.latency_buffer_bps,
-            ),
+            cost_config=_cost_config_from_args(args),
             min_closed_trades=args.min_closed_trades,
             candidate_min_closed_trades=args.candidate_min_closed_trades,
             candidate_min_profit_factor=args.candidate_min_profit_factor,
@@ -1032,7 +1007,6 @@ def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
         BatchStrategyValidationConfig,
         run_batch_strategy_validation,
     )
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else AUTOBOT_TOP14_EUR_SYMBOLS
     strategies = _csv_tuple(args.strategies, "--strategies") if args.strategies else AUTOBOT_STANDARD_STRATEGIES
@@ -1060,11 +1034,7 @@ def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
             min_profit_factor=args.min_profit_factor,
             max_drawdown_pct=args.max_drawdown_pct,
             include_regime_context=not bool(args.no_regime_context),
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
-                slippage_bps=args.slippage_bps,
-            ),
+            cost_config=_cost_config_from_args(args),
         )
     )
     _print_json(result.to_dict())
@@ -1284,7 +1254,6 @@ def _cmd_compare_paper_research(args: argparse.Namespace) -> int:
 
 
 def _cmd_research_paper_parity(args: argparse.Namespace) -> int:
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
     from autobot.v2.research.research_paper_parity import (
         ResearchPaperParityConfig,
         run_research_paper_parity,
@@ -1306,11 +1275,7 @@ def _cmd_research_paper_parity(args: argparse.Namespace) -> int:
             end_at=args.end_at,
             limit=args.limit,
             include_regime_context=bool(args.include_regime_context),
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
-                slippage_bps=args.slippage_bps,
-            ),
+            cost_config=_cost_config_from_args(args),
         )
     )
     payload = report.to_dict()
@@ -1325,7 +1290,6 @@ def _cmd_cost_parity(args: argparse.Namespace) -> int:
         audit_cost_parity,
         write_cost_parity_audit_report,
     )
-    from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 
     config = CostParityAuditConfig(
         run_id=args.run_id,
@@ -1334,12 +1298,7 @@ def _cmd_cost_parity(args: argparse.Namespace) -> int:
         mean_reversion_shadow_db_path=args.mean_reversion_shadow_db,
         setup_shadow_db_path=args.setup_shadow_db,
         output_dir=Path(args.output_dir),
-        research_cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
-            slippage_bps=args.slippage_bps,
-            latency_buffer_bps=args.latency_buffer_bps,
-        ),
+        research_cost_config=_cost_config_from_args(args),
         warning_delta_bps=args.warning_delta_bps,
         slippage_anomaly_threshold_bps=args.slippage_anomaly_threshold_bps,
     )

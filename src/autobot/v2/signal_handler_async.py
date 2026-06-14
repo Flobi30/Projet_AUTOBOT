@@ -21,6 +21,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from .cost_profiles import get_cost_profile
 from .strategies import TradingSignal, SignalType
 from .order_executor_async import OrderExecutorAsync, OrderSide
 from .validator import ValidatorEngine, ValidationStatus, create_default_validator_engine
@@ -152,10 +153,12 @@ class SignalHandlerAsync:
             minimum=0.50,
             maximum=0.99,
         )
+        paper_cost_profile = get_cost_profile("paper_current_taker")
+        self._edge_cost_profile_name = paper_cost_profile.name
         self._edge_fallback_fee_bps = self._load_float_in_range(
             "edge_fallback_fee_bps",
             "EDGE_FALLBACK_FEE_BPS",
-            40.0,
+            paper_cost_profile.taker_fee_bps,
             minimum=0.0,
             maximum=250.0,
         )
@@ -169,7 +172,7 @@ class SignalHandlerAsync:
         self._edge_fallback_slippage_bps = self._load_float_in_range(
             "edge_fallback_slippage_bps",
             "EDGE_FALLBACK_SLIPPAGE_BPS",
-            6.0,
+            2.0 * paper_cost_profile.slippage_bps_per_leg,
             minimum=0.0,
             maximum=250.0,
         )
@@ -2144,7 +2147,7 @@ class SignalHandlerAsync:
         signal: TradingSignal,
         atr_pct: float,
         risk_params: Optional[dict[str, float]] = None,
-    ) -> dict[str, float]:
+    ) -> dict[str, Any]:
         metadata = signal.metadata or {}
         symbol = self._convert_symbol(signal.symbol)
         micro = self._microstructure_snapshot(signal.symbol)
@@ -2179,6 +2182,9 @@ class SignalHandlerAsync:
         adaptive_min_edge_bps = max(params["min_edge_bps"], observed_cost_buffer_bps + volatility_component_bps)
         gross_required_bps = total_cost_bps + adaptive_min_edge_bps
         return {
+            "cost_profile": self._edge_cost_profile_name,
+            "spread_model": "observed_top_of_book_or_signal_metadata",
+            "slippage_model": "adaptive_observed_or_profile_fallback",
             "spread_bps": spread_bps,
             "expected_move_bps": expected_move_bps,
             "estimated_fee_bps": estimated_fee_bps,

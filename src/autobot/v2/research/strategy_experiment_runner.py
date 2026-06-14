@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 from .dataset_builder import DatasetBuildConfig, DatasetBuildResult, build_dataset_from_state_db
-from .execution_cost_model import ExecutionCostConfig
+from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .loss_attribution import LossAttributionResult, analyze_trade_journal
 from .strategy_scorecard import StrategyEvidence, StrategyScorecardResult, score_strategy
 from .validation_runner import ValidationRunnerConfig, run_validation
@@ -69,13 +69,7 @@ class StrategyExperimentConfig:
     dataset_output_dir: Path = Path("data/research/strategy_experiments")
     initial_capital_eur: float = 1_000.0
     order_notional_eur: float = 100.0
-    cost_config: ExecutionCostConfig = field(
-        default_factory=lambda: ExecutionCostConfig(
-            taker_fee_bps=16.0,
-            fallback_spread_bps=8.0,
-            slippage_bps=4.0,
-        )
-    )
+    cost_config: ExecutionCostConfig = field(default_factory=execution_cost_config_for_profile)
     min_closed_trades: int = 30
     candidate_min_closed_trades: int = 100
     candidate_min_profit_factor: float = 1.20
@@ -190,7 +184,7 @@ class StrategyExperimentReport:
     timeframe: str
     symbols: tuple[str, ...]
     strategies: tuple[str, ...]
-    cost_config: dict[str, float]
+    cost_config: dict[str, Any]
     variants: tuple[dict[str, Any], ...]
     cells: tuple[StrategyExperimentCell, ...]
     summaries: tuple[StrategyExperimentSummary, ...]

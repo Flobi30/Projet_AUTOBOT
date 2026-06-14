@@ -203,8 +203,8 @@ def test_backtest_engine_edge_gate_passes_and_records_cost_context(tmp_path):
 
     assert result.trade_count == 1
     assert edge_gate["gross_edge_bps"] == pytest.approx(80.0)
-    assert edge_gate["estimated_round_trip_cost_bps"] == pytest.approx(52.0)
-    assert edge_gate["estimated_net_edge_bps"] == pytest.approx(28.0)
+    assert edge_gate["estimated_round_trip_cost_bps"] == pytest.approx(42.0)
+    assert edge_gate["estimated_net_edge_bps"] == pytest.approx(38.0)
     assert edge_gate["accepted"] is True
     assert result.decision.live_promotion_allowed is False
 

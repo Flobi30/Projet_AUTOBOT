@@ -94,7 +94,7 @@ class BacktestResult:
     metrics: MetricsResult
     baselines: tuple[BaselineResult, ...]
     decision: BacktestDecision
-    cost_config: dict[str, float] = field(default_factory=dict)
+    cost_config: dict[str, Any] = field(default_factory=dict)
     journal_path: str | None = None
     json_report_path: str | None = None
     markdown_report_path: str | None = None
@@ -384,6 +384,8 @@ class BacktestEngine:
                 "entry": position.signal.metadata,
                 "exit": exit_signal.metadata,
                 "path": self._trade_path_metadata(position, pnl),
+                "cost_profile": self.config.cost_config.cost_profile,
+                "cost_config": self.config.cost_config.to_dict(),
             },
         )
 
@@ -623,7 +625,8 @@ def render_backtest_report(result: BacktestResult) -> str:
         ]
     )
     for key, value in sorted(result.cost_config.items()):
-        lines.append(f"| {key} | {value:.6f} |")
+        rendered = f"{value:.6f}" if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
+        lines.append(f"| {key} | {rendered} |")
     lines.extend(
         [
             "",

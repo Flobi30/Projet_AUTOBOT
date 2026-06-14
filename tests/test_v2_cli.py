@@ -1074,7 +1074,8 @@ def test_cli_cost_parity_audits_read_only_cost_sources(tmp_path, capsys):
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["run_id"] == "pytest_cost_parity_cli"
-    assert output["expected_cost_bps_per_side"] == pytest.approx(25.0)
+    assert output["research_cost_config"]["cost_profile"] == "research_stress"
+    assert output["expected_cost_bps_per_side"] == pytest.approx(49.0)
     sources = {source["source"]: source for source in output["sources"]}
     assert sources["official_paper_trade_ledger"]["status"] == "ok"
     assert sources["trend_shadow"]["status"] == "ok"

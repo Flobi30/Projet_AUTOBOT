@@ -120,7 +120,7 @@ class BatchStrategyValidationReport:
     symbols: tuple[str, ...]
     strategies: tuple[str, ...]
     timeframe: str
-    cost_config: dict[str, float]
+    cost_config: dict[str, Any]
     windows: tuple[BatchValidationWindow, ...]
     window_summaries: tuple[BatchWindowSummary, ...]
     matrix_report_paths: tuple[str, ...]

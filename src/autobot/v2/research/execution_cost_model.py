@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from autobot.v2.cost_profiles import DEFAULT_RESEARCH_COST_PROFILE, get_cost_profile
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -29,26 +31,112 @@ def _finite_positive(value: float | None, *, field_name: str) -> float | None:
 class ExecutionCostConfig:
     """Configurable cost assumptions used by research replay/backtests."""
 
-    taker_fee_bps: float = 16.0
-    maker_fee_bps: float = 10.0
+    cost_profile: str = DEFAULT_RESEARCH_COST_PROFILE
+    taker_fee_bps: float = 40.0
+    maker_fee_bps: float = 25.0
     fallback_spread_bps: float = 8.0
     slippage_bps: float = 4.0
     latency_buffer_bps: float = 1.0
+    spread_model: str = "observed_top_of_book_or_8bps_fallback"
+    slippage_model: str = "fixed_4bps_per_leg_plus_1bps_latency"
+    market_spread_charge_fraction: float = 1.0
+    limit_spread_charge_fraction: float = 1.0
+    default_entry_order_type: str = "market"
+    default_exit_order_type: str = "market"
+    legacy: bool = False
+    runtime_comparable: bool = True
     min_notional_eur: float = 5.0
     max_spread_bps: float = 80.0
     max_liquidity_participation: float = 0.05
 
     def validate(self) -> None:
+        numeric_fields = {
+            "taker_fee_bps",
+            "maker_fee_bps",
+            "fallback_spread_bps",
+            "slippage_bps",
+            "latency_buffer_bps",
+            "market_spread_charge_fraction",
+            "limit_spread_charge_fraction",
+            "min_notional_eur",
+            "max_spread_bps",
+            "max_liquidity_participation",
+        }
         for field_name, value in asdict(self).items():
+            if field_name not in numeric_fields:
+                continue
             if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
                 raise ValueError(f"{field_name} must be finite")
             if float(value) < 0.0:
                 raise ValueError(f"{field_name} cannot be negative")
         if self.max_liquidity_participation <= 0.0 or self.max_liquidity_participation > 1.0:
             raise ValueError("max_liquidity_participation must be in (0, 1]")
+        if self.market_spread_charge_fraction > 1.0 or self.limit_spread_charge_fraction > 1.0:
+            raise ValueError("spread charge fractions cannot exceed 1")
+        if self.default_entry_order_type not in {"market", "limit"}:
+            raise ValueError("default_entry_order_type must be market or limit")
+        if self.default_exit_order_type not in {"market", "limit"}:
+            raise ValueError("default_exit_order_type must be market or limit")
 
-    def to_dict(self) -> dict[str, float]:
-        return {key: float(value) for key, value in asdict(self).items()}
+    def spread_charge_fraction(self, order_type: str) -> float:
+        return self.limit_spread_charge_fraction if order_type == "limit" else self.market_spread_charge_fraction
+
+    def fee_for_order_type(self, order_type: str) -> float:
+        return self.maker_fee_bps if order_type == "limit" else self.taker_fee_bps
+
+    def round_trip_cost_estimate_bps(self) -> float:
+        entry_type = self.default_entry_order_type
+        exit_type = self.default_exit_order_type
+        spread_fraction = self.spread_charge_fraction(entry_type) / 2.0
+        spread_fraction += self.spread_charge_fraction(exit_type) / 2.0
+        return (
+            self.fee_for_order_type(entry_type)
+            + self.fee_for_order_type(exit_type)
+            + (self.fallback_spread_bps * spread_fraction)
+            + (2.0 * self.slippage_bps)
+            + (2.0 * self.latency_buffer_bps)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["round_trip_cost_estimate_bps"] = self.round_trip_cost_estimate_bps()
+        return payload
+
+
+def execution_cost_config_for_profile(
+    profile_name: str = DEFAULT_RESEARCH_COST_PROFILE,
+    *,
+    fee_bps: float | None = None,
+    spread_bps: float | None = None,
+    slippage_bps: float | None = None,
+    latency_buffer_bps: float | None = None,
+) -> ExecutionCostConfig:
+    """Build a research cost config while preserving the selected profile label."""
+
+    profile = get_cost_profile(profile_name)
+    entry_type = "limit" if profile.entry_liquidity == "maker" else "market"
+    exit_type = "limit" if profile.exit_liquidity == "maker" else "market"
+    taker_fee = profile.taker_fee_bps if fee_bps is None else float(fee_bps)
+    return ExecutionCostConfig(
+        cost_profile=profile.name,
+        taker_fee_bps=taker_fee,
+        maker_fee_bps=profile.maker_fee_bps,
+        fallback_spread_bps=profile.fallback_spread_bps if spread_bps is None else float(spread_bps),
+        slippage_bps=profile.slippage_bps_per_leg if slippage_bps is None else float(slippage_bps),
+        latency_buffer_bps=(
+            profile.latency_buffer_bps_per_leg
+            if latency_buffer_bps is None
+            else float(latency_buffer_bps)
+        ),
+        spread_model=profile.spread_model,
+        slippage_model=profile.slippage_model,
+        market_spread_charge_fraction=profile.spread_charge_fraction,
+        limit_spread_charge_fraction=profile.spread_charge_fraction,
+        default_entry_order_type=entry_type,
+        default_exit_order_type=exit_type,
+        legacy=profile.legacy,
+        runtime_comparable=profile.runtime_comparable,
+    )
 
 
 @dataclass(frozen=True)
@@ -176,7 +264,12 @@ class ExecutionCostModel:
             if request.normalized_order_type == "limit"
             else self.config.taker_fee_bps
         )
-        return fee_bps + spread_bps + self.config.slippage_bps + self.config.latency_buffer_bps
+        spread_cost_bps = (
+            spread_bps
+            * self.config.spread_charge_fraction(request.normalized_order_type)
+            / 2.0
+        )
+        return fee_bps + spread_cost_bps + self.config.slippage_bps + self.config.latency_buffer_bps
 
     def simulate_fill(self, request: FillRequest) -> FillResult:
         notional = request.requested_notional()
@@ -197,7 +290,12 @@ class ExecutionCostModel:
             if request.normalized_order_type == "limit"
             else self.config.taker_fee_bps
         )
-        adverse_bps = (spread_bps / 2.0) + self.config.slippage_bps + self.config.latency_buffer_bps
+        spread_cost_bps = (
+            spread_bps
+            * self.config.spread_charge_fraction(request.normalized_order_type)
+            / 2.0
+        )
+        adverse_bps = spread_cost_bps + self.config.slippage_bps + self.config.latency_buffer_bps
         direction = 1.0 if request.normalized_side == "buy" else -1.0
         execution_price = request.price * (1.0 + direction * _bps_to_rate(adverse_bps))
 
@@ -208,7 +306,7 @@ class ExecutionCostModel:
                 return self._rejected(request, "limit_price_not_reached", quantity, notional, spread_bps)
 
         fee_eur = notional * _bps_to_rate(fee_bps)
-        spread_cost_eur = notional * _bps_to_rate(spread_bps / 2.0)
+        spread_cost_eur = notional * _bps_to_rate(spread_cost_bps)
         slippage_eur = notional * _bps_to_rate(self.config.slippage_bps)
         latency_cost_eur = notional * _bps_to_rate(self.config.latency_buffer_bps)
         total_cost = fee_eur + spread_cost_eur + slippage_eur + latency_cost_eur

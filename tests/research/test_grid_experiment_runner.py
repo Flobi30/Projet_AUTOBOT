@@ -91,9 +91,11 @@ def test_grid_experiment_runner_writes_reports_and_keeps_live_disabled(tmp_path)
 
     assert report.json_report_path and Path(report.json_report_path).exists()
     assert report.markdown_report_path and Path(report.markdown_report_path).exists()
-    assert report.cost_config["taker_fee_bps"] == 16.0
+    assert report.cost_config["cost_profile"] == "research_stress"
+    assert report.cost_config["taker_fee_bps"] == 40.0
     assert report.cost_config["fallback_spread_bps"] == 8.0
     assert report.cost_config["slippage_bps"] == 4.0
+    assert report.cost_config["round_trip_cost_estimate_bps"] == 98.0
     assert report.cells
     assert report.best_by_symbol
     assert all(cell.live_promotion_allowed is False for cell in report.cells)

@@ -15,8 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
+
 from .backtest_engine import BacktestConfig, BacktestEngine, BacktestResult
-from .execution_cost_model import ExecutionCostConfig
+from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .market_data_repository import MarketBar, MarketDataRepository
 from .regime_context import enrich_bars_with_regime_context
 from .strategy_signal_generators import (
@@ -231,9 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--cost-profile", choices=COST_PROFILE_NAMES, default=DEFAULT_RESEARCH_COST_PROFILE)
+    parser.add_argument("--fee-bps", type=float, default=None)
+    parser.add_argument("--spread-bps", type=float, default=None)
+    parser.add_argument("--slippage-bps", type=float, default=None)
     parser.add_argument("--strategy-config-json", default="{}")
     args = parser.parse_args(argv)
 
@@ -255,9 +258,10 @@ def main(argv: list[str] | None = None) -> int:
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
         min_signal_net_edge_bps=args.min_signal_net_edge_bps,
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
+        cost_config=execution_cost_config_for_profile(
+            args.cost_profile,
+            fee_bps=args.fee_bps,
+            spread_bps=args.spread_bps,
             slippage_bps=args.slippage_bps,
         ),
         strategy_config=strategy_config,

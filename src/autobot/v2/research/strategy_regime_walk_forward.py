@@ -13,7 +13,9 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .execution_cost_model import ExecutionCostConfig
+from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
+
+from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .market_data_repository import MarketBar
 from .regime_context import enrich_bars_with_regime_context
 from .strategy_regime_baselines import (
@@ -323,9 +325,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-total-trades", type=int, default=30)
     parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
     parser.add_argument("--order-notional-eur", type=float, default=100.0)
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--cost-profile", choices=COST_PROFILE_NAMES, default=DEFAULT_RESEARCH_COST_PROFILE)
+    parser.add_argument("--fee-bps", type=float, default=None)
+    parser.add_argument("--spread-bps", type=float, default=None)
+    parser.add_argument("--slippage-bps", type=float, default=None)
     parser.add_argument("--start-at", default=None)
     parser.add_argument("--end-at", default=None)
     parser.add_argument("--limit", type=int, default=None)
@@ -355,9 +358,10 @@ def main(argv: list[str] | None = None) -> int:
             min_total_trades=args.min_total_trades,
             initial_capital_eur=args.initial_capital_eur,
             order_notional_eur=args.order_notional_eur,
-            cost_config=ExecutionCostConfig(
-                taker_fee_bps=args.fee_bps,
-                fallback_spread_bps=args.spread_bps,
+            cost_config=execution_cost_config_for_profile(
+                args.cost_profile,
+                fee_bps=args.fee_bps,
+                spread_bps=args.spread_bps,
                 slippage_bps=args.slippage_bps,
             ),
         ),

@@ -33,6 +33,8 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+
+from autobot.v2.cost_profiles import get_cost_profile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Coroutine
 
@@ -94,12 +96,24 @@ class PaperTradingExecutor:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         self.initial_capital = initial_capital
+        canonical_paper_profile = get_cost_profile("paper_current_taker")
         explicit_fee_rate = fee_rate is not None
-        default_maker_bps = (float(fee_rate) * 10000.0) if explicit_fee_rate else 25.0
-        default_taker_bps = (float(fee_rate) * 10000.0) if explicit_fee_rate else 40.0
+        default_maker_bps = (
+            float(fee_rate) * 10000.0 if explicit_fee_rate else canonical_paper_profile.maker_fee_bps
+        )
+        default_taker_bps = (
+            float(fee_rate) * 10000.0 if explicit_fee_rate else canonical_paper_profile.taker_fee_bps
+        )
         self.maker_fee_rate = _env_float("PAPER_MAKER_FEE_BPS", default_maker_bps, 0.0, 250.0) / 10000.0
         self.taker_fee_rate = _env_float("PAPER_TAKER_FEE_BPS", default_taker_bps, 0.0, 250.0) / 10000.0
         self.fee_rate = float(fee_rate) if explicit_fee_rate else self.taker_fee_rate
+        self.cost_profile_name = (
+            "paper_current_taker"
+            if not explicit_fee_rate
+            and self.maker_fee_rate * 10000.0 == canonical_paper_profile.maker_fee_bps
+            and self.taker_fee_rate * 10000.0 == canonical_paper_profile.taker_fee_bps
+            else "paper_runtime_override"
+        )
         self.allow_synthetic_price_fallback = _env_bool(
             "PAPER_ALLOW_SYNTHETIC_PRICE_FALLBACK",
             False,
@@ -1047,6 +1061,9 @@ class PaperTradingExecutor:
                 "unknown_liquidity_trades": liquidity_counts.get("unknown", 0),
                 "maker_fee_bps": self.maker_fee_rate * 10000.0,
                 "taker_fee_bps": self.taker_fee_rate * 10000.0,
+                "cost_profile": self.cost_profile_name,
+                "taker_taker_round_trip_fee_bps": self.taker_fee_rate * 20000.0,
+                "maker_maker_round_trip_fee_bps": self.maker_fee_rate * 20000.0,
                 "maker_realism_enabled": self.maker_realism_enabled,
                 "db_path": str(self.db_path),
             }

@@ -8,9 +8,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
+from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
 from autobot.v2.strategy_validation_registry import load_registry
 
-from .execution_cost_model import ExecutionCostConfig
+from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .validation_runner import DataSource, RunMode, StrategyName, ValidationRunnerConfig, run_validation
 
 
@@ -67,7 +68,7 @@ class MatrixCellResult:
     spread_cost_eur: float | None = None
     slippage_eur: float | None = None
     latency_cost_eur: float | None = None
-    cost_config: dict[str, float] = field(default_factory=dict)
+    cost_config: dict[str, Any] = field(default_factory=dict)
     report_path: str | None = None
     error: str | None = None
 
@@ -83,7 +84,7 @@ class MatrixRunResult:
     success_count: int
     error_count: int
     results: tuple[MatrixCellResult, ...]
-    cost_config: dict[str, float] = field(default_factory=dict)
+    cost_config: dict[str, Any] = field(default_factory=dict)
     json_report_path: str | None = None
     markdown_report_path: str | None = None
 
@@ -302,9 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-folds", type=int, default=3)
     parser.add_argument("--min-passing-folds", type=int, default=2)
     parser.add_argument("--include-regime-context", action="store_true")
-    parser.add_argument("--fee-bps", type=float, default=16.0)
-    parser.add_argument("--spread-bps", type=float, default=8.0)
-    parser.add_argument("--slippage-bps", type=float, default=4.0)
+    parser.add_argument("--cost-profile", choices=COST_PROFILE_NAMES, default=DEFAULT_RESEARCH_COST_PROFILE)
+    parser.add_argument("--fee-bps", type=float, default=None)
+    parser.add_argument("--spread-bps", type=float, default=None)
+    parser.add_argument("--slippage-bps", type=float, default=None)
     parser.add_argument("--strategy-config-json", default="{}")
     parser.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     parser.add_argument("--write-registry-recommendations", action="store_true")
@@ -336,9 +338,10 @@ def main(argv: list[str] | None = None) -> int:
         min_profit_factor=args.min_profit_factor,
         max_drawdown_pct=args.max_drawdown_pct,
         min_signal_net_edge_bps=args.min_signal_net_edge_bps,
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=args.fee_bps,
-            fallback_spread_bps=args.spread_bps,
+        cost_config=execution_cost_config_for_profile(
+            args.cost_profile,
+            fee_bps=args.fee_bps,
+            spread_bps=args.spread_bps,
             slippage_bps=args.slippage_bps,
         ),
         strategy_configs=strategy_configs,

@@ -90,7 +90,7 @@ class CostParityAuditReport:
     run_id: str
     generated_at: str
     config: CostParityAuditConfig
-    research_cost_config: dict[str, float]
+    research_cost_config: dict[str, Any]
     expected_cost_bps_per_side: float
     expected_fee_bps_per_side: float
     expected_legacy_shadow_slippage_bps_per_side: float
