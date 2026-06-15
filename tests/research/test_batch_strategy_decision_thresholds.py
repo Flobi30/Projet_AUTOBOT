@@ -19,7 +19,20 @@ def _matrix(run_id, *cells):
     )
 
 
-def _cell(symbol, strategy, *, net, trades=150, pf=1.5, dd=5.0):
+def _cell(
+    symbol,
+    strategy,
+    *,
+    net,
+    trades=150,
+    pf=1.5,
+    dd=5.0,
+    beats_no_trade=None,
+    beats_buy_and_hold=None,
+    beats_random=None,
+    mfe_to_cost=None,
+    exit_capture=None,
+):
     return MatrixCellResult(
         run_id=f"{symbol}_{strategy}",
         symbol=symbol,
@@ -30,6 +43,11 @@ def _cell(symbol, strategy, *, net, trades=150, pf=1.5, dd=5.0):
         net_pnl_eur=net,
         profit_factor=pf,
         max_drawdown_pct=dd,
+        beats_no_trade=beats_no_trade,
+        beats_buy_and_hold=beats_buy_and_hold,
+        beats_random_signal_same_frequency=beats_random,
+        average_mfe_to_cost_ratio=mfe_to_cost,
+        average_exit_capture_bps=exit_capture,
     )
 
 
@@ -80,3 +98,73 @@ def test_unknown_or_failed_strategy_defaults_to_research_only():
 
     assert decisions[0].status == "research_only"
     assert decisions[0].blockers == ("no_successful_cells",)
+
+
+def test_strategy_can_only_become_shadow_candidate_with_complete_evidence():
+    evidence = {
+        "beats_no_trade": True,
+        "beats_buy_and_hold": True,
+        "beats_random": True,
+        "mfe_to_cost": 2.0,
+        "exit_capture": 12.0,
+    }
+    decisions = decide_strategy_batch(
+        (
+            _matrix(
+                "full",
+                _cell("TRXEUR", "trend", net=12.0, **evidence),
+                _cell("BTCZEUR", "trend", net=11.0, **evidence),
+            ),
+            _matrix(
+                "late",
+                _cell("TRXEUR", "trend", net=8.0, **evidence),
+                _cell("BTCZEUR", "trend", net=9.0, **evidence),
+            ),
+        ),
+        ("trend",),
+        min_closed_trades=100,
+        min_profit_factor=1.2,
+        max_drawdown_pct=12.0,
+    )
+
+    decision = decisions[0]
+    assert decision.status == "shadow_candidate"
+    assert decision.blockers == ()
+
+
+def test_strategy_remains_research_only_when_buy_and_hold_wins():
+    decisions = decide_strategy_batch(
+        (
+            _matrix(
+                "full",
+                _cell(
+                    "TRXEUR",
+                    "trend",
+                    net=12.0,
+                    beats_no_trade=True,
+                    beats_buy_and_hold=False,
+                    beats_random=True,
+                    mfe_to_cost=2.0,
+                    exit_capture=12.0,
+                ),
+                _cell(
+                    "BTCZEUR",
+                    "trend",
+                    net=11.0,
+                    beats_no_trade=True,
+                    beats_buy_and_hold=True,
+                    beats_random=True,
+                    mfe_to_cost=2.0,
+                    exit_capture=12.0,
+                ),
+            ),
+        ),
+        ("trend",),
+        min_closed_trades=100,
+        min_profit_factor=1.2,
+        max_drawdown_pct=12.0,
+    )
+
+    decision = decisions[0]
+    assert decision.status == "research_only"
+    assert "does_not_beat_buy_and_hold" in decision.blockers

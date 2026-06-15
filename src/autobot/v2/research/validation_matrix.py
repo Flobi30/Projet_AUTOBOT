@@ -12,6 +12,7 @@ from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_P
 from autobot.v2.strategy_validation_registry import load_registry
 
 from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
+from .trade_journal import TradeJournal
 from .validation_runner import DataSource, RunMode, StrategyName, ValidationRunnerConfig, run_validation
 
 
@@ -68,6 +69,12 @@ class MatrixCellResult:
     spread_cost_eur: float | None = None
     slippage_eur: float | None = None
     latency_cost_eur: float | None = None
+    baseline_net_pnl_eur: dict[str, float] = field(default_factory=dict)
+    beats_no_trade: bool | None = None
+    beats_buy_and_hold: bool | None = None
+    beats_random_signal_same_frequency: bool | None = None
+    average_mfe_to_cost_ratio: float | None = None
+    average_exit_capture_bps: float | None = None
     cost_config: dict[str, Any] = field(default_factory=dict)
     report_path: str | None = None
     error: str | None = None
@@ -163,9 +170,15 @@ def run_validation_matrix(config: MatrixRunConfig, *, write_reports: bool = True
 
 
 def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runner_result: Any) -> MatrixCellResult:
+    # Imported lazily because loss_attribution consumes MatrixRunResult for its
+    # aggregate reports and would otherwise create a module import cycle.
+    from .loss_attribution import analyze_trade_journal, analyze_trade_losses
+
     result = runner_result.result
     if runner_result.mode == "backtest":
         metrics = result.metrics
+        baseline_net_pnl = {baseline.name: baseline.net_pnl_eur for baseline in result.baselines}
+        attribution = analyze_trade_journal(result.journal_path) if result.journal_path else None
         return MatrixCellResult(
             run_id=cell_run_id,
             symbol=symbol.upper(),
@@ -184,10 +197,27 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
             spread_cost_eur=metrics.total_spread_cost_eur,
             slippage_eur=metrics.total_slippage_eur,
             latency_cost_eur=metrics.total_latency_cost_eur,
+            baseline_net_pnl_eur=baseline_net_pnl,
+            beats_no_trade=_beats_baseline(metrics.total_net_pnl_eur, baseline_net_pnl, "no_trade"),
+            beats_buy_and_hold=_beats_baseline(metrics.total_net_pnl_eur, baseline_net_pnl, "buy_and_hold"),
+            beats_random_signal_same_frequency=_beats_baseline(
+                metrics.total_net_pnl_eur,
+                baseline_net_pnl,
+                "random_signal_same_frequency",
+            ),
+            average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio if attribution else None,
+            average_exit_capture_bps=attribution.average_exit_capture_bps if attribution else None,
             cost_config=dict(result.cost_config),
             report_path=result.markdown_report_path,
         )
     fold_metrics = [fold.backtest_result.metrics for fold in result.folds]
+    baseline_net_pnl = _aggregate_fold_baselines(result.folds)
+    fold_records = []
+    for fold in result.folds:
+        journal_path = fold.backtest_result.journal_path
+        if journal_path:
+            fold_records.extend(TradeJournal.from_json(journal_path).records)
+    attribution = analyze_trade_losses(fold_records, run_id=cell_run_id) if fold_records else None
     return MatrixCellResult(
         run_id=cell_run_id,
         symbol=symbol.upper(),
@@ -206,9 +236,32 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
         spread_cost_eur=sum(metrics.total_spread_cost_eur for metrics in fold_metrics),
         slippage_eur=sum(metrics.total_slippage_eur for metrics in fold_metrics),
         latency_cost_eur=sum(metrics.total_latency_cost_eur for metrics in fold_metrics),
+        baseline_net_pnl_eur=baseline_net_pnl,
+        beats_no_trade=_beats_baseline(result.aggregate_net_pnl_eur, baseline_net_pnl, "no_trade"),
+        beats_buy_and_hold=_beats_baseline(result.aggregate_net_pnl_eur, baseline_net_pnl, "buy_and_hold"),
+        beats_random_signal_same_frequency=_beats_baseline(
+            result.aggregate_net_pnl_eur,
+            baseline_net_pnl,
+            "random_signal_same_frequency",
+        ),
+        average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio if attribution else None,
+        average_exit_capture_bps=attribution.average_exit_capture_bps if attribution else None,
         cost_config=result.folds[0].backtest_result.cost_config if result.folds else {},
         report_path=result.markdown_report_path,
     )
+
+
+def _beats_baseline(strategy_net_pnl: float, baselines: dict[str, float], name: str) -> bool | None:
+    baseline = baselines.get(name)
+    return None if baseline is None else float(strategy_net_pnl) > float(baseline)
+
+
+def _aggregate_fold_baselines(folds: Sequence[Any]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for fold in folds:
+        for baseline in fold.backtest_result.baselines:
+            totals[baseline.name] = totals.get(baseline.name, 0.0) + float(baseline.net_pnl_eur)
+    return totals
 
 
 def _write_matrix_reports(config: MatrixRunConfig, result: MatrixRunResult) -> MatrixRunResult:
@@ -252,8 +305,8 @@ def render_matrix_report(result: MatrixRunResult) -> str:
         "",
         "## Results",
         "",
-        "| Symbol | Strategy | Status | Decision | Reason | Bars | Trades | Net PnL | Fees | Spread | Slippage | Return | PF | Max DD |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Symbol | Strategy | Status | Decision | Reason | Bars | Trades | Net PnL | Fees | Spread | Slippage | Return | PF | Max DD | No-trade | Buy & Hold | Random | MFE/Cost | Exit Capture |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: |",
     ]
     for cell in sorted_cells:
         lines.append(
@@ -261,7 +314,9 @@ def render_matrix_report(result: MatrixRunResult) -> str:
             f"{cell.reason or cell.error or ''} | {cell.bar_count} | {cell.closed_trades} | "
             f"{_fmt(cell.net_pnl_eur)} | {_fmt(cell.fees_eur)} | {_fmt(cell.spread_cost_eur)} | "
             f"{_fmt(cell.slippage_eur)} | {_fmt(cell.total_return_pct)} | {_fmt(cell.profit_factor)} | "
-            f"{_fmt(cell.max_drawdown_pct)} |"
+            f"{_fmt(cell.max_drawdown_pct)} | {_fmt_bool(cell.beats_no_trade)} | "
+            f"{_fmt_bool(cell.beats_buy_and_hold)} | {_fmt_bool(cell.beats_random_signal_same_frequency)} | "
+            f"{_fmt(cell.average_mfe_to_cost_ratio)} | {_fmt(cell.average_exit_capture_bps)} |"
         )
     lines.extend(
         [
@@ -277,6 +332,12 @@ def render_matrix_report(result: MatrixRunResult) -> str:
 
 def _fmt(value: float | None) -> str:
     return "" if value is None else f"{value:.6f}"
+
+
+def _fmt_bool(value: bool | None) -> str:
+    if value is None:
+        return ""
+    return "yes" if value else "no"
 
 
 def main(argv: list[str] | None = None) -> int:

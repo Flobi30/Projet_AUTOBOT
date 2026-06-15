@@ -56,11 +56,24 @@ def test_validation_matrix_runs_strategy_symbol_grid_and_writes_summary(tmp_path
     assert all(cell.cost_config["fallback_spread_bps"] == pytest.approx(0.0) for cell in result.results)
     assert all(cell.fees_eur is not None for cell in result.results)
     assert all(cell.slippage_eur is not None for cell in result.results)
+    grid_cell = next(cell for cell in result.results if cell.strategy == "grid")
+    assert set(grid_cell.baseline_net_pnl_eur) == {
+        "no_trade",
+        "buy_and_hold",
+        "random_signal_same_frequency",
+    }
+    assert isinstance(grid_cell.beats_no_trade, bool)
+    assert isinstance(grid_cell.beats_buy_and_hold, bool)
+    assert isinstance(grid_cell.beats_random_signal_same_frequency, bool)
+    assert grid_cell.average_mfe_to_cost_ratio is not None
+    assert grid_cell.average_exit_capture_bps is not None
     assert (tmp_path / "matrix" / "pytest_matrix.md").exists()
     assert (tmp_path / "matrix" / "pytest_matrix.json").exists()
     markdown = (tmp_path / "matrix" / "pytest_matrix.md").read_text(encoding="utf-8")
     assert "Cost config" in markdown
     assert "Slippage" in markdown
+    assert "MFE/Cost" in markdown
+    assert "Exit Capture" in markdown
 
 
 def test_validation_matrix_records_cell_errors_without_aborting(tmp_path):

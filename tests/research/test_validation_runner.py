@@ -5,7 +5,13 @@ import pytest
 
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.trade_journal import TradeJournal
-from autobot.v2.research.validation_runner import ValidationRunnerConfig, load_bars_for_validation, main, run_validation
+from autobot.v2.research.validation_runner import (
+    ValidationRunnerConfig,
+    load_bars_for_validation,
+    main,
+    make_signal_generator_factory,
+    run_validation,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -23,6 +29,40 @@ def _write_grid_csv(path):
         ),
         encoding="utf-8",
     )
+
+
+def test_grid_factory_uses_selected_cost_profile_for_expected_round_trip_cost():
+    cost_config = ExecutionCostConfig(
+        cost_profile="paper_current_taker",
+        taker_fee_bps=40.0,
+        maker_fee_bps=25.0,
+        fallback_spread_bps=8.0,
+        slippage_bps=3.0,
+        latency_buffer_bps=0.0,
+    )
+
+    generator = make_signal_generator_factory("grid", cost_config=cost_config)()
+
+    assert generator.config.estimated_round_trip_cost_bps == pytest.approx(94.0)
+
+
+def test_grid_factory_preserves_explicit_expected_round_trip_cost_override():
+    cost_config = ExecutionCostConfig(
+        cost_profile="paper_current_taker",
+        taker_fee_bps=40.0,
+        maker_fee_bps=25.0,
+        fallback_spread_bps=8.0,
+        slippage_bps=3.0,
+        latency_buffer_bps=0.0,
+    )
+
+    generator = make_signal_generator_factory(
+        "grid",
+        {"estimated_round_trip_cost_bps": 77.0},
+        cost_config=cost_config,
+    )()
+
+    assert generator.config.estimated_round_trip_cost_bps == pytest.approx(77.0)
 
 
 def test_validation_runner_runs_backtest_from_csv(tmp_path):

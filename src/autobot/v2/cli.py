@@ -517,6 +517,8 @@ def _add_strategy_batch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-closed-trades", type=int, default=30)
     parser.add_argument("--min-profit-factor", type=float, default=1.2)
     parser.add_argument("--max-drawdown-pct", type=float, default=15.0)
+    parser.add_argument("--min-mfe-to-cost", type=float, default=1.5)
+    parser.add_argument("--min-exit-capture-bps", type=float, default=0.0)
     _add_cost_profile_args(parser)
     parser.add_argument("--no-regime-context", action="store_true")
 
@@ -1033,6 +1035,8 @@ def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
             min_closed_trades=args.min_closed_trades,
             min_profit_factor=args.min_profit_factor,
             max_drawdown_pct=args.max_drawdown_pct,
+            min_mfe_to_cost=args.min_mfe_to_cost,
+            min_exit_capture_bps=args.min_exit_capture_bps,
             include_regime_context=not bool(args.no_regime_context),
             cost_config=_cost_config_from_args(args),
         )

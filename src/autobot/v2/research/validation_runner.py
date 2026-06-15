@@ -151,9 +151,16 @@ def _filter_bars_for_symbol(bars: list[MarketBar], symbol: str) -> list[MarketBa
 def make_signal_generator_factory(
     strategy: StrategyName,
     strategy_config: dict[str, Any] | None = None,
+    *,
+    cost_config: ExecutionCostConfig | None = None,
 ) -> Callable[[], Any]:
     strategy_config = dict(strategy_config or {})
     if strategy == "grid":
+        if cost_config is not None:
+            strategy_config.setdefault(
+                "estimated_round_trip_cost_bps",
+                cost_config.round_trip_cost_estimate_bps(),
+            )
         return lambda: GridResearchSignalGenerator(GridResearchConfig(**strategy_config))
     if strategy == "trend":
         return lambda: TrendResearchSignalGenerator(TrendResearchConfig(**strategy_config))
@@ -166,7 +173,11 @@ def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
     bars = load_bars_for_validation(config)
     if config.include_regime_context:
         bars = enrich_bars_with_regime_context(bars)
-    factory = make_signal_generator_factory(config.strategy, config.strategy_config)
+    factory = make_signal_generator_factory(
+        config.strategy,
+        config.strategy_config,
+        cost_config=config.cost_config,
+    )
     backtest_config = BacktestConfig(
         run_id=config.run_id,
         strategy_id=_strategy_id(config.strategy),

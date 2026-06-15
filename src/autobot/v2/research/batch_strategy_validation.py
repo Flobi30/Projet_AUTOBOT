@@ -86,6 +86,8 @@ class BatchStrategyValidationConfig:
     min_closed_trades: int = 30
     min_profit_factor: float = 1.2
     max_drawdown_pct: float = 15.0
+    min_mfe_to_cost: float = 1.5
+    min_exit_capture_bps: float = 0.0
     include_regime_context: bool = True
     cost_config: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
     windows: tuple[BatchValidationWindow, ...] = ()
@@ -99,6 +101,8 @@ class BatchStrategyValidationConfig:
             raise ValueError("strategies must not be empty")
         if self.mode not in {"backtest", "walk_forward"}:
             raise ValueError("mode must be backtest or walk_forward")
+        if self.min_mfe_to_cost < 0.0:
+            raise ValueError("min_mfe_to_cost must not be negative")
         if self.data_source not in {"autobot_state_db", "csv"}:
             raise ValueError("data_source must be autobot_state_db or csv")
         if self.effective_data_path is None:
@@ -206,6 +210,8 @@ def run_batch_strategy_validation(config: BatchStrategyValidationConfig) -> Batc
         min_closed_trades=config.min_closed_trades,
         min_profit_factor=config.min_profit_factor,
         max_drawdown_pct=config.max_drawdown_pct,
+        min_mfe_to_cost=config.min_mfe_to_cost,
+        min_exit_capture_bps=config.min_exit_capture_bps,
         mode=config.mode,
     )
     report = BatchStrategyValidationReport(
@@ -374,6 +380,8 @@ def decide_strategy_batch(
     min_closed_trades: int,
     min_profit_factor: float,
     max_drawdown_pct: float,
+    min_mfe_to_cost: float = 1.5,
+    min_exit_capture_bps: float = 0.0,
     mode: str = "backtest",
 ) -> tuple[StrategyBatchDecision, ...]:
     decisions: list[StrategyBatchDecision] = []
@@ -440,18 +448,14 @@ def decide_strategy_batch(
             blockers.append("dominated_by_single_symbol")
         if not eligible_cells:
             blockers.append("no_cell_passes_candidate_thresholds")
-        # Current batch cells do not yet carry baseline/MFE/exit-capture fields.
-        # Keep this explicit so a positive cell cannot silently become a
-        # shadow candidate without the validation evidence requested by the
-        # research protocol.
-        blockers.extend(
-            (
-                "baseline_no_trade_unavailable",
-                "baseline_buy_and_hold_unavailable",
-                "baseline_random_signal_unavailable",
-                "mfe_to_cost_unavailable",
-                "exit_capture_unavailable",
-            )
+        evidence_cells = eligible_cells or positive_cells or [
+            cell for cell in cells if int(cell.closed_trades or 0) > 0
+        ]
+        _append_evidence_blockers(
+            blockers,
+            evidence_cells,
+            min_mfe_to_cost=min_mfe_to_cost,
+            min_exit_capture_bps=min_exit_capture_bps,
         )
         if positive_cells:
             reasons.append(f"{len(positive_cells)} positive cells exist but full validation evidence is incomplete")
@@ -479,6 +483,45 @@ def decide_strategy_batch(
             )
         )
     return tuple(decisions)
+
+
+def _append_evidence_blockers(
+    blockers: list[str],
+    cells: Sequence[Any],
+    *,
+    min_mfe_to_cost: float,
+    min_exit_capture_bps: float,
+) -> None:
+    evidence = (
+        ("no_trade", "beats_no_trade", "baseline_no_trade_unavailable", "does_not_beat_no_trade"),
+        ("buy_and_hold", "beats_buy_and_hold", "baseline_buy_and_hold_unavailable", "does_not_beat_buy_and_hold"),
+        (
+            "random_signal_same_frequency",
+            "beats_random_signal_same_frequency",
+            "baseline_random_signal_unavailable",
+            "does_not_beat_random_signal",
+        ),
+    )
+    if not cells:
+        blockers.extend(item[2] for item in evidence)
+        blockers.extend(("mfe_to_cost_unavailable", "exit_capture_unavailable"))
+        return
+    for _name, field_name, unavailable, failed in evidence:
+        values = [getattr(cell, field_name, None) for cell in cells]
+        if any(value is None for value in values):
+            blockers.append(unavailable)
+        elif not all(bool(value) for value in values):
+            blockers.append(failed)
+    mfe_values = [getattr(cell, "average_mfe_to_cost_ratio", None) for cell in cells]
+    if any(value is None for value in mfe_values):
+        blockers.append("mfe_to_cost_unavailable")
+    elif not all(float(value) >= min_mfe_to_cost for value in mfe_values):
+        blockers.append("mfe_to_cost_below_threshold")
+    exit_values = [getattr(cell, "average_exit_capture_bps", None) for cell in cells]
+    if any(value is None for value in exit_values):
+        blockers.append("exit_capture_unavailable")
+    elif not all(float(value) > min_exit_capture_bps for value in exit_values):
+        blockers.append("exit_capture_below_threshold")
 
 
 def _window_support_for_strategy(
