@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AUTOBOT research market-data collection daily
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Europe/Paris
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=autobot-research-data.service
+
+[Install]
+WantedBy=timers.target

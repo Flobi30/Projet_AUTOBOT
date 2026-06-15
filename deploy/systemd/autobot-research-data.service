@@ -1,0 +1,24 @@
+[Unit]
+Description=AUTOBOT public research market-data collection
+Documentation=file:///opt/Projet_AUTOBOT/config/research_data_collection.yaml
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/config/research_data_collection.yaml
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-collection.sh
+TimeoutStartSec=90min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+
+# The service starts only an isolated public-data container. The trading
+# container, runtime database, .env, and Docker Compose service are untouched.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
