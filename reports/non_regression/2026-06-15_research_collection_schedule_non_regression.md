@@ -27,17 +27,35 @@ and mounts only dedicated research output directories.
 
 ## Validation
 
-- Shell syntax checked with `bash -n` on the VPS.
-- Focused daily-collection and CLI tests executed locally.
-- A short public-data smoke run executed in the isolated container.
-- Timer state, service logs, persistent outputs, dashboard health, and trading
-  safety flags verified after installation.
+- `python -m compileall -q` on the research collection modules: PASS.
+- Focused pytest command: `5 passed`.
+- Shell syntax checked with `bash -n` on the VPS: PASS.
+- Deployed commit: `25cddb549ea1ae9f5054c64657edcfc11d586577`.
+- Timer: enabled and active; next daily trigger is 02:15 Europe/Paris plus up
+  to five minutes randomized delay.
+- First isolated run started successfully and produced OHLCV CSV, quality JSON,
+  quality Markdown, and collection manifests for the configured symbols.
+- Main `/health`: healthy; orchestrator running; WebSocket connected; 14
+  instances.
+- Authenticated `/api/status`, `/api/capital`, and `/api/trading/debug`: HTTP
+  200.
+- No critical traceback was present in the main container logs during the
+  deployment check.
+- Trading flags remained `PAPER_TRADING=true`,
+  `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false`, and
+  `COLONY_AUTO_LIVE_PROMOTION=false`.
 
 ## Warning
 
 The normal microstructure run lasts about one hour because it records 60 public
 order-book samples at one-minute intervals. Kraken public endpoint errors are
 reported as partial results and do not alter trading runtime.
+
+The first manually started run inherited the image dashboard healthcheck and
+therefore displayed `unhealthy` while collecting normally. Commit `25cddb5`
+adds `--no-healthcheck`; subsequent scheduled research containers will no
+longer expose that misleading status. The main `autobot-v2` container remained
+healthy throughout.
 
 ## Trading Safety
 
