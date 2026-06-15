@@ -21,6 +21,8 @@ and mounts only dedicated research output directories.
 - The research container cannot read the runtime database, logs, or `.env`.
 - CPU is capped at 0.50 core and memory at 768 MB.
 - A file lock prevents overlapping collection runs.
+- The dashboard healthcheck is disabled on the one-shot research container;
+  health remains owned by the main `autobot-v2` service.
 - The timer runs daily at 02:15 Europe/Paris with up to five minutes jitter.
 
 ## Validation

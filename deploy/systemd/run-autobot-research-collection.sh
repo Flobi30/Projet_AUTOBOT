@@ -34,6 +34,7 @@ exec docker run --rm \
   --name "autobot-research-${RUN_ID}" \
   --label "autobot.component=research-data-collection" \
   --network bridge \
+  --no-healthcheck \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   --security-opt no-new-privileges \
