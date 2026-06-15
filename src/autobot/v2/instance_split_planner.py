@@ -141,6 +141,7 @@ def _normalized_evidence_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "parent_capital_eur",
         "parent_available_eur",
         "parent_lifetime_split_count",
+        "lineage_verified",
         "paper_mode",
         "strategy_id",
         "strategy_status",

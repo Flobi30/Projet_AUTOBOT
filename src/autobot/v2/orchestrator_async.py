@@ -133,6 +133,7 @@ from .global_kill_switch import GlobalKillSwitchStore
 from .instance_activation_manager import (
     InstanceActivationManager,
 )
+from .instance_split_policy import InstanceSplitEvidence, InstanceSplitPolicy
 from .portfolio_allocator import (
     AllocationConstraints,
     AllocationPlan,
@@ -498,6 +499,12 @@ class OrchestratorAsync:
         self._parent_children: Dict[str, set[str]] = {}
         # Lien enfant -> parent
         self._child_parent: Dict[str, str] = {}
+        self.instance_split_policy = InstanceSplitPolicy()
+        self._last_instance_split_decision: Dict[str, Any] = {
+            "status": "not_evaluated",
+            "executor_enabled": bool(self.instance_split_policy.config.executor_enabled),
+            "live_promotion_allowed": False,
+        }
 
         # Reconciliation
         self.reconciliation_manager: Optional[ReconciliationManagerAsync] = None
@@ -1022,6 +1029,92 @@ class OrchestratorAsync:
         except Exception as exc:
             logger.warning("Spin-off lineage persistence failed: %s", exc)
 
+    async def _build_instance_split_evidence(
+        self,
+        parent: TradingInstanceAsync,
+    ) -> InstanceSplitEvidence:
+        """Build fail-closed split evidence from runtime and persisted lineage."""
+
+        persistence = get_persistence()
+        count_parent_splits = getattr(persistence, "get_parent_instance_split_count", None)
+        if callable(count_parent_splits):
+            persisted_count = await count_parent_splits(str(parent.id))
+            lineage_verified = persisted_count is not None
+            lifetime_split_count = int(persisted_count or 0)
+        else:
+            lineage = await persistence.get_instance_lineage()
+            lineage_verified = True
+            lifetime_split_count = sum(
+                1
+                for row in lineage
+                if str(row.get("parent_instance_id") or "") == str(parent.id)
+            )
+
+        supplied: Dict[str, Any] = {}
+        provider = getattr(parent, "get_instance_split_evidence", None)
+        if callable(provider):
+            provided = provider()
+            if asyncio.iscoroutine(provided):
+                provided = await provided
+            if isinstance(provided, dict):
+                supplied = dict(provided)
+        elif isinstance(getattr(parent, "instance_split_evidence", None), dict):
+            supplied = dict(parent.instance_split_evidence)
+
+        trades = getattr(parent, "_trades", ())
+        get_profit = getattr(parent, "get_profit", None)
+        get_drawdown = getattr(parent, "get_max_drawdown", None)
+        if not callable(get_drawdown):
+            get_drawdown = getattr(parent, "get_drawdown", None)
+
+        payload: Dict[str, Any] = {
+            "parent_instance_id": str(parent.id),
+            "parent_capital_eur": float(parent.get_current_capital()),
+            "parent_available_eur": float(parent.get_available_capital()),
+            "parent_lifetime_split_count": lifetime_split_count,
+            "lineage_verified": lineage_verified,
+            "paper_mode": bool(getattr(self, "paper_mode", False)),
+            "strategy_id": str(
+                getattr(getattr(parent, "config", None), "strategy", "unknown")
+            ),
+            "strategy_status": "learning",
+            "net_pnl_eur": float(get_profit()) if callable(get_profit) else 0.0,
+            "profit_factor": float(parent.get_profit_factor_days(30)),
+            "trade_count": len(trades),
+            "validation_days": 0,
+            "max_drawdown_pct": (
+                max(0.0, float(get_drawdown())) * 100.0
+                if callable(get_drawdown)
+                else 0.0
+            ),
+            "strategy_scorecard": 0.0,
+            "dominant_failure_mode": None,
+            "official_paper_net_pnl_eur": 0.0,
+            "live_promotion_allowed": False,
+            "metadata": {"source": "runtime_fail_closed"},
+        }
+        for field_name in (
+            "strategy_status",
+            "net_pnl_eur",
+            "profit_factor",
+            "trade_count",
+            "validation_days",
+            "max_drawdown_pct",
+            "strategy_scorecard",
+            "dominant_failure_mode",
+            "official_paper_net_pnl_eur",
+            "metadata",
+        ):
+            if field_name in supplied:
+                payload[field_name] = supplied[field_name]
+
+        # Safety-critical fields come only from runtime and persistence.
+        payload["parent_lifetime_split_count"] = lifetime_split_count
+        payload["lineage_verified"] = lineage_verified
+        payload["paper_mode"] = bool(getattr(self, "paper_mode", False))
+        payload["live_promotion_allowed"] = False
+        return InstanceSplitEvidence(**payload)
+
     def get_lineage_snapshot(self) -> Dict[str, Any]:
         nodes: List[Dict[str, Any]] = []
         edges: List[Dict[str, Any]] = []
@@ -1067,6 +1160,29 @@ class OrchestratorAsync:
         }
 
     async def check_spin_off(self, parent: TradingInstanceAsync) -> Optional[TradingInstanceAsync]:
+        policy = getattr(self, "instance_split_policy", None) or InstanceSplitPolicy()
+        if not policy.config.executor_enabled:
+            self._last_instance_split_decision = {
+                "status": "disabled",
+                "reason": "instance_split_executor_flag_off",
+                "executor_enabled": False,
+                "live_promotion_allowed": False,
+            }
+            return None
+
+        evidence = await self._build_instance_split_evidence(parent)
+        split_decision = policy.evaluate(evidence)
+        self._last_instance_split_decision = split_decision.to_dict()
+        if not split_decision.executable_now:
+            logger.debug(
+                "Spin-off blocked for %s: status=%s blockers=%s executor_enabled=%s",
+                parent.id,
+                split_decision.status,
+                ",".join(split_decision.blockers) or "none",
+                split_decision.executor_enabled,
+            )
+            return None
+
         if self.scalability_guard is not None and self.scalability_guard_state != ScalingState.ALLOW_SCALE_UP:
             logger.info("⏳ Spin-off bloqué par ScalabilityGuard: %s", self.scalability_guard_state.value)
             self._journal_rejected_opportunity(

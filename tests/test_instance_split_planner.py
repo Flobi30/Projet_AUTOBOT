@@ -12,7 +12,7 @@ def _evidence(**overrides):
     payload = {
         "parent_instance_id": "parent_1",
         "strategy_id": "dynamic_grid",
-        "strategy_status": "paper_candidate",
+        "strategy_status": "paper_validated",
         "paper_mode": True,
         "live_promotion_allowed": False,
         "parent_capital_eur": 4000.0,

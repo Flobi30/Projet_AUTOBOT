@@ -288,6 +288,23 @@ def _build_parser() -> argparse.ArgumentParser:
     split_plan.add_argument("--output-dir", default="reports/research/instance_split")
     split_plan.set_defaults(handler=_cmd_split_plan)
 
+    split_validation = subparsers.add_parser(
+        "split-validation",
+        help="Validate paper-only instance split mechanics in an isolated sandbox",
+    )
+    split_validation.add_argument("--run-id", required=True)
+    split_validation.add_argument("--evidence-json", required=True)
+    split_validation.add_argument(
+        "--child-return-series",
+        default="0.01,-0.004,0.006",
+        help="Comma-separated synthetic child returns used only to verify state isolation",
+    )
+    split_validation.add_argument(
+        "--output-dir",
+        default="reports/research/instance_split_validation",
+    )
+    split_validation.set_defaults(handler=_cmd_split_validation)
+
     leaderboard = subparsers.add_parser("leaderboard", help="Write a strategy scorecard from a matrix JSON report")
     leaderboard.add_argument("--matrix-path", required=True)
     leaderboard.add_argument("--output-dir", default="reports/research_scorecards")
@@ -1334,6 +1351,29 @@ def _cmd_split_plan(args: argparse.Namespace) -> int:
         Path(args.output_dir),
     )
     _print_json(plan.to_dict())
+    return 0
+
+
+def _cmd_split_validation(args: argparse.Namespace) -> int:
+    from autobot.v2.research.instance_split_validation_harness import (
+        run_instance_split_validation,
+    )
+
+    evidence = json.loads(args.evidence_json)
+    if not isinstance(evidence, dict):
+        raise ValueError("--evidence-json must be an object")
+    child_returns = tuple(
+        float(item.strip())
+        for item in str(args.child_return_series).split(",")
+        if item.strip()
+    )
+    result = run_instance_split_validation(
+        run_id=args.run_id,
+        evidence=evidence,
+        output_dir=Path(args.output_dir),
+        child_return_series=child_returns,
+    )
+    _print_json(result.to_dict())
     return 0
 
 

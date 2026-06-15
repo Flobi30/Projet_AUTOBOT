@@ -1303,6 +1303,50 @@ def test_cli_split_plan_blocks_unvalidated_parent_without_creating_child(tmp_pat
     assert (tmp_path / "split_plan" / "pytest_split_plan_cli.md").exists()
 
 
+def test_cli_split_validation_runs_isolated_paper_mechanics(tmp_path, capsys):
+    evidence = json.dumps(
+        {
+            "parent_instance_id": "parent_validated",
+            "parent_capital_eur": 4000.0,
+            "parent_available_eur": 3000.0,
+            "parent_lifetime_split_count": 0,
+            "paper_mode": True,
+            "strategy_id": "trend_momentum",
+            "strategy_status": "paper_validated",
+            "net_pnl_eur": 250.0,
+            "profit_factor": 1.45,
+            "trade_count": 180,
+            "validation_days": 14,
+            "max_drawdown_pct": 6.0,
+            "strategy_scorecard": 84.0,
+            "dominant_failure_mode": "healthy",
+            "official_paper_net_pnl_eur": 220.0,
+            "live_promotion_allowed": False,
+        }
+    )
+
+    exit_code = cli.main(
+        [
+            "split-validation",
+            "--run-id",
+            "pytest_split_validation_cli",
+            "--evidence-json",
+            evidence,
+            "--output-dir",
+            str(tmp_path / "split_validation"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["status"] == "PASS"
+    assert output["checks"]["capital_conserved_at_split"] is True
+    assert output["checks"]["second_split_blocked_for_lifetime"] is True
+    assert output["checks"]["no_order_path"] is True
+    assert output["first_decision"]["live_promotion_allowed"] is False
+    assert (tmp_path / "split_validation" / "pytest_split_validation_cli.md").exists()
+
+
 def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsys):
     matrix_path = tmp_path / "matrix.json"
     matrix_path.write_text(

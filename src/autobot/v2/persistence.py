@@ -789,14 +789,8 @@ class StatePersistence:
                 tuple(active_instance_ids),
             )
             deleted = int(cursor.rowcount or 0)
-            await conn.execute(
-                f"""
-                DELETE FROM instance_lineage
-                WHERE child_instance_id NOT IN ({placeholders})
-                  AND parent_instance_id NOT IN ({placeholders})
-                """,
-                tuple(active_instance_ids) + tuple(active_instance_ids),
-            )
+            # Keep lineage as an immutable audit trail. It is also the durable
+            # source enforcing one split per parent over the parent's lifetime.
             await conn.commit()
             return deleted
         except Exception as e:
@@ -838,8 +832,8 @@ class StatePersistence:
                     updated_at=excluded.updated_at
                 """,
                 (
-                    parent_instance_id,
                     child_instance_id,
+                    parent_instance_id,
                     root_instance_id,
                     int(generation),
                     float(child_capital),
@@ -869,6 +863,22 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"Erreur get_instance_lineage: {e}")
             return []
+
+    async def get_parent_instance_split_count(self, parent_instance_id: str) -> Optional[int]:
+        """Return durable lifetime split count, or None when it cannot be verified."""
+
+        await self.initialize()
+        try:
+            conn = await self.instance_state.get_conn()
+            async with conn.execute(
+                "SELECT COUNT(*) FROM instance_lineage WHERE parent_instance_id = ?",
+                (str(parent_instance_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return int(row[0] if row else 0)
+        except Exception as e:
+            logger.exception(f"Erreur get_parent_instance_split_count: {e}")
+            return None
 
     async def record_trade(self, position_id: str, instance_id: str,
                     side: str, price: float, volume: float,

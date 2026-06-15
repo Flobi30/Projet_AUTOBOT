@@ -1,0 +1,141 @@
+{
+  "checks": {
+    "capital_conserved_at_split": true,
+    "child_state_changes_independently": true,
+    "first_split_policy_passed": true,
+    "lineage_persisted": true,
+    "live_promotion_disabled": true,
+    "no_order_path": true,
+    "paper_mode_only": true,
+    "second_split_blocked_for_lifetime": true
+  },
+  "child": {
+    "current_capital_eur": 1011.99576,
+    "initial_capital_eur": 1000.0,
+    "instance_id": "paper-parent-validated-child-1"
+  },
+  "first_decision": {
+    "allowed_to_plan": true,
+    "blockers": [],
+    "config": {
+      "blocked_failure_modes": [
+        "weak_mfe_below_cost"
+      ],
+      "child_capital_pct": 25.0,
+      "executor_enabled": true,
+      "feature_flag": "ENABLE_INSTANCE_SPLIT_EXECUTOR",
+      "max_drawdown_pct": 12.0,
+      "max_splits_per_parent_lifetime": 1,
+      "min_child_capital_eur": 400.0,
+      "min_net_pnl_eur": 0.0,
+      "min_parent_capital_eur": 2000.0,
+      "min_profit_factor": 1.25,
+      "min_strategy_scorecard": 75.0,
+      "min_trade_count": 100,
+      "min_validation_days": 7,
+      "paper_mode_only": true,
+      "required_strategy_statuses": [
+        "paper_validated"
+      ]
+    },
+    "evidence": {
+      "dominant_failure_mode": "healthy",
+      "lineage_verified": true,
+      "live_promotion_allowed": false,
+      "max_drawdown_pct": 6.0,
+      "metadata": {},
+      "net_pnl_eur": 250.0,
+      "official_paper_net_pnl_eur": 220.0,
+      "paper_mode": true,
+      "parent_available_eur": 3000.0,
+      "parent_capital_eur": 4000.0,
+      "parent_instance_id": "paper-parent-validated",
+      "parent_lifetime_split_count": 0,
+      "profit_factor": 1.45,
+      "strategy_id": "trend_momentum",
+      "strategy_scorecard": 84.0,
+      "strategy_status": "paper_validated",
+      "trade_count": 180,
+      "validation_days": 14
+    },
+    "executable_now": true,
+    "executor_enabled": true,
+    "live_promotion_allowed": false,
+    "parent_capital_after_eur": 3000.0,
+    "planned_child_capital_eur": 1000.0,
+    "reason": "split_policy_passed_and_executor_enabled",
+    "status": "executable_paper_only"
+  },
+  "generated_at": "2026-06-15T17:12:34.301619+00:00",
+  "json_report_path": "reports\\research\\instance_split_validation\\instance_split_mechanics_2026_06_15.json",
+  "lineage_db_path": "reports\\research\\instance_split_validation\\instance_split_mechanics_2026_06_15_lineage.db",
+  "markdown_report_path": "reports\\research\\instance_split_validation\\instance_split_mechanics_2026_06_15.md",
+  "parent": {
+    "current_capital_eur": 3000.0,
+    "initial_capital_eur": 4000.0,
+    "instance_id": "paper-parent-validated"
+  },
+  "run_id": "instance_split_mechanics_2026_06_15",
+  "safety_notes": [
+    "Research-only mechanics validation.",
+    "No AUTOBOT runtime service is started.",
+    "No Kraken endpoint or credential is used.",
+    "No paper or live order is created.",
+    "No live promotion permission is granted."
+  ],
+  "second_decision": {
+    "allowed_to_plan": false,
+    "blockers": [
+      "parent_already_split"
+    ],
+    "config": {
+      "blocked_failure_modes": [
+        "weak_mfe_below_cost"
+      ],
+      "child_capital_pct": 25.0,
+      "executor_enabled": true,
+      "feature_flag": "ENABLE_INSTANCE_SPLIT_EXECUTOR",
+      "max_drawdown_pct": 12.0,
+      "max_splits_per_parent_lifetime": 1,
+      "min_child_capital_eur": 400.0,
+      "min_net_pnl_eur": 0.0,
+      "min_parent_capital_eur": 2000.0,
+      "min_profit_factor": 1.25,
+      "min_strategy_scorecard": 75.0,
+      "min_trade_count": 100,
+      "min_validation_days": 7,
+      "paper_mode_only": true,
+      "required_strategy_statuses": [
+        "paper_validated"
+      ]
+    },
+    "evidence": {
+      "dominant_failure_mode": "healthy",
+      "lineage_verified": true,
+      "live_promotion_allowed": false,
+      "max_drawdown_pct": 6.0,
+      "metadata": {},
+      "net_pnl_eur": 250.0,
+      "official_paper_net_pnl_eur": 220.0,
+      "paper_mode": true,
+      "parent_available_eur": 3000.0,
+      "parent_capital_eur": 4000.0,
+      "parent_instance_id": "paper-parent-validated",
+      "parent_lifetime_split_count": 1,
+      "profit_factor": 1.45,
+      "strategy_id": "trend_momentum",
+      "strategy_scorecard": 84.0,
+      "strategy_status": "paper_validated",
+      "trade_count": 180,
+      "validation_days": 14
+    },
+    "executable_now": false,
+    "executor_enabled": true,
+    "live_promotion_allowed": false,
+    "parent_capital_after_eur": 3000.0,
+    "planned_child_capital_eur": 1000.0,
+    "reason": "parent_already_split",
+    "status": "blocked"
+  },
+  "status": "PASS"
+}

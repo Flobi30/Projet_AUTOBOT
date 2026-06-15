@@ -13,7 +13,7 @@ from typing import Any, Mapping
 
 EXECUTION_FLAG_NAME = "ENABLE_INSTANCE_SPLIT_EXECUTOR"
 BLOCKING_FAILURE_MODES = {"weak_mfe_below_cost"}
-VALIDATED_STRATEGY_STATUSES = {"paper_candidate", "paper_validated", "shadow_passed"}
+VALIDATED_STRATEGY_STATUSES = {"paper_validated"}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -58,6 +58,7 @@ class InstanceSplitEvidence:
     parent_capital_eur: float
     parent_available_eur: float
     parent_lifetime_split_count: int = 0
+    lineage_verified: bool = True
     paper_mode: bool = True
     strategy_id: str = "unknown"
     strategy_status: str = "learning"
@@ -125,6 +126,8 @@ class InstanceSplitPolicy:
             blockers.append("paper_mode_required")
         if ev.live_promotion_allowed:
             blockers.append("live_promotion_must_remain_false")
+        if not ev.lineage_verified:
+            blockers.append("lineage_evidence_unavailable")
         if ev.parent_lifetime_split_count >= cfg.max_splits_per_parent_lifetime:
             blockers.append("parent_already_split")
         if ev.parent_capital_eur < cfg.min_parent_capital_eur:
@@ -184,6 +187,7 @@ def _evidence_from_mapping(payload: Mapping[str, Any]) -> InstanceSplitEvidence:
         parent_capital_eur=_float(payload.get("parent_capital_eur")),
         parent_available_eur=_float(payload.get("parent_available_eur")),
         parent_lifetime_split_count=int(_float(payload.get("parent_lifetime_split_count"))),
+        lineage_verified=bool(payload.get("lineage_verified", True)),
         paper_mode=bool(payload.get("paper_mode", True)),
         strategy_id=str(payload.get("strategy_id") or "unknown"),
         strategy_status=str(payload.get("strategy_status") or "learning"),
