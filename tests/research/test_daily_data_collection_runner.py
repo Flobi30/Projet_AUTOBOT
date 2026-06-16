@@ -13,6 +13,13 @@ from autobot.v2.research.historical_data_collector import KrakenOHLCPage
 pytestmark = pytest.mark.unit
 
 
+def _asset_pairs_fixture():
+    return {
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+        "XXBTZEUR": {"altname": "XBTEUR", "wsname": "XBT/EUR"},
+    }
+
+
 def _write_config(path, tmp_path):
     path.write_text(
         "\n".join(
@@ -20,7 +27,7 @@ def _write_config(path, tmp_path):
                 "priority_symbols:",
                 "  - TRXEUR",
                 "secondary_symbols:",
-                "  - BADPAIR",
+                "  - BTCZEUR",
                 "timeframes:",
                 "  - 5m",
                 "ohlcv:",
@@ -62,7 +69,7 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
 
     def ohlc_fetcher(pair, interval_minutes, since):
         ohlc_calls.append((pair, interval_minutes, since))
-        if pair == "BADPAIR":
+        if pair == "XXBTZEUR":
             raise ValueError("public Kraken OHLC error")
         return KrakenOHLCPage(
             pair=pair,
@@ -75,12 +82,12 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
 
     def depth_fetcher(pair, depth_count):
         depth_calls.append((pair, depth_count))
-        if pair == "BADPAIR":
+        if pair == "XXBTZEUR":
             raise ValueError("public Kraken depth error")
         return {
             "error": [],
             "result": {
-                "TRXEUR": {
+                pair: {
                     "bids": [["100.0", "2.0", "1780272000"]],
                     "asks": [["100.2", "3.0", "1780272001"]],
                 }
@@ -92,6 +99,7 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
         run_id="pytest_daily",
         ohlc_fetcher=ohlc_fetcher,
         depth_fetcher=depth_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
     )
 
     payload = result.to_dict()
@@ -99,10 +107,10 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
     assert result.live_promotion_allowed is False
     assert "secret_key_must_not_leak" not in encoded
     assert "secret_secret_must_not_leak" not in encoded
-    assert ohlc_calls == [("TRXEUR", 5, None), ("BADPAIR", 5, None)]
-    assert depth_calls == [("TRXEUR", 5), ("BADPAIR", 5)]
+    assert ohlc_calls == [("TRXEUR", 5, None), ("XXBTZEUR", 5, None)]
+    assert depth_calls == [("TRXEUR", 5), ("XXBTZEUR", 5)]
     assert any(op["status"] == "ok" and op["operation_type"] == "ohlcv" for op in payload["operations"])
-    assert any(op["status"] == "error" and op["symbol"] == "BADPAIR" for op in payload["operations"])
+    assert any(op["status"] == "error" and op["symbol"] == "BTCZEUR" for op in payload["operations"])
     assert any(op["status"] == "partial" and op["operation_type"] == "spread_depth" for op in payload["operations"])
     assert payload["microstructure_result"]["errors"][0]["error"] == "public Kraken depth error"
     assert payload["manifest_path"]
@@ -120,3 +128,17 @@ def test_daily_runner_rejects_config_that_is_not_research_only(tmp_path):
 
     with pytest.raises(ValueError, match="safety.research_only must be true"):
         load_daily_research_data_collection_config(config_path)
+
+
+def test_daily_runner_fails_preflight_for_unknown_active_symbol(tmp_path):
+    config_path = tmp_path / "research_daily_unknown.yaml"
+    _write_config(config_path, tmp_path)
+    text = config_path.read_text(encoding="utf-8").replace("  - BTCZEUR", "  - BADPAIR")
+    config_path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Kraken public symbol mapping missing"):
+        run_daily_research_data_collection(
+            config_path=config_path,
+            run_id="pytest_daily_unknown",
+            asset_pairs_fetcher=_asset_pairs_fixture,
+        )

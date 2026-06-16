@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .kraken_symbol_mapping import (
+    AssetPairsFetcher,
+    KrakenPublicPairMapping,
+    preflight_kraken_public_symbols,
+)
 from .symbol_normalization import normalize_research_symbol
 
 
@@ -105,16 +110,28 @@ def record_spread_depth(
     config: SpreadDepthRecorderConfig,
     *,
     fetcher: DepthFetcher | None = None,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
+    symbol_mappings: Mapping[str, KrakenPublicPairMapping] | None = None,
 ) -> SpreadDepthRecorderResult:
     fetch = fetcher or fetch_kraken_depth_page
+    mapping_by_symbol = dict(symbol_mappings or _resolve_symbol_mappings(config.symbols, asset_pairs_fetcher=asset_pairs_fetcher))
     snapshots: list[SpreadDepthSnapshot] = []
     errors: list[dict[str, Any]] = []
     for sample_index in range(config.samples):
         for symbol in config.symbols:
-            canonical_symbol = normalize_research_symbol(symbol)
+            requested_symbol = str(symbol).strip().upper()
+            canonical_requested = normalize_research_symbol(symbol)
+            mapping = (
+                mapping_by_symbol.get(requested_symbol)
+                or mapping_by_symbol.get(requested_symbol.replace("/", "").replace("-", "").replace("_", ""))
+                or mapping_by_symbol.get(canonical_requested)
+            )
+            if mapping is None:
+                raise ValueError(f"missing Kraken public symbol mapping for {requested_symbol or canonical_requested}")
+            canonical_symbol = mapping.autobot_symbol
             try:
                 started = time.perf_counter()
-                payload = fetch(symbol, config.depth_count)
+                payload = fetch(mapping.kraken_ohlcv_symbol, config.depth_count)
                 latency_ms = (time.perf_counter() - started) * 1000.0
                 snapshots.append(
                     _snapshot_from_depth_payload(
@@ -330,3 +347,20 @@ def _quantile(values: Sequence[float], q: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * q))))
     return ordered[index]
+
+
+def _resolve_symbol_mappings(
+    symbols: Sequence[str],
+    *,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
+) -> dict[str, KrakenPublicPairMapping]:
+    preflight = preflight_kraken_public_symbols(symbols, asset_pairs_fetcher=asset_pairs_fetcher)
+    mapping_by_symbol = preflight.mapping_by_symbol()
+    for requested in symbols:
+        mapping = mapping_by_symbol.get(normalize_research_symbol(requested))
+        if mapping is None:
+            continue
+        raw = str(requested).strip().upper()
+        mapping_by_symbol[raw] = mapping
+        mapping_by_symbol[raw.replace("/", "").replace("-", "").replace("_", "")] = mapping
+    return mapping_by_symbol

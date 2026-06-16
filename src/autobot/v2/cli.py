@@ -14,23 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
+from autobot.v2.research.kraken_symbol_mapping import AUTOBOT_DEFAULT_ACTIVE_SYMBOLS, detect_active_autobot_symbols
 
-AUTOBOT_TOP14_EUR_SYMBOLS = (
-    "BTCZEUR",
-    "ETHZEUR",
-    "SOLEUR",
-    "LTCZEUR",
-    "XLMZEUR",
-    "XRPZEUR",
-    "TRXEUR",
-    "ADAEUR",
-    "LINKEUR",
-    "DOTEUR",
-    "BCHEUR",
-    "ATOMEUR",
-    "AVAXEUR",
-    "AAVEEUR",
-)
+AUTOBOT_TOP14_EUR_SYMBOLS = AUTOBOT_DEFAULT_ACTIVE_SYMBOLS
 AUTOBOT_STANDARD_STRATEGIES = ("grid", "trend", "mean_reversion")
 MATRIX_PRESETS = {
     "autobot-top14-eur": {
@@ -108,7 +94,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Collect public Kraken OHLCV history for research datasets",
     )
     collect_history.add_argument("--run-id", required=True)
-    collect_history.add_argument("--symbols", required=True)
+    collect_history.add_argument(
+        "--symbols",
+        default=None,
+        help="Comma-separated symbol list; omit to use detected active AUTOBOT pairs",
+    )
     collect_history.add_argument("--timeframes", default="1m,5m,15m,1h")
     collect_history.add_argument("--output-dir", default="data/research/historical")
     collect_history.add_argument("--since", type=int, default=None)
@@ -588,11 +578,16 @@ def _cmd_collect_history(args: argparse.Namespace) -> int:
         HistoricalDataCollectorConfig,
         collect_historical_ohlcv,
     )
+    symbols = (
+        _csv_tuple(args.symbols, "--symbols", uppercase=True)
+        if args.symbols
+        else detect_active_autobot_symbols()
+    )
 
     result = collect_historical_ohlcv(
         HistoricalDataCollectorConfig(
             run_id=args.run_id,
-            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+            symbols=symbols,
             timeframes=_csv_tuple(args.timeframes, "--timeframes"),
             output_dir=Path(args.output_dir),
             since=args.since,

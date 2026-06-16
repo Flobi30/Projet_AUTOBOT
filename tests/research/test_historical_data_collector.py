@@ -13,6 +13,12 @@ from autobot.v2.research.historical_data_collector import (
 pytestmark = pytest.mark.unit
 
 
+def _asset_pairs_fixture():
+    return {
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+    }
+
+
 def _fake_fetcher(pair, interval_minutes, since):
     assert pair == "TRXEUR"
     assert interval_minutes == 5
@@ -37,7 +43,7 @@ def test_historical_collector_writes_csv_and_quality_report(tmp_path):
         export_parquet=False,
     )
 
-    result = collect_historical_ohlcv(config, fetcher=_fake_fetcher)
+    result = collect_historical_ohlcv(config, fetcher=_fake_fetcher, asset_pairs_fetcher=_asset_pairs_fixture)
     written = write_historical_data_collection_reports(result, tmp_path / "reports")
 
     assert sum(item.row_count for item in result.files) == 2

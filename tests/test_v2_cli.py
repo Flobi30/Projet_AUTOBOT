@@ -1161,6 +1161,69 @@ def test_cli_collect_research_daily_is_research_only(monkeypatch, tmp_path, caps
     assert "No paper or live order is created." in output["safety_notes"]
 
 
+def test_cli_collect_history_uses_detected_active_symbols_when_omitted(monkeypatch, tmp_path, capsys):
+    from autobot.v2.research import historical_data_collector
+    from autobot.v2.research.historical_data_collector import (
+        HistoricalDataCollectionResult,
+        HistoricalDataFile,
+    )
+    from autobot.v2.research.data_quality_report import DataFoundationReadinessReport
+
+    calls = {}
+
+    def fake_collect(config, **kwargs):
+        calls["symbols"] = tuple(config.symbols)
+        return HistoricalDataCollectionResult(
+            run_id=config.run_id,
+            provider=config.provider,
+            generated_at="2026-06-16T00:00:00+00:00",
+            files=(
+                HistoricalDataFile(
+                    symbol="BTCZEUR",
+                    kraken_ohlcv_symbol="XXBTZEUR",
+                    runtime_symbol="XXBTZEUR",
+                    timeframe="5m",
+                    provider=config.provider,
+                    row_count=0,
+                    start_at=None,
+                    end_at=None,
+                ),
+            ),
+            readiness=DataFoundationReadinessReport(
+                run_id="pytest_readiness",
+                generated_at="2026-06-16T00:00:00+00:00",
+                files=(),
+                usable_file_count=0,
+                unusable_file_count=0,
+                symbol_coverage={},
+                overall_status="ready_for_ohlcv_research",
+                status_tiers=("ready_for_ohlcv_research",),
+                recommendations=(),
+            ),
+        )
+
+    monkeypatch.setattr(cli, "detect_active_autobot_symbols", lambda: ("BTCZEUR", "TRXEUR"))
+    monkeypatch.setattr(historical_data_collector, "collect_historical_ohlcv", fake_collect)
+
+    exit_code = cli.main(
+        [
+            "collect-history",
+            "--run-id",
+            "pytest_collect_history",
+            "--timeframes",
+            "5m",
+            "--output-dir",
+            str(tmp_path / "history"),
+            "--no-parquet",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert calls["symbols"] == ("BTCZEUR", "TRXEUR")
+    assert output["run_id"] == "pytest_collect_history"
+
+
 def test_cli_no_trade_attribution_is_read_only(tmp_path, capsys):
     import sqlite3
 

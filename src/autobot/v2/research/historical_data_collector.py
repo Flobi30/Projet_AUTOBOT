@@ -23,6 +23,11 @@ from .data_quality_report import (
     write_data_foundation_readiness_report,
 )
 from .dataset_builder import parse_timeframe_seconds
+from .kraken_symbol_mapping import (
+    AssetPairsFetcher,
+    KrakenPublicPairMapping,
+    preflight_kraken_public_symbols,
+)
 from .market_data_repository import MarketBar, MarketDataRepository
 from .symbol_normalization import normalize_research_symbol
 
@@ -87,6 +92,8 @@ class HistoricalDataCollectorConfig:
 @dataclass(frozen=True)
 class HistoricalDataFile:
     symbol: str
+    kraken_ohlcv_symbol: str
+    runtime_symbol: str
     timeframe: str
     provider: str
     row_count: int
@@ -101,10 +108,12 @@ class HistoricalDataFile:
     duplicate_count: int = 0
     csv_path: str | None = None
     parquet_path: str | None = None
+    aliases: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["aliases"] = list(self.aliases)
         payload["warnings"] = list(self.warnings)
         return payload
 
@@ -146,6 +155,8 @@ def collect_historical_ohlcv(
     config: HistoricalDataCollectorConfig,
     *,
     fetcher: OHLCFetcher | None = None,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
+    symbol_mappings: Mapping[str, KrakenPublicPairMapping] | None = None,
 ) -> HistoricalDataCollectionResult:
     """Collect public OHLCV and write CSV/Parquet research datasets."""
 
@@ -158,14 +169,24 @@ def collect_historical_ohlcv(
     start_dt = _parse_optional_datetime(config.start_at)
     end_dt = _parse_optional_datetime(config.end_at)
     since_cursor = config.since if start_dt is None else int(start_dt.timestamp())
+    mapping_by_symbol = dict(symbol_mappings or _resolve_symbol_mappings(config.symbols, asset_pairs_fetcher=asset_pairs_fetcher))
 
     for symbol in config.symbols:
-        canonical_symbol = normalize_research_symbol(symbol)
+        requested_symbol = str(symbol).strip().upper()
+        canonical_requested = normalize_research_symbol(symbol)
+        mapping = (
+            mapping_by_symbol.get(requested_symbol)
+            or mapping_by_symbol.get(requested_symbol.replace("/", "").replace("-", "").replace("_", ""))
+            or mapping_by_symbol.get(canonical_requested)
+        )
+        if mapping is None:
+            raise ValueError(f"missing Kraken public symbol mapping for {requested_symbol or canonical_requested}")
+        canonical_symbol = mapping.autobot_symbol
         for timeframe in config.timeframes:
             interval = _timeframe_to_kraken_interval(timeframe)
             fetched = _fetch_pages(
                 fetch,
-                symbol,
+                mapping.kraken_ohlcv_symbol,
                 interval,
                 since=since_cursor,
                 start_at=start_dt,
@@ -215,6 +236,8 @@ def collect_historical_ohlcv(
             files.append(
                 HistoricalDataFile(
                     symbol=canonical_symbol,
+                    kraken_ohlcv_symbol=mapping.kraken_ohlcv_symbol,
+                    runtime_symbol=mapping.runtime_symbol,
                     timeframe=timeframe,
                     provider=config.provider,
                     row_count=len(bars),
@@ -229,6 +252,7 @@ def collect_historical_ohlcv(
                     duplicate_count=duplicate_count,
                     csv_path=str(csv_path) if csv_path else None,
                     parquet_path=str(parquet_path) if parquet_path else None,
+                    aliases=mapping.aliases,
                     warnings=tuple(dict.fromkeys([*warnings, *quality.warnings])),
                 )
             )
@@ -305,12 +329,12 @@ def render_historical_data_collection_report(result: HistoricalDataCollectionRes
         "",
         "## Files",
         "",
-        "| Symbol | Timeframe | Rows | Raw | Duplicates | Pages | Cursor | Start | End | CSV | Parquet | Warnings |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+        "| Symbol | Kraken Pair | Runtime Symbol | Timeframe | Rows | Raw | Duplicates | Pages | Cursor | Start | End | CSV | Parquet | Warnings |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
     ]
     for item in result.files:
         lines.append(
-            f"| {item.symbol} | {item.timeframe} | {item.row_count} | {item.row_count_raw} | "
+            f"| {item.symbol} | {item.kraken_ohlcv_symbol} | {item.runtime_symbol} | {item.timeframe} | {item.row_count} | {item.row_count_raw} | "
             f"{item.duplicate_count} | {item.pages_fetched} | {item.last_cursor or '-'} | "
             f"{item.start_at or '-'} | {item.end_at or '-'} | {item.csv_path or '-'} | {item.parquet_path or '-'} | "
             f"{', '.join(item.warnings) or 'none'} |"
@@ -470,3 +494,20 @@ def _safe_int(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_symbol_mappings(
+    symbols: Sequence[str],
+    *,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
+) -> dict[str, KrakenPublicPairMapping]:
+    preflight = preflight_kraken_public_symbols(symbols, asset_pairs_fetcher=asset_pairs_fetcher)
+    mapping_by_symbol = preflight.mapping_by_symbol()
+    for requested in symbols:
+        mapping = mapping_by_symbol.get(normalize_research_symbol(requested))
+        if mapping is None:
+            continue
+        raw = str(requested).strip().upper()
+        mapping_by_symbol[raw] = mapping
+        mapping_by_symbol[raw.replace("/", "").replace("-", "").replace("_", "")] = mapping
+    return mapping_by_symbol

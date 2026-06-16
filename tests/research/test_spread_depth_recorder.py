@@ -11,6 +11,12 @@ from autobot.v2.research.spread_depth_recorder import (
 pytestmark = pytest.mark.unit
 
 
+def _asset_pairs_fixture():
+    return {
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+    }
+
+
 def test_spread_depth_recorder_uses_public_depth_payload_without_private_keys(tmp_path, monkeypatch):
     monkeypatch.setenv("KRAKEN_API_KEY", "must_not_be_used")
     monkeypatch.setenv("KRAKEN_API_SECRET", "must_not_be_used")
@@ -37,6 +43,7 @@ def test_spread_depth_recorder_uses_public_depth_payload_without_private_keys(tm
             samples=1,
         ),
         fetcher=fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
     )
 
     assert calls == [("TRXEUR", 5)]

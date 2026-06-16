@@ -1,3 +1,5 @@
+include_runtime_active_symbols: true
+
 priority_symbols:
   - BTCZEUR
   - ETHZEUR

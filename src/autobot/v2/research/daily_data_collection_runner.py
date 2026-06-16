@@ -19,6 +19,12 @@ from .historical_data_collector import (
     OHLCFetcher,
     collect_historical_ohlcv,
 )
+from .kraken_symbol_mapping import (
+    AssetPairsFetcher,
+    KrakenPublicPairMapping,
+    detect_active_autobot_symbols,
+    preflight_kraken_public_symbols,
+)
 from .microstructure_profile import build_microstructure_profile, write_microstructure_profile_report
 from .spread_depth_recorder import (
     DepthFetcher,
@@ -60,6 +66,7 @@ class DailyResearchDataCollectionConfig:
     timeframes: tuple[str, ...]
     output_dirs: DailyResearchOutputDirs
     safety: DailyResearchSafetyConfig
+    include_runtime_active_symbols: bool = False
     ohlcv_max_pages: int = 5
     ohlcv_dedupe: bool = True
     ohlcv_fail_on_gaps: bool = False
@@ -72,6 +79,8 @@ class DailyResearchDataCollectionConfig:
     @property
     def all_symbols(self) -> tuple[str, ...]:
         values: list[str] = []
+        if self.include_runtime_active_symbols:
+            values.extend(detect_active_autobot_symbols())
         for symbol in (*self.priority_symbols, *self.secondary_symbols):
             normalized = str(symbol).strip().upper()
             if normalized and normalized not in values:
@@ -164,6 +173,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             microstructure=Path(str(output_dirs.get("microstructure") or "data/research/daily/microstructure")),
             reports=Path(str(output_dirs.get("reports") or "reports/research/daily_data_collection")),
         ),
+        include_runtime_active_symbols=bool(payload.get("include_runtime_active_symbols", False)),
         safety=DailyResearchSafetyConfig(
             public_endpoints_only=bool(safety.get("public_endpoints_only")),
             no_private_keys=bool(safety.get("no_private_keys")),
@@ -189,6 +199,7 @@ def run_daily_research_data_collection(
     run_id: str,
     ohlc_fetcher: OHLCFetcher | None = None,
     depth_fetcher: DepthFetcher | None = None,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
 ) -> DailyResearchDataCollectionResult:
     config = load_daily_research_data_collection_config(config_path)
     run_report_dir = config.output_dirs.reports / run_id
@@ -197,6 +208,7 @@ def run_daily_research_data_collection(
     run_report_dir.mkdir(parents=True, exist_ok=True)
     operations: list[DailyCollectionOperation] = []
     ohlcv_csv_paths: list[str] = []
+    symbol_mappings = _preflight_active_symbols(config, asset_pairs_fetcher=asset_pairs_fetcher)
 
     for symbol in config.all_symbols:
         for timeframe in config.timeframes:
@@ -207,6 +219,7 @@ def run_daily_research_data_collection(
                 output_dir=run_ohlcv_dir,
                 config=config,
                 fetcher=ohlc_fetcher,
+                symbol_mappings=symbol_mappings,
             )
             operations.append(op)
             if op.status == "ok" and op.output_path:
@@ -227,6 +240,7 @@ def run_daily_research_data_collection(
                 continue_on_error=True,
             ),
             fetcher=depth_fetcher,
+            symbol_mappings=symbol_mappings,
         )
         operations.append(
             DailyCollectionOperation(
@@ -353,6 +367,7 @@ def _collect_one_ohlcv(
     output_dir: Path,
     config: DailyResearchDataCollectionConfig,
     fetcher: OHLCFetcher | None,
+    symbol_mappings: Mapping[str, KrakenPublicPairMapping],
 ) -> DailyCollectionOperation:
     try:
         result = collect_historical_ohlcv(
@@ -368,6 +383,7 @@ def _collect_one_ohlcv(
                 export_parquet=config.ohlcv_export_parquet,
             ),
             fetcher=fetcher,
+            symbol_mappings=symbol_mappings,
         )
     except Exception as exc:
         return DailyCollectionOperation(
@@ -420,3 +436,14 @@ def _tuple_upper(value: Any) -> tuple[str, ...]:
 
 def _tuple_text(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in (value or ()) if str(item).strip())
+
+
+def _preflight_active_symbols(
+    config: DailyResearchDataCollectionConfig,
+    *,
+    asset_pairs_fetcher: AssetPairsFetcher | None = None,
+) -> dict[str, KrakenPublicPairMapping]:
+    return preflight_kraken_public_symbols(
+        config.all_symbols,
+        asset_pairs_fetcher=asset_pairs_fetcher,
+    ).mapping_by_symbol()

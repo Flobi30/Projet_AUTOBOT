@@ -12,6 +12,12 @@ from autobot.v2.research.historical_data_collector import (
 pytestmark = pytest.mark.unit
 
 
+def _asset_pairs_fixture():
+    return {
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+    }
+
+
 def _ts(minute: int) -> float:
     return datetime(2026, 6, 1, 0, minute, tzinfo=timezone.utc).timestamp()
 
@@ -53,6 +59,7 @@ def test_historical_collector_paginates_from_start_and_stops_at_end(tmp_path):
             export_parquet=False,
         ),
         fetcher=fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
     )
 
     assert calls == [int(_ts(0)), int(_ts(5))]
@@ -88,6 +95,7 @@ def test_historical_collector_fail_on_gaps_rejects_strict_run(tmp_path):
                 export_parquet=False,
             ),
             fetcher=fetcher,
+            asset_pairs_fetcher=_asset_pairs_fixture,
         )
 
 
