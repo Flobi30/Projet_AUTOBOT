@@ -16,6 +16,7 @@ pytestmark = pytest.mark.unit
 def _asset_pairs_fixture():
     return {
         "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR"},
     }
 
 
@@ -65,3 +66,35 @@ def test_historical_collector_rejects_unsupported_timeframe(tmp_path):
             timeframes=("2m",),
             output_dir=tmp_path / "data",
         )
+
+
+def test_historical_collector_collapses_alias_duplicates_before_fetch(tmp_path):
+    calls = []
+
+    def fetcher(pair, interval_minutes, since):
+        calls.append((pair, interval_minutes, since))
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc).timestamp(), "1.0", "1.1", "0.9", "1.0", "1.0", "10", 1),
+                (datetime(2026, 6, 1, 0, 5, tzinfo=timezone.utc).timestamp(), "1.0", "1.2", "1.0", "1.1", "1.1", "11", 2),
+            ),
+            last=None,
+        )
+
+    result = collect_historical_ohlcv(
+        HistoricalDataCollectorConfig(
+            run_id="pytest_alias_collapse",
+            symbols=("XRPZEUR", "XRPEUR", "XXRPZEUR"),
+            timeframes=("5m",),
+            output_dir=tmp_path / "data",
+            export_csv=True,
+            export_parquet=False,
+        ),
+        fetcher=fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    assert calls == [("XXRPZEUR", 5, None)]
+    assert len(result.files) == 1
+    assert result.files[0].symbol == "XRPZEUR"

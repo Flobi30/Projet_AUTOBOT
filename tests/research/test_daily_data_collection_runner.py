@@ -17,6 +17,7 @@ def _asset_pairs_fixture():
     return {
         "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
         "XXBTZEUR": {"altname": "XBTEUR", "wsname": "XBT/EUR"},
+        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR"},
     }
 
 
@@ -142,3 +143,54 @@ def test_daily_runner_fails_preflight_for_unknown_active_symbol(tmp_path):
             run_id="pytest_daily_unknown",
             asset_pairs_fetcher=_asset_pairs_fixture,
         )
+
+
+def test_daily_runner_collapses_aliases_to_one_canonical_collection(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADING_PAIRS", "XXRPZEUR")
+    config_path = tmp_path / "research_daily_aliases.yaml"
+    _write_config(config_path, tmp_path)
+    text = (
+        config_path.read_text(encoding="utf-8")
+        .replace("  - TRXEUR", "  - XRPZEUR")
+        .replace("  - BTCZEUR", "  - XRPEUR")
+    )
+    text = "include_runtime_active_symbols: true\n" + text
+    config_path.write_text(text, encoding="utf-8")
+    ohlc_calls = []
+    depth_calls = []
+
+    def ohlc_fetcher(pair, interval_minutes, since):
+        ohlc_calls.append((pair, interval_minutes, since))
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (_epoch_minute(0), "1.0", "1.1", "0.9", "1.0", "1.0", "10", 1),
+                (_epoch_minute(5), "1.0", "1.2", "1.0", "1.1", "1.1", "11", 2),
+            ),
+            last=None,
+        )
+
+    def depth_fetcher(pair, depth_count):
+        depth_calls.append((pair, depth_count))
+        return {
+            "error": [],
+            "result": {
+                pair: {
+                    "bids": [["1.0", "10.0", "1780272000"]],
+                    "asks": [["1.1", "10.0", "1780272001"]],
+                }
+            },
+        }
+
+    result = run_daily_research_data_collection(
+        config_path=config_path,
+        run_id="pytest_daily_alias_collapse",
+        ohlc_fetcher=ohlc_fetcher,
+        depth_fetcher=depth_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    assert ohlc_calls == [("XXRPZEUR", 5, None)]
+    assert depth_calls == [("XXRPZEUR", 5)]
+    ohlcv_ops = [op for op in result.operations if op.operation_type == "ohlcv"]
+    assert [op.symbol for op in ohlcv_ops] == ["XRPZEUR"]

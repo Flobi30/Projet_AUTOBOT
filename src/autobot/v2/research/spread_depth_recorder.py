@@ -114,11 +114,15 @@ def record_spread_depth(
     symbol_mappings: Mapping[str, KrakenPublicPairMapping] | None = None,
 ) -> SpreadDepthRecorderResult:
     fetch = fetcher or fetch_kraken_depth_page
-    mapping_by_symbol = dict(symbol_mappings or _resolve_symbol_mappings(config.symbols, asset_pairs_fetcher=asset_pairs_fetcher))
+    mapping_by_symbol, collection_symbols = _resolve_collection_symbols(
+        config.symbols,
+        asset_pairs_fetcher=asset_pairs_fetcher,
+        symbol_mappings=symbol_mappings,
+    )
     snapshots: list[SpreadDepthSnapshot] = []
     errors: list[dict[str, Any]] = []
     for sample_index in range(config.samples):
-        for symbol in config.symbols:
+        for symbol in collection_symbols:
             requested_symbol = str(symbol).strip().upper()
             canonical_requested = normalize_research_symbol(symbol)
             mapping = (
@@ -349,18 +353,43 @@ def _quantile(values: Sequence[float], q: float) -> float:
     return ordered[index]
 
 
-def _resolve_symbol_mappings(
+def _resolve_collection_symbols(
     symbols: Sequence[str],
     *,
     asset_pairs_fetcher: AssetPairsFetcher | None = None,
-) -> dict[str, KrakenPublicPairMapping]:
-    preflight = preflight_kraken_public_symbols(symbols, asset_pairs_fetcher=asset_pairs_fetcher)
-    mapping_by_symbol = preflight.mapping_by_symbol()
+    symbol_mappings: Mapping[str, KrakenPublicPairMapping] | None = None,
+) -> tuple[dict[str, KrakenPublicPairMapping], tuple[str, ...]]:
+    if symbol_mappings is None:
+        preflight = preflight_kraken_public_symbols(symbols, asset_pairs_fetcher=asset_pairs_fetcher)
+        mapping_by_symbol = preflight.mapping_by_symbol()
+        collection_symbols = preflight.resolved_symbols
+    else:
+        mapping_by_symbol = dict(symbol_mappings)
+        collection: list[str] = []
+        for requested in symbols:
+            mapping = _lookup_symbol_mapping(mapping_by_symbol, requested)
+            if mapping is None:
+                continue
+            if mapping.autobot_symbol not in collection:
+                collection.append(mapping.autobot_symbol)
+        collection_symbols = tuple(collection)
     for requested in symbols:
-        mapping = mapping_by_symbol.get(normalize_research_symbol(requested))
+        mapping = _lookup_symbol_mapping(mapping_by_symbol, requested)
         if mapping is None:
             continue
         raw = str(requested).strip().upper()
         mapping_by_symbol[raw] = mapping
         mapping_by_symbol[raw.replace("/", "").replace("-", "").replace("_", "")] = mapping
-    return mapping_by_symbol
+    return mapping_by_symbol, collection_symbols
+
+
+def _lookup_symbol_mapping(
+    mapping_by_symbol: Mapping[str, KrakenPublicPairMapping],
+    symbol: str,
+) -> KrakenPublicPairMapping | None:
+    requested_symbol = str(symbol).strip().upper()
+    return (
+        mapping_by_symbol.get(requested_symbol)
+        or mapping_by_symbol.get(requested_symbol.replace("/", "").replace("-", "").replace("_", ""))
+        or mapping_by_symbol.get(normalize_research_symbol(symbol))
+    )

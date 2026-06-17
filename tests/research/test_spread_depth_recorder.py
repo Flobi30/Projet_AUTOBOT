@@ -14,6 +14,7 @@ pytestmark = pytest.mark.unit
 def _asset_pairs_fixture():
     return {
         "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
+        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR"},
     }
 
 
@@ -67,3 +68,34 @@ def test_spread_depth_recorder_rejects_invalid_config(tmp_path):
             output_dir=tmp_path,
             depth_count=0,
         )
+
+
+def test_spread_depth_recorder_collapses_alias_duplicates_before_fetch(tmp_path):
+    calls = []
+
+    def fetcher(pair, depth_count):
+        calls.append((pair, depth_count))
+        return {
+            "error": [],
+            "result": {
+                pair: {
+                    "bids": [["1.0", "10.0", "1780272000"]],
+                    "asks": [["1.1", "10.0", "1780272001"]],
+                }
+            },
+        }
+
+    result = record_spread_depth(
+        SpreadDepthRecorderConfig(
+            run_id="pytest_alias_collapse_depth",
+            symbols=("XRPZEUR", "XRPEUR", "XXRPZEUR"),
+            output_dir=tmp_path,
+            depth_count=5,
+            samples=1,
+        ),
+        fetcher=fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    assert calls == [("XXRPZEUR", 5)]
+    assert [snapshot.symbol for snapshot in result.snapshots] == ["XRPZEUR"]

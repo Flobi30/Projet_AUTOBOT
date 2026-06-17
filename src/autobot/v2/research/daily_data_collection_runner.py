@@ -22,6 +22,7 @@ from .historical_data_collector import (
 from .kraken_symbol_mapping import (
     AssetPairsFetcher,
     KrakenPublicPairMapping,
+    KrakenSymbolPreflight,
     detect_active_autobot_symbols,
     preflight_kraken_public_symbols,
 )
@@ -32,6 +33,7 @@ from .spread_depth_recorder import (
     SpreadDepthRecorderResult,
     record_spread_depth,
 )
+from .symbol_normalization import normalize_research_symbol
 
 
 @dataclass(frozen=True)
@@ -82,7 +84,7 @@ class DailyResearchDataCollectionConfig:
         if self.include_runtime_active_symbols:
             values.extend(detect_active_autobot_symbols())
         for symbol in (*self.priority_symbols, *self.secondary_symbols):
-            normalized = str(symbol).strip().upper()
+            normalized = normalize_research_symbol(symbol)
             if normalized and normalized not in values:
                 values.append(normalized)
         return tuple(values)
@@ -208,9 +210,11 @@ def run_daily_research_data_collection(
     run_report_dir.mkdir(parents=True, exist_ok=True)
     operations: list[DailyCollectionOperation] = []
     ohlcv_csv_paths: list[str] = []
-    symbol_mappings = _preflight_active_symbols(config, asset_pairs_fetcher=asset_pairs_fetcher)
+    preflight = _preflight_active_symbols(config, asset_pairs_fetcher=asset_pairs_fetcher)
+    symbol_mappings = preflight.mapping_by_symbol()
+    collection_symbols = preflight.resolved_symbols
 
-    for symbol in config.all_symbols:
+    for symbol in collection_symbols:
         for timeframe in config.timeframes:
             op = _collect_one_ohlcv(
                 run_id=run_id,
@@ -231,7 +235,7 @@ def run_daily_research_data_collection(
         micro_result = record_spread_depth(
             SpreadDepthRecorderConfig(
                 run_id=f"{run_id}_spread_depth",
-                symbols=config.all_symbols,
+                symbols=collection_symbols,
                 output_dir=run_micro_dir,
                 depth_count=config.microstructure_depth_count,
                 samples=config.microstructure_samples_per_run,
@@ -442,8 +446,8 @@ def _preflight_active_symbols(
     config: DailyResearchDataCollectionConfig,
     *,
     asset_pairs_fetcher: AssetPairsFetcher | None = None,
-) -> dict[str, KrakenPublicPairMapping]:
+) -> KrakenSymbolPreflight:
     return preflight_kraken_public_symbols(
         config.all_symbols,
         asset_pairs_fetcher=asset_pairs_fetcher,
-    ).mapping_by_symbol()
+    )
