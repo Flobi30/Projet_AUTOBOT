@@ -204,6 +204,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_high_conviction_swing_args(high_conviction)
     high_conviction.set_defaults(handler=_cmd_high_conviction_swing)
 
+    high_conviction_discovery = subparsers.add_parser(
+        "high-conviction-discovery",
+        help="Discover research-only high-conviction/swing setups from OHLCV data",
+    )
+    _add_high_conviction_discovery_args(high_conviction_discovery)
+    high_conviction_discovery.set_defaults(handler=_cmd_high_conviction_discovery)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -555,6 +562,37 @@ def _add_high_conviction_swing_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-sample-trades-for-candidate", type=int, default=20)
     parser.add_argument("--candidate-min-profit-factor", type=float, default=1.2)
     parser.add_argument("--candidate-max-drawdown-bps", type=float, default=1500.0)
+    _add_cost_profile_args(parser, include_latency=True)
+
+
+def _add_high_conviction_discovery_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--data-paths",
+        required=True,
+        help="Comma-separated CSV/Parquet files or directories containing OHLCV research data",
+    )
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; omit to include all OHLCV symbols")
+    parser.add_argument("--output-dir", default="reports/research/high_conviction_discovery")
+    parser.add_argument(
+        "--setup-families",
+        default="breakout_1h_4h,pullback_trend,major_support_mean_reversion,volatility_expansion,trend_continuation",
+        help="Comma-separated setup families to scan",
+    )
+    parser.add_argument("--min-expected-move-bps", default="200,500,1000")
+    parser.add_argument("--risk-reward-ratios", default="2,3")
+    parser.add_argument("--max-hold-hours", default="6,24,72,168")
+    parser.add_argument("--exit-modes", default="fixed_tp_sl,trailing,partial_runner,trend_invalidation")
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-sample-trades-for-candidate", type=int, default=20)
+    parser.add_argument("--candidate-min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--candidate-max-drawdown-bps", type=float, default=1500.0)
+    parser.add_argument(
+        "--micro-report-json",
+        default=None,
+        help="Optional high-conviction-swing JSON report used to compare against current grid/micro signals",
+    )
     _add_cost_profile_args(parser, include_latency=True)
 
 
@@ -1114,6 +1152,45 @@ def _cmd_high_conviction_swing(args: argparse.Namespace) -> int:
                 min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
                 candidate_min_profit_factor=args.candidate_min_profit_factor,
                 candidate_max_drawdown_bps=args.candidate_max_drawdown_bps,
+                cost_config=_cost_config_from_args(args),
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_high_conviction_discovery(args: argparse.Namespace) -> int:
+    from autobot.v2.research.high_conviction_discovery import (
+        HighConvictionDiscoveryConfig,
+        build_high_conviction_discovery_report,
+        write_high_conviction_discovery_report,
+    )
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else ()
+    data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths"))
+    setup_families = _csv_tuple(args.setup_families, "--setup-families")
+    exit_modes = _csv_tuple(args.exit_modes, "--exit-modes")
+    micro_report = Path(args.micro_report_json) if args.micro_report_json else None
+    result = write_high_conviction_discovery_report(
+        build_high_conviction_discovery_report(
+            HighConvictionDiscoveryConfig(
+                run_id=args.run_id,
+                data_paths=data_paths,
+                output_dir=Path(args.output_dir),
+                symbols=symbols,
+                setup_families=setup_families,  # type: ignore[arg-type]
+                min_expected_move_bps=_csv_float_tuple(args.min_expected_move_bps, "--min-expected-move-bps"),
+                risk_reward_ratios=_csv_float_tuple(args.risk_reward_ratios, "--risk-reward-ratios"),
+                max_hold_hours=_csv_float_tuple(args.max_hold_hours, "--max-hold-hours"),
+                exit_modes=exit_modes,  # type: ignore[arg-type]
+                initial_capital_eur=args.initial_capital_eur,
+                order_notional_eur=args.order_notional_eur,
+                min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
+                candidate_min_profit_factor=args.candidate_min_profit_factor,
+                candidate_max_drawdown_bps=args.candidate_max_drawdown_bps,
+                comparison_micro_report_path=micro_report,
                 cost_config=_cost_config_from_args(args),
             )
         ),
