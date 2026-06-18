@@ -197,6 +197,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_strategy_batch_args(strategy_batch)
     strategy_batch.set_defaults(handler=_cmd_strategy_experiments_batch)
 
+    high_conviction = subparsers.add_parser(
+        "high-conviction-swing",
+        help="Replay recent signals as research-only high-conviction/swing candidates",
+    )
+    _add_high_conviction_swing_args(high_conviction)
+    high_conviction.set_defaults(handler=_cmd_high_conviction_swing)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -528,6 +535,27 @@ def _add_strategy_batch_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-exit-capture-bps", type=float, default=0.0)
     _add_cost_profile_args(parser)
     parser.add_argument("--no-regime-context", action="store_true")
+
+
+def _add_high_conviction_swing_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; omit to include all recent signals")
+    parser.add_argument("--output-dir", default="reports/research/high_conviction_swing")
+    parser.add_argument("--lookback-hours", type=float, default=72.0)
+    parser.add_argument("--start-at", default=None)
+    parser.add_argument("--end-at", default=None)
+    parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    parser.add_argument("--order-notional-eur", type=float, default=100.0)
+    parser.add_argument("--min-expected-move-bps", default="100,200,500,1000")
+    parser.add_argument("--risk-reward-ratios", default="1.5,2,3")
+    parser.add_argument("--max-hold-hours", default="6,24,72,168")
+    parser.add_argument("--exit-modes", default="fixed_tp_sl,trailing,partial_runner")
+    parser.add_argument("--no-mtf-required", action="store_true")
+    parser.add_argument("--min-sample-trades-for-candidate", type=int, default=20)
+    parser.add_argument("--candidate-min-profit-factor", type=float, default=1.2)
+    parser.add_argument("--candidate-max-drawdown-bps", type=float, default=1500.0)
+    _add_cost_profile_args(parser, include_latency=True)
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -1057,6 +1085,44 @@ def _cmd_strategy_experiments_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_high_conviction_swing(args: argparse.Namespace) -> int:
+    from autobot.v2.research.high_conviction_swing import (
+        HighConvictionSwingConfig,
+        build_high_conviction_swing_report,
+        write_high_conviction_swing_report,
+    )
+
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else ()
+    exit_modes = _csv_tuple(args.exit_modes, "--exit-modes")
+    result = write_high_conviction_swing_report(
+        build_high_conviction_swing_report(
+            HighConvictionSwingConfig(
+                run_id=args.run_id,
+                state_db_path=Path(args.state_db),
+                output_dir=Path(args.output_dir),
+                symbols=symbols,
+                lookback_hours=args.lookback_hours,
+                start_at=args.start_at,
+                end_at=args.end_at,
+                initial_capital_eur=args.initial_capital_eur,
+                order_notional_eur=args.order_notional_eur,
+                min_expected_move_bps=_csv_float_tuple(args.min_expected_move_bps, "--min-expected-move-bps"),
+                risk_reward_ratios=_csv_float_tuple(args.risk_reward_ratios, "--risk-reward-ratios"),
+                max_hold_hours=_csv_float_tuple(args.max_hold_hours, "--max-hold-hours"),
+                exit_modes=exit_modes,  # type: ignore[arg-type]
+                require_mtf_alignment=not bool(args.no_mtf_required),
+                min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
+                candidate_min_profit_factor=args.candidate_min_profit_factor,
+                candidate_max_drawdown_bps=args.candidate_max_drawdown_bps,
+                cost_config=_cost_config_from_args(args),
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
 def _attach_matrix_report_bundle(
     *,
     config: Any,
@@ -1433,6 +1499,24 @@ def _csv_tuple(text: str, label: str, *, uppercase: bool = False) -> tuple[str, 
         if not value:
             continue
         values.append(value.upper() if uppercase else value)
+    if not values:
+        raise ValueError(f"{label} must contain at least one value")
+    return tuple(values)
+
+
+def _csv_float_tuple(text: str, label: str) -> tuple[float, ...]:
+    values: list[float] = []
+    for item in text.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            parsed = float(value)
+        except ValueError as exc:
+            raise ValueError(f"{label} must contain numeric values") from exc
+        if parsed <= 0:
+            raise ValueError(f"{label} values must be positive")
+        values.append(parsed)
     if not values:
         raise ValueError(f"{label} must contain at least one value")
     return tuple(values)
