@@ -56,3 +56,19 @@ on this short sample.
   before any future paper-candidate review.
 - The current sample is short. The NO GO conclusion must be retained until a
   longer, fixed-parameter Kraken history can be evaluated.
+
+## Controlled Deployment Verification
+
+Runtime code commit `1dfb4d8` was deployed to the VPS. The Docker container is
+healthy; `/health` reports an active orchestrator, connected WebSocket, and 14
+instances. All 14 instances remain `ObservationOnlyStrategyAsync`.
+
+- `PAPER_TRADING=true`
+- `LIVE_TRADING_CONFIRMATION=false`
+- `STRATEGY_ROUTER_LIVE_ENABLED=false`
+- `COLONY_AUTO_LIVE_PROMOTION=false`
+- Router remains paper-only with official paper execution and live promotion
+  disabled.
+- No critical runtime error or live-order log was observed.
+- The new `relative-value-portfolio-replay` CLI is available inside the image
+  with AUTOBOT's normal `PYTHONPATH`.
