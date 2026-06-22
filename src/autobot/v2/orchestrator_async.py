@@ -61,7 +61,6 @@ from .strategies.mean_reversion import MeanReversionStrategy
 from .strategy_ensemble import StrategyEnsemble, MarketRegime
 from .reports import DailyReporter
 from .shadow_trading import ShadowTradingManager
-from .strategies.adaptive_grid_config import get_default_registry
 from .strategies.multi_grid_orchestrator import MultiGridOrchestrator
 from .rebalance_manager import RebalanceManager
 from .auto_evolution import AutoEvolutionManager
@@ -332,7 +331,9 @@ class OrchestratorAsync:
         self._evolution_pf_baseline: Dict[str, float] = {}
         self._multi_grid: Dict[str, MultiGridOrchestrator] = {}
         self._multi_grid_symbol_owner: Dict[str, str] = {}
-        self._pair_registry = get_default_registry()
+        # Archived Grid profiles load only if the legacy child multi-grid path
+        # is explicitly reached. Normal runtime uses observation-only engines.
+        self._pair_registry = None
         self._capital_ops_lock = asyncio.Lock()
         self._loop_metrics: Dict[str, float] = {
             "process_cycle_ms": 0.0,
@@ -1297,6 +1298,10 @@ class OrchestratorAsync:
                 instance.id,
             )
             return
+        if self._pair_registry is None:
+            from .strategies.adaptive_grid_config import get_default_registry
+
+            self._pair_registry = get_default_registry()
         profile = self._pair_registry.get(symbol)
         self._multi_grid[instance.id] = MultiGridOrchestrator(profile)
         self._multi_grid_symbol_owner[symbol] = instance.id

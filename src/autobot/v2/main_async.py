@@ -2,10 +2,9 @@
 main_async.py — Async entry point for AUTOBOT V2
 MIGRATION P0: Replaces main.py (threading)
 
-V3: Adaptive Grid support
-- Uses PairProfileRegistry for per-pair config
-- Passes pair profile to grid strategy via grid_config
-- Multi-grid support (short-term + long-term) for eligible pairs
+Runtime policy:
+- observation-only instance engines
+- archived Grid configuration available exclusively to research replays
 
 Uses:
 - uvloop as event loop policy (if available)
@@ -87,10 +86,14 @@ def _parse_int_env(name: str, default: int, min_val: int, max_val: int) -> int:
 _pair_registry = None
 try:
     from autobot.v2.strategies.adaptive_grid_config import get_default_registry
-    _pair_registry = get_default_registry()
-    logger.info("V3 Adaptive Grid: PairProfileRegistry loaded (%d profiles)", len(_pair_registry.symbols))
 except ImportError:
     logger.warning("V3 Adaptive Grid not available — using legacy fixed config")
+
+
+def _research_grid_registry():
+    """Load archived Grid configuration only for an explicit research replay."""
+    registry_factory = globals().get("get_default_registry")
+    return registry_factory() if registry_factory is not None else None
 
 
 # ------------------------------------------------------------------
@@ -132,8 +135,9 @@ def _build_grid_config(symbol: str) -> dict:
 
     Legacy fallback: returns {"range_percent": 2.0, "num_levels": 20}.
     """
-    if _pair_registry is not None and _pair_registry.has(symbol):
-        profile = _pair_registry.get(symbol)
+    registry = _research_grid_registry()
+    if registry is not None and registry.has(symbol):
+        profile = registry.get(symbol)
         return {
             "range_percent": profile.base_range_pct,
             "num_levels": profile.base_num_levels,
@@ -224,7 +228,7 @@ class AutoBotV2Async:
 
     async def start(self) -> None:
         logger.info("=" * 60)
-        logger.info("DEMARRAGE AUTOBOT V2 (ASYNC + uvloop + Adaptive Grid V3)")
+        logger.info("DEMARRAGE AUTOBOT V2 (ASYNC + uvloop + observation-only runtime)")
         logger.info("=" * 60)
 
         self.running = True
@@ -287,18 +291,6 @@ class AutoBotV2Async:
             logger.info("=" * 60)
             logger.info(f"   Instances: {len(self.orchestrator._instances)}")
             logger.info(f"   Max instances: {self.orchestrator.config['max_instances']}")
-
-            # V3: Log adaptive grid status for all pairs
-            if _pair_registry:
-                logger.info(f"   Adaptive Grid V3: {len(_pair_registry.symbols)} pair profiles loaded")
-                for cfg in configs:
-                    if _pair_registry.has(cfg.symbol):
-                        profile = _pair_registry.get(cfg.symbol)
-                        logger.info(
-                            f"   {cfg.symbol}: range={profile.base_range_pct}%% "
-                            f"[{profile.min_range_pct}-{profile.max_range_pct}%%], "
-                            f"levels={profile.base_num_levels} [{profile.min_levels}-{profile.max_levels}]"
-                        )
 
             # Log module manager status
             if self.orchestrator.module_manager:

@@ -8,7 +8,7 @@ from autobot.v2.main_async import AutoBotV2Async, _build_grid_config
 pytestmark = pytest.mark.unit
 
 def test_build_grid_config_legacy_defaults(monkeypatch):
-    monkeypatch.setattr("autobot.v2.main_async._pair_registry", None)
+    monkeypatch.setattr("autobot.v2.main_async._research_grid_registry", lambda: None)
     config = _build_grid_config("XXBTZEUR")
     assert config == {"range_percent": 2.0, "num_levels": 20}
 
@@ -66,3 +66,20 @@ def test_create_all_instance_configs_uses_observation_only_not_grid(monkeypatch)
 
     assert all(config.strategy == "observation_only" for config in configs)
     assert all(config.grid_config is None for config in configs)
+
+
+def test_instance_factory_does_not_construct_archived_grid_registry(monkeypatch):
+    monkeypatch.setenv("TRADING_PAIRS", "XXBTZEUR,XETHZEUR")
+
+    def unexpected_grid_registry_load():
+        raise AssertionError("Grid registry must not load in the active runtime factory")
+
+    monkeypatch.setattr(
+        "autobot.v2.main_async.get_default_registry",
+        unexpected_grid_registry_load,
+    )
+
+    configs = AutoBotV2Async()._create_all_instance_configs()
+
+    assert len(configs) == 2
+    assert all(config.strategy == "observation_only" for config in configs)
