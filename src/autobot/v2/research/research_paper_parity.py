@@ -27,7 +27,7 @@ class ResearchPaperParityConfig:
     run_id: str
     state_db_path: Path
     symbols: tuple[str, ...]
-    strategies: tuple[str, ...] = ("grid", "trend", "mean_reversion")
+    strategies: tuple[str, ...] = ("trend", "mean_reversion")
     output_dir: Path = Path("reports/research/research_paper_parity")
     mode: str = "backtest"
     initial_capital_eur: float = 1_000.0

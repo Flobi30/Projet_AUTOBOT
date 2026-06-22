@@ -174,7 +174,7 @@ def test_promotion_gate_blocks_learning_strategy_directly():
     )
     result = gate.evaluate(
         {
-            "engine": "dynamic_grid",
+            "engine": "trend_momentum",
             "validation_status": "learning",
             "closed_trades": 10,
             "sample_count": 100,

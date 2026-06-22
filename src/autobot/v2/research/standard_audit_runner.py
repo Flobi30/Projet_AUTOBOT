@@ -49,7 +49,9 @@ class StandardAuditConfig:
     output_dir: Path = Path("reports/research_standard")
     dataset_output_dir: Path | None = None
     symbols: tuple[str, ...] = ()
-    strategies: tuple[str, ...] = ("grid", "trend", "mean_reversion")
+    # Grid is archived for explicit reproducible research only. Standard audits
+    # focus on the active research families rather than restarting Grid by default.
+    strategies: tuple[str, ...] = ("trend", "mean_reversion")
     timeframe: str = "5m"
     mode: str = "backtest"
     report_date: date | None = None

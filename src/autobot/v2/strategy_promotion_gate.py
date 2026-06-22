@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, is_runtime_engine_retired
 from .strategy_validation_registry import EXECUTION_READY_STATUSES, PROMOTABLE_STRATEGY_IDS, WORKFLOW_STATUSES
 
 
@@ -130,6 +131,13 @@ class StrategyPromotionGate:
             return self._result(False, "learning", "router_not_requesting_promotion", {})
         if engine == "no_trade":
             return self._result(False, "blocked", "no_trade_selected", {})
+        if is_runtime_engine_retired(engine):
+            return self._result(
+                False,
+                "blocked",
+                GRID_RUNTIME_RETIRED_REASON,
+                {"engine": {"value": engine, "passed": False}},
+            )
         if engine not in PROMOTABLE_STRATEGY_IDS:
             return self._result(
                 False,

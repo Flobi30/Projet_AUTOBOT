@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .strategy_runtime_policy import is_runtime_engine_retired
+
 
 WORKFLOW_STATUSES: tuple[str, ...] = (
     "learning",
@@ -48,7 +50,9 @@ REQUIRED_STRATEGY_FIELDS: tuple[str, ...] = (
 TERMINAL_STATUSES = {"rejected", "retired_from_execution"}
 EXECUTION_READY_STATUSES = {"shadow_passed", "paper_validated"}
 LIVE_ELIGIBLE_STATUS = "paper_validated"
-PROMOTABLE_STRATEGY_IDS = frozenset({"dynamic_grid", "trend_momentum", "mean_reversion"})
+# Retired engines remain reproducible in explicit research commands, but cannot
+# enter any promotion path from the runtime validation registry.
+PROMOTABLE_STRATEGY_IDS = frozenset({"trend_momentum", "mean_reversion"})
 
 
 class StrategyValidationError(ValueError):
@@ -282,13 +286,15 @@ def evaluate_promotion(
 
 
 def can_execute_official_paper(entry: Mapping[str, Any]) -> bool:
-    if _strategy_id(entry) == "no_trade_baseline":
+    strategy_id = _strategy_id(entry)
+    if strategy_id == "no_trade_baseline" or is_runtime_engine_retired(strategy_id):
         return False
     return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") in EXECUTION_READY_STATUSES
 
 
 def can_request_live_review(entry: Mapping[str, Any]) -> bool:
-    if _strategy_id(entry) == "no_trade_baseline":
+    strategy_id = _strategy_id(entry)
+    if strategy_id == "no_trade_baseline" or is_runtime_engine_retired(strategy_id):
         return False
     return not validate_strategy_entry(entry) and str(entry.get("validation_status") or "") == LIVE_ELIGIBLE_STATUS
 
