@@ -175,6 +175,7 @@ from .strategy_governance import StrategyGovernanceEngine
 from .governance_observability import GovernanceDecisionObserver
 from .strategy_reconciliation import StrategyReconciliationEngine
 from .strategy_router import StrategyRouter
+from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, retired_grid_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -1743,7 +1744,7 @@ class OrchestratorAsync:
 
     def _strategy_shadow_snapshots(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         return {
-            "dynamic_grid": self._get_setup_shadow_lab().build_snapshot(symbols=symbols),
+            "dynamic_grid": retired_grid_snapshot(symbols),
             "trend_momentum": self._get_trend_shadow_lab().build_snapshot(symbols=symbols),
             "mean_reversion": self._get_mean_reversion_shadow_lab().build_snapshot(symbols=symbols),
         }
@@ -1916,6 +1917,8 @@ class OrchestratorAsync:
         if not isinstance(row, dict) or row.get("execution_mode") != "shadow_signal_mirror":
             return {"handled": False, "reason": row.get("execution_mode", "observe_only") if isinstance(row, dict) else "no_row"}
         selected_engine = str(row.get("selected_engine") or "")
+        if selected_engine == "dynamic_grid":
+            return {"handled": False, "reason": GRID_RUNTIME_RETIRED_REASON}
         shadow_snapshots = snapshot.get("shadow_snapshots", {}) if isinstance(snapshot, dict) else {}
         shadow_symbol_row = (
             ((shadow_snapshots.get(selected_engine) or {}).get("by_symbol", {}) or {}).get(symbol)
@@ -2347,7 +2350,6 @@ class OrchestratorAsync:
             self._loop_metrics["process_cycle_ms"] = (perf_counter() - t0) * 1000.0
             return
         self._update_pair_risk_state(inst)
-        self._update_setup_shadow_lab(inst)
         self._update_trend_shadow_lab(inst)
         self._update_mean_reversion_shadow_lab(inst)
         try:

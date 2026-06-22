@@ -192,7 +192,7 @@ def _engine() -> StrategyTradeReconciliationEngine:
     )
 
 
-def test_trade_reconciliation_flags_official_loss_shadow_win(tmp_path):
+def test_trade_reconciliation_excludes_retired_grid_shadow_source(tmp_path):
     state_db = tmp_path / "state.db"
     shadow_db = tmp_path / "setup_shadow_lab.db"
     _create_state_db(state_db)
@@ -206,15 +206,12 @@ def test_trade_reconciliation_flags_official_loss_shadow_win(tmp_path):
 
     assert snapshot["paper_only"] is True
     assert snapshot["live_promotion_allowed"] is False
-    assert snapshot["summary"]["official_closes_loaded"] == 2
-    assert snapshot["summary"]["matched_count"] == 1
-    assert snapshot["summary"]["no_match_count"] == 1
-    assert snapshot["summary"]["official_loss_shadow_win_count"] == 1
-    rows = {row["symbol"]: row for row in snapshot["rows"]}
-    assert rows["TRXEUR"]["verdict"] in {"official_loss_shadow_win", "execution_drag"}
-    assert "official_loss_shadow_win" in rows["TRXEUR"]["root_causes"]
-    assert rows["TRXEUR"]["matched_shadow"]["engine"] == "dynamic_grid"
-    assert rows["NEWEUR"]["verdict"] == "no_shadow_match"
+    assert snapshot["summary"]["official_closes_loaded"] == 0
+    assert snapshot["summary"]["matched_count"] == 0
+    assert "dynamic_grid" not in snapshot["data_sources"]["shadow"]
+    assert snapshot["summary"]["no_match_count"] == 0
+    assert snapshot["summary"]["official_loss_shadow_win_count"] == 0
+    assert snapshot["rows"] == []
 
 
 class _TradeReconOrchestrator:
@@ -259,5 +256,6 @@ def test_strategy_trade_reconciliation_endpoint_is_paper_only(monkeypatch, tmp_p
     assert body["mode"] == "paper"
     assert body["paper_only"] is True
     assert body["live_promotion_allowed"] is False
-    assert body["summary"]["matched_count"] == 1
+    assert body["summary"]["matched_count"] == 0
+    assert "dynamic_grid" not in body["data_sources"]["shadow"]
     assert body["runtime"]["websocket_connected"] is True

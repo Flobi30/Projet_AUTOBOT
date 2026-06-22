@@ -81,12 +81,12 @@ def test_strategy_router_selects_best_shadow_engine():
     assert row["selected_engine"] == "trend_momentum"
     assert row["recommended_action"] == "shadow_candidate_review"
     assert row["live_promotion_allowed"] is False
-    assert row["official_execution_enabled"] is True
-    assert row["paper_execution_policy"]["support"] == "paper_official_candidate"
-    assert snapshot["paper_official_execution_enabled"] is True
+    assert row["official_execution_enabled"] is False
+    assert row["paper_execution_policy"]["support"] == "research_only"
+    assert snapshot["paper_official_execution_enabled"] is False
 
 
-def test_strategy_router_marks_validated_grid_candidate_as_paper_official_candidate():
+def test_strategy_router_excludes_retired_grid_candidate_from_runtime_routing():
     snapshot = _router().build_snapshot(
         instances=[{"symbol": "NEWEUR"}],
         paper_mode=True,
@@ -97,13 +97,13 @@ def test_strategy_router_marks_validated_grid_candidate_as_paper_official_candid
     )
 
     row = snapshot["by_symbol"]["NEWEUR"]
-    assert row["selected_engine"] == "dynamic_grid"
-    assert row["recommended_action"] == "shadow_candidate_review"
-    assert row["official_execution_enabled"] is True
-    assert row["paper_official_execution_enabled"] is True
-    assert row["paper_execution_policy"]["support"] == "paper_official_candidate"
+    assert row["selected_engine"] == "no_trade"
+    assert row["recommended_action"] == "no_trade"
+    assert row["official_execution_enabled"] is False
+    assert row["paper_official_execution_enabled"] is False
+    assert row["paper_execution_policy"]["support"] == "abstain"
     assert row["paper_execution_policy"]["live_enabled"] is False
-    assert row["promotion_gate"]["passed"] is True
+    assert all(engine["engine"] != "dynamic_grid" for engine in row["engines"])
 
 
 def test_strategy_router_blocks_official_paper_when_promotion_gate_fails():
@@ -130,7 +130,7 @@ def test_strategy_router_blocks_official_paper_when_promotion_gate_fails():
     assert row["recommended_action"] == "shadow_candidate_review"
     assert row["official_execution_enabled"] is False
     assert row["paper_official_execution_enabled"] is False
-    assert row["paper_execution_policy"]["support"] == "shadow_only"
+    assert row["paper_execution_policy"]["support"] == "research_only"
     assert row["promotion_gate"]["passed"] is False
     assert row["promotion_gate"]["status"] == "learning"
     assert "closed_trades" in row["promotion_gate"]["reason"]

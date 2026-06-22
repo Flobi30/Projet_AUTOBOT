@@ -22,7 +22,7 @@ class MatrixRunConfig:
     data_source: DataSource
     data_path: Path
     symbols: tuple[str, ...]
-    strategies: tuple[StrategyName, ...] = ("grid", "trend", "mean_reversion")
+    strategies: tuple[StrategyName, ...] = ("trend", "mean_reversion")
     mode: RunMode = "backtest"
     output_dir: Path = Path("reports/research_matrix")
     initial_capital_eur: float = 1_000.0
@@ -346,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-source", choices=["csv", "autobot_state_db"], required=True)
     parser.add_argument("--data-path", required=True)
     parser.add_argument("--symbols", required=True, help="Comma-separated symbol list, for example TRXEUR,BTCEUR")
-    parser.add_argument("--strategies", default="grid,trend,mean_reversion")
+    parser.add_argument("--strategies", default="trend,mean_reversion")
     parser.add_argument("--mode", choices=["backtest", "walk_forward"], default="backtest")
     parser.add_argument("--output-dir", default="reports/research_matrix")
     parser.add_argument("--initial-capital-eur", type=float, default=1_000.0)

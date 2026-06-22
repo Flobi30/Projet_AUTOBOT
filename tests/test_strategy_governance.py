@@ -50,7 +50,7 @@ def test_strategy_governance_blocks_router_no_trade():
     assert row["official_execution_engine"] == "none"
 
 
-def test_strategy_governance_allows_non_grid_shadow_mirror_when_flat():
+def test_strategy_governance_keeps_non_grid_shadow_candidate_observe_only():
     snapshot = _engine().build_snapshot(
         router_snapshot={"routes": [_router_route("trend_momentum", action="shadow_candidate_review")]},
         reconciliation_snapshot={"symbols": [{"symbol": "TRXEUR", "verdict": "aligned_positive", "recommended_action": "continue"}]},
@@ -59,13 +59,14 @@ def test_strategy_governance_allows_non_grid_shadow_mirror_when_flat():
     )
 
     row = snapshot["by_symbol"]["TRXEUR"]
-    assert row["governance_status"] == "eligible"
-    assert row["execution_mode"] == "shadow_signal_mirror"
-    assert row["allow_shadow_signal_mirror"] is True
+    assert row["governance_status"] == "review"
+    assert row["execution_mode"] == "observe_only"
+    assert row["allow_shadow_signal_mirror"] is False
     assert row["allow_grid_entries"] is False
+    assert row["block_new_entries"] is True
 
 
-def test_strategy_governance_waits_until_flat_before_non_grid_mirror():
+def test_strategy_governance_does_not_mirror_non_grid_candidate_with_open_positions():
     snapshot = _engine().build_snapshot(
         router_snapshot={"routes": [_router_route("mean_reversion", action="shadow_candidate_review")]},
         reconciliation_snapshot={"symbols": [{"symbol": "TRXEUR", "verdict": "aligned_positive", "recommended_action": "continue"}]},
@@ -74,8 +75,8 @@ def test_strategy_governance_waits_until_flat_before_non_grid_mirror():
     )
 
     row = snapshot["by_symbol"]["TRXEUR"]
-    assert row["governance_status"] == "pending_flat"
-    assert row["execution_mode"] == "shadow_signal_mirror_pending_flat"
+    assert row["governance_status"] == "review"
+    assert row["execution_mode"] == "observe_only"
     assert row["block_new_entries"] is True
 
 

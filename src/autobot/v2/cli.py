@@ -17,12 +17,12 @@ from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_P
 from autobot.v2.research.kraken_symbol_mapping import AUTOBOT_DEFAULT_ACTIVE_SYMBOLS, detect_active_autobot_symbols
 
 AUTOBOT_TOP14_EUR_SYMBOLS = AUTOBOT_DEFAULT_ACTIVE_SYMBOLS
-AUTOBOT_STANDARD_STRATEGIES = ("grid", "trend", "mean_reversion")
+AUTOBOT_STANDARD_STRATEGIES = ("trend", "mean_reversion")
 MATRIX_PRESETS = {
     "autobot-top14-eur": {
         "symbols": AUTOBOT_TOP14_EUR_SYMBOLS,
         "strategies": AUTOBOT_STANDARD_STRATEGIES,
-        "description": "Standard AUTOBOT top-14 Kraken EUR research universe.",
+        "description": "Standard AUTOBOT top-14 Kraken EUR research universe; grid remains archived research-only.",
     }
 }
 
@@ -192,7 +192,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     strategy_batch = subparsers.add_parser(
         "strategy-experiments-batch",
-        help="Run read-only multi-window validation for grid/trend/mean_reversion",
+        help="Run read-only multi-window validation for trend/mean_reversion; grid is explicit archived research only",
     )
     _add_strategy_batch_args(strategy_batch)
     strategy_batch.set_defaults(handler=_cmd_strategy_experiments_batch)
@@ -210,6 +210,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_high_conviction_discovery_args(high_conviction_discovery)
     high_conviction_discovery.set_defaults(handler=_cmd_high_conviction_discovery)
+
+    high_conviction_portfolio = subparsers.add_parser(
+        "high-conviction-portfolio-replay",
+        help="Replay high-conviction OHLCV setups with finite capital and portfolio constraints",
+    )
+    _add_high_conviction_portfolio_args(high_conviction_portfolio)
+    high_conviction_portfolio.set_defaults(handler=_cmd_high_conviction_portfolio_replay)
 
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
@@ -594,6 +601,36 @@ def _add_high_conviction_discovery_args(parser: argparse.ArgumentParser) -> None
         help="Optional high-conviction-swing JSON report used to compare against current grid/micro signals",
     )
     _add_cost_profile_args(parser, include_latency=True)
+
+
+def _add_high_conviction_portfolio_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-paths", required=True, help="Comma-separated OHLCV CSV/Parquet files or directories")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; omit to scan all OHLCV symbols")
+    parser.add_argument("--output-dir", default="reports/research/high_conviction_portfolio")
+    parser.add_argument(
+        "--setup-families",
+        default="breakout_1h_4h,pullback_trend,major_support_mean_reversion,volatility_expansion,trend_continuation",
+    )
+    parser.add_argument("--min-expected-move-bps", default="200,500,1000")
+    parser.add_argument("--risk-reward-ratios", default="2,3")
+    parser.add_argument("--max-hold-hours", default="24,72")
+    parser.add_argument("--exit-modes", default="fixed_tp_sl,trailing,partial_runner,trend_invalidation")
+    parser.add_argument("--cost-profiles", default="research_stress,paper_current_taker")
+    parser.add_argument("--initial-capital-eur", type=float, default=500.0)
+    parser.add_argument("--legacy-notional-eur", type=float, default=100.0)
+    parser.add_argument("--max-position-fraction", type=float, default=0.20)
+    parser.add_argument("--risk-per-trade-pct", type=float, default=0.01)
+    parser.add_argument("--max-global-exposure-pct", type=float, default=0.60)
+    parser.add_argument("--max-open-positions", type=int, default=3)
+    parser.add_argument("--cooldown-hours", type=float, default=6.0)
+    parser.add_argument("--max-daily-loss-pct", type=float, default=0.03)
+    parser.add_argument("--critical-drawdown-pct", type=float, default=0.12)
+    parser.add_argument("--drawdown-reduce-start-pct", type=float, default=0.05)
+    parser.add_argument("--min-drawdown-exposure-multiplier", type=float, default=0.35)
+    parser.add_argument("--min-sample-trades-for-candidate", type=int, default=30)
+    parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
+    parser.add_argument("--candidate-max-drawdown-pct", type=float, default=0.12)
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -1192,6 +1229,48 @@ def _cmd_high_conviction_discovery(args: argparse.Namespace) -> int:
                 candidate_max_drawdown_bps=args.candidate_max_drawdown_bps,
                 comparison_micro_report_path=micro_report,
                 cost_config=_cost_config_from_args(args),
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_high_conviction_portfolio_replay(args: argparse.Namespace) -> int:
+    from autobot.v2.research.high_conviction_portfolio import (
+        HighConvictionPortfolioConfig,
+        build_high_conviction_portfolio_report,
+        write_high_conviction_portfolio_report,
+    )
+
+    result = write_high_conviction_portfolio_report(
+        build_high_conviction_portfolio_report(
+            HighConvictionPortfolioConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                output_dir=Path(args.output_dir),
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else (),
+                setup_families=_csv_tuple(args.setup_families, "--setup-families"),
+                min_expected_move_bps=_csv_float_tuple(args.min_expected_move_bps, "--min-expected-move-bps"),
+                risk_reward_ratios=_csv_float_tuple(args.risk_reward_ratios, "--risk-reward-ratios"),
+                max_hold_hours=_csv_float_tuple(args.max_hold_hours, "--max-hold-hours"),
+                exit_modes=_csv_tuple(args.exit_modes, "--exit-modes"),
+                cost_profiles=_csv_tuple(args.cost_profiles, "--cost-profiles"),
+                initial_capital_eur=args.initial_capital_eur,
+                legacy_notional_eur=args.legacy_notional_eur,
+                max_position_fraction=args.max_position_fraction,
+                risk_per_trade_pct=args.risk_per_trade_pct,
+                max_global_exposure_pct=args.max_global_exposure_pct,
+                max_open_positions=args.max_open_positions,
+                cooldown_hours=args.cooldown_hours,
+                max_daily_loss_pct=args.max_daily_loss_pct,
+                critical_drawdown_pct=args.critical_drawdown_pct,
+                drawdown_reduce_start_pct=args.drawdown_reduce_start_pct,
+                min_drawdown_exposure_multiplier=args.min_drawdown_exposure_multiplier,
+                min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
+                candidate_min_profit_factor=args.candidate_min_profit_factor,
+                candidate_max_drawdown_pct=args.candidate_max_drawdown_pct,
             )
         ),
         Path(args.output_dir),

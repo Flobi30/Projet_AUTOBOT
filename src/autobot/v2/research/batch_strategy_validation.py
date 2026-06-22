@@ -77,7 +77,7 @@ class BatchStrategyValidationConfig:
     state_db_path: Path | None = None
     data_source: DataSource = "autobot_state_db"
     data_path: Path | None = None
-    strategies: tuple[str, ...] = ("grid", "trend", "mean_reversion")
+    strategies: tuple[str, ...] = ("trend", "mean_reversion")
     timeframe: str = "5m"
     mode: str = "backtest"
     output_dir: Path = Path("reports/research/batch_strategy_validation")

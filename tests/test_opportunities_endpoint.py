@@ -347,7 +347,7 @@ def test_regime_endpoint_returns_runtime_pairs(monkeypatch):
     assert all("entropy_norm" in item for item in body["symbols"])
 
 
-def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch, tmp_path):
+def test_setup_optimizer_endpoint_reports_grid_retired_from_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
@@ -360,14 +360,13 @@ def test_setup_optimizer_endpoint_returns_paper_variants(monkeypatch, tmp_path):
     assert body["mode"] == "paper"
     assert body["live_promotion_allowed"] is False
     assert body["summary"]["symbols"] == 2
-    rows = {item["symbol"]: item for item in body["setups"]}
-    assert "ETHEUR" in rows
-    assert rows["ETHEUR"]["selected_variant"]["name"].startswith("grid_")
-    assert rows["ETHEUR"]["execution_policy"]["paper_only"] is True
+    assert body["status"] == "retired_from_runtime"
+    assert body["enabled"] is False
+    assert body["setups"] == []
     assert body["setup_shadow"]["paper_only"] is True
 
 
-def test_setup_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
+def test_setup_shadow_endpoint_reports_grid_retired_from_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("SETUP_SHADOW_DB_PATH", str(tmp_path / "setup_shadow_lab.db"))
     dashboard.app.state.orchestrator = _Orchestrator()
@@ -377,7 +376,9 @@ def test_setup_shadow_endpoint_returns_isolated_lab(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["mode"] == "paper_shadow"
+    assert body["mode"] == "retired_research_only"
+    assert body["status"] == "retired_from_runtime"
+    assert body["enabled"] is False
     assert body["paper_only"] is True
     assert body["live_promotion_allowed"] is False
     assert body["writes_official_paper_ledger"] is False
@@ -431,8 +432,8 @@ def test_strategy_router_endpoint_returns_paper_controlled_routes(monkeypatch, t
     body = response.json()
     assert body["paper_only"] is True
     assert body["live_promotion_allowed"] is False
-    assert body["official_execution_enabled"] is True
-    assert body["paper_official_execution_enabled"] is True
+    assert body["official_execution_enabled"] is False
+    assert body["paper_official_execution_enabled"] is False
     assert body["summary"]["symbols"] == 2
     assert {"dynamic_grid", "trend_momentum", "mean_reversion"} <= set(body["shadow_summaries"].keys())
     assert body["reconciliation"]["paper_only"] is True
@@ -632,4 +633,5 @@ def test_performance_endpoints_use_traceable_trade_ledger(tmp_path, monkeypatch)
     setups = {item["symbol"]: item for item in audit_body["setups"]}
     assert setups["XXBTZEUR"]["verdict"] == "paper_review_candidate"
     assert "realized_edge_positive" in setups["XXBTZEUR"]["root_causes"]
-    assert setups["XXBTZEUR"]["recommended_variant"]
+    assert setups["XXBTZEUR"]["recommended_variant"] is None
+    assert audit_body["setup_optimizer"]["summary"]["status"] == "retired_from_runtime"

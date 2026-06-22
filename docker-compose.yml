@@ -51,6 +51,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./reports:/app/reports
       - ./.env:/app/.env:ro
       - ./certs:/app/certs:ro
     

@@ -124,10 +124,11 @@ def _install_uvloop() -> bool:
 
 
 def _build_grid_config(symbol: str) -> dict:
-    """Build grid_config for a given symbol using V3 registry or legacy defaults.
+    """Build archived grid research config for a given symbol.
 
-    V3: If a PairProfile exists, injects it into grid_config so that
-    GridStrategyAsync can switch to adaptive mode.
+    Grid is no longer created by the runtime instance factory. This helper is
+    retained for explicit research replay only, so historical grid experiments
+    remain reproducible.
 
     Legacy fallback: returns {"range_percent": 2.0, "num_levels": 20}.
     """
@@ -191,8 +192,6 @@ class AutoBotV2Async:
         configs = []
         for symbol in symbols:
             weighted_capital = capital_plan.symbol_caps.get(symbol, 0.0)
-            grid_config = _build_grid_config(symbol)
-            
             # Friendly name mapping
             name_map = {
                 "XXBTZEUR": "BTC/EUR", "XETHZEUR": "ETH/EUR",
@@ -204,12 +203,11 @@ class AutoBotV2Async:
             name = name_map.get(symbol, symbol)
             
             configs.append(InstanceConfig(
-                name=f"Grid {name}",
+                name=f"Observation {name}",
                 symbol=symbol,
                 initial_capital=round(weighted_capital, 2),
-                strategy="grid",
+                strategy="observation_only",
                 leverage=1,
-                grid_config=grid_config,
             ))
         
         logger.info(

@@ -437,16 +437,30 @@ class TradingInstanceAsync:
     def _init_strategy(self) -> None:
         """Initialize strategy. Strategies use async on_price."""
         strategy_name = self.config.strategy
-        if strategy_name == "grid":
-            from .strategies.grid_async import GridStrategyAsync
-            self._strategy = GridStrategyAsync(self, self.config.grid_config or {})
+        if strategy_name == "observation_only":
+            from .strategies.observation_async import ObservationOnlyStrategyAsync
+
+            self._strategy = ObservationOnlyStrategyAsync(self)
+        elif strategy_name == "grid":
+            from .strategies.observation_async import ObservationOnlyStrategyAsync
+
+            logger.warning(
+                "Grid runtime request for %s replaced by observation-only policy",
+                self.id,
+            )
+            self._strategy = ObservationOnlyStrategyAsync(self)
         elif strategy_name == "trend":
             from .strategies.trend_async import TrendStrategyAsync
             self._strategy = TrendStrategyAsync(self, self.config.tp_sl_config or {})
         else:
-            logger.warning(f"⚠️ Stratégie inconnue: {strategy_name}, fallback Grid")
-            from .strategies.grid_async import GridStrategyAsync
-            self._strategy = GridStrategyAsync(self, self.config.grid_config or {})
+            logger.warning(
+                "Unknown strategy %s for %s replaced by observation-only policy",
+                strategy_name,
+                self.id,
+            )
+            from .strategies.observation_async import ObservationOnlyStrategyAsync
+
+            self._strategy = ObservationOnlyStrategyAsync(self)
 
         from .signal_handler_async import SignalHandlerAsync
         self._signal_handler = SignalHandlerAsync(

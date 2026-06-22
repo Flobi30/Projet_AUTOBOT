@@ -466,17 +466,10 @@ def _get_setup_optimizer(orchestrator: Any) -> Any:
     return engine
 
 
-def _get_setup_shadow_lab(orchestrator: Any) -> Any:
-    from ..setup_shadow_lab import SetupShadowLab
+def _retired_grid_snapshot(symbols: List[Any]) -> Dict[str, Any]:
+    from ..strategy_runtime_policy import retired_grid_snapshot
 
-    lab = getattr(orchestrator, "setup_shadow_lab", None)
-    if lab is None:
-        lab = SetupShadowLab()
-        try:
-            setattr(orchestrator, "setup_shadow_lab", lab)
-        except Exception:
-            pass
-    return lab
+    return retired_grid_snapshot(symbols)
 
 
 def _get_trend_shadow_lab(orchestrator: Any) -> Any:
@@ -568,7 +561,7 @@ def _pair_health_snapshot(orchestrator: Any, state_db_path: Any, *, paper_mode: 
 
 def _strategy_shadow_snapshots(orchestrator: Any, symbols: List[Any]) -> Dict[str, Dict[str, Any]]:
     return {
-        "dynamic_grid": _get_setup_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
+        "dynamic_grid": _retired_grid_snapshot(symbols),
         "trend_momentum": _get_trend_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
         "mean_reversion": _get_mean_reversion_shadow_lab(orchestrator).build_snapshot(symbols=symbols),
     }
@@ -600,7 +593,6 @@ def _strategy_reconciliation_snapshot(
 
 def _strategy_shadow_db_paths(orchestrator: Any) -> Dict[str, str]:
     return {
-        "dynamic_grid": str(getattr(_get_setup_shadow_lab(orchestrator).config, "db_path", "data/setup_shadow_lab.db")),
         "trend_momentum": str(getattr(_get_trend_shadow_lab(orchestrator).config, "db_path", "data/trend_shadow_lab.db")),
         "mean_reversion": str(getattr(_get_mean_reversion_shadow_lab(orchestrator).config, "db_path", "data/mean_reversion_shadow_lab.db")),
     }
@@ -1660,18 +1652,16 @@ async def get_opportunities(
             "websocket_health": _websocket_health_snapshot(orchestrator),
         }
         try:
-            shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
-                symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+            shadow_snapshot = _retired_grid_snapshot(
+                [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
             )
-            shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
-            optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
-                instances=instances,
-                opportunities=snapshot.get("opportunities", []),
-                health_by_symbol=health_by_symbol,
-                shadow_by_symbol=shadow_by_symbol,
-                paper_mode=paper_mode,
-                total_capital=total_capital,
-            )
+            optimizer_snapshot = {
+                "enabled": False,
+                "summary": {"status": "retired_from_runtime", "symbols": len(instances)},
+                "live_promotion_allowed": False,
+                "applies_to_execution": False,
+                "setups": [],
+            }
             snapshot["setup_shadow"] = {
                 "enabled": shadow_snapshot.get("enabled"),
                 "summary": shadow_snapshot.get("summary"),
@@ -1768,18 +1758,20 @@ async def get_setup_optimizer(
             total_capital=total_capital,
             health_by_symbol=health_by_symbol,
         )
-        shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
-            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        shadow_snapshot = _retired_grid_snapshot(
+            [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
         )
-        shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
-        snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
-            instances=instances,
-            opportunities=opportunities.get("opportunities", []),
-            health_by_symbol=health_by_symbol,
-            shadow_by_symbol=shadow_by_symbol,
-            paper_mode=paper_mode,
-            total_capital=total_capital,
-        )
+        snapshot = {
+            "enabled": False,
+            "mode": "paper" if paper_mode else "live_observation",
+            "status": "retired_from_runtime",
+            "reason": "grid_retired_research_only",
+            "paper_only": True,
+            "live_promotion_allowed": False,
+            "applies_to_execution": False,
+            "setups": [],
+            "summary": {"status": "retired_from_runtime", "symbols": len(instances)},
+        }
         snapshot["setup_shadow"] = {
             "enabled": shadow_snapshot.get("enabled"),
             "summary": shadow_snapshot.get("summary"),
@@ -1821,8 +1813,8 @@ async def get_setup_shadow(
     try:
         status = orchestrator.get_status()
         instances = orchestrator.get_instances_snapshot()
-        snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
-            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        snapshot = _retired_grid_snapshot(
+            [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
         )
         snapshot["runtime"] = {
             "running": bool(status.get("running")),
@@ -2398,18 +2390,17 @@ async def get_setup_audit(
             for item in opportunities.get("opportunities", [])
             if isinstance(item, dict)
         }
-        shadow_snapshot = _get_setup_shadow_lab(orchestrator).build_snapshot(
-            symbols=[inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
+        shadow_snapshot = _retired_grid_snapshot(
+            [inst.get("symbol") or inst.get("pair") for inst in instances if isinstance(inst, dict)]
         )
-        shadow_by_symbol = shadow_snapshot.get("by_symbol", {}) if isinstance(shadow_snapshot, dict) else {}
-        optimizer_snapshot = _get_setup_optimizer(orchestrator).build_snapshot(
-            instances=instances,
-            opportunities=opportunities.get("opportunities", []),
-            health_by_symbol=health_by_symbol,
-            shadow_by_symbol=shadow_by_symbol,
-            paper_mode=paper_mode,
-            total_capital=total_capital,
-        )
+        shadow_by_symbol: Dict[str, Dict[str, Any]] = {}
+        optimizer_snapshot = {
+            "enabled": False,
+            "summary": {"status": "retired_from_runtime"},
+            "live_promotion_allowed": False,
+            "applies_to_execution": False,
+            "setups": [],
+        }
         optimizer_by_symbol = {
             _paper_symbol_key(item.get("symbol")): item
             for item in optimizer_snapshot.get("setups", [])

@@ -14,6 +14,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from .pair_strategy_health import symbol_key
 from .strategy_promotion_gate import StrategyPromotionGate, StrategyPromotionGateConfig
+from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, is_runtime_engine_retired
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -190,7 +191,10 @@ class StrategyRouter:
         )
         no_trade_count = sum(1 for row in rows if row["selected_engine"] == "no_trade")
         learning_count = sum(1 for row in rows if row["recommended_action"] == "continue_shadow_learning")
-        paper_official_execution_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
+        # Runtime promotion is intentionally disabled while High Conviction is
+        # being validated. The router may rank shadow evidence, but it cannot
+        # turn that evidence into an official paper order on its own.
+        paper_official_execution_enabled = False
         return {
             "timestamp": _utc_now(),
             "mode": "paper" if paper_mode else "live_shadow_observation",
@@ -218,8 +222,8 @@ class StrategyRouter:
             "routes": rows,
             "by_symbol": {row["symbol"]: row for row in rows},
             "message": (
-                "Strategy router ranks grid, trend, mean-reversion and no-trade from shadow evidence. "
-                "Validated candidates can graduate to controlled paper execution while live stays blocked."
+                "Strategy router ranks trend, mean-reversion and no-trade from shadow evidence. "
+                "Dynamic grid is retired from runtime and remains research-only; live stays blocked."
             ),
         }
 
@@ -248,6 +252,8 @@ class StrategyRouter:
         source: str,
         symbol_payload: Optional[Mapping[str, Any]],
     ) -> Optional[dict[str, Any]]:
+        if is_runtime_engine_retired(engine):
+            return None
         if not isinstance(symbol_payload, Mapping):
             return None
         best = symbol_payload.get("best_variant")
@@ -356,59 +362,19 @@ class StrategyRouter:
         paper_mode: bool,
         promotion_gate: Mapping[str, Any],
     ) -> dict[str, Any]:
-        paper_router_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ROUTER_ENABLED", True)
         engine = str(selected.get("engine") or "no_trade")
-        gate_passed = bool(promotion_gate.get("passed"))
-        gate_reason = str(promotion_gate.get("reason") or "promotion_gate_unknown")
         if engine == "dynamic_grid":
-            if action == "shadow_candidate_review" and paper_router_enabled and gate_passed:
-                return {
-                    "support": "paper_official_candidate",
-                    "reason": "dynamic_grid_adapter_available",
-                    "paper_execution_enabled": True,
-                    "live_enabled": False,
-                    "promotion_gate": promotion_gate,
-                }
-            if action == "shadow_candidate_review" and paper_router_enabled and not gate_passed:
-                return {
-                    "support": "paper_observation",
-                    "reason": gate_reason,
-                    "paper_execution_enabled": paper_router_enabled,
-                    "live_enabled": False,
-                    "promotion_gate": promotion_gate,
-                }
             return {
-                "support": "paper_observation",
-                "reason": "dynamic_grid_waiting_for_candidate_evidence" if paper_router_enabled else "paper_execution_router_disabled",
-                "paper_execution_enabled": paper_router_enabled,
+                "support": "retired_research_only",
+                "reason": GRID_RUNTIME_RETIRED_REASON,
+                "paper_execution_enabled": False,
                 "live_enabled": False,
                 "promotion_gate": promotion_gate,
             }
         if engine in {"trend_momentum", "mean_reversion"}:
-            adapter_enabled = paper_mode and _env_bool("PAPER_EXECUTION_ADAPTER_ENABLED", True)
-            trend_enabled = _env_bool("PAPER_EXECUTION_ADAPTER_TREND_ENABLED", True)
-            mean_reversion_enabled = _env_bool("PAPER_EXECUTION_ADAPTER_MEAN_REVERSION_ENABLED", True)
-            engine_enabled = (
-                trend_enabled if engine == "trend_momentum" else mean_reversion_enabled
-            )
-            if action == "shadow_candidate_review" and paper_router_enabled and adapter_enabled and engine_enabled and gate_passed:
-                return {
-                    "support": "paper_official_candidate",
-                    "reason": "shadow_paper_execution_adapter_available",
-                    "paper_execution_enabled": True,
-                    "live_enabled": False,
-                    "promotion_gate": promotion_gate,
-                }
             return {
-                "support": "shadow_only",
-                "reason": (
-                    gate_reason
-                    if action == "shadow_candidate_review" and not gate_passed
-                    else
-                    "paper_execution_adapter_disabled"
-                    if not adapter_enabled or not engine_enabled
-                    else "shadow_candidate_waiting_for_review"
-                ),
+                "support": "research_only",
+                "reason": "runtime_paper_promotion_disabled",
                 "paper_execution_enabled": False,
                 "live_enabled": False,
                 "promotion_gate": promotion_gate,

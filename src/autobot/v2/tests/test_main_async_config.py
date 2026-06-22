@@ -56,3 +56,13 @@ def test_create_all_instance_configs_legacy_priority_order(monkeypatch):
 
     by_symbol = {cfg.symbol: cfg.initial_capital for cfg in configs}
     assert by_symbol["XXBTZEUR"] > by_symbol["XETHZEUR"] > by_symbol["ADAEUR"]
+
+
+def test_create_all_instance_configs_uses_observation_only_not_grid(monkeypatch):
+    monkeypatch.setenv("TRADING_PAIRS", "XXBTZEUR,XETHZEUR,TRXEUR")
+    monkeypatch.setenv("INITIAL_CAPITAL", "500")
+
+    configs = AutoBotV2Async()._create_all_instance_configs()
+
+    assert all(config.strategy == "observation_only" for config in configs)
+    assert all(config.grid_config is None for config in configs)

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .pair_strategy_health import symbol_key
+from .strategy_runtime_policy import is_runtime_engine_retired
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -309,6 +310,8 @@ class StrategyTradeReconciliationEngine:
     def _shadow_sources(self, shadow_db_paths: Mapping[str, Any]) -> list[ShadowTradeSource]:
         result = []
         for engine, (default_path, table) in self.DEFAULT_SHADOW_SOURCES.items():
+            if is_runtime_engine_retired(engine):
+                continue
             path = shadow_db_paths.get(engine, default_path)
             result.append(ShadowTradeSource(engine=engine, table=table, db_path=str(path or default_path)))
         return result

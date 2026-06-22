@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
 from .pair_strategy_health import symbol_key
+from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, is_runtime_engine_retired
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -189,78 +190,34 @@ class StrategyGovernanceEngine:
         decision = "observe"
         governance_status = "observe"
         execution_mode = "observe_only"
-        allow_grid_entries = True
+        allow_grid_entries = False
         allow_shadow_signal_mirror = False
-        block_new_entries = False
-        official_execution_engine = "dynamic_grid"
+        block_new_entries = True
+        official_execution_engine = "none"
 
         if not self.config.enabled or not paper_mode:
             reasons.append("governance_disabled_or_not_paper")
+        elif is_runtime_engine_retired(selected_engine):
+            reasons.append(GRID_RUNTIME_RETIRED_REASON)
+            decision = "keep_research_only"
+            governance_status = "blocked"
+            execution_mode = "observe_only"
         elif selected_engine == "no_trade":
             reasons.append("router_selected_no_trade")
             decision = "abstain"
             governance_status = "blocked" if self.config.block_on_no_trade else "observe"
             execution_mode = "observe_only"
-            allow_grid_entries = not self.config.block_on_no_trade
-            block_new_entries = self.config.block_on_no_trade
-            official_execution_engine = "none"
-        elif selected_engine in {"trend_momentum", "mean_reversion"}:
-            support = str(paper_policy.get("support") or "shadow_only")
-            if (
-                self.config.allow_non_grid_shadow_mirror
-                and support == "paper_official_candidate"
-                and router_action == "shadow_candidate_review"
-                and router_score >= self.config.candidate_score_min
-            ):
-                if recon_verdict == "shadow_sample_not_robust":
-                    reasons.append("shadow_candidate_not_robust_yet")
-                    decision = "keep_learning"
-                    governance_status = "learning"
-                    execution_mode = "observe_only"
-                elif open_positions > 0:
-                    reasons.extend(["grid_positions_still_open", "wait_until_flat_before_non_grid_mirror"])
-                    decision = "wait_until_flat_then_mirror"
-                    governance_status = "pending_flat"
-                    execution_mode = "shadow_signal_mirror_pending_flat"
-                    allow_grid_entries = False
-                    block_new_entries = True
-                    official_execution_engine = selected_engine
-                else:
-                    reasons.append("non_grid_shadow_candidate_eligible_for_paper_mirror")
-                    decision = "mirror_non_grid_candidate"
-                    governance_status = "eligible"
-                    execution_mode = "shadow_signal_mirror"
-                    allow_grid_entries = False
-                    allow_shadow_signal_mirror = True
-                    block_new_entries = True
-                    official_execution_engine = selected_engine
-            else:
-                reasons.append(str(paper_policy.get("reason") or "non_grid_candidate_not_ready"))
-                decision = "keep_shadow_learning"
-                governance_status = "learning" if router_action == "continue_shadow_learning" else "review"
-                execution_mode = "grid_runtime"
-        else:
-            decision = "run_grid"
-            governance_status = "eligible"
-            execution_mode = "grid_runtime"
-
-        if (
-            self.config.block_on_divergence
-            and selected_engine == "dynamic_grid"
-            and recon_verdict in {"official_underperforming", "shadow_official_divergence"}
-        ):
-            reasons.append(recon_verdict)
-            reasons.append(recon_action)
-            decision = "pause_grid_review_divergence"
-            governance_status = "review"
-            execution_mode = "grid_runtime"
-            allow_grid_entries = False
             block_new_entries = True
-            official_execution_engine = "dynamic_grid"
-
-        if selected_engine == "dynamic_grid" and execution_mode == "grid_runtime" and governance_status == "eligible":
-            reasons.append("grid_remains_official_paper_engine")
-            decision = "run_grid"
+        elif selected_engine in {"trend_momentum", "mean_reversion"}:
+            reasons.append("research_only_no_runtime_promotion")
+            decision = "keep_shadow_learning"
+            governance_status = "learning" if router_action == "continue_shadow_learning" else "review"
+            execution_mode = "observe_only"
+        else:
+            reasons.append("unknown_engine_observe_only")
+            decision = "abstain"
+            governance_status = "blocked"
+            execution_mode = "observe_only"
 
         if not reasons:
             reasons.append(router_reason)
