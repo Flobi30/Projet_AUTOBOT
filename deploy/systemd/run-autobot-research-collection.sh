@@ -30,6 +30,11 @@ fi
 # The image runs as appuser (uid/gid 999). Only research output directories are
 # mounted, so the collector cannot read the runtime database, logs, or .env.
 install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}"
+# install -d preserves ownership for pre-existing directories. Restore the
+# appuser-owned output boundary so a prior root-created report cannot make a
+# subsequent isolated daily run fail while writing its research artifacts.
+chown 999:999 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}"
+chmod 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}"
 
 exec docker run --rm \
   --name "autobot-research-${RUN_ID}" \
