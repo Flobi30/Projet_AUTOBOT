@@ -45,5 +45,12 @@ policy checks are recorded after controlled deployment.
 ## Final Import Cleanup
 
 The Grid configuration module itself is now imported lazily from the explicit
-research helper. A final controlled deployment is required to apply this
-import-only cleanup; it does not change any execution behavior.
+research helper. The controlled deployment of `1e1c249` verified this cleanup:
+
+- Docker is healthy and `/health` reports an active orchestrator, connected
+  WebSocket, and 14 instances.
+- Exactly 14 `ObservationOnlyStrategyAsync` initializations were logged.
+- No Adaptive Grid, PairProfileRegistry, or MultiGrid startup log was present.
+- No critical error line or live-order log was found.
+- Router safety remained unchanged: paper-only, official execution disabled,
+  and live promotion disabled.
