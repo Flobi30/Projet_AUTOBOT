@@ -62,6 +62,35 @@ class DailyResearchSafetyConfig:
 
 
 @dataclass(frozen=True)
+class DailyHighConvictionWalkForwardConfig:
+    enabled: bool = False
+    output_dir: Path = Path("reports/research/high_conviction_walk_forward")
+    train_window_bars: int = 288
+    test_window_bars: int = 192
+    step_window_bars: int | None = None
+    min_folds: int = 3
+    min_positive_fold_ratio: float = 0.60
+    min_closed_trades_for_review: int = 50
+    min_expected_move_bps: float = 500.0
+    risk_reward_ratio: float = 2.0
+    max_hold_hours: float = 72.0
+    exit_modes: tuple[str, ...] = ("fixed_tp_sl", "trailing")
+    primary_exit_mode: str = "fixed_tp_sl"
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if self.train_window_bars <= 0 or self.test_window_bars <= 0 or self.min_folds < 1:
+            raise ValueError("high_conviction_walk_forward windows and folds must be positive")
+        if self.step_window_bars is not None and self.step_window_bars <= 0:
+            raise ValueError("high_conviction_walk_forward.step_window_bars must be positive")
+        if self.min_closed_trades_for_review < 50:
+            raise ValueError("high_conviction_walk_forward requires at least 50 closed trades for review")
+        if not self.exit_modes or self.primary_exit_mode not in self.exit_modes:
+            raise ValueError("high_conviction_walk_forward.primary_exit_mode must be one of exit_modes")
+
+
+@dataclass(frozen=True)
 class DailyResearchDataCollectionConfig:
     priority_symbols: tuple[str, ...]
     secondary_symbols: tuple[str, ...]
@@ -77,6 +106,7 @@ class DailyResearchDataCollectionConfig:
     microstructure_depth_count: int = 10
     microstructure_sample_interval_seconds: float = 60.0
     microstructure_samples_per_run: int = 60
+    high_conviction_walk_forward: DailyHighConvictionWalkForwardConfig = DailyHighConvictionWalkForwardConfig()
 
     @property
     def all_symbols(self) -> tuple[str, ...]:
@@ -103,6 +133,7 @@ class DailyResearchDataCollectionConfig:
             raise ValueError("microstructure.samples_per_run must be positive")
         if self.microstructure_sample_interval_seconds < 0.0:
             raise ValueError("microstructure.sample_interval_seconds cannot be negative")
+        self.high_conviction_walk_forward.validate()
 
 
 @dataclass(frozen=True)
@@ -132,6 +163,7 @@ class DailyResearchDataCollectionResult:
     microstructure_result: dict[str, Any] | None
     microstructure_profile_path: str | None
     data_readiness_dashboard_path: str | None
+    high_conviction_walk_forward_report_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -153,6 +185,7 @@ class DailyResearchDataCollectionResult:
             "microstructure_result": self.microstructure_result,
             "microstructure_profile_path": self.microstructure_profile_path,
             "data_readiness_dashboard_path": self.data_readiness_dashboard_path,
+            "high_conviction_walk_forward_report_path": self.high_conviction_walk_forward_report_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -166,6 +199,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
     safety = payload.get("safety") or {}
     ohlcv = payload.get("ohlcv") or {}
     microstructure = payload.get("microstructure") or {}
+    high_conviction = payload.get("high_conviction_walk_forward") or {}
     config = DailyResearchDataCollectionConfig(
         priority_symbols=_tuple_upper(payload.get("priority_symbols")),
         secondary_symbols=_tuple_upper(payload.get("secondary_symbols")),
@@ -190,6 +224,21 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
         microstructure_depth_count=int(microstructure.get("depth_count") or 10),
         microstructure_sample_interval_seconds=float(microstructure.get("sample_interval_seconds") or 60.0),
         microstructure_samples_per_run=int(microstructure.get("samples_per_run") or 60),
+        high_conviction_walk_forward=DailyHighConvictionWalkForwardConfig(
+            enabled=bool(high_conviction.get("enabled", False)),
+            output_dir=Path(str(high_conviction.get("output_dir") or "reports/research/high_conviction_walk_forward")),
+            train_window_bars=int(high_conviction.get("train_window_bars") or 288),
+            test_window_bars=int(high_conviction.get("test_window_bars") or 192),
+            step_window_bars=(int(high_conviction["step_window_bars"]) if high_conviction.get("step_window_bars") not in (None, "") else None),
+            min_folds=int(high_conviction.get("min_folds") or 3),
+            min_positive_fold_ratio=float(high_conviction.get("min_positive_fold_ratio") or 0.60),
+            min_closed_trades_for_review=int(high_conviction.get("min_closed_trades_for_review") or 50),
+            min_expected_move_bps=float(high_conviction.get("min_expected_move_bps") or 500.0),
+            risk_reward_ratio=float(high_conviction.get("risk_reward_ratio") or 2.0),
+            max_hold_hours=float(high_conviction.get("max_hold_hours") or 72.0),
+            exit_modes=_tuple_text(high_conviction.get("exit_modes") or ("fixed_tp_sl", "trailing")),
+            primary_exit_mode=str(high_conviction.get("primary_exit_mode") or "fixed_tp_sl"),
+        ),
     )
     config.validate()
     return config
@@ -290,6 +339,13 @@ def run_daily_research_data_collection(
         )
         dashboard_path = dashboard.markdown_report_path
 
+    high_conviction_path = _run_high_conviction_walk_forward(
+        config=config,
+        run_id=run_id,
+        symbols=collection_symbols,
+        operations=operations,
+    )
+
     result = DailyResearchDataCollectionResult(
         run_id=run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -298,6 +354,7 @@ def run_daily_research_data_collection(
         microstructure_result=micro_result.to_dict() if micro_result else None,
         microstructure_profile_path=micro_profile_path,
         data_readiness_dashboard_path=dashboard_path,
+        high_conviction_walk_forward_report_path=high_conviction_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -320,6 +377,7 @@ def write_daily_research_data_collection_report(
         microstructure_result=result.microstructure_result,
         microstructure_profile_path=result.microstructure_profile_path,
         data_readiness_dashboard_path=result.data_readiness_dashboard_path,
+        high_conviction_walk_forward_report_path=result.high_conviction_walk_forward_report_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -353,6 +411,7 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             "",
             f"- Microstructure profile: `{result.microstructure_profile_path or 'not generated'}`",
             f"- Data readiness dashboard: `{result.data_readiness_dashboard_path or 'not generated'}`",
+            f"- High Conviction walk-forward: `{result.high_conviction_walk_forward_report_path or 'not enabled'}`",
             "",
             "## Safety",
             "",
@@ -361,6 +420,71 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
     lines.extend(f"- {note}" for note in result.safety_notes)
     lines.append("")
     return "\n".join(lines)
+
+
+def _run_high_conviction_walk_forward(
+    *,
+    config: DailyResearchDataCollectionConfig,
+    run_id: str,
+    symbols: tuple[str, ...],
+    operations: list[DailyCollectionOperation],
+) -> str | None:
+    scheduled = config.high_conviction_walk_forward
+    if not scheduled.enabled:
+        return None
+    try:
+        from .high_conviction_walk_forward import (
+            HighConvictionWalkForwardConfig,
+            build_high_conviction_walk_forward_report,
+            write_high_conviction_walk_forward_report,
+        )
+
+        report = write_high_conviction_walk_forward_report(
+            build_high_conviction_walk_forward_report(
+                HighConvictionWalkForwardConfig(
+                    run_id=f"{run_id}_high_conviction_walk_forward",
+                    data_paths=(config.output_dirs.ohlcv,),
+                    output_dir=scheduled.output_dir,
+                    symbols=symbols,
+                    min_expected_move_bps=scheduled.min_expected_move_bps,
+                    risk_reward_ratio=scheduled.risk_reward_ratio,
+                    max_hold_hours=scheduled.max_hold_hours,
+                    exit_modes=scheduled.exit_modes,
+                    primary_exit_mode=scheduled.primary_exit_mode,
+                    train_window_bars=scheduled.train_window_bars,
+                    test_window_bars=scheduled.test_window_bars,
+                    step_window_bars=scheduled.step_window_bars,
+                    min_folds=scheduled.min_folds,
+                    min_positive_fold_ratio=scheduled.min_positive_fold_ratio,
+                    min_closed_trades_for_review=scheduled.min_closed_trades_for_review,
+                )
+            ),
+            scheduled.output_dir,
+        )
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="high_conviction_walk_forward",
+                symbol=None,
+                timeframe=None,
+                status="ok",
+                row_count=report.deduplicated_bar_count,
+                output_path=report.json_report_path,
+                markdown_report_path=report.markdown_report_path,
+                error=report.decision.status,
+            )
+        )
+        return report.markdown_report_path
+    except Exception as exc:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="high_conviction_walk_forward",
+                symbol=None,
+                timeframe=None,
+                status="error",
+                error=str(exc),
+            )
+        )
+        return None
 
 
 def _collect_one_ohlcv(

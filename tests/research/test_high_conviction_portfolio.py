@@ -132,6 +132,7 @@ def test_portfolio_replay_enforces_cash_exposure_and_one_position_per_symbol(tmp
     assert result.status == "research_only"
     assert result.live_promotion_allowed is False
     assert "research_only_no_auto_promotion" in result.blockers
+    assert "trade_records" not in result.to_dict()
 
 
 def test_cost_breakdown_uses_selected_profile_not_hardcoded_values():

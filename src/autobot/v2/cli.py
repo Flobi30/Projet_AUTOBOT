@@ -218,6 +218,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_high_conviction_portfolio_args(high_conviction_portfolio)
     high_conviction_portfolio.set_defaults(handler=_cmd_high_conviction_portfolio_replay)
 
+    high_conviction_walk_forward = subparsers.add_parser(
+        "high-conviction-walk-forward",
+        help="Run research-only High Conviction portfolio-aware walk-forward validation",
+    )
+    _add_high_conviction_walk_forward_args(high_conviction_walk_forward)
+    high_conviction_walk_forward.set_defaults(handler=_cmd_high_conviction_walk_forward)
+
     relative_value = subparsers.add_parser(
         "relative-value-portfolio-replay",
         help="Research-only Kraken Spot long-only relative-value portfolio replay",
@@ -638,6 +645,41 @@ def _add_high_conviction_portfolio_args(parser: argparse.ArgumentParser) -> None
     parser.add_argument("--min-sample-trades-for-candidate", type=int, default=30)
     parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
     parser.add_argument("--candidate-max-drawdown-pct", type=float, default=0.12)
+
+
+def _add_high_conviction_walk_forward_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-paths", required=True, help="Comma-separated OHLCV CSV/Parquet files or directories")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; omit to scan all OHLCV symbols")
+    parser.add_argument("--output-dir", default="reports/research/high_conviction_walk_forward")
+    parser.add_argument(
+        "--setup-families",
+        default="breakout_1h_4h,pullback_trend,major_support_mean_reversion,volatility_expansion,trend_continuation",
+    )
+    parser.add_argument("--min-expected-move-bps", type=float, default=500.0)
+    parser.add_argument("--risk-reward-ratio", type=float, default=2.0)
+    parser.add_argument("--max-hold-hours", type=float, default=72.0)
+    parser.add_argument("--exit-modes", default="fixed_tp_sl,trailing")
+    parser.add_argument("--primary-exit-mode", default="fixed_tp_sl")
+    parser.add_argument("--initial-capital-eur", type=float, default=500.0)
+    parser.add_argument("--max-position-fraction", type=float, default=0.20)
+    parser.add_argument("--risk-per-trade-pct", type=float, default=0.01)
+    parser.add_argument("--max-global-exposure-pct", type=float, default=0.60)
+    parser.add_argument("--max-open-positions", type=int, default=3)
+    parser.add_argument("--cooldown-hours", type=float, default=6.0)
+    parser.add_argument("--max-daily-loss-pct", type=float, default=0.03)
+    parser.add_argument("--critical-drawdown-pct", type=float, default=0.12)
+    parser.add_argument("--drawdown-reduce-start-pct", type=float, default=0.05)
+    parser.add_argument("--min-drawdown-exposure-multiplier", type=float, default=0.35)
+    parser.add_argument("--train-window-bars", type=int, default=288)
+    parser.add_argument("--test-window-bars", type=int, default=192)
+    parser.add_argument("--step-window-bars", type=int, default=None)
+    parser.add_argument("--min-folds", type=int, default=3)
+    parser.add_argument("--min-positive-fold-ratio", type=float, default=0.60)
+    parser.add_argument("--min-closed-trades-for-review", type=int, default=50)
+    parser.add_argument("--min-profit-factor", type=float, default=1.20)
+    parser.add_argument("--max-drawdown-pct", type=float, default=0.12)
+    parser.add_argument("--max-single-symbol-positive-pnl-share", type=float, default=0.60)
 
 
 def _add_relative_value_portfolio_args(parser: argparse.ArgumentParser) -> None:
@@ -1320,6 +1362,53 @@ def _cmd_high_conviction_portfolio_replay(args: argparse.Namespace) -> int:
                 min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
                 candidate_min_profit_factor=args.candidate_min_profit_factor,
                 candidate_max_drawdown_pct=args.candidate_max_drawdown_pct,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_high_conviction_walk_forward(args: argparse.Namespace) -> int:
+    from autobot.v2.research.high_conviction_walk_forward import (
+        HighConvictionWalkForwardConfig,
+        build_high_conviction_walk_forward_report,
+        write_high_conviction_walk_forward_report,
+    )
+
+    result = write_high_conviction_walk_forward_report(
+        build_high_conviction_walk_forward_report(
+            HighConvictionWalkForwardConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                output_dir=Path(args.output_dir),
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else (),
+                setup_families=_csv_tuple(args.setup_families, "--setup-families"),
+                min_expected_move_bps=args.min_expected_move_bps,
+                risk_reward_ratio=args.risk_reward_ratio,
+                max_hold_hours=args.max_hold_hours,
+                exit_modes=_csv_tuple(args.exit_modes, "--exit-modes"),
+                primary_exit_mode=args.primary_exit_mode,
+                initial_capital_eur=args.initial_capital_eur,
+                max_position_fraction=args.max_position_fraction,
+                risk_per_trade_pct=args.risk_per_trade_pct,
+                max_global_exposure_pct=args.max_global_exposure_pct,
+                max_open_positions=args.max_open_positions,
+                cooldown_hours=args.cooldown_hours,
+                max_daily_loss_pct=args.max_daily_loss_pct,
+                critical_drawdown_pct=args.critical_drawdown_pct,
+                drawdown_reduce_start_pct=args.drawdown_reduce_start_pct,
+                min_drawdown_exposure_multiplier=args.min_drawdown_exposure_multiplier,
+                train_window_bars=args.train_window_bars,
+                test_window_bars=args.test_window_bars,
+                step_window_bars=args.step_window_bars,
+                min_folds=args.min_folds,
+                min_positive_fold_ratio=args.min_positive_fold_ratio,
+                min_closed_trades_for_review=args.min_closed_trades_for_review,
+                min_profit_factor=args.min_profit_factor,
+                max_drawdown_pct=args.max_drawdown_pct,
+                max_single_symbol_positive_pnl_share=args.max_single_symbol_positive_pnl_share,
             )
         ),
         Path(args.output_dir),

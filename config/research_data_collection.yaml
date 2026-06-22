@@ -31,6 +31,24 @@ microstructure:
   sample_interval_seconds: 60
   samples_per_run: 60
 
+high_conviction_walk_forward:
+  enabled: true
+  output_dir: reports/research/high_conviction_walk_forward
+  # 15m bars: 3 days warm-up, then independent 2-day OOS folds.
+  train_window_bars: 288
+  test_window_bars: 192
+  step_window_bars: 192
+  min_folds: 3
+  min_positive_fold_ratio: 0.60
+  min_closed_trades_for_review: 50
+  min_expected_move_bps: 500
+  risk_reward_ratio: 2
+  max_hold_hours: 72
+  exit_modes:
+    - fixed_tp_sl
+    - trailing
+  primary_exit_mode: fixed_tp_sl
+
 output_dirs:
   ohlcv: data/research/daily/ohlcv
   microstructure: data/research/daily/microstructure

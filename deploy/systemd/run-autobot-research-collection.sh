@@ -9,6 +9,7 @@ LOCK_PATH="${AUTOBOT_RESEARCH_LOCK_PATH:-/run/lock/autobot-research-data.lock}"
 
 DATA_DIR="${REPO_DIR}/data/research/daily"
 REPORT_DIR="${REPO_DIR}/reports/research/daily_data_collection"
+HIGH_CONVICTION_REPORT_DIR="${REPO_DIR}/reports/research/high_conviction_walk_forward"
 
 exec 9>"${LOCK_PATH}"
 if ! flock -n 9; then
@@ -28,7 +29,7 @@ fi
 
 # The image runs as appuser (uid/gid 999). Only research output directories are
 # mounted, so the collector cannot read the runtime database, logs, or .env.
-install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${REPORT_DIR}"
+install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}"
 
 exec docker run --rm \
   --name "autobot-research-${RUN_ID}" \
@@ -49,6 +50,7 @@ exec docker run --rm \
   --volume "${CONFIG_PATH}:/app/config/research_data_collection.yaml:ro" \
   --volume "${DATA_DIR}:/app/data/research/daily" \
   --volume "${REPORT_DIR}:/app/reports/research/daily_data_collection" \
+  --volume "${HIGH_CONVICTION_REPORT_DIR}:/app/reports/research/high_conviction_walk_forward" \
   "${IMAGE}" \
   python -m autobot.v2.cli collect-research-daily \
     --config /app/config/research_data_collection.yaml \

@@ -144,9 +144,13 @@ class PortfolioScenarioResult:
     status: str
     blockers: tuple[str, ...]
     live_promotion_allowed: bool = False
+    # Retained in memory for aggregate research such as walk-forward. Persisted
+    # reports intentionally keep only representative sample trades.
+    trade_records: tuple[TradeRecord, ...] = field(default_factory=tuple, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload.pop("trade_records", None)
         payload["blockers"] = list(self.blockers)
         payload["daily_loss_stop_days"] = list(self.daily_loss_stop_days)
         payload["contributors"] = [dict(row) for row in self.contributors]
@@ -736,6 +740,7 @@ def _run_portfolio_scenario(
         sample_trades=tuple(record.to_dict() for record in sorted(records, key=lambda row: row.net_pnl_eur, reverse=True)[:16]),
         status="research_only",
         blockers=tuple(blockers),
+        trade_records=tuple(records),
     )
 
 

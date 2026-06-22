@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -194,3 +195,52 @@ def test_daily_runner_collapses_aliases_to_one_canonical_collection(tmp_path, mo
     assert depth_calls == [("XXRPZEUR", 5)]
     ohlcv_ops = [op for op in result.operations if op.operation_type == "ohlcv"]
     assert [op.symbol for op in ohlcv_ops] == ["XRPZEUR"]
+
+
+def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(tmp_path):
+    config_path = tmp_path / "research_daily_high_conviction.yaml"
+    _write_config(config_path, tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            [
+                "high_conviction_walk_forward:",
+                "  enabled: true",
+                f"  output_dir: {str(tmp_path / 'high_conviction').replace(chr(92), '/')}",
+                "  train_window_bars: 5",
+                "  test_window_bars: 5",
+                "  min_folds: 1",
+                "  min_closed_trades_for_review: 50",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def ohlc_fetcher(pair, interval_minutes, since):
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (_epoch_minute(0), "100", "101", "99", "100", "100", "10", 1),
+                (_epoch_minute(5), "100", "101", "99", "100", "100", "10", 1),
+            ),
+            last=None,
+        )
+
+    def depth_fetcher(pair, depth_count):
+        return {"error": [], "result": {pair: {"bids": [["100", "1", "1"]], "asks": [["101", "1", "1"]]}}}
+
+    result = run_daily_research_data_collection(
+        config_path=config_path,
+        run_id="pytest_daily_high_conviction",
+        ohlc_fetcher=ohlc_fetcher,
+        depth_fetcher=depth_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    high_conviction_ops = [op for op in result.operations if op.operation_type == "high_conviction_walk_forward"]
+    assert len(high_conviction_ops) == 1
+    assert high_conviction_ops[0].status == "ok"
+    assert result.high_conviction_walk_forward_report_path
+    assert Path(result.high_conviction_walk_forward_report_path).exists()
+    assert result.live_promotion_allowed is False
