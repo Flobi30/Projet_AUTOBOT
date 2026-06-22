@@ -1,0 +1,255 @@
+{
+  "artifacts": {
+    "paper_current_taker_journal_csv": "reports\\research\\relative_value_2026_06_22\\relative_value_2026_06_22_paper_current_taker_trade_journal.csv",
+    "paper_current_taker_journal_json": "reports\\research\\relative_value_2026_06_22\\relative_value_2026_06_22_paper_current_taker_trade_journal.json",
+    "research_stress_journal_csv": "reports\\research\\relative_value_2026_06_22\\relative_value_2026_06_22_research_stress_trade_journal.csv",
+    "research_stress_journal_json": "reports\\research\\relative_value_2026_06_22\\relative_value_2026_06_22_research_stress_trade_journal.json"
+  },
+  "comparison_high_conviction": {
+    "high_conviction_net_pnl_eur": 18.136974,
+    "high_conviction_profit_factor": 4.4941123610083515,
+    "high_conviction_report_loaded": true,
+    "high_conviction_report_path": "reports\\research\\high_conviction_portfolio_2026_06_22\\high_conviction_portfolio_2026_06_22.json",
+    "high_conviction_trade_count": 9,
+    "net_pnl_delta_vs_high_conviction_eur": -32.83372,
+    "relative_value_best_net_pnl_eur": -14.696746,
+    "relative_value_best_profit_factor": 0.2835068849032677,
+    "status": "compared_to_high_conviction_portfolio"
+  },
+  "conclusion": "NO_GO_relative_value_validation_failed",
+  "data_paths": [
+    "data\\research\\daily\\ohlcv\\daily_2026_06_08"
+  ],
+  "generated_at": "2026-06-22T21:00:27.315660+00:00",
+  "live_promotion_allowed": false,
+  "portfolio_results": [
+    {
+      "accepted_trade_count": 14,
+      "average_cost_eur": 0.752072,
+      "average_trade_duration_minutes": 130.71428571428572,
+      "blockers": [
+        "research_only_no_auto_promotion",
+        "sample_size_below_first_observation_minimum",
+        "net_pnl_not_positive_after_costs",
+        "profit_factor_not_above_base_threshold"
+      ],
+      "cost_config": {
+        "cost_profile": "paper_current_taker",
+        "default_entry_order_type": "market",
+        "default_exit_order_type": "market",
+        "fallback_spread_bps": 8.0,
+        "latency_buffer_bps": 0.0,
+        "legacy": false,
+        "limit_spread_charge_fraction": 1.0,
+        "maker_fee_bps": 25.0,
+        "market_spread_charge_fraction": 1.0,
+        "max_liquidity_participation": 0.05,
+        "max_spread_bps": 80.0,
+        "min_notional_eur": 5.0,
+        "round_trip_cost_estimate_bps": 94.0,
+        "runtime_comparable": true,
+        "slippage_bps": 3.0,
+        "slippage_model": "runtime_guard_6bps_round_trip",
+        "spread_model": "observed_top_of_book_or_8bps_fallback",
+        "taker_fee_bps": 40.0
+      },
+      "cost_profile": "paper_current_taker",
+      "exit_reason_count": {
+        "fixed_stop_loss": 6,
+        "fixed_take_profit": 2,
+        "time_stop": 1,
+        "trailing_stop": 3,
+        "zscore_mean_reversion": 2
+      },
+      "expectancy_eur": -1.0497675885531783,
+      "final_equity_eur": 485.303254,
+      "live_promotion_allowed": false,
+      "max_drawdown_pct": 4.330376,
+      "max_open_positions_seen": 2,
+      "max_planned_exposure_pct": 36.17551,
+      "net_pnl_eur": -14.696746,
+      "pnl_by_relationship": {
+        "ADAEUR_vs_XRPZEUR": {
+          "net_pnl_eur": -9.713097,
+          "trade_count": 6
+        },
+        "AVAXEUR_vs_SOLEUR": {
+          "net_pnl_eur": 0.008727,
+          "trade_count": 6
+        },
+        "LINKEUR_vs_DOTEUR": {
+          "net_pnl_eur": -4.992376,
+          "trade_count": 2
+        }
+      },
+      "pnl_by_symbol": {
+        "ADAEUR": {
+          "net_pnl_eur": -9.713097,
+          "trade_count": 6
+        },
+        "AVAXEUR": {
+          "net_pnl_eur": 0.008727,
+          "trade_count": 6
+        },
+        "LINKEUR": {
+          "net_pnl_eur": -4.992376,
+          "trade_count": 2
+        }
+      },
+      "profit_factor": 0.2835068849032677,
+      "raw_signal_count": 217,
+      "rejection_count": {
+        "cost_guard_expected_mfe_below_cost": 72,
+        "one_position_per_symbol": 54,
+        "symbol_cooldown": 77,
+        "two_leg_liquidity_size_reduced": 5
+      },
+      "relationship_count": 3,
+      "status": "research_only",
+      "total_return_pct": -2.939349,
+      "winrate_pct": 35.714285714285715
+    },
+    {
+      "accepted_trade_count": 14,
+      "average_cost_eur": 0.78383,
+      "average_trade_duration_minutes": 130.71428571428572,
+      "blockers": [
+        "research_only_no_auto_promotion",
+        "sample_size_below_first_observation_minimum",
+        "net_pnl_not_positive_after_costs",
+        "profit_factor_not_above_base_threshold"
+      ],
+      "cost_config": {
+        "cost_profile": "research_stress",
+        "default_entry_order_type": "market",
+        "default_exit_order_type": "market",
+        "fallback_spread_bps": 8.0,
+        "latency_buffer_bps": 1.0,
+        "legacy": false,
+        "limit_spread_charge_fraction": 1.0,
+        "maker_fee_bps": 25.0,
+        "market_spread_charge_fraction": 1.0,
+        "max_liquidity_participation": 0.05,
+        "max_spread_bps": 80.0,
+        "min_notional_eur": 5.0,
+        "round_trip_cost_estimate_bps": 98.0,
+        "runtime_comparable": true,
+        "slippage_bps": 4.0,
+        "slippage_model": "fixed_4bps_per_leg_plus_1bps_latency",
+        "spread_model": "observed_top_of_book_or_8bps_fallback",
+        "taker_fee_bps": 40.0
+      },
+      "cost_profile": "research_stress",
+      "exit_reason_count": {
+        "fixed_stop_loss": 6,
+        "fixed_take_profit": 2,
+        "time_stop": 1,
+        "trailing_stop": 3,
+        "zscore_mean_reversion": 2
+      },
+      "expectancy_eur": -1.0814691795740512,
+      "final_equity_eur": 484.859431,
+      "live_promotion_allowed": false,
+      "max_drawdown_pct": 4.41635,
+      "max_open_positions_seen": 2,
+      "max_planned_exposure_pct": 36.187683,
+      "net_pnl_eur": -15.140569,
+      "pnl_by_relationship": {
+        "ADAEUR_vs_XRPZEUR": {
+          "net_pnl_eur": -9.943938,
+          "trade_count": 6
+        },
+        "AVAXEUR_vs_SOLEUR": {
+          "net_pnl_eur": -0.125324,
+          "trade_count": 6
+        },
+        "LINKEUR_vs_DOTEUR": {
+          "net_pnl_eur": -5.071307,
+          "trade_count": 2
+        }
+      },
+      "pnl_by_symbol": {
+        "ADAEUR": {
+          "net_pnl_eur": -9.943938,
+          "trade_count": 6
+        },
+        "AVAXEUR": {
+          "net_pnl_eur": -0.125324,
+          "trade_count": 6
+        },
+        "LINKEUR": {
+          "net_pnl_eur": -5.071307,
+          "trade_count": 2
+        }
+      },
+      "profit_factor": 0.2730469474511779,
+      "raw_signal_count": 217,
+      "rejection_count": {
+        "cost_guard_expected_mfe_below_cost": 72,
+        "one_position_per_symbol": 54,
+        "symbol_cooldown": 77,
+        "two_leg_liquidity_size_reduced": 5
+      },
+      "relationship_count": 3,
+      "status": "research_only",
+      "total_return_pct": -3.028114,
+      "winrate_pct": 35.714285714285715
+    }
+  ],
+  "recommendations": [
+    "NO GO: the frozen long-only Relative Value model did not meet every base and stress validation gate.",
+    "Engle-Granger was unavailable; install statsmodels only for a later validation pass, not to change the signal threshold.",
+    "Keep Relative Value isolated in research-only replay; do not connect it to the router or official paper execution.",
+    "Use the same frozen relationships and thresholds on longer Kraken OHLCV before considering any controlled shadow experiment.",
+    "Do not add a reference short, leverage, margin, or pair scaling to compensate for a failed long-only result.",
+    "Collect bid/ask and depth before treating fixed spread assumptions as sufficient for an intraday paper-candidate review."
+  ],
+  "relationships": [
+    {
+      "execution": "long_only_target_spot_buy",
+      "reference_symbols": [
+        "XRPZEUR"
+      ],
+      "relationship_id": "ADAEUR_vs_XRPZEUR",
+      "target_symbol": "ADAEUR"
+    },
+    {
+      "execution": "long_only_target_spot_buy",
+      "reference_symbols": [
+        "DOTEUR"
+      ],
+      "relationship_id": "LINKEUR_vs_DOTEUR",
+      "target_symbol": "LINKEUR"
+    },
+    {
+      "execution": "long_only_target_spot_buy",
+      "reference_symbols": [
+        "SOLEUR"
+      ],
+      "relationship_id": "AVAXEUR_vs_SOLEUR",
+      "target_symbol": "AVAXEUR"
+    }
+  ],
+  "run_id": "relative_value_2026_06_22",
+  "safety_notes": [
+    "Research-only; no runtime router or paper/live executor is imported.",
+    "Kraken Spot long-only proxy: BUY/SELL target symbol only; references are never traded.",
+    "No leverage, margin, auto-promotion, instance split, or Kraken order is possible."
+  ],
+  "signal_count": 217,
+  "signal_rejections": {},
+  "statsmodels_available": false,
+  "timeframe": "15m",
+  "validation": {
+    "base_pass": false,
+    "base_pf_threshold_strictly_greater_than": 1.2,
+    "base_profile": "paper_current_taker",
+    "first_observation_min_trades": 30,
+    "live_promotion_allowed": false,
+    "max_drawdown_pct_strictly_below": 10.0,
+    "overall_preliminary_pass": false,
+    "stress_pass": false,
+    "stress_pf_threshold_strictly_greater_than": 1.1,
+    "stress_profile": "research_stress"
+  }
+}

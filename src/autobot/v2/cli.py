@@ -218,6 +218,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_high_conviction_portfolio_args(high_conviction_portfolio)
     high_conviction_portfolio.set_defaults(handler=_cmd_high_conviction_portfolio_replay)
 
+    relative_value = subparsers.add_parser(
+        "relative-value-portfolio-replay",
+        help="Research-only Kraken Spot long-only relative-value portfolio replay",
+    )
+    _add_relative_value_portfolio_args(relative_value)
+    relative_value.set_defaults(handler=_cmd_relative_value_portfolio_replay)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -631,6 +638,48 @@ def _add_high_conviction_portfolio_args(parser: argparse.ArgumentParser) -> None
     parser.add_argument("--min-sample-trades-for-candidate", type=int, default=30)
     parser.add_argument("--candidate-min-profit-factor", type=float, default=1.20)
     parser.add_argument("--candidate-max-drawdown-pct", type=float, default=0.12)
+
+
+def _add_relative_value_portfolio_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-paths", required=True, help="Comma-separated Kraken OHLCV CSV/Parquet paths")
+    parser.add_argument("--output-dir", default="reports/research/relative_value")
+    parser.add_argument(
+        "--relationships",
+        default="ADAEUR:XRPZEUR,XLMEUR:TRXEUR,LINKEUR:DOTEUR,AVAXEUR:SOLEUR",
+        help="Comma-separated TARGET:REFERENCE or TARGET:REFERENCE1|REFERENCE2 relations",
+    )
+    parser.add_argument("--timeframe", default="15m")
+    parser.add_argument("--rolling-window-bars", type=int, default=96)
+    parser.add_argument("--entry-zscore", type=float, default=-2.0)
+    parser.add_argument("--exit-zscore", type=float, default=-0.25)
+    parser.add_argument("--min-correlation", type=float, default=0.50)
+    parser.add_argument("--max-cointegration-pvalue", type=float, default=0.10)
+    parser.add_argument("--no-require-cointegration-when-available", action="store_true")
+    parser.add_argument("--cointegration-refresh-bars", type=int, default=24)
+    parser.add_argument("--min-expected-move-bps", type=float, default=150.0)
+    parser.add_argument("--min-expected-mfe-to-cost", type=float, default=1.5)
+    parser.add_argument("--fixed-take-profit-bps", type=float, default=400.0)
+    parser.add_argument("--fixed-stop-loss-bps", type=float, default=200.0)
+    parser.add_argument("--trailing-activation-bps", type=float, default=200.0)
+    parser.add_argument("--trailing-distance-bps", type=float, default=125.0)
+    parser.add_argument("--max-hold-bars", type=int, default=96)
+    parser.add_argument("--initial-capital-eur", type=float, default=500.0)
+    parser.add_argument("--max-position-fraction", type=float, default=0.20)
+    parser.add_argument("--risk-per-trade-pct", type=float, default=0.01)
+    parser.add_argument("--max-global-exposure-pct", type=float, default=0.60)
+    parser.add_argument("--max-open-positions", type=int, default=3)
+    parser.add_argument("--cooldown-hours", type=float, default=6.0)
+    parser.add_argument("--max-daily-loss-pct", type=float, default=0.03)
+    parser.add_argument("--max-drawdown-pct", type=float, default=0.10)
+    parser.add_argument("--min-order-notional-eur", type=float, default=5.0)
+    parser.add_argument("--max-volatility-bps", type=float, default=600.0)
+    parser.add_argument("--cost-profiles", default="paper_current_taker,research_stress")
+    parser.add_argument(
+        "--comparison-high-conviction-report",
+        default=None,
+        help="Optional high_conviction_portfolio JSON report for read-only comparison",
+    )
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -1271,6 +1320,60 @@ def _cmd_high_conviction_portfolio_replay(args: argparse.Namespace) -> int:
                 min_sample_trades_for_candidate=args.min_sample_trades_for_candidate,
                 candidate_min_profit_factor=args.candidate_min_profit_factor,
                 candidate_max_drawdown_pct=args.candidate_max_drawdown_pct,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_relative_value_portfolio_replay(args: argparse.Namespace) -> int:
+    from autobot.v2.research.relative_value_engine import (
+        RelativeValueConfig,
+        build_relative_value_report,
+        parse_relationships,
+        write_relative_value_report,
+    )
+
+    result = write_relative_value_report(
+        build_relative_value_report(
+            RelativeValueConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                output_dir=Path(args.output_dir),
+                relationships=parse_relationships(args.relationships),
+                timeframe=args.timeframe.lower(),
+                rolling_window_bars=args.rolling_window_bars,
+                entry_zscore=args.entry_zscore,
+                exit_zscore=args.exit_zscore,
+                min_correlation=args.min_correlation,
+                max_cointegration_pvalue=args.max_cointegration_pvalue,
+                require_cointegration_when_available=not bool(args.no_require_cointegration_when_available),
+                cointegration_refresh_bars=args.cointegration_refresh_bars,
+                min_expected_move_bps=args.min_expected_move_bps,
+                min_expected_mfe_to_cost=args.min_expected_mfe_to_cost,
+                fixed_take_profit_bps=args.fixed_take_profit_bps,
+                fixed_stop_loss_bps=args.fixed_stop_loss_bps,
+                trailing_activation_bps=args.trailing_activation_bps,
+                trailing_distance_bps=args.trailing_distance_bps,
+                max_hold_bars=args.max_hold_bars,
+                initial_capital_eur=args.initial_capital_eur,
+                max_position_fraction=args.max_position_fraction,
+                risk_per_trade_pct=args.risk_per_trade_pct,
+                max_global_exposure_pct=args.max_global_exposure_pct,
+                max_open_positions=args.max_open_positions,
+                cooldown_hours=args.cooldown_hours,
+                max_daily_loss_pct=args.max_daily_loss_pct,
+                max_drawdown_pct=args.max_drawdown_pct,
+                min_order_notional_eur=args.min_order_notional_eur,
+                max_volatility_bps=args.max_volatility_bps,
+                cost_profiles=_csv_tuple(args.cost_profiles, "--cost-profiles"),
+                comparison_high_conviction_report_path=(
+                    Path(args.comparison_high_conviction_report)
+                    if args.comparison_high_conviction_report
+                    else None
+                ),
             )
         ),
         Path(args.output_dir),
