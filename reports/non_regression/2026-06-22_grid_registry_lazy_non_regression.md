@@ -29,3 +29,21 @@ observation-only runtime policy.
 The regression suite includes an assertion that the active instance factory
 cannot construct the archived Grid registry. Post-deploy `/health` and runtime
 policy checks are recorded after controlled deployment.
+
+## First Deployment Verification (`b814a3f`)
+
+- Docker container: healthy.
+- `/health`: orchestrator running, WebSocket connected, 14 instances.
+- All 14 strategies initialized as `ObservationOnlyStrategyAsync`.
+- Router: `paper_only=true`, `official_execution_enabled=false`, and
+  `live_promotion_allowed=false`.
+- `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`,
+  `STRATEGY_ROUTER_LIVE_ENABLED=false`, and
+  `COLONY_AUTO_LIVE_PROMOTION=false`.
+- No startup Grid profile log, no critical error line, and no live-order log.
+
+## Final Import Cleanup
+
+The Grid configuration module itself is now imported lazily from the explicit
+research helper. A final controlled deployment is required to apply this
+import-only cleanup; it does not change any execution behavior.

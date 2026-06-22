@@ -75,7 +75,7 @@ def test_instance_factory_does_not_construct_archived_grid_registry(monkeypatch)
         raise AssertionError("Grid registry must not load in the active runtime factory")
 
     monkeypatch.setattr(
-        "autobot.v2.main_async.get_default_registry",
+        "autobot.v2.strategies.adaptive_grid_config.get_default_registry",
         unexpected_grid_registry_load,
     )
 

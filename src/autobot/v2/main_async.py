@@ -83,17 +83,14 @@ def _parse_int_env(name: str, default: int, min_val: int, max_val: int) -> int:
     except (ValueError, TypeError):
         logger.warning(f"Invalid {name}, using default {default}")
         return default
-_pair_registry = None
-try:
-    from autobot.v2.strategies.adaptive_grid_config import get_default_registry
-except ImportError:
-    logger.warning("V3 Adaptive Grid not available — using legacy fixed config")
-
-
 def _research_grid_registry():
     """Load archived Grid configuration only for an explicit research replay."""
-    registry_factory = globals().get("get_default_registry")
-    return registry_factory() if registry_factory is not None else None
+    try:
+        from autobot.v2.strategies.adaptive_grid_config import get_default_registry
+    except ImportError:
+        logger.warning("Archived Grid research configuration is unavailable")
+        return None
+    return get_default_registry()
 
 
 # ------------------------------------------------------------------
