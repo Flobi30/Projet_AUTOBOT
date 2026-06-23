@@ -225,6 +225,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_high_conviction_walk_forward_args(high_conviction_walk_forward)
     high_conviction_walk_forward.set_defaults(handler=_cmd_high_conviction_walk_forward)
 
+    strategy_orchestrator = subparsers.add_parser(
+        "strategy-orchestrator-research",
+        help="Run the research-only multi-strategy score and instance treasury simulation",
+    )
+    _add_strategy_orchestrator_args(strategy_orchestrator)
+    strategy_orchestrator.set_defaults(handler=_cmd_strategy_orchestrator_research)
+
     relative_value = subparsers.add_parser(
         "relative-value-portfolio-replay",
         help="Research-only Kraken Spot long-only relative-value portfolio replay",
@@ -680,6 +687,26 @@ def _add_high_conviction_walk_forward_args(parser: argparse.ArgumentParser) -> N
     parser.add_argument("--min-profit-factor", type=float, default=1.20)
     parser.add_argument("--max-drawdown-pct", type=float, default=0.12)
     parser.add_argument("--max-single-symbol-positive-pnl-share", type=float, default=0.60)
+
+
+def _add_strategy_orchestrator_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--data-paths", required=True, help="Comma-separated OHLCV CSV/Parquet files or directories")
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols; omit to scan all OHLCV symbols")
+    parser.add_argument("--output-dir", default="reports/research/strategy_orchestrator")
+    parser.add_argument("--instance-id", default="research-parent-001")
+    parser.add_argument("--initial-treasury-eur", type=float, default=500.0)
+    parser.add_argument("--cost-profiles", default="paper_current_taker,research_stress")
+    parser.add_argument("--max-instance-exposure-pct", type=float, default=0.60)
+    parser.add_argument("--max-strategy-exposure-pct", type=float, default=0.50)
+    parser.add_argument("--max-symbol-exposure-pct", type=float, default=0.20)
+    parser.add_argument("--risk-per-trade-pct", type=float, default=0.01)
+    parser.add_argument("--max-open-positions", type=int, default=3)
+    parser.add_argument("--cooldown-hours", type=float, default=6.0)
+    parser.add_argument("--max-daily-loss-pct", type=float, default=0.03)
+    parser.add_argument("--max-drawdown-pct", type=float, default=0.10)
+    parser.add_argument("--min-research-meta-score", type=float, default=20.0)
+    parser.add_argument("--signal-history-bars", type=int, default=384)
 
 
 def _add_relative_value_portfolio_args(parser: argparse.ArgumentParser) -> None:
@@ -1409,6 +1436,41 @@ def _cmd_high_conviction_walk_forward(args: argparse.Namespace) -> int:
                 min_profit_factor=args.min_profit_factor,
                 max_drawdown_pct=args.max_drawdown_pct,
                 max_single_symbol_positive_pnl_share=args.max_single_symbol_positive_pnl_share,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_strategy_orchestrator_research(args: argparse.Namespace) -> int:
+    from autobot.v2.research.strategy_orchestrator import (
+        StrategyOrchestratorConfig,
+        build_strategy_orchestrator_report,
+        write_strategy_orchestrator_report,
+    )
+
+    result = write_strategy_orchestrator_report(
+        build_strategy_orchestrator_report(
+            StrategyOrchestratorConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                output_dir=Path(args.output_dir),
+                instance_id=args.instance_id,
+                initial_treasury_eur=args.initial_treasury_eur,
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True) if args.symbols else (),
+                cost_profiles=_csv_tuple(args.cost_profiles, "--cost-profiles"),
+                max_instance_exposure_pct=args.max_instance_exposure_pct,
+                max_strategy_exposure_pct=args.max_strategy_exposure_pct,
+                max_symbol_exposure_pct=args.max_symbol_exposure_pct,
+                risk_per_trade_pct=args.risk_per_trade_pct,
+                max_open_positions=args.max_open_positions,
+                cooldown_hours=args.cooldown_hours,
+                max_daily_loss_pct=args.max_daily_loss_pct,
+                max_drawdown_pct=args.max_drawdown_pct,
+                min_research_meta_score=args.min_research_meta_score,
+                signal_history_bars=args.signal_history_bars,
             )
         ),
         Path(args.output_dir),

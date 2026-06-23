@@ -91,6 +91,42 @@ class DailyHighConvictionWalkForwardConfig:
 
 
 @dataclass(frozen=True)
+class DailyStrategyOrchestratorConfig:
+    """Configuration for the isolated multi-strategy treasury report."""
+
+    enabled: bool = False
+    output_dir: Path = Path("reports/research/strategy_orchestrator")
+    instance_id: str = "research-parent-001"
+    initial_treasury_eur: float = 500.0
+    max_instance_exposure_pct: float = 0.60
+    max_strategy_exposure_pct: float = 0.50
+    max_symbol_exposure_pct: float = 0.20
+    max_open_positions: int = 3
+    cooldown_hours: float = 6.0
+    max_daily_loss_pct: float = 0.03
+    max_drawdown_pct: float = 0.10
+    min_research_meta_score: float = 20.0
+    signal_history_bars: int = 384
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if not self.instance_id.strip() or self.initial_treasury_eur <= 0.0:
+            raise ValueError("strategy_orchestrator requires an instance id and positive treasury")
+        if self.max_open_positions < 1 or self.signal_history_bars < 24:
+            raise ValueError("strategy_orchestrator limits are invalid")
+        for value in (
+            self.max_instance_exposure_pct,
+            self.max_strategy_exposure_pct,
+            self.max_symbol_exposure_pct,
+            self.max_daily_loss_pct,
+            self.max_drawdown_pct,
+        ):
+            if not 0.0 < value <= 1.0:
+                raise ValueError("strategy_orchestrator risk limits must be in (0, 1]")
+
+
+@dataclass(frozen=True)
 class DailyResearchDataCollectionConfig:
     priority_symbols: tuple[str, ...]
     secondary_symbols: tuple[str, ...]
@@ -107,6 +143,7 @@ class DailyResearchDataCollectionConfig:
     microstructure_sample_interval_seconds: float = 60.0
     microstructure_samples_per_run: int = 60
     high_conviction_walk_forward: DailyHighConvictionWalkForwardConfig = DailyHighConvictionWalkForwardConfig()
+    strategy_orchestrator: DailyStrategyOrchestratorConfig = DailyStrategyOrchestratorConfig()
 
     @property
     def all_symbols(self) -> tuple[str, ...]:
@@ -134,6 +171,7 @@ class DailyResearchDataCollectionConfig:
         if self.microstructure_sample_interval_seconds < 0.0:
             raise ValueError("microstructure.sample_interval_seconds cannot be negative")
         self.high_conviction_walk_forward.validate()
+        self.strategy_orchestrator.validate()
 
 
 @dataclass(frozen=True)
@@ -164,6 +202,7 @@ class DailyResearchDataCollectionResult:
     microstructure_profile_path: str | None
     data_readiness_dashboard_path: str | None
     high_conviction_walk_forward_report_path: str | None = None
+    strategy_orchestrator_report_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -186,6 +225,7 @@ class DailyResearchDataCollectionResult:
             "microstructure_profile_path": self.microstructure_profile_path,
             "data_readiness_dashboard_path": self.data_readiness_dashboard_path,
             "high_conviction_walk_forward_report_path": self.high_conviction_walk_forward_report_path,
+            "strategy_orchestrator_report_path": self.strategy_orchestrator_report_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -200,6 +240,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
     ohlcv = payload.get("ohlcv") or {}
     microstructure = payload.get("microstructure") or {}
     high_conviction = payload.get("high_conviction_walk_forward") or {}
+    strategy_orchestrator = payload.get("strategy_orchestrator") or {}
     config = DailyResearchDataCollectionConfig(
         priority_symbols=_tuple_upper(payload.get("priority_symbols")),
         secondary_symbols=_tuple_upper(payload.get("secondary_symbols")),
@@ -238,6 +279,21 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             max_hold_hours=float(high_conviction.get("max_hold_hours") or 72.0),
             exit_modes=_tuple_text(high_conviction.get("exit_modes") or ("fixed_tp_sl", "trailing")),
             primary_exit_mode=str(high_conviction.get("primary_exit_mode") or "fixed_tp_sl"),
+        ),
+        strategy_orchestrator=DailyStrategyOrchestratorConfig(
+            enabled=bool(strategy_orchestrator.get("enabled", False)),
+            output_dir=Path(str(strategy_orchestrator.get("output_dir") or "reports/research/strategy_orchestrator")),
+            instance_id=str(strategy_orchestrator.get("instance_id") or "research-parent-001"),
+            initial_treasury_eur=float(strategy_orchestrator.get("initial_treasury_eur") or 500.0),
+            max_instance_exposure_pct=float(strategy_orchestrator.get("max_instance_exposure_pct") or 0.60),
+            max_strategy_exposure_pct=float(strategy_orchestrator.get("max_strategy_exposure_pct") or 0.50),
+            max_symbol_exposure_pct=float(strategy_orchestrator.get("max_symbol_exposure_pct") or 0.20),
+            max_open_positions=int(strategy_orchestrator.get("max_open_positions") or 3),
+            cooldown_hours=float(strategy_orchestrator.get("cooldown_hours") or 6.0),
+            max_daily_loss_pct=float(strategy_orchestrator.get("max_daily_loss_pct") or 0.03),
+            max_drawdown_pct=float(strategy_orchestrator.get("max_drawdown_pct") or 0.10),
+            min_research_meta_score=float(strategy_orchestrator.get("min_research_meta_score") or 20.0),
+            signal_history_bars=int(strategy_orchestrator.get("signal_history_bars") or 384),
         ),
     )
     config.validate()
@@ -345,6 +401,12 @@ def run_daily_research_data_collection(
         symbols=collection_symbols,
         operations=operations,
     )
+    strategy_orchestrator_path = _run_strategy_orchestrator(
+        config=config,
+        run_id=run_id,
+        symbols=collection_symbols,
+        operations=operations,
+    )
 
     result = DailyResearchDataCollectionResult(
         run_id=run_id,
@@ -355,6 +417,7 @@ def run_daily_research_data_collection(
         microstructure_profile_path=micro_profile_path,
         data_readiness_dashboard_path=dashboard_path,
         high_conviction_walk_forward_report_path=high_conviction_path,
+        strategy_orchestrator_report_path=strategy_orchestrator_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -378,6 +441,7 @@ def write_daily_research_data_collection_report(
         microstructure_profile_path=result.microstructure_profile_path,
         data_readiness_dashboard_path=result.data_readiness_dashboard_path,
         high_conviction_walk_forward_report_path=result.high_conviction_walk_forward_report_path,
+        strategy_orchestrator_report_path=result.strategy_orchestrator_report_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -412,6 +476,7 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             f"- Microstructure profile: `{result.microstructure_profile_path or 'not generated'}`",
             f"- Data readiness dashboard: `{result.data_readiness_dashboard_path or 'not generated'}`",
             f"- High Conviction walk-forward: `{result.high_conviction_walk_forward_report_path or 'not enabled'}`",
+            f"- Strategy orchestrator treasury report: `{result.strategy_orchestrator_report_path or 'not enabled'}`",
             "",
             "## Safety",
             "",
@@ -478,6 +543,71 @@ def _run_high_conviction_walk_forward(
         operations.append(
             DailyCollectionOperation(
                 operation_type="high_conviction_walk_forward",
+                symbol=None,
+                timeframe=None,
+                status="error",
+                error=str(exc),
+            )
+        )
+        return None
+
+
+def _run_strategy_orchestrator(
+    *,
+    config: DailyResearchDataCollectionConfig,
+    run_id: str,
+    symbols: tuple[str, ...],
+    operations: list[DailyCollectionOperation],
+) -> str | None:
+    scheduled = config.strategy_orchestrator
+    if not scheduled.enabled:
+        return None
+    try:
+        from .strategy_orchestrator import (
+            StrategyOrchestratorConfig,
+            build_strategy_orchestrator_report,
+            write_strategy_orchestrator_report,
+        )
+
+        report = write_strategy_orchestrator_report(
+            build_strategy_orchestrator_report(
+                StrategyOrchestratorConfig(
+                    run_id=f"{run_id}_strategy_orchestrator",
+                    data_paths=(config.output_dirs.ohlcv,),
+                    output_dir=scheduled.output_dir,
+                    instance_id=scheduled.instance_id,
+                    initial_treasury_eur=scheduled.initial_treasury_eur,
+                    symbols=symbols,
+                    max_instance_exposure_pct=scheduled.max_instance_exposure_pct,
+                    max_strategy_exposure_pct=scheduled.max_strategy_exposure_pct,
+                    max_symbol_exposure_pct=scheduled.max_symbol_exposure_pct,
+                    max_open_positions=scheduled.max_open_positions,
+                    cooldown_hours=scheduled.cooldown_hours,
+                    max_daily_loss_pct=scheduled.max_daily_loss_pct,
+                    max_drawdown_pct=scheduled.max_drawdown_pct,
+                    min_research_meta_score=scheduled.min_research_meta_score,
+                    signal_history_bars=scheduled.signal_history_bars,
+                )
+            ),
+            scheduled.output_dir,
+        )
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="strategy_orchestrator",
+                symbol=None,
+                timeframe=None,
+                status="ok",
+                row_count=len(report.standardized_signals),
+                output_path=report.json_report_path,
+                markdown_report_path=report.markdown_report_path,
+                error=report.final_status,
+            )
+        )
+        return report.markdown_report_path
+    except Exception as exc:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="strategy_orchestrator",
                 symbol=None,
                 timeframe=None,
                 status="error",

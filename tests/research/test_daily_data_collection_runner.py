@@ -212,6 +212,13 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
                 "  test_window_bars: 5",
                 "  min_folds: 1",
                 "  min_closed_trades_for_review: 50",
+                "strategy_orchestrator:",
+                "  enabled: true",
+                f"  output_dir: {str(tmp_path / 'strategy_orchestrator').replace(chr(92), '/')}",
+                "  instance_id: pytest-research-parent",
+                "  initial_treasury_eur: 500",
+                "  max_open_positions: 3",
+                "  signal_history_bars: 24",
             ]
         ),
         encoding="utf-8",
@@ -243,4 +250,9 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
     assert high_conviction_ops[0].status == "ok"
     assert result.high_conviction_walk_forward_report_path
     assert Path(result.high_conviction_walk_forward_report_path).exists()
+    strategy_orchestrator_ops = [op for op in result.operations if op.operation_type == "strategy_orchestrator"]
+    assert len(strategy_orchestrator_ops) == 1
+    assert strategy_orchestrator_ops[0].status == "ok"
+    assert result.strategy_orchestrator_report_path
+    assert Path(result.strategy_orchestrator_report_path).exists()
     assert result.live_promotion_allowed is False

@@ -49,6 +49,23 @@ high_conviction_walk_forward:
     - trailing
   primary_exit_mode: fixed_tp_sl
 
+# This is a read-only research meta-allocator. It uses the collected OHLCV
+# files, writes reports only, and cannot create child instances or orders.
+strategy_orchestrator:
+  enabled: true
+  output_dir: reports/research/strategy_orchestrator
+  instance_id: research-parent-001
+  initial_treasury_eur: 500
+  max_instance_exposure_pct: 0.60
+  max_strategy_exposure_pct: 0.50
+  max_symbol_exposure_pct: 0.20
+  max_open_positions: 3
+  cooldown_hours: 6
+  max_daily_loss_pct: 0.03
+  max_drawdown_pct: 0.10
+  min_research_meta_score: 20
+  signal_history_bars: 384
+
 output_dirs:
   ohlcv: data/research/daily/ohlcv
   microstructure: data/research/daily/microstructure
