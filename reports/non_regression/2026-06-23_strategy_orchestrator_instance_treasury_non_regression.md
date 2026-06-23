@@ -89,6 +89,37 @@ the production service flags unchanged. No AUTOBOT runtime restart is required
 for the systemd collection-script update itself; the research image must contain
 the committed Python code before the next timer execution.
 
+## Controlled VPS Deployment Evidence
+
+- Deployed code commit: `f093eea3aefb06de29f4cc24d211aec89ee3dd71`.
+- `autobot-v2` restarted only to load the rebuilt image and returned `healthy`.
+- `/health`: orchestrator running, WebSocket connected, 14 instances.
+- `PAPER_TRADING=true`.
+- `LIVE_TRADING_CONFIRMATION=false`.
+- `STRATEGY_ROUTER_LIVE_ENABLED=false`.
+- `COLONY_AUTO_LIVE_PROMOTION=false`.
+- No critical traceback, indentation error, live-order log, or Kraken-order
+  attempt was found in the post-deployment log sample.
+
+An isolated post-deploy validation container ran with `--network none`, a
+read-only daily research-data mount, and a report-directory mount only. It had
+no runtime database, `.env`, private key, order router, or executor access.
+
+| Profile | Virtual net PnL | PF | Closed trades | Estimated intratrade DD |
+| --- | ---: | ---: | ---: | ---: |
+| `paper_current_taker` | +8.00 EUR | 1.28 | 21 | 4.62% |
+| `research_stress` | +7.23 EUR | 1.25 | 21 | 4.68% |
+
+The run standardized 416 signals. High Conviction remains blocked by fewer
+than 50 trades, fewer than 4 positive folds out of 5, and a single-pair
+concentration guard. The virtual child was not created and the split remained
+non-executable; the policy also correctly blocked missing lineage evidence,
+insufficient parent capital, absent official-paper proof, insufficient trade
+count, insufficient scorecard and unvalidated strategy status.
+
+Generated VPS report:
+`/opt/Projet_AUTOBOT/reports/research/strategy_orchestrator/strategy_orchestrator_2026_06_23_vps.md`
+
 ## Recommendation
 
 Deploy the isolated research bundle, then let the daily OHLCV/spread-depth
