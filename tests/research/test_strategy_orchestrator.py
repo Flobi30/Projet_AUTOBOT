@@ -272,6 +272,10 @@ def test_full_orchestrator_keeps_grid_archived_and_split_executor_off(tmp_path, 
     assert report.simulated_child_plan.child_created is False
     assert report.simulated_child_plan.split_decision.executor_enabled is False
     assert report.simulated_child_plan.split_decision.executable_now is False
+    assert report.advanced_quant_diagnostics["research_only"] is True
+    assert report.advanced_quant_diagnostics["paper_candidate_allowed"] is False
+    assert report.advanced_quant_diagnostics["live_promotion_allowed"] is False
+    assert report.advanced_quant_diagnostics["robustness"]["verdict"] == "insufficient_sample"
 
 
 def test_orchestrator_cli_writes_research_only_report(tmp_path, capsys):

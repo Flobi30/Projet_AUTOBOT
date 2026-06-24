@@ -27,6 +27,7 @@ from autobot.v2.instance_split_policy import (
 )
 
 from .backtest_engine import BacktestSignal
+from .fractal_features import build_fractal_volatility_features
 from .high_conviction_discovery import HighConvictionDiscoveryConfig, DiscoverySetup, _group_by_symbol_timeframe, _load_ohlcv_bars
 from .high_conviction_walk_forward import (
     HighConvictionWalkForwardConfig,
@@ -35,7 +36,13 @@ from .high_conviction_walk_forward import (
     build_high_conviction_walk_forward_report,
 )
 from .metrics_engine import MetricsEngine
+from .purged_cv import build_purged_cv_plan, observations_from_trade_records
 from .relative_value_engine import RelativeValueSignal
+from .robustness_experiments import (
+    MonteCarloConfig,
+    RobustnessExperimentConfig,
+    build_robustness_experiment_report,
+)
 from .strategy_signal_generators import MeanReversionResearchSignalGenerator, TrendResearchSignalGenerator
 from .trade_journal import TradeJournal, TradeRecord
 
@@ -449,6 +456,7 @@ class StrategyOrchestratorConfig:
     high_conviction_step_window_bars: int | None = 192
     high_conviction_min_folds: int = 3
     high_conviction_exit_mode: str = "fixed_tp_sl"
+    robustness_bootstrap_iterations: int = 1_000
 
     def __post_init__(self) -> None:
         if not self.run_id.strip() or not self.data_paths or not self.instance_id.strip():
@@ -492,6 +500,8 @@ class StrategyOrchestratorConfig:
             raise ValueError("drawdown_reduce_start_pct must be below max_drawdown_pct")
         if not self.cost_profiles:
             raise ValueError("cost_profiles must not be empty")
+        if self.robustness_bootstrap_iterations < 100:
+            raise ValueError("robustness_bootstrap_iterations must be at least 100")
 
 
 @dataclass(frozen=True)
@@ -509,6 +519,7 @@ class StrategyOrchestratorReport:
     treasury_simulations: tuple[InstanceTreasurySimulation, ...]
     simulated_child_plan: SimulatedChildTreasuryPlan
     high_conviction_walk_forward: Mapping[str, Any]
+    advanced_quant_diagnostics: Mapping[str, Any]
     final_status: StrategyResearchStatus
     paper_candidate_allowed: bool = False
     live_promotion_allowed: bool = False
@@ -537,6 +548,7 @@ class StrategyOrchestratorReport:
             "treasury_simulations": [simulation.to_dict() for simulation in self.treasury_simulations],
             "simulated_child_plan": self.simulated_child_plan.to_dict(),
             "high_conviction_walk_forward": dict(self.high_conviction_walk_forward),
+            "advanced_quant_diagnostics": dict(self.advanced_quant_diagnostics),
             "final_status": self.final_status,
             "paper_candidate_allowed": False,
             "live_promotion_allowed": False,
@@ -703,6 +715,11 @@ def build_strategy_orchestrator_report(config: StrategyOrchestratorConfig) -> St
     )
     high_score = score_by_strategy["high_conviction_swing"]
     child_plan = _simulated_child_plan(treasury, high_score, simulations)
+    advanced_quant_diagnostics = _advanced_quant_diagnostics(
+        bars=bars,
+        high_conviction=high_conviction,
+        config=config,
+    )
     return StrategyOrchestratorReport(
         run_id=config.run_id,
         generated_at=_utc_now().isoformat(),
@@ -722,6 +739,7 @@ def build_strategy_orchestrator_report(config: StrategyOrchestratorConfig) -> St
             "decision": high_conviction.decision.to_dict(),
             "primary_aggregate": dict(high_conviction.primary_aggregate or {}),
         },
+        advanced_quant_diagnostics=advanced_quant_diagnostics,
         final_status="active_research",
     )
 
@@ -793,6 +811,31 @@ def render_strategy_orchestrator_report(report: StrategyOrchestratorReport) -> s
         lines.append(
             f"| {score.strategy_name} | {score.score:.1f} | {score.status} | "
             f"{'yes' if score.candidate_paper_recommended else 'no'} | {', '.join(score.blockers) or '-'} |"
+        )
+
+    diagnostics = report.advanced_quant_diagnostics
+    robustness = diagnostics.get("robustness") or {}
+    purged_cv = diagnostics.get("purged_cv") or {}
+    lines.extend(
+        [
+            "",
+            "## Advanced Quant Diagnostics",
+            "",
+            "- Scope: `research_only`; observational diagnostics do not affect scores, allocations, paper candidacy or live promotion.",
+            f"- Robustness verdict: `{robustness.get('verdict', 'not_available')}`; closed trades: `{robustness.get('trade_count', 0)}`.",
+            f"- Bootstrap status: `{(robustness.get('monte_carlo') or {}).get('status', 'not_available')}`.",
+            f"- Purged CV plan: `{purged_cv.get('status', 'not_available')}`; folds: `{len(purged_cv.get('folds') or [])}`.",
+            "",
+            "| Symbol | Timeframe | Samples | Hurst | Fractal Dimension | Volatility bps | Vol Cluster | Regime Hint |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for feature in diagnostics.get("fractal_volatility_features") or []:
+        lines.append(
+            f"| {feature.get('symbol')} | {feature.get('timeframe')} | {feature.get('sample_count')} | "
+            f"{_metric_text(feature.get('hurst_exponent'))} | {_metric_text(feature.get('fractal_dimension'))} | "
+            f"{_metric_text(feature.get('volatility_bps'))} | {_metric_text(feature.get('squared_return_autocorrelation'))} | "
+            f"{feature.get('regime_hint')} |"
         )
 
     lines.extend(
@@ -1354,6 +1397,85 @@ def _score_evidence(evidence: StrategyPerformanceEvidence, treasury: InstanceTre
         blockers=tuple(blockers),
         evidence=evidence,
     )
+
+
+def _advanced_quant_diagnostics(
+    *,
+    bars: Sequence[Any],
+    high_conviction: HighConvictionWalkForwardReport,
+    config: StrategyOrchestratorConfig,
+) -> dict[str, Any]:
+    """Attach observation-only robustness evidence to the research report.
+
+    The return value is deliberately excluded from signal scoring and treasury
+    allocation. These diagnostics help decide whether a later research pass is
+    worth running; they cannot authorize paper, live, or an instance split.
+    """
+
+    primary_trades = _primary_high_conviction_trade_records(high_conviction)
+    robustness = build_robustness_experiment_report(
+        primary_trades,
+        RobustnessExperimentConfig(
+            run_id=f"{config.run_id}_robustness",
+            initial_capital_eur=config.initial_treasury_eur,
+            monte_carlo=MonteCarloConfig(
+                iterations=config.robustness_bootstrap_iterations,
+                seed=_stable_seed(config.run_id),
+                min_trade_count=50,
+            ),
+        ),
+    )
+    purged_cv = build_purged_cv_plan(
+        observations_from_trade_records(primary_trades),
+        folds=5,
+        embargo_bars=1,
+    )
+    return {
+        "research_only": True,
+        "observation_only": True,
+        "fractal_volatility_features": [item.to_dict() for item in build_fractal_volatility_features(bars)],
+        "purged_cv": purged_cv.to_dict(),
+        "robustness": robustness.to_dict(),
+        "notes": [
+            "Monte Carlo uses closed research trades and is not a promotion gate.",
+            "Cost/fat-tail shocks are conservative sensitivity checks, not a cost reduction mechanism.",
+            "Purged CV is a future model-selection split plan; chronological walk-forward remains required.",
+            "Fractal/volatility features are descriptive only and do not alter strategy signals or allocation.",
+        ],
+        "paper_candidate_allowed": False,
+        "live_promotion_allowed": False,
+    }
+
+
+def _primary_high_conviction_trade_records(
+    report: HighConvictionWalkForwardReport,
+) -> tuple[TradeRecord, ...]:
+    """Return deduplicated primary out-of-sample High Conviction trades."""
+
+    selected = [
+        trade
+        for fold in report.folds
+        if fold.cost_profile == "research_stress"
+        and fold.policy == "conservative"
+        and fold.scenario.get("exit_mode") == "fixed_tp_sl"
+        for trade in fold.portfolio.trade_records
+    ]
+    deduplicated: dict[tuple[str, str, datetime, datetime, float, float], TradeRecord] = {}
+    for trade in selected:
+        key = (
+            trade.strategy_id,
+            trade.symbol,
+            trade.opened_at,
+            trade.closed_at,
+            round(trade.entry_price, 12),
+            round(trade.exit_price, 12),
+        )
+        deduplicated[key] = trade
+    return tuple(sorted(deduplicated.values(), key=lambda item: (item.closed_at, item.opened_at, item.symbol)))
+
+
+def _stable_seed(value: str) -> int:
+    return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16)
 
 
 def _pair_research_scores(signals: Sequence[StrategyResearchSignal]) -> tuple[PairResearchScore, ...]:
