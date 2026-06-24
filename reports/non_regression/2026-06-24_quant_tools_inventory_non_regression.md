@@ -23,6 +23,23 @@ $env:PYTHONPATH='src'; python -m pytest tests\research\test_advanced_quant_diagn
 
 Result: `18 passed`.
 
+```powershell
+python -m compileall -q src
+$env:PYTHONPATH='src'; python -m pytest tests\research tests\test_v2_cli.py -q
+```
+
+Result: `217 passed`.
+
+## Deployment Verification
+
+- GitHub/VPS commit: `def01a15420af5e2cdfeafa2e7c932c45b99f6d0`.
+- Deployment: fast-forward only; no Docker or AUTOBOT service restart.
+- VPS container: `Up (healthy)`; uptime was preserved at approximately eleven hours.
+- `/health`: `healthy`, orchestrator `running`, WebSocket `connected`, instances `14`.
+- Observed flags: `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false`, `COLONY_AUTO_LIVE_PROMOTION=false`.
+- `ENABLE_LIVE_TRADING` and `ENABLE_INSTANCE_SPLIT_EXECUTOR` were not set in the running container environment.
+- No critical/traceback log line was found in the ten-minute post-deploy window.
+
 ## What Did Not Change
 
 - No runtime strategy, router, risk manager, sizing, paper executor, live executor or Kraken client was changed.
