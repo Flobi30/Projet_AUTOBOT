@@ -27,6 +27,7 @@ from autobot.v2.instance_split_policy import (
 )
 
 from .backtest_engine import BacktestSignal
+from .advanced_market_analysis import build_advanced_market_analysis_snapshots, preferred_market_context_by_symbol
 from .fractal_features import build_fractal_volatility_features
 from .high_conviction_discovery import HighConvictionDiscoveryConfig, DiscoverySetup, _group_by_symbol_timeframe, _load_ohlcv_bars
 from .high_conviction_walk_forward import (
@@ -43,6 +44,7 @@ from .robustness_experiments import (
     RobustnessExperimentConfig,
     build_robustness_experiment_report,
 )
+from .statistical_validation import DeflatedSharpeConfig, assess_deflated_sharpe, evaluate_progressive_pf_quality
 from .strategy_signal_generators import MeanReversionResearchSignalGenerator, TrendResearchSignalGenerator
 from .trade_journal import TradeJournal, TradeRecord
 
@@ -276,6 +278,9 @@ class StrategyMetaScore:
     blockers: tuple[str, ...]
     evidence: StrategyPerformanceEvidence
     live_promotion_allowed: bool = False
+    research_decision: str = "candidate_review_blocked"
+    profit_factor_quality_score: float = 0.0
+    quality_gate: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -283,6 +288,9 @@ class StrategyMetaScore:
             "score": round(self.score, 6),
             "status": self.status,
             "candidate_paper_recommended": self.candidate_paper_recommended,
+            "research_decision": self.research_decision,
+            "profit_factor_quality_score": round(self.profit_factor_quality_score, 6),
+            "quality_gate": dict(self.quality_gate),
             "reasons": list(self.reasons),
             "blockers": list(self.blockers),
             "evidence": self.evidence.to_dict(),
@@ -339,10 +347,25 @@ class SignalMetaScore:
     confidence_score: float
     capital_eligible: bool
     reasons: tuple[str, ...]
+    market_analysis_score: float = 0.0
+    robustness_score: float = 0.0
+    monte_carlo_survival_score: float = 0.0
+    purged_cv_score: float = 0.0
+    dsr_score: float = 0.0
+    cost_survival_score: float = 0.0
+    liquidity_score: float = 0.0
+    overfitting_risk_score: float = 100.0
+    allocation_confidence_score: float = 0.0
+    profit_factor_quality_score: float = 0.0
+    research_decision: str = "observe_research"
+    market_context: Mapping[str, Any] = field(default_factory=dict)
+    quality_gate: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["reasons"] = list(self.reasons)
+        payload["market_context"] = dict(self.market_context)
+        payload["quality_gate"] = dict(self.quality_gate)
         return payload
 
 
@@ -435,6 +458,7 @@ class StrategyOrchestratorConfig:
     instance_role: InstanceRole = "standalone"
     initial_treasury_eur: float = 500.0
     symbols: tuple[str, ...] = ()
+    microstructure_profiles: tuple[Mapping[str, Any], ...] = ()
     cost_profiles: tuple[str, ...] = ("paper_current_taker", "research_stress")
     max_instance_exposure_pct: float = 0.60
     max_strategy_exposure_pct: float = 0.50
@@ -457,6 +481,9 @@ class StrategyOrchestratorConfig:
     high_conviction_min_folds: int = 3
     high_conviction_exit_mode: str = "fixed_tp_sl"
     robustness_bootstrap_iterations: int = 1_000
+    dsr_assumed_trial_count: int = 8
+    dsr_min_trade_count: int = 50
+    dsr_acceptable_probability: float = 0.65
 
     def __post_init__(self) -> None:
         if not self.run_id.strip() or not self.data_paths or not self.instance_id.strip():
@@ -502,6 +529,10 @@ class StrategyOrchestratorConfig:
             raise ValueError("cost_profiles must not be empty")
         if self.robustness_bootstrap_iterations < 100:
             raise ValueError("robustness_bootstrap_iterations must be at least 100")
+        if self.dsr_assumed_trial_count < 1 or self.dsr_min_trade_count < 2:
+            raise ValueError("DSR trial and sample settings are invalid")
+        if not 0.0 < self.dsr_acceptable_probability < 1.0:
+            raise ValueError("dsr_acceptable_probability must be in (0, 1)")
 
 
 @dataclass(frozen=True)
@@ -690,15 +721,29 @@ def build_strategy_orchestrator_report(config: StrategyOrchestratorConfig) -> St
     signals.extend(_observation_signals_from_generators(bars, config))
     signals.sort(key=lambda item: (item.timestamp, item.strategy_name, item.symbol, item.signal_id))
 
+    advanced_quant_diagnostics = _advanced_quant_diagnostics(
+        bars=bars,
+        high_conviction=high_conviction,
+        config=config,
+    )
     evidence = _build_strategy_evidence(high_conviction, signals)
-    scores = tuple(_score_evidence(item, treasury) for item in evidence)
+    scores = tuple(_score_evidence(item, treasury, diagnostics=advanced_quant_diagnostics) for item in evidence)
     score_by_strategy = {score.strategy_name: score for score in scores}
     pair_scores = _pair_research_scores(signals)
     pair_score_by_symbol = {score.symbol: score for score in pair_scores}
     regime_scores = _regime_research_scores(signals)
     regime_score_by_name = {score.regime: score for score in regime_scores}
+    market_context_by_symbol = _market_context_by_symbol(advanced_quant_diagnostics)
     signal_scores = tuple(
-        _score_signal(signal, score_by_strategy, pair_score_by_symbol, regime_score_by_name)
+        _score_signal(
+            signal,
+            score_by_strategy,
+            pair_score_by_symbol,
+            regime_score_by_name,
+            market_context_by_symbol,
+            advanced_quant_diagnostics,
+            config,
+        )
         for signal in signals
     )
     signal_score_by_id = {score.signal_id: score for score in signal_scores}
@@ -715,11 +760,11 @@ def build_strategy_orchestrator_report(config: StrategyOrchestratorConfig) -> St
     )
     high_score = score_by_strategy["high_conviction_swing"]
     child_plan = _simulated_child_plan(treasury, high_score, simulations)
-    advanced_quant_diagnostics = _advanced_quant_diagnostics(
-        bars=bars,
-        high_conviction=high_conviction,
-        config=config,
-    )
+    advanced_quant_diagnostics["strategy_quality_gates"] = [
+        dict(score.quality_gate)
+        for score in scores
+        if score.quality_gate
+    ]
     return StrategyOrchestratorReport(
         run_id=config.run_id,
         generated_at=_utc_now().isoformat(),
@@ -803,28 +848,51 @@ def render_strategy_orchestrator_report(report: StrategyOrchestratorReport) -> s
             "",
             "## Meta Scores",
             "",
-            "| Strategy | Score | Status | Candidate paper | Main blockers |",
-            "| --- | ---: | --- | --- | --- |",
+            "| Strategy | Score | PF quality | Research decision | Status | Candidate paper | Main blockers |",
+            "| --- | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for score in report.strategy_scores:
         lines.append(
-            f"| {score.strategy_name} | {score.score:.1f} | {score.status} | "
+            f"| {score.strategy_name} | {score.score:.1f} | {score.profit_factor_quality_score:.1f} | "
+            f"{score.research_decision} | {score.status} | "
             f"{'yes' if score.candidate_paper_recommended else 'no'} | {', '.join(score.blockers) or '-'} |"
         )
 
     diagnostics = report.advanced_quant_diagnostics
     robustness = diagnostics.get("robustness") or {}
     purged_cv = diagnostics.get("purged_cv") or {}
+    deflated = diagnostics.get("deflated_sharpe") or {}
+    market_analysis = diagnostics.get("market_analysis") or {}
     lines.extend(
         [
             "",
             "## Advanced Quant Diagnostics",
             "",
-            "- Scope: `research_only`; observational diagnostics do not affect scores, allocations, paper candidacy or live promotion.",
+            "- Scope: `research_only`; diagnostics can affect research meta-scores only.",
+            "- Execution authority: `none`; no runtime paper/live order can be created from these scores.",
             f"- Robustness verdict: `{robustness.get('verdict', 'not_available')}`; closed trades: `{robustness.get('trade_count', 0)}`.",
             f"- Bootstrap status: `{(robustness.get('monte_carlo') or {}).get('status', 'not_available')}`.",
             f"- Purged CV plan: `{purged_cv.get('status', 'not_available')}`; folds: `{len(purged_cv.get('folds') or [])}`.",
+            f"- Deflated Sharpe proxy: `{deflated.get('status', 'not_available')}`; probability: `{_metric_text(deflated.get('deflated_sharpe_probability'))}`.",
+            f"- Market-analysis snapshots: `{len(market_analysis.get('snapshots') or [])}`; preferred symbol contexts: `{len(market_analysis.get('preferred_by_symbol') or [])}`.",
+            "",
+            "| Pair | TF | Market confidence | Trend | Volatility | MR state | Liquidity risk | Cost survival | Overfit risk |",
+            "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: |",
+        ]
+    )
+    for snapshot in market_analysis.get("preferred_by_symbol") or []:
+        lines.append(
+            f"| {snapshot.get('symbol')} | {snapshot.get('timeframe')} | "
+            f"{_metric_text(snapshot.get('market_confidence_score'))} | "
+            f"{snapshot.get('trend_regime_signal')} | {snapshot.get('volatility_regime_signal')} | "
+            f"{snapshot.get('mean_reversion_regime_signal')} | "
+            f"{_metric_text(snapshot.get('liquidity_risk_score'))} | "
+            f"{_metric_text(snapshot.get('cost_survival_score'))} | "
+            f"{_metric_text(snapshot.get('overfitting_risk_score'))} |"
+        )
+    lines.extend(
+        [
             "",
             "| Symbol | Timeframe | Samples | Hurst | Fractal Dimension | Volatility bps | Vol Cluster | Regime Hint |",
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -1332,7 +1400,21 @@ def _build_strategy_evidence(
     return tuple(evidence)
 
 
-def _score_evidence(evidence: StrategyPerformanceEvidence, treasury: InstanceTreasury) -> StrategyMetaScore:
+def _score_evidence(
+    evidence: StrategyPerformanceEvidence,
+    treasury: InstanceTreasury,
+    *,
+    diagnostics: Mapping[str, Any] | None = None,
+) -> StrategyMetaScore:
+    diagnostics = diagnostics or {}
+    quality = evaluate_progressive_pf_quality(
+        strategy_name=evidence.strategy_name,
+        status=evidence.status,
+        metrics=evidence.to_dict(),
+        robustness=diagnostics.get("robustness") if evidence.strategy_name == "high_conviction_swing" else None,
+        deflated_sharpe=diagnostics.get("deflated_sharpe") if evidence.strategy_name == "high_conviction_swing" else None,
+        available_cash_eur=treasury.available_cash_eur,
+    )
     if evidence.status in {"archived", "no_go"}:
         return StrategyMetaScore(
             strategy_name=evidence.strategy_name,
@@ -1342,6 +1424,9 @@ def _score_evidence(evidence: StrategyPerformanceEvidence, treasury: InstanceTre
             reasons=("strategy_is_not_capital_eligible",),
             blockers=evidence.failure_reasons,
             evidence=evidence,
+            research_decision=quality.decision,
+            profit_factor_quality_score=quality.profit_factor_quality_score,
+            quality_gate=quality.to_dict(),
         )
     if evidence.status == "research_signal_only":
         return StrategyMetaScore(
@@ -1352,6 +1437,9 @@ def _score_evidence(evidence: StrategyPerformanceEvidence, treasury: InstanceTre
             reasons=("signals_are_observed_but_not_portfolio_validated",),
             blockers=evidence.failure_reasons,
             evidence=evidence,
+            research_decision=quality.decision,
+            profit_factor_quality_score=quality.profit_factor_quality_score,
+            quality_gate=quality.to_dict(),
         )
 
     pf = evidence.profit_factor or 0.0
@@ -1387,15 +1475,18 @@ def _score_evidence(evidence: StrategyPerformanceEvidence, treasury: InstanceTre
         blockers.append("validation_window_too_short")
     if treasury.available_cash_eur < 5.0:
         blockers.append("instance_treasury_insufficient")
-    candidate = not blockers
+    blockers.extend(item for item in quality.blockers if item not in blockers)
     return StrategyMetaScore(
         strategy_name=evidence.strategy_name,
         score=round(score, 6),
-        status="candidate_paper" if candidate else "active_research",
-        candidate_paper_recommended=candidate,
+        status="active_research",
+        candidate_paper_recommended=False,
         reasons=("meta_score_combines_costs_folds_drawdown_and_concentration",),
-        blockers=tuple(blockers),
+        blockers=tuple(dict.fromkeys(blockers)),
         evidence=evidence,
+        research_decision=quality.decision,
+        profit_factor_quality_score=quality.profit_factor_quality_score,
+        quality_gate=quality.to_dict(),
     )
 
 
@@ -1425,22 +1516,65 @@ def _advanced_quant_diagnostics(
             ),
         ),
     )
+    deflated_sharpe = assess_deflated_sharpe(
+        primary_trades,
+        DeflatedSharpeConfig(
+            initial_capital_eur=config.initial_treasury_eur,
+            assumed_trial_count=config.dsr_assumed_trial_count,
+            min_trade_count=config.dsr_min_trade_count,
+            acceptable_probability=config.dsr_acceptable_probability,
+        ),
+    )
     purged_cv = build_purged_cv_plan(
         observations_from_trade_records(primary_trades),
         folds=5,
         embargo_bars=1,
     )
+    fractal_features = [item.to_dict() for item in build_fractal_volatility_features(bars)]
+    market_snapshots = build_advanced_market_analysis_snapshots(
+        bars,
+        microstructure_profiles=config.microstructure_profiles,
+        robustness=robustness.to_dict(),
+        deflated_sharpe=deflated_sharpe.to_dict(),
+    )
+    preferred_context = preferred_market_context_by_symbol(market_snapshots)
     return {
         "research_only": True,
-        "observation_only": True,
-        "fractal_volatility_features": [item.to_dict() for item in build_fractal_volatility_features(bars)],
+        "observation_only": False,
+        "research_scoring_only": True,
+        "fractal_volatility_features": fractal_features,
+        "market_analysis": {
+            "research_only": True,
+            "execution_authority": "none",
+            "signals": [
+                "volatility_regime_signal",
+                "trend_regime_signal",
+                "mean_reversion_regime_signal",
+                "fractal_market_state",
+                "turbulence_risk_score",
+                "fat_tail_risk_score",
+                "monte_carlo_survival_score",
+                "cost_survival_score",
+                "liquidity_risk_score",
+                "overfitting_risk_score",
+                "relative_value_state",
+                "market_confidence_score",
+            ],
+            "snapshots": [item.to_dict() for item in market_snapshots],
+            "preferred_by_symbol": [item.to_dict() for item in preferred_context.values()],
+            "notes": [
+                "Market analysis feeds research meta-scoring only.",
+                "Market analysis is not a price predictor and cannot create orders.",
+            ],
+        },
         "purged_cv": purged_cv.to_dict(),
         "robustness": robustness.to_dict(),
+        "deflated_sharpe": deflated_sharpe.to_dict(),
         "notes": [
-            "Monte Carlo uses closed research trades and is not a promotion gate.",
+            "Monte Carlo uses closed research trades and is not a standalone promotion gate.",
             "Cost/fat-tail shocks are conservative sensitivity checks, not a cost reduction mechanism.",
             "Purged CV is a future model-selection split plan; chronological walk-forward remains required.",
-            "Fractal/volatility features are descriptive only and do not alter strategy signals or allocation.",
+            "Fractal/volatility and market-analysis features can alter research meta-scores, but never runtime execution.",
         ],
         "paper_candidate_allowed": False,
         "live_promotion_allowed": False,
@@ -1573,7 +1707,11 @@ def _score_signal(
     strategy_scores: Mapping[str, StrategyMetaScore],
     pair_scores: Mapping[str, PairResearchScore],
     regime_scores: Mapping[str, RegimeResearchScore],
+    market_context_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
+    diagnostics: Mapping[str, Any] | None = None,
+    config: StrategyOrchestratorConfig | None = None,
 ) -> SignalMetaScore:
+    diagnostics = diagnostics or {}
     strategy = strategy_scores.get(signal.strategy_name)
     pair = pair_scores.get(signal.symbol)
     strategy_score = strategy.score if strategy else 0.0
@@ -1581,18 +1719,48 @@ def _score_signal(
     regime_score = regime_scores.get(signal.regime).score if signal.regime in regime_scores else 0.0
     cost_score = 10.0 if signal.cost_profile != "research_legacy" else 0.0
     confidence_score = signal.confidence * 10.0
-    score = _clamp(
-        strategy_score * 0.45
-        + pair_score * 0.25
-        + regime_score * 0.15
-        + cost_score
-        + confidence_score,
+    market_context = dict((market_context_by_symbol or {}).get(signal.symbol) or {})
+    market_score = _float(market_context.get("market_confidence_score"), 35.0)
+    monte_carlo_survival = _float(market_context.get("monte_carlo_survival_score"), 50.0)
+    cost_survival = _float(market_context.get("cost_survival_score"), 40.0)
+    liquidity_score = 100.0 - _float(market_context.get("liquidity_risk_score"), 55.0)
+    overfitting_risk = _float(market_context.get("overfitting_risk_score"), 60.0)
+    overfitting_score = 100.0 - overfitting_risk
+    purged_cv_score = _purged_cv_score(diagnostics.get("purged_cv"))
+    dsr_score = _dsr_score(diagnostics.get("deflated_sharpe"))
+    robustness_score = _robustness_score(diagnostics.get("robustness"))
+    pf_quality_score = strategy.profit_factor_quality_score if strategy else 0.0
+    allocation_confidence_score = _clamp(
+        strategy_score * 0.30 + pair_score * 0.18 + market_score * 0.18 + pf_quality_score * 0.20 + liquidity_score * 0.14,
         0.0,
         100.0,
     )
-    reasons = ["strategy_pair_regime_cost_confidence_weighted"]
+    score = _clamp(
+        strategy_score * 0.24
+        + pair_score * 0.14
+        + regime_score * 0.10
+        + market_score * 0.14
+        + robustness_score * 0.08
+        + monte_carlo_survival * 0.08
+        + purged_cv_score * 0.05
+        + dsr_score * 0.05
+        + cost_survival * 0.06
+        + liquidity_score * 0.03
+        + overfitting_score * 0.02
+        + cost_score * 0.005
+        + confidence_score * 0.015,
+        0.0,
+        100.0,
+    )
+    reasons = ["strategy_pair_regime_market_robustness_weighted"]
     if not bool(signal.metadata.get("capital_eligible")):
         reasons.append(str(signal.metadata.get("no_capital_reason") or "research_signal_only"))
+    research_decision = _signal_research_decision(
+        signal=signal,
+        strategy=strategy,
+        score=score,
+        config=config,
+    )
     return SignalMetaScore(
         signal_id=signal.signal_id,
         strategy_name=signal.strategy_name,
@@ -1607,7 +1775,95 @@ def _score_signal(
         confidence_score=round(confidence_score, 6),
         capital_eligible=bool(signal.metadata.get("capital_eligible")),
         reasons=tuple(reasons),
+        market_analysis_score=round(market_score, 6),
+        robustness_score=round(robustness_score, 6),
+        monte_carlo_survival_score=round(monte_carlo_survival, 6),
+        purged_cv_score=round(purged_cv_score, 6),
+        dsr_score=round(dsr_score, 6),
+        cost_survival_score=round(cost_survival, 6),
+        liquidity_score=round(liquidity_score, 6),
+        overfitting_risk_score=round(overfitting_risk, 6),
+        allocation_confidence_score=round(allocation_confidence_score, 6),
+        profit_factor_quality_score=round(pf_quality_score, 6),
+        research_decision=research_decision,
+        market_context=market_context,
+        quality_gate=dict(strategy.quality_gate if strategy else {}),
     )
+
+
+def _market_context_by_symbol(diagnostics: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    market = diagnostics.get("market_analysis") or {}
+    return {
+        str(item.get("symbol") or "").upper(): dict(item)
+        for item in market.get("preferred_by_symbol") or ()
+        if item.get("symbol")
+    }
+
+
+def _signal_research_decision(
+    *,
+    signal: StrategyResearchSignal,
+    strategy: StrategyMetaScore | None,
+    score: float,
+    config: StrategyOrchestratorConfig | None,
+) -> str:
+    if strategy is None:
+        return "observe_research"
+    if strategy.status in {"archived", "no_go"}:
+        return "no_trade_research"
+    if not bool(signal.metadata.get("capital_eligible")):
+        return "observe_research"
+    if strategy.research_decision in {
+        "candidate_review_possible",
+        "high_quality_candidate",
+        "paper_limited_future",
+        "scale_candidate_future",
+    }:
+        return strategy.research_decision
+    threshold = config.min_research_meta_score if config else 20.0
+    if score < threshold:
+        return "candidate_review_blocked"
+    if score >= 75.0:
+        return "simulated_allocation_high"
+    if score >= 50.0:
+        return "simulated_allocation_medium"
+    return "simulated_allocation_low"
+
+
+def _purged_cv_score(payload: Any) -> float:
+    data = dict(payload or {})
+    folds = data.get("folds") or ()
+    if not folds:
+        return 20.0
+    train_counts = [len(item.get("train_observation_ids") or ()) for item in folds]
+    if not train_counts:
+        return 20.0
+    return _clamp(min(train_counts) / 50.0 * 100.0, 20.0, 75.0)
+
+
+def _dsr_score(payload: Any) -> float:
+    data = dict(payload or {})
+    probability = _optional_metric(data.get("deflated_sharpe_probability"))
+    if probability is None:
+        return 20.0
+    return _clamp(probability * 100.0, 0.0, 100.0)
+
+
+def _robustness_score(payload: Any) -> float:
+    data = dict(payload or {})
+    monte = dict(data.get("monte_carlo") or {})
+    probability = _optional_metric(monte.get("probability_positive_net_pnl"))
+    stress = data.get("stress_scenarios") or ()
+    if probability is None:
+        probability_component = 20.0
+    else:
+        probability_component = probability * 60.0
+    if stress:
+        positive = sum(1 for item in stress if _float((item.get("metrics") or {}).get("total_net_pnl_eur")) > 0.0)
+        stress_component = (positive / len(stress)) * 40.0
+    else:
+        stress_component = 0.0
+    return _clamp(probability_component + stress_component, 0.0, 100.0)
 
 
 def _dominant_regime(signals: Sequence[StrategyResearchSignal]) -> str:

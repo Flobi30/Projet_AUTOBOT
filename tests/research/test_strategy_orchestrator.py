@@ -209,7 +209,8 @@ def test_candidate_paper_gate_requires_four_of_five_folds_and_all_strict_criteri
 
     assert rejected.candidate_paper_recommended is False
     assert "fewer_than_4_of_5_positive_folds" in rejected.blockers
-    assert accepted.candidate_paper_recommended is True
+    assert accepted.candidate_paper_recommended is False
+    assert accepted.research_decision == "candidate_review_possible"
     assert accepted.live_promotion_allowed is False
 
 
@@ -276,6 +277,11 @@ def test_full_orchestrator_keeps_grid_archived_and_split_executor_off(tmp_path, 
     assert report.advanced_quant_diagnostics["paper_candidate_allowed"] is False
     assert report.advanced_quant_diagnostics["live_promotion_allowed"] is False
     assert report.advanced_quant_diagnostics["robustness"]["verdict"] == "insufficient_sample"
+    assert report.advanced_quant_diagnostics["deflated_sharpe"]["paper_candidate_allowed"] is False
+    assert report.advanced_quant_diagnostics["market_analysis"]["execution_authority"] == "none"
+    assert report.advanced_quant_diagnostics["market_analysis"]["preferred_by_symbol"]
+    assert all(score.research_decision for score in report.signal_scores)
+    assert all(score.quality_gate.get("live_promotion_allowed") is False for score in report.signal_scores)
 
 
 def test_orchestrator_cli_writes_research_only_report(tmp_path, capsys):

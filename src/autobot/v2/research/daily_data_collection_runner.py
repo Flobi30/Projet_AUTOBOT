@@ -406,6 +406,7 @@ def run_daily_research_data_collection(
         run_id=run_id,
         symbols=collection_symbols,
         operations=operations,
+        microstructure_profiles=profiles,
     )
 
     result = DailyResearchDataCollectionResult(
@@ -558,6 +559,7 @@ def _run_strategy_orchestrator(
     run_id: str,
     symbols: tuple[str, ...],
     operations: list[DailyCollectionOperation],
+    microstructure_profiles: tuple[Any, ...] = (),
 ) -> str | None:
     scheduled = config.strategy_orchestrator
     if not scheduled.enabled:
@@ -578,6 +580,10 @@ def _run_strategy_orchestrator(
                     instance_id=scheduled.instance_id,
                     initial_treasury_eur=scheduled.initial_treasury_eur,
                     symbols=symbols,
+                    microstructure_profiles=tuple(
+                        profile.to_dict() if hasattr(profile, "to_dict") else dict(profile)
+                        for profile in microstructure_profiles
+                    ),
                     max_instance_exposure_pct=scheduled.max_instance_exposure_pct,
                     max_strategy_exposure_pct=scheduled.max_strategy_exposure_pct,
                     max_symbol_exposure_pct=scheduled.max_symbol_exposure_pct,
