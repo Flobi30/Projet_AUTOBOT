@@ -232,6 +232,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_strategy_orchestrator_args(strategy_orchestrator)
     strategy_orchestrator.set_defaults(handler=_cmd_strategy_orchestrator_research)
 
+    strategy_edge = subparsers.add_parser(
+        "strategy-edge-review",
+        help="Build research-only strategy edge triage and improvement reports",
+    )
+    _add_strategy_edge_review_args(strategy_edge)
+    strategy_edge.set_defaults(handler=_cmd_strategy_edge_review)
+
     relative_value = subparsers.add_parser(
         "relative-value-portfolio-replay",
         help="Research-only Kraken Spot long-only relative-value portfolio replay",
@@ -707,6 +714,19 @@ def _add_strategy_orchestrator_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-drawdown-pct", type=float, default=0.10)
     parser.add_argument("--min-research-meta-score", type=float, default=20.0)
     parser.add_argument("--signal-history-bars", type=int, default=384)
+
+
+def _add_strategy_edge_review_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--output-dir", default="reports/research")
+    parser.add_argument("--report-date", default=None)
+    parser.add_argument("--strategy-orchestrator-report", default=None)
+    parser.add_argument("--high-conviction-report", default=None)
+    parser.add_argument("--min-candidate-trades", type=int, default=50)
+    parser.add_argument("--min-candidate-pf", type=float, default=1.30)
+    parser.add_argument("--high-quality-pf", type=float, default=1.50)
+    parser.add_argument("--max-drawdown-pct", type=float, default=10.0)
+    parser.add_argument("--max-single-symbol-positive-share", type=float, default=0.40)
 
 
 def _add_relative_value_portfolio_args(parser: argparse.ArgumentParser) -> None:
@@ -1471,6 +1491,36 @@ def _cmd_strategy_orchestrator_research(args: argparse.Namespace) -> int:
                 max_drawdown_pct=args.max_drawdown_pct,
                 min_research_meta_score=args.min_research_meta_score,
                 signal_history_bars=args.signal_history_bars,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_strategy_edge_review(args: argparse.Namespace) -> int:
+    from autobot.v2.research.strategy_edge_improvement import (
+        StrategyEdgeReviewConfig,
+        build_strategy_edge_improvement_report,
+        write_strategy_edge_improvement_report,
+    )
+
+    result = write_strategy_edge_improvement_report(
+        build_strategy_edge_improvement_report(
+            StrategyEdgeReviewConfig(
+                run_id=args.run_id,
+                output_dir=Path(args.output_dir),
+                report_date=args.report_date,
+                strategy_orchestrator_report_path=(
+                    Path(args.strategy_orchestrator_report) if args.strategy_orchestrator_report else None
+                ),
+                high_conviction_report_path=Path(args.high_conviction_report) if args.high_conviction_report else None,
+                min_candidate_trades=args.min_candidate_trades,
+                min_candidate_pf=args.min_candidate_pf,
+                high_quality_pf=args.high_quality_pf,
+                max_drawdown_pct=args.max_drawdown_pct,
+                max_single_symbol_positive_share=args.max_single_symbol_positive_share,
             )
         ),
         Path(args.output_dir),

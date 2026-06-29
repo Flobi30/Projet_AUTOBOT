@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -1159,6 +1160,78 @@ def test_cli_collect_research_daily_is_research_only(monkeypatch, tmp_path, caps
     assert output["run_id"] == "pytest_daily_cli"
     assert output["live_promotion_allowed"] is False
     assert "No paper or live order is created." in output["safety_notes"]
+
+
+def test_cli_strategy_edge_review_writes_research_only_reports(tmp_path, capsys):
+    orchestrator_path = tmp_path / "orchestrator.json"
+    high_conviction_path = tmp_path / "hc.json"
+    primary = {
+        "cost_profile": "research_stress",
+        "total_net_pnl_eur": 7.0,
+        "profit_factor": 1.05,
+        "total_trade_count": 20,
+        "positive_fold_count": 1,
+        "fold_count": 4,
+        "largest_positive_symbol_share": 0.70,
+        "contributors": [
+            {"symbol": "BCHEUR", "net_pnl_eur": 12.0, "trade_count": 5},
+            {"symbol": "XLMZEUR", "net_pnl_eur": -5.0, "trade_count": 6},
+        ],
+    }
+    orchestrator_path.write_text(
+        json.dumps(
+            {
+                "strategy_scores": [
+                    {"strategy_name": "trend_momentum", "status": "research_signal_only", "evidence": {"profit_factor": 0.3}},
+                    {"strategy_name": "mean_reversion", "status": "research_signal_only", "evidence": {"profit_factor": 1.0}},
+                    {"strategy_name": "relative_value", "status": "no_go", "evidence": {}},
+                    {"strategy_name": "grid", "status": "archived", "evidence": {}},
+                ],
+                "pair_scores": [
+                    {"symbol": "BCHEUR", "closed_trade_count": 5, "net_pnl_eur": 12.0, "profit_factor": 2.0},
+                    {"symbol": "XLMZEUR", "closed_trade_count": 6, "net_pnl_eur": -5.0, "profit_factor": 0.5},
+                ],
+                "high_conviction_walk_forward": {"primary_aggregate": primary},
+            }
+        ),
+        encoding="utf-8",
+    )
+    high_conviction_path.write_text(
+        json.dumps(
+            {
+                "primary_aggregate": primary,
+                "aggregates": [
+                    {"cost_profile": "paper_current_taker", "total_net_pnl_eur": 8.0, "profit_factor": 1.1},
+                    {"cost_profile": "research_stress", "total_net_pnl_eur": 7.0, "profit_factor": 1.05},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "strategy-edge-review",
+            "--run-id",
+            "pytest_strategy_edge_cli",
+            "--strategy-orchestrator-report",
+            str(orchestrator_path),
+            "--high-conviction-report",
+            str(high_conviction_path),
+            "--report-date",
+            "2026-06-29",
+            "--output-dir",
+            str(tmp_path / "edge_reports"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["live_promotion_allowed"] is False
+    assert output["orders_created"] is False
+    assert output["runtime_modified"] is False
+    assert Path(output["review_markdown_path"]).exists()
+    assert Path(output["improvement_markdown_path"]).exists()
 
 
 def test_cli_collect_history_uses_detected_active_symbols_when_omitted(monkeypatch, tmp_path, capsys):

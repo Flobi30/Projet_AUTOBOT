@@ -1,0 +1,550 @@
+{
+  "candidate_family_reviews": [
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "breakout_volatility",
+      "notes": "use 1h/4h volatility expansion and cost-aware breakout confirmation",
+      "status": "research_design_ready"
+    },
+    {
+      "baseline_to_beat": "no_trade,buy_and_hold,random_signal_same_frequency,high_conviction_current",
+      "family": "range_breakout",
+      "notes": "requires range identification before breakout validation",
+      "status": "research_design_only"
+    },
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "liquidity_sweep_fakeout",
+      "notes": "needs spread/depth snapshots; no order-book-dependent capital until coverage is long enough",
+      "status": "research_design_only"
+    },
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "volume_anomaly",
+      "notes": "needs reliable OHLCV volume and anti-overfit walk-forward",
+      "status": "research_design_only"
+    },
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "multi_timeframe_confirmation",
+      "notes": "improve with pair/regime attribution instead of broad parameter tuning",
+      "status": "already_represented_by_high_conviction"
+    },
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "volatility_expansion",
+      "notes": "split attribution by family in future walk-forward reports",
+      "status": "already_represented_by_high_conviction"
+    },
+    {
+      "baseline_to_beat": "high_conviction_current",
+      "family": "regime_switch_strategy",
+      "notes": "use existing regime/entropy tools as filters, not price prediction",
+      "status": "research_design_only"
+    }
+  ],
+  "generated_at": "2026-06-29T16:54:17.346280+00:00",
+  "high_conviction_summary": {
+    "concentration_penalty": 27.9505,
+    "cost_profile": "research_stress",
+    "fold_count": 8,
+    "largest_positive_symbol_share": 0.679505,
+    "net_pnl_eur": 7.123329,
+    "pair_quarantine_candidates": [
+      "AVAXEUR",
+      "XLMZEUR"
+    ],
+    "paper_candidate_allowed": false,
+    "paper_current_taker_net_pnl_eur": 9.023837,
+    "paper_current_taker_profit_factor": 1.1262273368600648,
+    "pf_gate": "D",
+    "positive_folds": 2,
+    "profit_factor": 1.098377768617437,
+    "reason": "positive_but_not_robust_enough_for_paper_candidate",
+    "research_stress_net_pnl_eur": 7.23188,
+    "research_stress_profit_factor": 1.0996338222108215,
+    "status": "active_research_keep_testing",
+    "stress_delta_net_pnl_eur": -1.791957,
+    "stress_delta_profit_factor": -0.026594,
+    "trade_count": 45,
+    "winrate_pct": 37.77777777777778,
+    "worst_fold_drawdown_pct": 4.0102
+  },
+  "leave_one_symbol_out": [
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 24.420862,
+      "pnl_delta_eur": 17.297533,
+      "symbol_removed": "XLMZEUR",
+      "trade_count_without_symbol": 38
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 19.385255,
+      "pnl_delta_eur": 12.261926,
+      "symbol_removed": "AVAXEUR",
+      "trade_count_without_symbol": 38
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 9.365705,
+      "pnl_delta_eur": 2.242376,
+      "symbol_removed": "ATOMEUR",
+      "trade_count_without_symbol": 44
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 9.270295,
+      "pnl_delta_eur": 2.146966,
+      "symbol_removed": "ETHZEUR",
+      "trade_count_without_symbol": 44
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 9.046813,
+      "pnl_delta_eur": 1.923484,
+      "symbol_removed": "LINKEUR",
+      "trade_count_without_symbol": 44
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "pair_damages_portfolio",
+      "net_pnl_without_symbol_eur": 8.567857,
+      "pnl_delta_eur": 1.444528,
+      "symbol_removed": "AAVEEUR",
+      "trade_count_without_symbol": 35
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "neutral_or_small_sample",
+      "net_pnl_without_symbol_eur": 7.123329,
+      "pnl_delta_eur": 0.0,
+      "symbol_removed": "TRXEUR",
+      "trade_count_without_symbol": 45
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "neutral_or_small_sample",
+      "net_pnl_without_symbol_eur": 7.123329,
+      "pnl_delta_eur": 0.0,
+      "symbol_removed": "BTCZEUR",
+      "trade_count_without_symbol": 45
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": 5.807373,
+      "pnl_delta_eur": -1.315956,
+      "symbol_removed": "DOTEUR",
+      "trade_count_without_symbol": 42
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": 5.544571,
+      "pnl_delta_eur": -1.578758,
+      "symbol_removed": "XRPZEUR",
+      "trade_count_without_symbol": 43
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": 4.748102,
+      "pnl_delta_eur": -2.375227,
+      "symbol_removed": "ADAEUR",
+      "trade_count_without_symbol": 43
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": 4.028202,
+      "pnl_delta_eur": -3.095127,
+      "symbol_removed": "LTCZEUR",
+      "trade_count_without_symbol": 44
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": 1.245571,
+      "pnl_delta_eur": -5.877758,
+      "symbol_removed": "SOLEUR",
+      "trade_count_without_symbol": 40
+    },
+    {
+      "baseline_net_pnl_eur": 7.123329,
+      "interpretation": "depends_on_positive_pair",
+      "net_pnl_without_symbol_eur": -23.073985,
+      "pnl_delta_eur": -30.197314,
+      "symbol_removed": "BCHEUR",
+      "trade_count_without_symbol": 40
+    }
+  ],
+  "mean_reversion_cost_review_plan": [
+    {
+      "filter": "tp_above_round_trip_cost_plus_margin",
+      "purpose": "avoid gross wins that become net flat"
+    },
+    {
+      "filter": "spread_filter",
+      "purpose": "only trade cheap symbols"
+    },
+    {
+      "filter": "minimum_volatility",
+      "purpose": "ensure mean reversion amplitude covers cost"
+    },
+    {
+      "filter": "range_regime_only",
+      "purpose": "avoid catching falling/strong trending assets"
+    },
+    {
+      "filter": "strong_trend_block",
+      "purpose": "block reversion against dominant trend"
+    },
+    {
+      "filter": "exit_timing_review",
+      "purpose": "reduce winners decaying back to cost"
+    },
+    {
+      "filter": "portfolio_aware_walk_forward",
+      "purpose": "validate net effect with capital constraints"
+    }
+  ],
+  "pair_attribution": [
+    {
+      "action": "concentration_watch_research_only",
+      "net_pnl_eur": 30.197314,
+      "positive_pnl_share": 0.679505,
+      "profit_factor": 10.578309728619663,
+      "reasons": [
+        "positive_pnl_concentration"
+      ],
+      "symbol": "BCHEUR",
+      "trade_count": 5,
+      "winrate_pct": 60.0
+    },
+    {
+      "action": "keep_testing_research",
+      "net_pnl_eur": 5.877758,
+      "positive_pnl_share": 0.132262,
+      "profit_factor": 2.453014917175175,
+      "reasons": [
+        "positive_after_costs"
+      ],
+      "symbol": "SOLEUR",
+      "trade_count": 5,
+      "winrate_pct": 80.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 3.095127,
+      "positive_pnl_share": 0.069647,
+      "profit_factor": null,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "LTCZEUR",
+      "trade_count": 1,
+      "winrate_pct": 100.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 2.375227,
+      "positive_pnl_share": 0.053448,
+      "profit_factor": 1.9200861832236487,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "ADAEUR",
+      "trade_count": 2,
+      "winrate_pct": 50.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 1.578758,
+      "positive_pnl_share": 0.035525,
+      "profit_factor": 1.7749003411585889,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "XRPZEUR",
+      "trade_count": 2,
+      "winrate_pct": 50.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 1.315956,
+      "positive_pnl_share": 0.029612,
+      "profit_factor": 1.7511512776648333,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "DOTEUR",
+      "trade_count": 3,
+      "winrate_pct": 66.66666666666666
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 0.0,
+      "positive_pnl_share": 0.0,
+      "profit_factor": null,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "TRXEUR",
+      "trade_count": 0,
+      "winrate_pct": null
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": 0.0,
+      "positive_pnl_share": 0.0,
+      "profit_factor": null,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "BTCZEUR",
+      "trade_count": 0,
+      "winrate_pct": null
+    },
+    {
+      "action": "cost_aware_review",
+      "net_pnl_eur": -1.444528,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.9223509521532652,
+      "reasons": [
+        "mixed_or_cost_sensitive"
+      ],
+      "symbol": "AAVEEUR",
+      "trade_count": 10,
+      "winrate_pct": 30.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": -1.923484,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.0,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "LINKEUR",
+      "trade_count": 1,
+      "winrate_pct": 0.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": -2.146966,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.0,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "ETHZEUR",
+      "trade_count": 1,
+      "winrate_pct": 0.0
+    },
+    {
+      "action": "observe_more",
+      "net_pnl_eur": -2.242376,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.0,
+      "reasons": [
+        "sample_too_small"
+      ],
+      "symbol": "ATOMEUR",
+      "trade_count": 1,
+      "winrate_pct": 0.0
+    },
+    {
+      "action": "research_quarantine_candidate",
+      "net_pnl_eur": -12.261926,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.24880731006267487,
+      "reasons": [
+        "material_negative_contribution",
+        "weak_pair_profit_factor"
+      ],
+      "symbol": "AVAXEUR",
+      "trade_count": 7,
+      "winrate_pct": 14.285714285714285
+    },
+    {
+      "action": "research_quarantine_candidate",
+      "net_pnl_eur": -17.297533,
+      "positive_pnl_share": 0.0,
+      "profit_factor": 0.017175165924701863,
+      "reasons": [
+        "material_negative_contribution",
+        "weak_pair_profit_factor"
+      ],
+      "symbol": "XLMZEUR",
+      "trade_count": 7,
+      "winrate_pct": 14.285714285714285
+    }
+  ],
+  "recommendations": [
+    "Keep High Conviction in active_research only; do not promote until trade count, folds and concentration improve.",
+    "Run leave-one-symbol-out and research-only quarantine analysis before trusting any positive headline PnL.",
+    "Keep Trend Momentum no_capital until redesigned filters lift stress PF above 1.10.",
+    "Keep Mean Reversion no_capital until TP/cost and range-only filters prove net profitability after costs.",
+    "Keep Relative Value no_go and Grid archived/no_go.",
+    "Add family-level attribution to future High Conviction walk-forward outputs before adding new strategy families.",
+    "Test research-only pair quarantine for: AVAXEUR, XLMZEUR"
+  ],
+  "report_date": "2026-06-29",
+  "run_id": "strategy_edge_2026_06_29_vps",
+  "safety": {
+    "child_instance_created": false,
+    "live_modified": false,
+    "live_promotion_allowed": false,
+    "official_paper_modified": false,
+    "orders_created": false,
+    "research_only": true,
+    "runtime_router_modified": false,
+    "runtime_sizing_modified": false
+  },
+  "source_reports": {
+    "high_conviction_walk_forward": "reports\\research\\vps_latest_inputs\\daily_2026_06_29T00_17_57Z_high_conviction_walk_forward.json",
+    "strategy_orchestrator": "reports\\research\\vps_latest_inputs\\daily_2026_06_29T00_17_57Z_strategy_orchestrator.json"
+  },
+  "strategy_triage": [
+    {
+      "blockers": [
+        "insufficient_trade_count_for_candidate_review",
+        "profit_factor_below_candidate_threshold",
+        "insufficient_positive_fold_ratio",
+        "single_symbol_concentration_above_limit"
+      ],
+      "capital_status": "capital_research_limited",
+      "max_drawdown_pct": 4.0102,
+      "net_pnl_eur": 7.123329,
+      "next_action": "keep_researching_with_pair_attribution_and_walk_forward_filters",
+      "observed_status": "active_research",
+      "pf_gate": "D",
+      "positive_folds": 2,
+      "profit_factor": 1.098377768617437,
+      "requested_status": "active_research_keep_testing",
+      "strategy_name": "high_conviction_swing",
+      "total_folds": 8,
+      "trade_count": 45,
+      "winrate_pct": 37.77777777777778
+    },
+    {
+      "blockers": [
+        "insufficient_trade_count_for_candidate_review",
+        "profit_factor_below_candidate_threshold",
+        "redesign_required_before_capital"
+      ],
+      "capital_status": "no_capital_redesign_required",
+      "max_drawdown_pct": null,
+      "net_pnl_eur": null,
+      "next_action": "redesign_signal_quality_filters_before_any_capital",
+      "observed_status": "research_signal_only",
+      "pf_gate": "E",
+      "positive_folds": 0,
+      "profit_factor": null,
+      "requested_status": "research_signal_only",
+      "strategy_name": "trend_momentum",
+      "total_folds": 0,
+      "trade_count": 0,
+      "winrate_pct": null
+    },
+    {
+      "blockers": [
+        "insufficient_trade_count_for_candidate_review",
+        "profit_factor_below_candidate_threshold",
+        "cost_aware_review_required_before_capital"
+      ],
+      "capital_status": "no_capital_cost_aware_review_required",
+      "max_drawdown_pct": null,
+      "net_pnl_eur": null,
+      "next_action": "run_cost_aware_range_only_review_before_any_capital",
+      "observed_status": "research_signal_only",
+      "pf_gate": "E",
+      "positive_folds": 0,
+      "profit_factor": null,
+      "requested_status": "research_signal_only",
+      "strategy_name": "mean_reversion",
+      "total_folds": 0,
+      "trade_count": 0,
+      "winrate_pct": null
+    },
+    {
+      "blockers": [
+        "strategy_currently_no_go_or_archived"
+      ],
+      "capital_status": "no_capital",
+      "max_drawdown_pct": null,
+      "net_pnl_eur": null,
+      "next_action": "keep_no_go_until_relation_and_cost_survival_retested",
+      "observed_status": "no_go",
+      "pf_gate": "E",
+      "positive_folds": 0,
+      "profit_factor": null,
+      "requested_status": "no_go",
+      "strategy_name": "relative_value",
+      "total_folds": 0,
+      "trade_count": 0,
+      "winrate_pct": null
+    },
+    {
+      "blockers": [
+        "strategy_currently_no_go_or_archived"
+      ],
+      "capital_status": "no_go",
+      "max_drawdown_pct": null,
+      "net_pnl_eur": null,
+      "next_action": "keep_archived_no_go",
+      "observed_status": "archived",
+      "pf_gate": "E",
+      "positive_folds": 0,
+      "profit_factor": null,
+      "requested_status": "archived",
+      "strategy_name": "grid",
+      "total_folds": 0,
+      "trade_count": 0,
+      "winrate_pct": null
+    }
+  ],
+  "trend_redesign_plan": [
+    {
+      "capital": "no_capital",
+      "filter": "strong_multi_timeframe_trend",
+      "purpose": "avoid weak single-timeframe momentum"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "range_chop_avoidance",
+      "purpose": "block momentum in sideways regimes"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "minimum_volatility",
+      "purpose": "require enough movement to cover costs"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "volume_confirmation",
+      "purpose": "avoid low-liquidity momentum signals"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "momentum_persistence",
+      "purpose": "require continuation across multiple bars"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "spread_cost_floor",
+      "purpose": "reject trades whose edge cannot exceed costs"
+    },
+    {
+      "capital": "no_capital",
+      "filter": "strict_cooldown",
+      "purpose": "reduce clustered false signals"
+    }
+  ]
+}
