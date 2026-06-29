@@ -219,6 +219,9 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
                 "  initial_treasury_eur: 500",
                 "  max_open_positions: 3",
                 "  signal_history_bars: 24",
+                "strategy_edge_review:",
+                "  enabled: true",
+                f"  output_dir: {str(tmp_path / 'edge').replace(chr(92), '/')}",
             ]
         ),
         encoding="utf-8",
@@ -255,4 +258,9 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
     assert strategy_orchestrator_ops[0].status == "ok"
     assert result.strategy_orchestrator_report_path
     assert Path(result.strategy_orchestrator_report_path).exists()
+    strategy_edge_ops = [op for op in result.operations if op.operation_type == "strategy_edge_review"]
+    assert len(strategy_edge_ops) == 1
+    assert strategy_edge_ops[0].status == "ok"
+    assert result.strategy_edge_review_report_path
+    assert Path(result.strategy_edge_review_report_path).exists()
     assert result.live_promotion_allowed is False

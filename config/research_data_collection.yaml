@@ -66,6 +66,18 @@ strategy_orchestrator:
   min_research_meta_score: 20
   signal_history_bars: 384
 
+# This consumes the High Conviction and Strategy Orchestrator JSON reports
+# generated above, writes research-only edge triage, and cannot promote
+# strategies or create orders.
+strategy_edge_review:
+  enabled: true
+  output_dir: reports/research
+  min_candidate_trades: 50
+  min_candidate_pf: 1.30
+  high_quality_pf: 1.50
+  max_drawdown_pct: 10
+  max_single_symbol_positive_share: 0.40
+
 output_dirs:
   ohlcv: data/research/daily/ohlcv
   microstructure: data/research/daily/microstructure

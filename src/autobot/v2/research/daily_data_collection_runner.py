@@ -127,6 +127,30 @@ class DailyStrategyOrchestratorConfig:
 
 
 @dataclass(frozen=True)
+class DailyStrategyEdgeReviewConfig:
+    """Configuration for the isolated strategy edge review report."""
+
+    enabled: bool = False
+    output_dir: Path = Path("reports/research")
+    min_candidate_trades: int = 50
+    min_candidate_pf: float = 1.30
+    high_quality_pf: float = 1.50
+    max_drawdown_pct: float = 10.0
+    max_single_symbol_positive_share: float = 0.40
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if self.min_candidate_trades <= 0:
+            raise ValueError("strategy_edge_review.min_candidate_trades must be positive")
+        for value in (self.min_candidate_pf, self.high_quality_pf, self.max_drawdown_pct):
+            if value <= 0.0:
+                raise ValueError("strategy_edge_review thresholds must be positive")
+        if not 0.0 < self.max_single_symbol_positive_share <= 1.0:
+            raise ValueError("strategy_edge_review.max_single_symbol_positive_share must be in (0, 1]")
+
+
+@dataclass(frozen=True)
 class DailyResearchDataCollectionConfig:
     priority_symbols: tuple[str, ...]
     secondary_symbols: tuple[str, ...]
@@ -144,6 +168,7 @@ class DailyResearchDataCollectionConfig:
     microstructure_samples_per_run: int = 60
     high_conviction_walk_forward: DailyHighConvictionWalkForwardConfig = DailyHighConvictionWalkForwardConfig()
     strategy_orchestrator: DailyStrategyOrchestratorConfig = DailyStrategyOrchestratorConfig()
+    strategy_edge_review: DailyStrategyEdgeReviewConfig = DailyStrategyEdgeReviewConfig()
 
     @property
     def all_symbols(self) -> tuple[str, ...]:
@@ -172,6 +197,7 @@ class DailyResearchDataCollectionConfig:
             raise ValueError("microstructure.sample_interval_seconds cannot be negative")
         self.high_conviction_walk_forward.validate()
         self.strategy_orchestrator.validate()
+        self.strategy_edge_review.validate()
 
 
 @dataclass(frozen=True)
@@ -203,6 +229,7 @@ class DailyResearchDataCollectionResult:
     data_readiness_dashboard_path: str | None
     high_conviction_walk_forward_report_path: str | None = None
     strategy_orchestrator_report_path: str | None = None
+    strategy_edge_review_report_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -226,6 +253,7 @@ class DailyResearchDataCollectionResult:
             "data_readiness_dashboard_path": self.data_readiness_dashboard_path,
             "high_conviction_walk_forward_report_path": self.high_conviction_walk_forward_report_path,
             "strategy_orchestrator_report_path": self.strategy_orchestrator_report_path,
+            "strategy_edge_review_report_path": self.strategy_edge_review_report_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -241,6 +269,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
     microstructure = payload.get("microstructure") or {}
     high_conviction = payload.get("high_conviction_walk_forward") or {}
     strategy_orchestrator = payload.get("strategy_orchestrator") or {}
+    strategy_edge_review = payload.get("strategy_edge_review") or {}
     config = DailyResearchDataCollectionConfig(
         priority_symbols=_tuple_upper(payload.get("priority_symbols")),
         secondary_symbols=_tuple_upper(payload.get("secondary_symbols")),
@@ -294,6 +323,17 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             max_drawdown_pct=float(strategy_orchestrator.get("max_drawdown_pct") or 0.10),
             min_research_meta_score=float(strategy_orchestrator.get("min_research_meta_score") or 20.0),
             signal_history_bars=int(strategy_orchestrator.get("signal_history_bars") or 384),
+        ),
+        strategy_edge_review=DailyStrategyEdgeReviewConfig(
+            enabled=bool(strategy_edge_review.get("enabled", False)),
+            output_dir=Path(str(strategy_edge_review.get("output_dir") or "reports/research")),
+            min_candidate_trades=int(strategy_edge_review.get("min_candidate_trades") or 50),
+            min_candidate_pf=float(strategy_edge_review.get("min_candidate_pf") or 1.30),
+            high_quality_pf=float(strategy_edge_review.get("high_quality_pf") or 1.50),
+            max_drawdown_pct=float(strategy_edge_review.get("max_drawdown_pct") or 10.0),
+            max_single_symbol_positive_share=float(
+                strategy_edge_review.get("max_single_symbol_positive_share") or 0.40
+            ),
         ),
     )
     config.validate()
@@ -408,6 +448,11 @@ def run_daily_research_data_collection(
         operations=operations,
         microstructure_profiles=profiles,
     )
+    strategy_edge_review_path = _run_strategy_edge_review(
+        config=config,
+        run_id=run_id,
+        operations=operations,
+    )
 
     result = DailyResearchDataCollectionResult(
         run_id=run_id,
@@ -419,6 +464,7 @@ def run_daily_research_data_collection(
         data_readiness_dashboard_path=dashboard_path,
         high_conviction_walk_forward_report_path=high_conviction_path,
         strategy_orchestrator_report_path=strategy_orchestrator_path,
+        strategy_edge_review_report_path=strategy_edge_review_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -443,6 +489,7 @@ def write_daily_research_data_collection_report(
         data_readiness_dashboard_path=result.data_readiness_dashboard_path,
         high_conviction_walk_forward_report_path=result.high_conviction_walk_forward_report_path,
         strategy_orchestrator_report_path=result.strategy_orchestrator_report_path,
+        strategy_edge_review_report_path=result.strategy_edge_review_report_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -478,6 +525,7 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             f"- Data readiness dashboard: `{result.data_readiness_dashboard_path or 'not generated'}`",
             f"- High Conviction walk-forward: `{result.high_conviction_walk_forward_report_path or 'not enabled'}`",
             f"- Strategy orchestrator treasury report: `{result.strategy_orchestrator_report_path or 'not enabled'}`",
+            f"- Strategy edge review: `{result.strategy_edge_review_report_path or 'not enabled'}`",
             "",
             "## Safety",
             "",
@@ -621,6 +669,90 @@ def _run_strategy_orchestrator(
             )
         )
         return None
+
+
+def _run_strategy_edge_review(
+    *,
+    config: DailyResearchDataCollectionConfig,
+    run_id: str,
+    operations: list[DailyCollectionOperation],
+) -> str | None:
+    scheduled = config.strategy_edge_review
+    if not scheduled.enabled:
+        return None
+    high_conviction_json = _operation_output_path(operations, "high_conviction_walk_forward")
+    strategy_orchestrator_json = _operation_output_path(operations, "strategy_orchestrator")
+    if not high_conviction_json or not strategy_orchestrator_json:
+        missing = []
+        if not high_conviction_json:
+            missing.append("high_conviction_walk_forward")
+        if not strategy_orchestrator_json:
+            missing.append("strategy_orchestrator")
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="strategy_edge_review",
+                symbol=None,
+                timeframe=None,
+                status="skipped",
+                error="missing prerequisite report(s): " + ", ".join(missing),
+            )
+        )
+        return None
+    try:
+        from .strategy_edge_improvement import (
+            StrategyEdgeReviewConfig,
+            build_strategy_edge_improvement_report,
+            write_strategy_edge_improvement_report,
+        )
+
+        report_date = datetime.now(timezone.utc).date().isoformat()
+        written = write_strategy_edge_improvement_report(
+            build_strategy_edge_improvement_report(
+                StrategyEdgeReviewConfig(
+                    run_id=f"{run_id}_strategy_edge_review",
+                    output_dir=scheduled.output_dir,
+                    report_date=report_date,
+                    strategy_orchestrator_report_path=Path(strategy_orchestrator_json),
+                    high_conviction_report_path=Path(high_conviction_json),
+                    min_candidate_trades=scheduled.min_candidate_trades,
+                    min_candidate_pf=scheduled.min_candidate_pf,
+                    high_quality_pf=scheduled.high_quality_pf,
+                    max_drawdown_pct=scheduled.max_drawdown_pct,
+                    max_single_symbol_positive_share=scheduled.max_single_symbol_positive_share,
+                )
+            ),
+            scheduled.output_dir,
+        )
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="strategy_edge_review",
+                symbol=None,
+                timeframe=None,
+                status="ok",
+                output_path=written.json_report_path,
+                markdown_report_path=written.improvement_markdown_path,
+                error="research_only_no_promotion",
+            )
+        )
+        return written.improvement_markdown_path
+    except Exception as exc:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="strategy_edge_review",
+                symbol=None,
+                timeframe=None,
+                status="error",
+                error=str(exc),
+            )
+        )
+        return None
+
+
+def _operation_output_path(operations: list[DailyCollectionOperation], operation_type: str) -> str | None:
+    for operation in reversed(operations):
+        if operation.operation_type == operation_type and operation.status == "ok" and operation.output_path:
+            return operation.output_path
+    return None
 
 
 def _collect_one_ohlcv(
