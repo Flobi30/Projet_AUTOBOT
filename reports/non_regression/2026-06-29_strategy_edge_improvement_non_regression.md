@@ -99,9 +99,13 @@ Key result:
 - AVAXEUR and XLMZEUR are research-only quarantine candidates.
 - BCHEUR is a concentration watch, not proof of robustness.
 
-## VPS Read-Only Runtime Check
+## VPS Runtime Check
 
-VPS commit: `c4cd491`
+GitHub commit pushed: `1be4070`
+
+VPS checkout after fast-forward: `1be4070`
+
+Docker rebuild/restart: not performed.
 
 Container:
 
@@ -110,6 +114,12 @@ autobot-v2 Up 2 days (healthy)
 ```
 
 Health:
+
+```json
+{"status":"healthy","components":{"orchestrator":"running","websocket":"connected","instances":14}}
+```
+
+Post-check health after running the research-only CLI on the VPS:
 
 ```json
 {"status":"healthy","components":{"orchestrator":"running","websocket":"connected","instances":14}}
@@ -172,4 +182,3 @@ Run targeted research-only redesign experiments:
 2. Trend Momentum redesign filters before any simulated capital.
 3. Mean Reversion range-only and TP-above-cost review.
 4. Add family-level attribution to High Conviction walk-forward outputs before adding heavier strategy layers.
-
