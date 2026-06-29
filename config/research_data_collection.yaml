@@ -71,7 +71,7 @@ strategy_orchestrator:
 # strategies or create orders.
 strategy_edge_review:
   enabled: true
-  output_dir: reports/research
+  output_dir: reports/research/strategy_edge
   min_candidate_trades: 50
   min_candidate_pf: 1.30
   high_quality_pf: 1.50

@@ -11,6 +11,7 @@ DATA_DIR="${REPO_DIR}/data/research/daily"
 REPORT_DIR="${REPO_DIR}/reports/research/daily_data_collection"
 HIGH_CONVICTION_REPORT_DIR="${REPO_DIR}/reports/research/high_conviction_walk_forward"
 STRATEGY_ORCHESTRATOR_REPORT_DIR="${REPO_DIR}/reports/research/strategy_orchestrator"
+STRATEGY_EDGE_REPORT_DIR="${REPO_DIR}/reports/research/strategy_edge"
 
 exec 9>"${LOCK_PATH}"
 if ! flock -n 9; then
@@ -30,12 +31,12 @@ fi
 
 # The image runs as appuser (uid/gid 999). Only research output directories are
 # mounted, so the collector cannot read the runtime database, logs, or .env.
-install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}"
+install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}"
 # install -d preserves ownership for pre-existing directories. Restore the
 # appuser-owned output boundary so a prior root-created report cannot make a
 # subsequent isolated daily run fail while writing its research artifacts.
-chown 999:999 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}"
-chmod 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}"
+chown 999:999 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}"
+chmod 0775 "${DATA_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}"
 
 exec docker run --rm \
   --name "autobot-research-${RUN_ID}" \
@@ -58,6 +59,7 @@ exec docker run --rm \
   --volume "${REPORT_DIR}:/app/reports/research/daily_data_collection" \
   --volume "${HIGH_CONVICTION_REPORT_DIR}:/app/reports/research/high_conviction_walk_forward" \
   --volume "${STRATEGY_ORCHESTRATOR_REPORT_DIR}:/app/reports/research/strategy_orchestrator" \
+  --volume "${STRATEGY_EDGE_REPORT_DIR}:/app/reports/research/strategy_edge" \
   "${IMAGE}" \
   python -m autobot.v2.cli collect-research-daily \
     --config /app/config/research_data_collection.yaml \

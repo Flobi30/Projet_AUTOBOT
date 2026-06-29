@@ -706,11 +706,12 @@ def _run_strategy_edge_review(
         )
 
         report_date = datetime.now(timezone.utc).date().isoformat()
+        edge_output_dir = scheduled.output_dir / run_id
         written = write_strategy_edge_improvement_report(
             build_strategy_edge_improvement_report(
                 StrategyEdgeReviewConfig(
                     run_id=f"{run_id}_strategy_edge_review",
-                    output_dir=scheduled.output_dir,
+                    output_dir=edge_output_dir,
                     report_date=report_date,
                     strategy_orchestrator_report_path=Path(strategy_orchestrator_json),
                     high_conviction_report_path=Path(high_conviction_json),
@@ -721,7 +722,7 @@ def _run_strategy_edge_review(
                     max_single_symbol_positive_share=scheduled.max_single_symbol_positive_share,
                 )
             ),
-            scheduled.output_dir,
+            edge_output_dir,
         )
         operations.append(
             DailyCollectionOperation(

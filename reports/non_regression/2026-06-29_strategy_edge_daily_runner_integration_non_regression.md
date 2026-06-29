@@ -16,6 +16,7 @@ adds a report step after:
 ## Files Modified
 
 - `config/research_data_collection.yaml`
+- `deploy/systemd/run-autobot-research-collection.sh`
 - `src/autobot/v2/research/daily_data_collection_runner.py`
 - `tests/research/test_daily_data_collection_runner.py`
 
@@ -27,6 +28,7 @@ adds a report step after:
 - Added `_run_strategy_edge_review()` after High Conviction and Strategy Orchestrator.
 - Added a safe `skipped` state when prerequisite reports are missing.
 - Added report links to the daily collection markdown.
+- Mounted `reports/research/strategy_edge` in the isolated systemd Docker runner.
 
 ## What Did Not Change
 
@@ -77,7 +79,9 @@ Result: 229 passed
 ## Deployment Notes
 
 The service image must be rebuilt for the daily Docker runner to see the new
-code because `/app/src` is not mounted as a host volume.
+code because `/app/src` is not mounted as a host volume. The systemd runner also
+needs the new `reports/research/strategy_edge` bind mount so the read-only
+research container can write the edge reports.
 
 Planned deployment:
 
@@ -96,4 +100,3 @@ Post-deploy checks required:
 - `LIVE_TRADING_CONFIRMATION=false`
 - no recent critical logs
 - no live order submission
-
