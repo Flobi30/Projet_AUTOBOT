@@ -14,11 +14,14 @@ from autobot.v2.strategy_validation_registry import (
     can_request_live_review,
     can_transition,
     entry_by_strategy_id,
+    evaluate_paper_capital_gate,
     evaluate_promotion,
+    normalize_strategy_record,
     load_registry,
     validate_registry,
     validate_strategy_entry,
 )
+from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired, retired_grid_snapshot
 
 
 pytestmark = pytest.mark.unit
@@ -39,6 +42,22 @@ def _passing_backtest_metrics() -> dict:
         "slippage_included": True,
         "baseline_comparison": True,
         "baseline_delta_eur": 3.1,
+        "out_of_sample_periods": 2,
+    }
+
+
+def _passing_paper_gate_metrics() -> dict:
+    return {
+        "sample_size": 128,
+        "closed_trades": 128,
+        "profit_factor": 1.18,
+        "net_pnl_eur": 9.4,
+        "expectancy": 0.07,
+        "max_drawdown_pct": 4.8,
+        "fees_included": True,
+        "slippage_included": True,
+        "baseline_comparison": True,
+        "baseline_delta_eur": 2.1,
         "out_of_sample_periods": 2,
     }
 
@@ -209,6 +228,66 @@ def test_registry_entries_define_official_paper_and_live_review_eligibility():
     assert can_request_live_review(dynamic_grid) is False
     assert can_execute_official_paper(no_trade) is False
     assert can_request_live_review(no_trade) is False
+
+
+def test_paper_capital_gate_blocks_pf_below_runtime_floor():
+    payload = load_registry(REGISTRY_PATH)
+    trend = dict(entry_by_strategy_id(payload, "trend_momentum"))
+    trend["validation_status"] = "shadow_passed"
+    metrics = _passing_paper_gate_metrics()
+    metrics["profit_factor"] = 0.99
+
+    decision = evaluate_paper_capital_gate(trend, metrics=metrics)
+    record = normalize_strategy_record(trend, metrics=metrics)
+
+    assert decision.allowed is False
+    assert "profit_factor" in decision.reasons
+    assert record.status == "candidate"
+    assert record.paper_capital_enabled is False
+    assert "profit_factor" in (record.reason_if_disabled or "")
+
+
+def test_paper_capital_gate_requires_strategy_id_and_cost_evidence():
+    payload = load_registry(REGISTRY_PATH)
+    trend = dict(entry_by_strategy_id(payload, "trend_momentum"))
+    trend.pop("strategy_id")
+    trend["validation_status"] = "shadow_passed"
+    metrics = _passing_paper_gate_metrics()
+    metrics["fees_included"] = False
+    metrics["slippage_included"] = False
+    metrics.pop("fee_bps", None)
+    metrics.pop("slippage_bps", None)
+
+    decision = evaluate_paper_capital_gate(trend, metrics=metrics)
+
+    assert decision.allowed is False
+    assert "strategy_id_missing" in decision.reasons
+    assert "fees_present" in decision.reasons
+    assert "slippage_present" in decision.reasons
+
+
+def test_normalized_strategy_record_allows_paper_only_with_full_evidence():
+    payload = load_registry(REGISTRY_PATH)
+    trend = dict(entry_by_strategy_id(payload, "trend_momentum"))
+    trend["validation_status"] = "shadow_passed"
+
+    record = normalize_strategy_record(trend, metrics=_passing_paper_gate_metrics())
+
+    assert record.status == "paper"
+    assert record.paper_capital_enabled is True
+    assert record.runtime_enabled is True
+    assert record.last_profit_factor == pytest.approx(1.18)
+    assert record.expectancy == pytest.approx(0.07)
+
+
+def test_grid_runtime_flag_cannot_reenable_dynamic_grid(monkeypatch):
+    monkeypatch.setenv("GRID_RUNTIME_ENABLED", "true")
+
+    snapshot = retired_grid_snapshot(["BTCEUR"])
+
+    assert is_runtime_engine_retired("dynamic_grid") is True
+    assert snapshot["runtime_flag"]["requested_value"] is True
+    assert snapshot["runtime_flag"]["effective_runtime_enabled"] is False
 
 
 def test_malformed_strategy_entry_blocks_paper_and_live_eligibility():

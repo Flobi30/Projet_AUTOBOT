@@ -50,6 +50,13 @@ REQUIRED_STRATEGY_FIELDS: tuple[str, ...] = (
 TERMINAL_STATUSES = {"rejected", "retired_from_execution"}
 EXECUTION_READY_STATUSES = {"shadow_passed", "paper_validated"}
 LIVE_ELIGIBLE_STATUS = "paper_validated"
+RUNTIME_STATUSES: tuple[str, ...] = (
+    "experimental",
+    "candidate",
+    "paper",
+    "disabled",
+    "live_ready",
+)
 # Retired engines remain reproducible in explicit research commands, but cannot
 # enter any promotion path from the runtime validation registry.
 PROMOTABLE_STRATEGY_IDS = frozenset({"trend_momentum", "mean_reversion"})
@@ -103,6 +110,47 @@ class ValidationDecision:
         }
 
 
+@dataclass(frozen=True)
+class StrategyRegistryRecord:
+    """Runtime-facing view of one research strategy hypothesis.
+
+    The research registry keeps detailed scientific status names. This compact
+    record is the single shape that runtime-facing gates and dashboards can
+    consume without inventing their own interpretation.
+    """
+
+    strategy_id: str
+    family: str
+    status: str
+    last_profit_factor: float | None = None
+    expectancy: float | None = None
+    max_drawdown: float | None = None
+    sample_size: int = 0
+    last_validation_date: str | None = None
+    paper_capital_enabled: bool = False
+    reason_if_disabled: str | None = None
+    runtime_enabled: bool = False
+    validation_status: str = "learning"
+    source_status: str = "learning"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "strategy_id": self.strategy_id,
+            "family": self.family,
+            "status": self.status,
+            "last_profit_factor": self.last_profit_factor,
+            "expectancy": self.expectancy,
+            "max_drawdown": self.max_drawdown,
+            "sample_size": self.sample_size,
+            "last_validation_date": self.last_validation_date,
+            "paper_capital_enabled": self.paper_capital_enabled,
+            "reason_if_disabled": self.reason_if_disabled,
+            "runtime_enabled": self.runtime_enabled,
+            "validation_status": self.validation_status,
+            "source_status": self.source_status,
+        }
+
+
 def load_registry(path: str | Path) -> dict[str, Any]:
     registry_path = Path(path)
     with registry_path.open("r", encoding="utf-8") as handle:
@@ -124,6 +172,108 @@ def entry_by_strategy_id(payload: Mapping[str, Any], strategy_id: str) -> Mappin
         if str(entry.get("strategy_id") or entry.get("id") or "") == strategy_id:
             return entry
     return None
+
+
+def build_strategy_registry_records(
+    payload: Mapping[str, Any],
+    *,
+    evidence_by_strategy_id: Mapping[str, Mapping[str, Any]] | None = None,
+    criteria: StrategyAcceptanceCriteria | None = None,
+) -> tuple[StrategyRegistryRecord, ...]:
+    """Build normalized runtime-facing records from the research registry."""
+
+    evidence_by_strategy_id = evidence_by_strategy_id or {}
+    records: list[StrategyRegistryRecord] = []
+    for entry in registry_entries(payload):
+        strategy_id = _strategy_id(entry)
+        metrics = evidence_by_strategy_id.get(strategy_id, {})
+        records.append(normalize_strategy_record(entry, metrics=metrics, criteria=criteria))
+    return tuple(records)
+
+
+def normalize_strategy_record(
+    entry: Mapping[str, Any],
+    *,
+    metrics: Mapping[str, Any] | None = None,
+    criteria: StrategyAcceptanceCriteria | None = None,
+) -> StrategyRegistryRecord:
+    """Map a research hypothesis plus evidence into the canonical runtime view."""
+
+    metrics = metrics or {}
+    strategy_id = _strategy_id(entry)
+    source_status = str(entry.get("validation_status") or "learning")
+    family = str(entry.get("family") or entry.get("engine") or strategy_id or "unknown")
+
+    if not strategy_id:
+        return StrategyRegistryRecord(
+            strategy_id="",
+            family=family,
+            status="disabled",
+            reason_if_disabled="strategy_id_missing",
+            validation_status=source_status,
+            source_status=source_status,
+        )
+
+    decision = evaluate_paper_capital_gate(entry, metrics=metrics, criteria=criteria)
+    validation_errors = validate_strategy_entry(entry, label=strategy_id)
+    is_disabled_source = source_status in TERMINAL_STATUSES or is_runtime_engine_retired(strategy_id)
+    is_candidate_source = source_status in {
+        "candidate",
+        "backtest_passed",
+        "walk_forward_passed",
+        "shadow_passed",
+        "paper_validated",
+    }
+
+    if is_disabled_source or validation_errors:
+        status = "disabled" if is_disabled_source else "experimental"
+    elif decision.allowed and source_status == LIVE_ELIGIBLE_STATUS and can_request_live_review(entry):
+        status = "live_ready"
+    elif decision.allowed:
+        status = "paper"
+    elif is_candidate_source:
+        status = "candidate"
+    else:
+        status = "experimental"
+
+    paper_capital_enabled = status in {"paper", "live_ready"} and decision.allowed
+    reasons = list(decision.reasons)
+    if validation_errors:
+        reasons.extend(validation_errors)
+    if is_runtime_engine_retired(strategy_id):
+        reasons.append("runtime_engine_retired")
+
+    return StrategyRegistryRecord(
+        strategy_id=strategy_id,
+        family=family,
+        status=status,
+        last_profit_factor=_first_optional_float(
+            metrics,
+            "profit_factor",
+            "paper_profit_factor",
+            "shadow_profit_factor",
+            "last_profit_factor",
+        ),
+        expectancy=_first_optional_float(metrics, "expectancy", "expectancy_eur"),
+        max_drawdown=_first_optional_float(
+            metrics,
+            "max_drawdown_pct",
+            "paper_max_drawdown_pct",
+            "last_max_drawdown_pct",
+        ),
+        sample_size=int(
+            _first_optional_float(metrics, "sample_size", "closed_trades", "trade_count", default=0.0) or 0
+        ),
+        last_validation_date=str(
+            entry.get("last_validation_date") or entry.get("updated_at") or metrics.get("last_validation_date") or ""
+        )
+        or None,
+        paper_capital_enabled=paper_capital_enabled,
+        reason_if_disabled=";".join(dict.fromkeys(reasons)) or None,
+        runtime_enabled=paper_capital_enabled,
+        validation_status=source_status,
+        source_status=source_status,
+    )
 
 
 def validate_registry(payload: Mapping[str, Any]) -> list[str]:
@@ -285,6 +435,86 @@ def evaluate_promotion(
     )
 
 
+def evaluate_paper_capital_gate(
+    entry: Mapping[str, Any],
+    *,
+    metrics: Mapping[str, Any],
+    criteria: StrategyAcceptanceCriteria | None = None,
+) -> ValidationDecision:
+    """Strict gate before a strategy can receive official paper capital."""
+
+    criteria = criteria or StrategyAcceptanceCriteria()
+    strategy_id = _strategy_id(entry)
+    source_status = str(entry.get("validation_status") or "")
+    checks: dict[str, Any] = {}
+    reasons: list[str] = []
+
+    if not entry.get("strategy_id"):
+        reasons.append("strategy_id_missing")
+    if not strategy_id:
+        reasons.append("strategy_identifier_missing")
+    elif strategy_id == "no_trade_baseline":
+        reasons.append("no_trade_baseline_not_executable")
+    elif is_runtime_engine_retired(strategy_id):
+        reasons.append("runtime_engine_retired")
+
+    validation_errors = validate_strategy_entry(entry, label=strategy_id or "strategy")
+    if validation_errors:
+        reasons.extend(validation_errors)
+
+    checks["validation_status_execution_ready"] = source_status in EXECUTION_READY_STATUSES
+    if not checks["validation_status_execution_ready"]:
+        reasons.append("validation_status_not_execution_ready")
+
+    sample_size = int(
+        _first_optional_float(metrics, "sample_size", "closed_trades", "trade_count", default=0.0) or 0
+    )
+    profit_factor = _first_optional_float(metrics, "profit_factor", "paper_profit_factor", "shadow_profit_factor")
+    expectancy = _first_optional_float(metrics, "expectancy", "expectancy_eur")
+    net_pnl = _first_optional_float(metrics, "net_pnl_eur", "paper_net_pnl_eur", "shadow_net_pnl_eur")
+    max_drawdown = _first_optional_float(metrics, "max_drawdown_pct", "paper_max_drawdown_pct")
+    fees_present = bool(
+        metrics.get("fees_included")
+        or metrics.get("fees_model")
+        or metrics.get("fee_bps") is not None
+        or metrics.get("fees_eur") is not None
+        or metrics.get("total_fees_eur") is not None
+    )
+    slippage_present = bool(
+        metrics.get("slippage_included")
+        or metrics.get("slippage_model")
+        or metrics.get("slippage_bps") is not None
+        or metrics.get("slippage_eur") is not None
+        or metrics.get("total_slippage_eur") is not None
+    )
+    baseline_present = bool(metrics.get("baseline_comparison") or entry.get("baseline_comparison"))
+    out_of_sample_periods = int(_first_optional_float(metrics, "out_of_sample_periods", default=0.0) or 0)
+
+    checks["sample_size"] = sample_size >= criteria.min_closed_trades
+    checks["profit_factor"] = profit_factor is not None and profit_factor > 1.0
+    checks["expectancy"] = expectancy is not None and expectancy > 0.0
+    checks["net_pnl_eur"] = net_pnl is not None and net_pnl > criteria.min_net_pnl_eur
+    checks["max_drawdown_pct"] = max_drawdown is not None and max_drawdown <= criteria.max_drawdown_pct
+    checks["fees_present"] = fees_present
+    checks["slippage_present"] = slippage_present
+    checks["baseline_comparison"] = baseline_present
+    checks["out_of_sample_periods"] = out_of_sample_periods >= criteria.min_oos_periods
+
+    if "walk_forward_positive_ratio" in metrics:
+        checks["walk_forward_positive_ratio"] = _safe_float(metrics.get("walk_forward_positive_ratio")) >= 0.6
+    if "robustness_passed" in metrics:
+        checks["robustness_passed"] = bool(metrics.get("robustness_passed"))
+
+    reasons.extend(name for name, passed in checks.items() if passed is False)
+
+    return ValidationDecision(
+        allowed=not reasons,
+        target_status="paper",
+        reasons=tuple(dict.fromkeys(reasons)),
+        checks=checks,
+    )
+
+
 def can_execute_official_paper(entry: Mapping[str, Any]) -> bool:
     strategy_id = _strategy_id(entry)
     if strategy_id == "no_trade_baseline" or is_runtime_engine_retired(strategy_id):
@@ -334,6 +564,18 @@ def _common_metric_checks(
         oos = int(_safe_float(metrics.get("out_of_sample_periods"), 0.0))
         checks["out_of_sample_periods"] = oos >= criteria.min_oos_periods
     return checks
+
+
+def _first_optional_float(
+    values: Mapping[str, Any],
+    *names: str,
+    default: float | None = None,
+) -> float | None:
+    for name in names:
+        parsed = _optional_float(values.get(name))
+        if parsed is not None:
+            return parsed
+    return default
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:

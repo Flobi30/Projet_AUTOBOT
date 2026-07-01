@@ -6,6 +6,8 @@ IMAGE="${AUTOBOT_RESEARCH_IMAGE:-projet_autobot-autobot}"
 CONFIG_PATH="${AUTOBOT_RESEARCH_CONFIG:-${REPO_DIR}/config/research_data_collection.yaml}"
 RUN_ID="${AUTOBOT_RESEARCH_RUN_ID:-daily_$(date -u +%Y_%m_%dT%H_%M_%SZ)}"
 LOCK_PATH="${AUTOBOT_RESEARCH_LOCK_PATH:-/run/lock/autobot-research-data.lock}"
+MEMORY_LIMIT="${AUTOBOT_RESEARCH_MEMORY_LIMIT:-1536m}"
+CPU_LIMIT="${AUTOBOT_RESEARCH_CPU_LIMIT:-0.50}"
 
 DATA_DIR="${REPO_DIR}/data/research/daily"
 REPORT_DIR="${REPO_DIR}/reports/research/daily_data_collection"
@@ -47,8 +49,8 @@ exec docker run --rm \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   --security-opt no-new-privileges \
   --cap-drop ALL \
-  --memory 768m \
-  --cpus 0.50 \
+  --memory "${MEMORY_LIMIT}" \
+  --cpus "${CPU_LIMIT}" \
   --env PYTHONPATH=/app/src \
   --env PYTHONUNBUFFERED=1 \
   --env PYTHONDONTWRITEBYTECODE=1 \

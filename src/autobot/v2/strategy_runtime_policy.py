@@ -6,6 +6,7 @@ dynamic_grid is deliberately absent from runtime routing and paper execution.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -14,8 +15,16 @@ GRID_RUNTIME_RETIRED_REASON = "grid_retired_research_only"
 RETIRED_RUNTIME_ENGINES = frozenset({"dynamic_grid"})
 
 
+def grid_runtime_enabled() -> bool:
+    raw = os.getenv("GRID_RUNTIME_ENABLED")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def is_runtime_engine_retired(engine: Any) -> bool:
-    return str(engine or "").strip().lower() in RETIRED_RUNTIME_ENGINES
+    normalized = str(engine or "").strip().lower()
+    return normalized in RETIRED_RUNTIME_ENGINES
 
 
 def retired_grid_snapshot(symbols: Iterable[Any] = ()) -> dict[str, Any]:
@@ -26,6 +35,11 @@ def retired_grid_snapshot(symbols: Iterable[Any] = ()) -> dict[str, Any]:
         "mode": "retired_research_only",
         "status": "retired_from_runtime",
         "enabled": False,
+        "runtime_flag": {
+            "name": "GRID_RUNTIME_ENABLED",
+            "requested_value": grid_runtime_enabled(),
+            "effective_runtime_enabled": False,
+        },
         "paper_only": True,
         "live_promotion_allowed": False,
         "writes_official_paper_ledger": False,
