@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copie du code backend
 COPY src/ /app/src/
+COPY docs/research/strategy_hypotheses.json /app/docs/research/strategy_hypotheses.json
 COPY .env.example /app/.env
 
 # Copie du frontend buildé depuis le stage 1

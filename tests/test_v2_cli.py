@@ -69,6 +69,44 @@ def _trade_journal(path):
     journal.to_json(path)
 
 
+def _write_strategy_registry(path):
+    entry = {
+        "strategy_id": "trend_momentum",
+        "hypothesis": "pytest",
+        "market": "spot_crypto",
+        "timeframe": "5m",
+        "required_data": ["ohlcv"],
+        "entry_logic": "pytest",
+        "exit_logic": "pytest",
+        "risk_model": "pytest",
+        "fees_model": {"profile": "paper_current_taker"},
+        "slippage_model": {"profile": "paper_current_taker"},
+        "expected_market_regime": "trend",
+        "failure_modes": ["insufficient_edge"],
+        "baseline_comparison": {"no_trade": "required"},
+        "validation_status": "shadow_passed",
+        "last_backtest_id": None,
+        "paper_status": "shadow_only",
+        "decision": "continue_testing",
+        "decision_reason": "pytest",
+    }
+    payload = {
+        "decision_statuses": [
+            "learning",
+            "candidate",
+            "backtest_passed",
+            "walk_forward_passed",
+            "shadow_passed",
+            "paper_validated",
+            "rejected",
+            "retired_from_execution",
+        ],
+        "live_auto_promotion_allowed": False,
+        "hypotheses": [entry],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _state_db_with_closed_trade(path):
     with sqlite3.connect(path) as conn:
         conn.execute(
@@ -875,6 +913,55 @@ def test_cli_paper_can_read_state_db_trade_ledger(tmp_path, capsys):
     assert output["decision_count"] == 1
     assert output["metrics"]["total_net_pnl_eur"] == pytest.approx(1.8)
     assert output["strategy_statuses"][0]["strategy_id"] == "trend_momentum"
+
+
+def test_cli_paper_performance_summary_reads_official_post_p0_ledger(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    registry_path = tmp_path / "strategy_hypotheses.json"
+    _state_db_with_closed_trade(db_path)
+    _write_strategy_registry(registry_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN strategy_id TEXT")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN timeframe TEXT")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN signal_source TEXT")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN gross_pnl REAL")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN net_pnl REAL")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN regime TEXT")
+        conn.execute(
+            """
+            UPDATE trade_ledger
+            SET strategy_id='trend_momentum',
+                timeframe='5m',
+                signal_source='pytest',
+                gross_pnl=2.0,
+                net_pnl=1.8,
+                regime='range'
+            WHERE side='sell'
+            """
+        )
+
+    exit_code = cli.main(
+        [
+            "paper-performance-summary",
+            "--state-db",
+            str(db_path),
+            "--registry-path",
+            str(registry_path),
+            "--run-id",
+            "pytest_summary",
+            "--output-dir",
+            str(tmp_path / "official_paper"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["source"] == "official_post_p0_trade_ledger"
+    assert output["ranking"][0]["strategy_id"] == "trend_momentum"
+    assert output["ranking"][0]["metrics"]["closed_trade_count"] == 1
+    assert output["ranking"][0]["promotable"] is False
+    assert output["baseline"]["strategy_id"] == "no_trade_baseline"
+    assert (tmp_path / "official_paper" / "pytest_summary.md").exists()
 
 
 def test_cli_compare_paper_research_reports_divergence(tmp_path, capsys):

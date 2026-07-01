@@ -261,6 +261,18 @@ def _build_parser() -> argparse.ArgumentParser:
     paper.add_argument("--no-write-report", action="store_true")
     paper.set_defaults(handler=_cmd_paper)
 
+    paper_performance = subparsers.add_parser(
+        "paper-performance-summary",
+        help="Build the official post-P0 paper performance summary from attributed trade_ledger rows",
+    )
+    paper_performance.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    paper_performance.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    paper_performance.add_argument("--run-id", default=None)
+    paper_performance.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    paper_performance.add_argument("--output-dir", default="reports/paper/official_performance")
+    paper_performance.add_argument("--no-write-report", action="store_true")
+    paper_performance.set_defaults(handler=_cmd_paper_performance_summary)
+
     compare = subparsers.add_parser(
         "compare-paper-research",
         help="Compare official paper ledger evidence with a research matrix report",
@@ -1722,6 +1734,26 @@ def _cmd_paper(args: argparse.Namespace) -> int:
         "No live trading permission is granted.",
     ]
     _print_json(payload)
+    return 0
+
+
+def _cmd_paper_performance_summary(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.official_performance import (
+        OfficialPaperPerformanceConfig,
+        build_official_paper_performance_report,
+    )
+
+    report = build_official_paper_performance_report(
+        OfficialPaperPerformanceConfig(
+            state_db_path=Path(args.state_db),
+            registry_path=Path(args.registry_path),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+        ),
+        write_report=not args.no_write_report,
+    )
+    _print_json(report.to_dict())
     return 0
 
 

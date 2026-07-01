@@ -264,7 +264,13 @@ def _trade_record_from_ledger_pair(
     gross_pnl = net_pnl + fees
     open_decision = _linked_decision(opening or {}, decision_lookup)
     close_decision = _linked_decision(closing, decision_lookup)
-    strategy_id = _strategy_id(open_decision, close_decision, position)
+    strategy_id = _strategy_id(opening, closing, open_decision, close_decision, position)
+    raw_net_pnl = closing.get("net_pnl")
+    raw_gross_pnl = closing.get("gross_pnl")
+    if raw_net_pnl is not None:
+        net_pnl = _safe_float(raw_net_pnl)
+    if raw_gross_pnl is not None:
+        gross_pnl = _safe_float(raw_gross_pnl)
     return TradeRecord(
         run_id="official_paper_ledger",
         strategy_id=strategy_id,
@@ -282,14 +288,20 @@ def _trade_record_from_ledger_pair(
         spread_cost_eur=0.0,
         entry_reason=str((open_decision or {}).get("reason") or "trade_ledger_opening_leg"),
         exit_reason=str((close_decision or {}).get("reason") or "trade_ledger_closing_leg"),
-        regime=_regime_from_decisions(open_decision, close_decision),
+        regime=str(
+            closing.get("regime")
+            or (opening or {}).get("regime")
+            or _regime_from_decisions(open_decision, close_decision)
+            or ""
+        )
+        or None,
         metadata={
             "source": "trade_ledger",
             "opening_leg_missing": opening is None,
             "opening_leg": _compact_trade_row(opening),
             "closing_leg": _compact_trade_row(closing),
             "position": _compact_position_row(position),
-            "strategy_source": _strategy_source(strategy_id, open_decision, close_decision, position),
+            "strategy_source": _strategy_source(strategy_id, opening, closing, open_decision, close_decision, position),
             "opening_decision": _compact_decision_row(open_decision),
             "closing_decision": _compact_decision_row(close_decision),
             "slippage": {
@@ -405,6 +417,8 @@ def _strategy_id(*sources: Mapping[str, Any] | None) -> str:
 
 def _strategy_source(
     strategy_id: str,
+    opening: Mapping[str, Any] | None,
+    closing: Mapping[str, Any] | None,
     open_decision: Mapping[str, Any] | None,
     close_decision: Mapping[str, Any] | None,
     position: Mapping[str, Any] | None,
@@ -412,6 +426,8 @@ def _strategy_source(
     if strategy_id == LEGACY_UNATTRIBUTED_STRATEGY_ID:
         return LEGACY_UNATTRIBUTED_STRATEGY_ID
     for label, source in (
+        ("opening_leg", opening),
+        ("closing_leg", closing),
         ("opening_decision", open_decision),
         ("closing_decision", close_decision),
         ("position", position),

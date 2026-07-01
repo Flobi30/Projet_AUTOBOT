@@ -14,6 +14,7 @@ import heapq
 import sqlite3
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -2966,6 +2967,38 @@ async def get_performance_persisted(authorized: bool = Depends(verify_token)):
         }
     except Exception:
         logger.exception("Erreur récupération performance persistée")
+        raise HTTPException(status_code=500, detail="Erreur interne")
+
+
+@app.get("/api/paper/performance-summary")
+async def get_paper_performance_summary(
+    initial_capital_eur: float = Query(1000.0, gt=0),
+    authorized: bool = Depends(verify_token),
+):
+    """Official post-P0 paper metrics by strategy/pair/timeframe/regime."""
+    try:
+        from ..paper.official_performance import (
+            OfficialPaperPerformanceConfig,
+            build_official_paper_performance_report,
+        )
+        from ..persistence import get_persistence
+
+        persistence = get_persistence()
+        state_db_path = Path(getattr(persistence, "db_path", "data/autobot_state.db"))
+        registry_path = Path(os.getenv("STRATEGY_REGISTRY_PATH") or "/app/docs/research/strategy_hypotheses.json")
+        if not registry_path.exists():
+            registry_path = Path("docs/research/strategy_hypotheses.json")
+        report = build_official_paper_performance_report(
+            OfficialPaperPerformanceConfig(
+                state_db_path=state_db_path,
+                registry_path=registry_path,
+                initial_capital_eur=initial_capital_eur,
+            ),
+            write_report=False,
+        )
+        return report.to_dict()
+    except Exception:
+        logger.exception("Erreur recuperation performance paper officielle")
         raise HTTPException(status_code=500, detail="Erreur interne")
 
 
