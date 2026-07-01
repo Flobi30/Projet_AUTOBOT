@@ -48,6 +48,8 @@ No new strategy was added. No UI-visible design was changed. No live trading fla
 | dynamic_grid | retired_from_execution | archived_no_new_official_paper_writes | do_not_execute |
 | trend_momentum | learning | shadow_only | continue_shadow_only |
 | mean_reversion | learning | shadow_only | continue_shadow_only |
+| high_conviction_swing | learning | research_only_portfolio_walk_forward | continue_research_only |
+| relative_value | rejected | research_signal_only_no_capital | do_not_execute |
 | opportunity_scoring | candidate | runtime_filter_active_paper_first | keep_as_guard_measure_incremental_value |
 | entropy_markov_regime | learning | score_modifier_only | keep_observing_bounded_adjustment |
 | no_trade_baseline | paper_validated | active_router_safety_choice | keep |

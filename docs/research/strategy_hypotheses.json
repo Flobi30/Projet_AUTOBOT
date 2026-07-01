@@ -237,6 +237,119 @@
       "live_allowed": false
     },
     {
+      "id": "H003B_high_conviction_swing",
+      "strategy_id": "high_conviction_swing",
+      "name": "High conviction multi-timeframe swing research engine",
+      "engine": "high_conviction_swing",
+      "hypothesis": "Multi-timeframe trend, breakout, pullback, volatility expansion and asymmetric MFE/MAE setups may produce fewer but larger spot-only long opportunities than micro-grid signals when validated after costs and walk-forward splits.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Research-only OHLCV windows using 5m entries, 15m structure, 1h trend and 4h context when available",
+      "required_data": [
+        "Kraken OHLCV",
+        "multi-timeframe bars",
+        "ATR",
+        "trend context",
+        "support/resistance proxies",
+        "fee model",
+        "spread/slippage model",
+        "walk-forward folds"
+      ],
+      "entry_logic": "Research signal discovery only: detect high-potential long-only swing setups from OHLCV multi-timeframe context; no runtime order is created.",
+      "exit_logic": "Research simulation uses stop-loss, take-profit, trailing stop, time stop and trend invalidation variants.",
+      "risk_model": "Portfolio-aware research replay with initial capital, realized-equity sizing, one position per symbol, cooldown, max exposure, max daily loss and drawdown stop.",
+      "fees_model": "Research runs must include paper_current_taker or research_stress cost profiles.",
+      "slippage_model": "Research runs must include configured spread/slippage and stress-cost comparison until real bid/ask/depth coverage is sufficient.",
+      "expected_market_regime": [
+        "trend",
+        "breakout",
+        "volatility_expansion",
+        "pullback_in_trend"
+      ],
+      "failure_modes": [
+        "small sample false positive",
+        "single-symbol concentration",
+        "trend reversal before target",
+        "wide spread or insufficient liquidity",
+        "walk-forward fold instability"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "buy_and_hold",
+          "random_signal_same_frequency",
+          "grid_micro_trade_baseline"
+        ],
+        "current_status": "research-only walk-forward reports exist; not eligible for official paper without stronger sample and gate evidence"
+      },
+      "validation_status": "learning",
+      "last_backtest_id": null,
+      "paper_status": "research_only_portfolio_walk_forward",
+      "decision": "continue_research_only",
+      "decision_reason": "High Conviction exists only in research/orchestrator reports and has not passed the P0 promotion gates for official paper capital.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/research/high_conviction_walk_forward/",
+        "reports/research/high_conviction_swing/",
+        "reports/research/strategy_orchestrator/"
+      ],
+      "live_allowed": false
+    },
+    {
+      "id": "H003C_relative_value",
+      "strategy_id": "relative_value",
+      "name": "Relative value statistical arbitrage proxy",
+      "engine": "relative_value",
+      "hypothesis": "Long-only proxy trades on statistically undervalued Kraken spot assets versus correlated references or baskets may identify research opportunities without shorting the reference asset.",
+      "market": "Kraken spot crypto EUR pairs",
+      "timeframe": "Research-only OHLCV pair windows",
+      "required_data": [
+        "Kraken OHLCV",
+        "rolling correlation",
+        "spread z-score",
+        "hedge ratio estimate",
+        "cointegration check when available",
+        "fee model",
+        "spread/slippage model"
+      ],
+      "entry_logic": "Research signal only: generate long-only BUY proxy when target asset is statistically undervalued versus its reference relationship.",
+      "exit_logic": "Research simulation exits on z-score mean reversion, fixed TP/SL, time stop, or relationship invalidation.",
+      "risk_model": "No capital allocation while status remains rejected/no-go; any future review must use portfolio-aware exposure caps and one position per symbol.",
+      "fees_model": "Research runs must include paper_current_taker and research_stress costs.",
+      "slippage_model": "Research runs must include spread/slippage stress and reject missing-cost evidence.",
+      "expected_market_regime": [
+        "stable_relationship",
+        "mean_reverting_spread"
+      ],
+      "failure_modes": [
+        "relationship breaks",
+        "reference asset cannot be shorted on spot",
+        "spread does not revert after costs",
+        "single-pair overfitting",
+        "sample too short"
+      ],
+      "baseline_comparison": {
+        "required": true,
+        "baselines": [
+          "no_trade",
+          "buy_and_hold_target",
+          "random_signal_same_frequency",
+          "high_conviction_current"
+        ],
+        "current_status": "last research verdict was NO GO after costs"
+      },
+      "validation_status": "rejected",
+      "last_backtest_id": null,
+      "paper_status": "research_signal_only_no_capital",
+      "decision": "do_not_execute",
+      "decision_reason": "Relative Value remains NO GO/research-only after current validation; it must not receive paper capital or runtime execution.",
+      "evidence_level": "C",
+      "reports": [
+        "reports/research/relative_value/"
+      ],
+      "live_allowed": false
+    },
+    {
       "id": "H004_opportunity_scoring",
       "strategy_id": "opportunity_scoring",
       "name": "Opportunity scoring and allocation layer",
