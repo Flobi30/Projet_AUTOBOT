@@ -147,3 +147,22 @@ def test_weight_provider_legacy_baseline_non_regression_ordering():
     assert plan.reserve_cash == 200.0
     assert plan.total_allocated == 800.0
     assert plan.symbol_caps["XXBTZEUR"] > plan.symbol_caps["XETHZEUR"] > plan.symbol_caps["ADAEUR"]
+
+
+def test_weight_provider_does_not_apply_legacy_btc_eth_bias_when_metrics_exist():
+    provider = AllocationWeightProvider(constraints=WeightConstraints(min_weight=0.05, max_weight=0.70))
+    weights = provider.compute_weights(
+        ["XXBTZEUR", "XETHZEUR", "TRXEUR"],
+        metrics_by_symbol={
+            "TRXEUR": SymbolMetrics(
+                rolling_profit_factor=1.4,
+                max_drawdown=0.10,
+                realized_volatility=0.25,
+                execution_cost=0.001,
+                execution_stability=0.95,
+            )
+        },
+    )
+
+    assert weights["TRXEUR"] > weights["XXBTZEUR"]
+    assert weights["TRXEUR"] > weights["XETHZEUR"]

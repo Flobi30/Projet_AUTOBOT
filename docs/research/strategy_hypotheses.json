@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-05-29",
+  "updated_at": "2026-07-01",
   "mode": "paper_first",
   "live_auto_promotion_allowed": false,
   "decision_statuses": [
@@ -117,11 +117,11 @@
         ],
         "current_status": "no standardized event-driven baseline report yet"
       },
-      "validation_status": "candidate",
+      "validation_status": "retired_from_execution",
       "last_backtest_id": null,
-      "paper_status": "official_paper_running_but_negative_aggregate",
-      "decision": "continue_test_do_not_live",
-      "decision_reason": "Aggregate official paper PnL is negative and the current validation stack is not yet a full walk-forward event-driven backtest.",
+      "paper_status": "archived_no_new_official_paper_writes",
+      "decision": "do_not_execute",
+      "decision_reason": "Grid/dynamic_grid is legacy research-only after official paper evidence showed negative aggregate performance after costs; it must not route runtime orders or write new official paper ledger rows.",
       "evidence_level": "C",
       "reports": [
         "reports/strategies/dynamic_grid_validation_report.md"

@@ -33,6 +33,7 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         fees=1.5,
         realized_pnl=100.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
     assert p.append_trade_ledger(
         trade_id="t2",
@@ -44,6 +45,7 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         fees=1.0,
         realized_pnl=-40.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
     # ETH: +20 only => PF=999 fallback
     assert p.append_trade_ledger(
@@ -56,6 +58,7 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         fees=0.5,
         realized_pnl=20.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     report = p.get_pair_attribution_report()
@@ -96,6 +99,7 @@ def test_pair_attribution_report_schema_validity(tmp_path):
         fees=0.2,
         realized_pnl=5.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     report = p.get_pair_attribution_report(window_hours=24, limit=5)
@@ -142,6 +146,7 @@ def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
         realized_pnl=None,
         is_opening_leg=True,
         is_closing_leg=False,
+        strategy_id="trend_momentum",
     )
     still_empty = p.get_pair_attribution_report()
     assert still_empty["pair_count"] == 0

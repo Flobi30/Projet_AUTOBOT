@@ -162,6 +162,7 @@ class StrategyRouter:
                 {
                     "symbol": symbol,
                     "selected_engine": selected["engine"],
+                    "selected_strategy_id": selected.get("strategy_id"),
                     "selected_variant": selected.get("variant"),
                     "router_score": round(float(selected["router_score"]), 2),
                     "status": selected["status"],
@@ -267,6 +268,7 @@ class StrategyRouter:
         validation_status = str(best.get("validation_status") or best.get("research_status") or "learning")
         score = self._router_score(raw_score, status, closed, net_pnl)
         return {
+            "strategy_id": engine,
             "engine": engine,
             "variant": best.get("variant") or best.get("name"),
             "source": source,
@@ -320,6 +322,7 @@ class StrategyRouter:
             score = self.config.no_trade_score
             reason = "available_as_safety_choice"
         return {
+            "strategy_id": "no_trade",
             "engine": "no_trade",
             "variant": "abstain",
             "source": "router_safety",

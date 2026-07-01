@@ -50,6 +50,7 @@ def test_autonomous_review_schema_validity(tmp_path):
         fees=0.2,
         realized_pnl=10.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal), runtime_context={"paper_trading": True})
@@ -92,6 +93,7 @@ def test_autonomous_review_recommendation_output_correctness(tmp_path):
         fees=0.2,
         realized_pnl=-25.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal), runtime_context={})

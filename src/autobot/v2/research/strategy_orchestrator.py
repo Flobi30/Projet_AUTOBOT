@@ -224,9 +224,14 @@ class StrategyResearchSignal:
             )
             object.__setattr__(self, "signal_id", hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20])
 
+    @property
+    def strategy_id(self) -> str:
+        return self.strategy_name
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "signal_id": self.signal_id,
+            "strategy_id": self.strategy_id,
             "strategy_name": self.strategy_name,
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),

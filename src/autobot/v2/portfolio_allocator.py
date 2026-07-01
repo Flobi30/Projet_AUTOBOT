@@ -127,14 +127,16 @@ class AllocationWeightProvider:
             return {}
 
         metrics_map = dict(metrics_by_symbol or {})
+        has_evidence_map = metrics_by_symbol is not None
         scores: Dict[str, float] = {}
         data_quality: Dict[str, float] = {}
         for symbol in symbols:
             raw_metrics = metrics_map.get(symbol)
             if raw_metrics is None:
-                # Keep legacy behaviour if no market telemetry is provided.
-                raw_metrics = self.legacy_baseline_metrics(symbol)
+                raw_metrics = self.conservative_metrics() if has_evidence_map else self.legacy_baseline_metrics(symbol)
             score, quality = self._score_symbol(raw_metrics)
+            if has_evidence_map and symbol not in metrics_map:
+                quality *= 0.75
             if quality < 1.0:
                 # Explicit conservative fallback for missing data.
                 score = min(score, self.conservative_score)

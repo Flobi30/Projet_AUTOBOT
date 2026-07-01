@@ -324,6 +324,7 @@ class TestOrderRouterExecution:
             "symbol": "XXBTZEUR",
             "side": "buy",
             "volume": 0.01,
+            "strategy_id": "trend_momentum",
         }
         
         result = await running_router.submit(order, OrderPriority.ORDER)
@@ -331,6 +332,21 @@ class TestOrderRouterExecution:
         assert result.success
         assert result.txid == "TEST-123"
         running_router._executor.execute_market_order.assert_called_once()
+
+    async def test_submit_market_order_without_strategy_id_is_rejected(self, running_router):
+        """Test que tout ordre créateur de fill exige un strategy_id."""
+        order = {
+            "type": "market",
+            "symbol": "XXBTZEUR",
+            "side": "buy",
+            "volume": 0.01,
+        }
+
+        result = await running_router.submit(order, OrderPriority.ORDER)
+
+        assert result.success is False
+        assert result.error == "strategy_id_required"
+        running_router._executor.execute_market_order.assert_not_called()
 
     async def test_submit_limit_post_only_order(self, running_router):
         """Test la soumission d'un ordre limit post-only."""
@@ -350,6 +366,7 @@ class TestOrderRouterExecution:
             "volume": 0.02,
             "price": 49990.0,
             "post_only": True,
+            "strategy_id": "trend_momentum",
         }
         result = await running_router.submit(order, OrderPriority.ORDER)
 
@@ -368,6 +385,7 @@ class TestOrderRouterExecution:
             "side": "sell",
             "volume": 0.01,
             "stop_price": 45000.0,
+            "strategy_id": "trend_momentum",
         }
         
         result = await running_router.submit(order, OrderPriority.EMERGENCY)
@@ -411,6 +429,7 @@ class TestOrderRouterExecution:
             "symbol": "XXBTZEUR",
             "side": "sell",
             "volume": 0.01,
+            "strategy_id": "trend_momentum",
         }
         
         result = await running_router.submit_emergency(order, instance_id="test-1")
@@ -448,7 +467,7 @@ class TestOrderRouterPriority:
         # Soumettre d'abord un ordre normal
         order_future_1 = asyncio.create_task(
             running_router.submit(
-                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01},
+                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01, "strategy_id": "trend_momentum"},
                 OrderPriority.ORDER,
             )
         )
@@ -459,7 +478,7 @@ class TestOrderRouterPriority:
         # Soumettre un ordre d'urgence
         order_future_2 = asyncio.create_task(
             running_router.submit(
-                {"type": "market", "symbol": "XXBTZEUR", "side": "sell", "volume": 0.01},
+                {"type": "market", "symbol": "XXBTZEUR", "side": "sell", "volume": 0.01, "strategy_id": "trend_momentum"},
                 OrderPriority.EMERGENCY,
             )
         )
@@ -532,7 +551,7 @@ class TestOrderRouterConcurrency:
         # Soumettre 3 ordres simples séquentiellement
         for i in range(3):
             result = await running_router.submit(
-                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001},
+                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001, "strategy_id": "trend_momentum"},
                 OrderPriority.ORDER,
                 instance_id=f"inst-{i}",
             )
@@ -570,7 +589,7 @@ class TestOrderRouterConcurrency:
         # Soumettre 5 ordres
         for i in range(5):
             await running_router.submit(
-                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001},
+                {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001, "strategy_id": "trend_momentum"},
                 OrderPriority.ORDER,
             )
         
@@ -585,7 +604,7 @@ class TestOrderRouterConcurrency:
         )
         
         result = await running_router.submit(
-            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001},
+            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.001, "strategy_id": "trend_momentum"},
             OrderPriority.ORDER,
         )
         
@@ -648,7 +667,7 @@ class TestOrderRouterCallbacks:
         running_router._executor.execute_market_order = AsyncMock(side_effect=mock_execute)
         
         await running_router.submit(
-            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01},
+            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01, "strategy_id": "trend_momentum"},
             OrderPriority.ORDER,
         )
         
@@ -697,7 +716,7 @@ class TestOrderRouterErrors:
         running_router._executor.execute_market_order.side_effect = Exception("API Error")
         
         result = await running_router.submit(
-            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01},
+            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01, "strategy_id": "trend_momentum"},
             OrderPriority.ORDER,
         )
         
@@ -801,6 +820,7 @@ class TestOrderRouterIntegration:
                     "symbol": "XXBTZEUR",
                     "side": "buy",
                     "volume": 0.01,
+                    "strategy_id": "trend_momentum",
                 },
                 OrderPriority.ORDER,
                 instance_id="test-instance",
@@ -846,11 +866,11 @@ class TestOrderRouterIntegration:
                     OrderPriority.INFO,
                 ),
                 router.submit(
-                    {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01},
+                    {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01, "strategy_id": "trend_momentum"},
                     OrderPriority.ORDER,
                 ),
                 router.submit(
-                    {"type": "market", "symbol": "XXBTZEUR", "side": "sell", "volume": 0.01},
+                    {"type": "market", "symbol": "XXBTZEUR", "side": "sell", "volume": 0.01, "strategy_id": "trend_momentum"},
                     OrderPriority.EMERGENCY,
                 ),
             ]

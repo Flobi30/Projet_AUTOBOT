@@ -390,7 +390,7 @@ def _strategy_id(*sources: Mapping[str, Any] | None) -> str:
     for source in sources:
         if not source:
             continue
-        value = source.get("engine") or source.get("strategy")
+        value = source.get("strategy_id") or source.get("engine") or source.get("strategy")
         if value:
             return str(value)
         for key in ("payload_json", "metadata"):
@@ -417,7 +417,7 @@ def _strategy_source(
     ):
         if not source:
             continue
-        if source.get("engine") or source.get("strategy"):
+        if source.get("strategy_id") or source.get("engine") or source.get("strategy"):
             return label
         for key in ("payload_json", "metadata"):
             payload = _json_object(source.get(key))
@@ -499,6 +499,12 @@ def _compact_trade_row(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
         "fees",
         "slippage_bps",
         "realized_pnl",
+        "strategy_id",
+        "timeframe",
+        "signal_source",
+        "gross_pnl",
+        "net_pnl",
+        "regime",
         "decision_id",
         "signal_id",
         "created_at",

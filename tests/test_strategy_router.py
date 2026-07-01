@@ -44,6 +44,7 @@ def _symbol_payload(
         "best_variant": {
             "symbol": "NEWEUR",
             "engine": engine,
+            "strategy_id": engine,
             "variant": variant,
             "status": status,
             "validation_status": validation_status,
@@ -56,6 +57,12 @@ def _symbol_payload(
             "closed_trades": closed,
             "open_positions": 0,
             "sample_count": 100,
+            "fees_included": True,
+            "slippage_included": True,
+            "fee_bps": 40.0,
+            "slippage_bps": 4.0,
+            "baseline_comparison": {"baseline": "no_trade", "net_delta_eur": net},
+            "out_of_sample_periods": 1,
             "last_decision": {"status": "closed", "reason": "test"},
         },
     }
@@ -175,12 +182,17 @@ def test_promotion_gate_blocks_learning_strategy_directly():
     result = gate.evaluate(
         {
             "engine": "trend_momentum",
+            "strategy_id": "trend_momentum",
             "validation_status": "learning",
             "closed_trades": 10,
             "sample_count": 100,
             "net_pnl_eur": 3.0,
             "profit_factor": 1.5,
             "win_rate": 60.0,
+            "fees_included": True,
+            "slippage_included": True,
+            "baseline_comparison": {"baseline": "no_trade", "net_delta_eur": 3.0},
+            "out_of_sample_periods": 1,
         },
         "shadow_candidate_review",
         paper_mode=True,
@@ -203,12 +215,17 @@ def test_promotion_gate_blocks_unknown_strategy_engine_by_default():
     result = gate.evaluate(
         {
             "engine": "mystery_engine",
+            "strategy_id": "mystery_engine",
             "validation_status": "paper_validated",
             "closed_trades": 100,
             "sample_count": 500,
             "net_pnl_eur": 30.0,
             "profit_factor": 2.0,
             "win_rate": 70.0,
+            "fees_included": True,
+            "slippage_included": True,
+            "baseline_comparison": {"baseline": "no_trade", "net_delta_eur": 30.0},
+            "out_of_sample_periods": 1,
         },
         "shadow_candidate_review",
         paper_mode=True,
@@ -231,12 +248,17 @@ def test_promotion_gate_keeps_paper_validated_strategy_blocked_in_live_mode():
     result = gate.evaluate(
         {
             "engine": "dynamic_grid",
+            "strategy_id": "dynamic_grid",
             "validation_status": "paper_validated",
             "closed_trades": 100,
             "sample_count": 500,
             "net_pnl_eur": 30.0,
             "profit_factor": 2.0,
             "win_rate": 70.0,
+            "fees_included": True,
+            "slippage_included": True,
+            "baseline_comparison": {"baseline": "no_trade", "net_delta_eur": 30.0},
+            "out_of_sample_periods": 1,
         },
         "shadow_candidate_review",
         paper_mode=False,
@@ -245,6 +267,38 @@ def test_promotion_gate_keeps_paper_validated_strategy_blocked_in_live_mode():
     assert result["passed"] is False
     assert result["reason"] == "not_paper_mode"
     assert result["live_enabled"] is False
+
+
+def test_promotion_gate_blocks_missing_cost_and_baseline_evidence():
+    gate = StrategyPromotionGate(
+        StrategyPromotionGateConfig(
+            min_closed_trades=3,
+            min_sample_count=20,
+            min_profit_factor=1.2,
+            min_net_pnl_eur=0.0,
+            min_win_rate_pct=45.0,
+        )
+    )
+    result = gate.evaluate(
+        {
+            "engine": "trend_momentum",
+            "strategy_id": "trend_momentum",
+            "validation_status": "paper_validated",
+            "closed_trades": 100,
+            "sample_count": 500,
+            "net_pnl_eur": 30.0,
+            "profit_factor": 2.0,
+            "win_rate": 70.0,
+        },
+        "shadow_candidate_review",
+        paper_mode=True,
+    )
+
+    assert result["passed"] is False
+    assert "fees_present" in result["reason"]
+    assert "slippage_present" in result["reason"]
+    assert "baseline_comparison" in result["reason"]
+    assert "out_of_sample_periods" in result["reason"]
 
 
 def test_strategy_router_uses_no_trade_when_all_engines_weak():

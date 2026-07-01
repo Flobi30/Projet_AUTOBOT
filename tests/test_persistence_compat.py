@@ -95,6 +95,7 @@ async def test_recover_positions_can_match_orphan_by_ledger_symbol(tmp_path):
         volume=0.5,
         fees=0.1,
         is_opening_leg=True,
+        strategy_id="trend_momentum",
     )
 
     recovered = await persistence.recover_positions("new-inst", symbol="XETHZEUR")

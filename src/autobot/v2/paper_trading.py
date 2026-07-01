@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Coroutine
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
+from .strategy_runtime_policy import official_paper_strategy_block_reason
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,15 @@ class PaperTrade:
     status: str  # "filled" | "pending" | "cancelled"
     userref: Optional[int] = None
     liquidity: str = "unknown"  # "maker" | "taker" | "unknown"
+    strategy_id: str = ""
+    timeframe: Optional[str] = None
+    signal_source: Optional[str] = None
+    decision_id: Optional[str] = None
+    signal_id: Optional[str] = None
+    regime: Optional[str] = None
+    slippage_bps: Optional[float] = None
+    gross_pnl: Optional[float] = None
+    net_pnl: Optional[float] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -164,6 +174,15 @@ class PaperTradingExecutor:
                     status TEXT,
                     userref INTEGER,
                     liquidity TEXT DEFAULT 'unknown',
+                    strategy_id TEXT,
+                    timeframe TEXT,
+                    signal_source TEXT,
+                    decision_id TEXT,
+                    signal_id TEXT,
+                    regime TEXT,
+                    slippage_bps REAL,
+                    gross_pnl REAL,
+                    net_pnl REAL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -173,11 +192,27 @@ class PaperTradingExecutor:
             }
             if "liquidity" not in columns:
                 conn.execute("ALTER TABLE trades ADD COLUMN liquidity TEXT DEFAULT 'unknown'")
+            for column, column_type in (
+                ("strategy_id", "TEXT"),
+                ("timeframe", "TEXT"),
+                ("signal_source", "TEXT"),
+                ("decision_id", "TEXT"),
+                ("signal_id", "TEXT"),
+                ("regime", "TEXT"),
+                ("slippage_bps", "REAL"),
+                ("gross_pnl", "REAL"),
+                ("net_pnl", "REAL"),
+            ):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {column} {column_type}")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)
             """)
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trades_strategy_id ON trades(strategy_id)
             """)
             conn.commit()
     
@@ -333,6 +368,12 @@ class PaperTradingExecutor:
             "opentm": self._timestamp_to_epoch(row[7]),
             "userref": row[9],
             "liquidity": row[10] if len(row) > 10 else "unknown",
+            "strategy_id": row[11] if len(row) > 11 else None,
+            "timeframe": row[12] if len(row) > 12 else None,
+            "signal_source": row[13] if len(row) > 13 else None,
+            "decision_id": row[14] if len(row) > 14 else None,
+            "signal_id": row[15] if len(row) > 15 else None,
+            "regime": row[16] if len(row) > 16 else None,
         }
     
     # ------------------------------------------------------------------
@@ -346,9 +387,18 @@ class PaperTradingExecutor:
         volume: float,
         userref: Optional[int] = None,
         price_hint: Optional[float] = None,
+        strategy_id: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        signal_source: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        regime: Optional[str] = None,
     ) -> OrderResult:
         """Simule un ordre MARKET avec exécution immédiate."""
         logger.info(f"📊 [PAPER] Ordre MARKET {side.value.upper()} {volume:.6f} {symbol}")
+        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
+        if strategy_block_reason is not None:
+            return OrderResult(success=False, error=strategy_block_reason)
         
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
@@ -400,6 +450,12 @@ class PaperTradingExecutor:
             status="filled",
             userref=userref,
             liquidity=liquidity,
+            strategy_id=str(strategy_id),
+            timeframe=timeframe,
+            signal_source=signal_source,
+            decision_id=decision_id,
+            signal_id=signal_id,
+            regime=regime,
         )
         
         # Persiste
@@ -433,6 +489,12 @@ class PaperTradingExecutor:
         limit_price: float,
         post_only: bool = False,
         userref: Optional[int] = None,
+        strategy_id: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        signal_source: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        regime: Optional[str] = None,
     ) -> OrderResult:
         """Simule un ordre LIMIT avec exécution immédiate au prix limite."""
         logger.info(
@@ -443,6 +505,9 @@ class PaperTradingExecutor:
             limit_price,
             post_only,
         )
+        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
+        if strategy_block_reason is not None:
+            return OrderResult(success=False, error=strategy_block_reason)
 
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
@@ -515,6 +580,12 @@ class PaperTradingExecutor:
             status="filled",
             userref=userref,
             liquidity=liquidity,
+            strategy_id=str(strategy_id),
+            timeframe=timeframe,
+            signal_source=signal_source,
+            decision_id=decision_id,
+            signal_id=signal_id,
+            regime=regime,
         )
 
         async with self._lock:
@@ -543,9 +614,18 @@ class PaperTradingExecutor:
         volume: float,
         stop_price: float,
         userref: Optional[int] = None,
+        strategy_id: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        signal_source: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        regime: Optional[str] = None,
     ) -> OrderResult:
         """Simule un ordre STOP-LOSS (enregistré comme pending)."""
         logger.info(f"📊 [PAPER] Ordre STOP-LOSS {side.value.upper()} {volume:.6f} {symbol} @ {stop_price:.2f}")
+        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
+        if strategy_block_reason is not None:
+            return OrderResult(success=False, error=strategy_block_reason)
         
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
@@ -565,6 +645,12 @@ class PaperTradingExecutor:
             timestamp=datetime.now(timezone.utc).isoformat(),
             status="pending",  # En attente de déclenchement
             userref=userref,
+            strategy_id=str(strategy_id),
+            timeframe=timeframe,
+            signal_source=signal_source,
+            decision_id=decision_id,
+            signal_id=signal_id,
+            regime=regime,
         )
         
         async with self._lock:
@@ -794,12 +880,17 @@ class PaperTradingExecutor:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO trades 
-                (id, txid, symbol, side, volume, price, fees, timestamp, status, userref, liquidity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, txid, symbol, side, volume, price, fees, timestamp, status, userref, liquidity,
+                 strategy_id, timeframe, signal_source, decision_id, signal_id, regime,
+                 slippage_bps, gross_pnl, net_pnl)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade.id, trade.txid, trade.symbol, trade.side,
                 trade.volume, trade.price, trade.fees, trade.timestamp,
-                trade.status, trade.userref, trade.liquidity
+                trade.status, trade.userref, trade.liquidity,
+                trade.strategy_id, trade.timeframe, trade.signal_source,
+                trade.decision_id, trade.signal_id, trade.regime,
+                trade.slippage_bps, trade.gross_pnl, trade.net_pnl,
             ))
             conn.commit()
     

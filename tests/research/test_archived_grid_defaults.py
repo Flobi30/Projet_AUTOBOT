@@ -44,12 +44,17 @@ def test_retired_grid_is_blocked_from_all_promotion_paths():
     result = StrategyPromotionGate().evaluate(
         {
             "engine": "dynamic_grid",
+            "strategy_id": "dynamic_grid",
             "validation_status": "paper_validated",
             "closed_trades": 1_000,
             "sample_count": 1_000,
             "net_pnl_eur": 100.0,
             "profit_factor": 2.0,
             "win_rate": 75.0,
+            "fees_included": True,
+            "slippage_included": True,
+            "baseline_comparison": {"baseline": "no_trade", "net_delta_eur": 100.0},
+            "out_of_sample_periods": 1,
         },
         "shadow_candidate_review",
         paper_mode=True,

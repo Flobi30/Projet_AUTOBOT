@@ -37,6 +37,21 @@ def test_paper_ws_symbol_aliases_match_kraken_subscriptions():
 
 
 @pytest.mark.asyncio
+async def test_paper_market_order_rejects_missing_strategy_id(tmp_path, monkeypatch):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+
+    async def no_live_price(_symbol: str):
+        return 100.0
+
+    monkeypatch.setattr(executor, "_get_current_price", no_live_price)
+
+    result = await executor.execute_market_order("XETHZEUR", OrderSide.SELL, 0.01, userref=1234)
+
+    assert result.success is False
+    assert result.error == "strategy_id_required"
+
+
+@pytest.mark.asyncio
 async def test_paper_market_order_refuses_missing_price_without_hint(tmp_path, monkeypatch):
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
@@ -45,7 +60,13 @@ async def test_paper_market_order_refuses_missing_price_without_hint(tmp_path, m
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
 
-    result = await executor.execute_market_order("XETHZEUR", OrderSide.SELL, 0.01, userref=1234)
+    result = await executor.execute_market_order(
+        "XETHZEUR",
+        OrderSide.SELL,
+        0.01,
+        userref=1234,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is False
     assert "paper_price_unavailable" in str(result.error)
@@ -62,7 +83,13 @@ async def test_paper_market_order_can_use_legacy_synthetic_fallback_when_explici
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
 
-    result = await executor.execute_market_order("XETHZEUR", OrderSide.SELL, 0.01, userref=1234)
+    result = await executor.execute_market_order(
+        "XETHZEUR",
+        OrderSide.SELL,
+        0.01,
+        userref=1234,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.executed_price == pytest.approx(2000.0)
@@ -85,6 +112,7 @@ async def test_paper_market_order_prefers_signal_price_hint(tmp_path, monkeypatc
         0.01,
         userref=1234,
         price_hint=1969.53,
+        strategy_id="trend_momentum",
     )
 
     assert result.success is True
@@ -109,7 +137,14 @@ async def test_paper_market_buy_executes_at_book_ask_when_available(tmp_path, mo
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
 
-    result = await executor.execute_market_order("XXBTZEUR", OrderSide.BUY, 1.0, userref=4321, price_hint=100.0)
+    result = await executor.execute_market_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        userref=4321,
+        price_hint=100.0,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.executed_price == pytest.approx(100.10)
@@ -135,7 +170,14 @@ async def test_paper_market_sell_executes_at_book_bid_when_available(tmp_path, m
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
 
-    result = await executor.execute_market_order("XXBTZEUR", OrderSide.SELL, 1.0, userref=4322, price_hint=100.0)
+    result = await executor.execute_market_order(
+        "XXBTZEUR",
+        OrderSide.SELL,
+        1.0,
+        userref=4322,
+        price_hint=100.0,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.executed_price == pytest.approx(99.90)
@@ -161,7 +203,14 @@ async def test_paper_market_order_falls_back_to_signal_price_when_book_invalid(t
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
 
-    result = await executor.execute_market_order("XXBTZEUR", OrderSide.BUY, 1.0, userref=4323, price_hint=100.0)
+    result = await executor.execute_market_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        userref=4323,
+        price_hint=100.0,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.executed_price == pytest.approx(100.0)
@@ -177,7 +226,14 @@ async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
         return None
 
     monkeypatch.setattr(executor, "_get_current_price", no_live_price)
-    result = await executor.execute_market_order("XLTCZEUR", OrderSide.BUY, 1.0, userref=9876, price_hint=91.0)
+    result = await executor.execute_market_order(
+        "XLTCZEUR",
+        OrderSide.BUY,
+        1.0,
+        userref=9876,
+        price_hint=91.0,
+        strategy_id="trend_momentum",
+    )
 
     found = await executor.find_order_by_userref(9876)
 
@@ -207,7 +263,14 @@ async def test_post_only_limit_uses_realistic_maker_fee_when_book_is_touchable(t
         }
     )
 
-    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+    result = await executor.execute_limit_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        100.0,
+        post_only=True,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.liquidity == "maker"
@@ -222,7 +285,14 @@ async def test_post_only_limit_rejects_missing_book_when_required(tmp_path, monk
     monkeypatch.setenv("PAPER_MAKER_MISSING_BOOK_TAKER_FALLBACK", "false")
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
-    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+    result = await executor.execute_limit_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        100.0,
+        post_only=True,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is False
     assert result.error == "paper_maker_book_unavailable"
@@ -241,7 +311,14 @@ async def test_post_only_limit_missing_book_can_fallback_to_taker_when_enabled(t
 
     monkeypatch.setattr(executor, "_get_current_price", live_price)
 
-    result = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+    result = await executor.execute_limit_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        100.0,
+        post_only=True,
+        strategy_id="trend_momentum",
+    )
 
     assert result.success is True
     assert result.liquidity == "taker"
@@ -270,8 +347,22 @@ async def test_post_only_limit_rejects_crossing_or_adverse_book(tmp_path, monkey
         }
     )
 
-    crossing = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.05, post_only=True)
-    adverse = await executor.execute_limit_order("XXBTZEUR", OrderSide.BUY, 1.0, 100.0, post_only=True)
+    crossing = await executor.execute_limit_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        100.05,
+        post_only=True,
+        strategy_id="trend_momentum",
+    )
+    adverse = await executor.execute_limit_order(
+        "XXBTZEUR",
+        OrderSide.BUY,
+        1.0,
+        100.0,
+        post_only=True,
+        strategy_id="trend_momentum",
+    )
 
     assert crossing.success is False
     assert crossing.error == "paper_post_only_would_take_liquidity"

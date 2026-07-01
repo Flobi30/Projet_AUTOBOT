@@ -43,6 +43,11 @@ class _Instance:
                 "stop_loss": 95.0,
                 "take_profit": 110.0,
                 "stop_loss_txid": "sl-1",
+                "metadata": {
+                    "strategy_id": "trend_momentum",
+                    "signal_source": "position_exit_test",
+                    "regime": "trend",
+                },
             }
         ]
 
@@ -85,7 +90,19 @@ async def test_paper_take_profit_executes_sell_and_writes_ledger():
 
     assert closed == 1
     assert orch.order_executor.market_orders == [
-        ("XETHZEUR", OrderSide.SELL, 0.5, {"price_hint": 111.0})
+        (
+            "XETHZEUR",
+            OrderSide.SELL,
+            0.5,
+            {
+                "price_hint": 111.0,
+                "strategy_id": "trend_momentum",
+                "signal_source": "position_exit",
+                "decision_id": None,
+                "signal_id": None,
+                "regime": "trend",
+            },
+        )
     ]
     assert orch.order_executor.cancelled == ["sl-1"]
     assert instance.close_calls == [
@@ -93,6 +110,7 @@ async def test_paper_take_profit_executes_sell_and_writes_ledger():
     ]
     assert instance._persistence.rows[0]["is_closing_leg"] is True
     assert instance._persistence.rows[0]["realized_pnl"] == pytest.approx(5.35)
+    assert instance._persistence.rows[0]["strategy_id"] == "trend_momentum"
 
 
 def test_dynamic_paper_allocation_scales_with_edge_without_touching_live():

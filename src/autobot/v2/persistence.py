@@ -14,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
+from .strategy_runtime_policy import official_paper_strategy_block_reason
+
 logger = logging.getLogger(__name__)
 
 
@@ -467,6 +469,18 @@ class StatePersistence:
         self.instance_state = InstanceStateRepository(self.db_path, self._write_lock)
         self._initialized = False
 
+    async def _ensure_columns(
+        self,
+        conn: aiosqlite.Connection,
+        table: str,
+        columns: Dict[str, str],
+    ) -> None:
+        async with conn.execute(f"PRAGMA table_info({table})") as cursor:
+            existing = {row[1] for row in await cursor.fetchall()}
+        for column, column_type in columns.items():
+            if column not in existing:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
     async def initialize(self):
         """Initialise la base de données (async)."""
         if self._initialized:
@@ -558,6 +572,12 @@ class StatePersistence:
                     exchange_order_id TEXT,
                     decision_id TEXT,
                     signal_id TEXT,
+                    strategy_id TEXT,
+                    timeframe TEXT,
+                    signal_source TEXT,
+                    gross_pnl REAL,
+                    net_pnl REAL,
+                    regime TEXT,
                     execution_liquidity TEXT,
                     created_at TEXT NOT NULL
                 )
@@ -692,6 +712,19 @@ class StatePersistence:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_root ON instance_lineage(root_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_created_at ON trade_ledger(created_at)")
+            await self._ensure_columns(
+                conn,
+                "trade_ledger",
+                {
+                    "strategy_id": "TEXT",
+                    "timeframe": "TEXT",
+                    "signal_source": "TEXT",
+                    "gross_pnl": "REAL",
+                    "net_pnl": "REAL",
+                    "regime": "TEXT",
+                },
+            )
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_strategy_id ON trade_ledger(strategy_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_symbol ON decision_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_created_at ON decision_ledger(created_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_instance_event ON decision_ledger(instance_id, event_type)")
@@ -904,13 +937,19 @@ class StatePersistence:
         await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
+            strategy_id = kwargs.get("strategy_id")
+            block_reason = official_paper_strategy_block_reason(strategy_id)
+            if block_reason is not None:
+                logger.warning("Trade ledger append rejected: %s (symbol=%s)", block_reason, kwargs.get("symbol"))
+                return False
             # Reusing order repo connection for trade ledger
             conn = await self.orders.get_conn()
             cols = [
                 "trade_id", "position_id", "instance_id", "symbol", "side", "expected_price", 
                 "executed_price", "volume", "fees", "slippage_bps", "realized_pnl", 
                 "is_opening_leg", "is_closing_leg", "exchange_order_id", "decision_id", 
-                "signal_id", "execution_liquidity", "created_at"
+                "signal_id", "strategy_id", "timeframe", "signal_source", "gross_pnl",
+                "net_pnl", "regime", "execution_liquidity", "created_at"
             ]
             vals = [
                 kwargs.get("trade_id"), kwargs.get("position_id"), kwargs.get("instance_id"),
@@ -919,6 +958,8 @@ class StatePersistence:
                 kwargs.get("slippage_bps"), kwargs.get("realized_pnl"),
                 int(kwargs.get("is_opening_leg", False)), int(kwargs.get("is_closing_leg", False)),
                 kwargs.get("exchange_order_id"), kwargs.get("decision_id"), kwargs.get("signal_id"),
+                strategy_id, kwargs.get("timeframe"), kwargs.get("signal_source"),
+                kwargs.get("gross_pnl"), kwargs.get("net_pnl"), kwargs.get("regime"),
                 kwargs.get("execution_liquidity"), now
             ]
             query = f"INSERT INTO trade_ledger ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})"
@@ -1353,6 +1394,62 @@ class StatePersistence:
         except Exception as e:
             logger.exception(f"❌ Erreur get_trade_ledger_metrics: {e}")
             return {"trade_count": 0.0, "net_pnl": 0.0}
+
+    async def get_trade_ledger_metrics_by_strategy(
+        self,
+        instance_id: Optional[str] = None,
+    ) -> Dict[str, Dict[str, float]]:
+        await self.initialize()
+        clauses = ["is_closing_leg = 1"]
+        args: list[Any] = []
+        if instance_id:
+            clauses.append("instance_id = ?")
+            args.append(instance_id)
+        where = f"WHERE {' AND '.join(clauses)}"
+        try:
+            conn = await self.orders.get_conn()
+            async with conn.execute(
+                f"""
+                SELECT COALESCE(strategy_id, 'unknown') AS strategy_id, realized_pnl, net_pnl, fees
+                FROM trade_ledger
+                {where}
+                """,
+                tuple(args),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+            buckets: Dict[str, list[float]] = {}
+            fees_by_strategy: Dict[str, float] = {}
+            for row in rows:
+                strategy_id = str(row["strategy_id"] or "unknown")
+                pnl_value = row["net_pnl"] if row["net_pnl"] is not None else row["realized_pnl"]
+                if pnl_value is None:
+                    continue
+                buckets.setdefault(strategy_id, []).append(float(pnl_value))
+                fees_by_strategy[strategy_id] = fees_by_strategy.get(strategy_id, 0.0) + float(row["fees"] or 0.0)
+
+            result: Dict[str, Dict[str, float]] = {}
+            for strategy_id, pnls in buckets.items():
+                gross_profit = sum(p for p in pnls if p > 0)
+                gross_loss = abs(sum(p for p in pnls if p < 0))
+                trade_count = len(pnls)
+                wins = sum(1 for p in pnls if p > 0)
+                losses = sum(1 for p in pnls if p < 0)
+                result[strategy_id] = {
+                    "trade_count": float(trade_count),
+                    "gross_profit": float(gross_profit),
+                    "gross_loss": float(gross_loss),
+                    "profit_factor": float(gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)),
+                    "expectancy": float(sum(pnls) / trade_count if trade_count else 0.0),
+                    "win_rate": float(wins / trade_count if trade_count else 0.0),
+                    "loss_rate": float(losses / trade_count if trade_count else 0.0),
+                    "total_fees": float(fees_by_strategy.get(strategy_id, 0.0)),
+                    "net_pnl": float(sum(pnls)),
+                }
+            return result
+        except Exception as e:
+            logger.exception(f"❌ Erreur get_trade_ledger_metrics_by_strategy: {e}")
+            return {}
 
     async def get_pair_attribution_report(self, **kwargs) -> Dict[str, Any]:
         # Minimal implementation for now to keep the code concise

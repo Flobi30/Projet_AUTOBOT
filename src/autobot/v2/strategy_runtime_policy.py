@@ -12,7 +12,8 @@ from typing import Any, Iterable
 
 
 GRID_RUNTIME_RETIRED_REASON = "grid_retired_research_only"
-RETIRED_RUNTIME_ENGINES = frozenset({"dynamic_grid"})
+GRID_STRATEGY_ALIASES = frozenset({"dynamic_grid", "grid", "grid_core"})
+RETIRED_RUNTIME_ENGINES = GRID_STRATEGY_ALIASES
 
 
 def grid_runtime_enabled() -> bool:
@@ -25,6 +26,19 @@ def grid_runtime_enabled() -> bool:
 def is_runtime_engine_retired(engine: Any) -> bool:
     normalized = str(engine or "").strip().lower()
     return normalized in RETIRED_RUNTIME_ENGINES
+
+
+def normalize_strategy_id(strategy_id: Any) -> str:
+    return str(strategy_id or "").strip()
+
+
+def official_paper_strategy_block_reason(strategy_id: Any) -> str | None:
+    normalized = normalize_strategy_id(strategy_id)
+    if not normalized:
+        return "strategy_id_required"
+    if is_runtime_engine_retired(normalized):
+        return GRID_RUNTIME_RETIRED_REASON
+    return None
 
 
 def retired_grid_snapshot(symbols: Iterable[Any] = ()) -> dict[str, Any]:

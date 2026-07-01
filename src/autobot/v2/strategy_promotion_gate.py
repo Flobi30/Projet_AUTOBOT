@@ -122,30 +122,41 @@ class StrategyPromotionGate:
         *,
         paper_mode: bool,
     ) -> dict[str, Any]:
-        engine = str(selected.get("engine") or "no_trade")
+        strategy_id = str(selected.get("strategy_id") or "").strip()
+        engine = str(selected.get("engine") or strategy_id or "no_trade").strip()
         if not self.config.enabled:
             return self._result(True, "disabled", "promotion_gate_disabled", {})
         if not paper_mode:
             return self._result(False, "blocked", "not_paper_mode", {})
         if action != "shadow_candidate_review":
             return self._result(False, "learning", "router_not_requesting_promotion", {})
-        if engine == "no_trade":
+        if not strategy_id:
+            return self._result(
+                False,
+                "blocked",
+                "strategy_id_required",
+                {"strategy_id": {"value": strategy_id, "passed": False}},
+            )
+        if strategy_id == "no_trade" or engine == "no_trade":
             return self._result(False, "blocked", "no_trade_selected", {})
-        if is_runtime_engine_retired(engine):
+        if is_runtime_engine_retired(strategy_id) or is_runtime_engine_retired(engine):
             return self._result(
                 False,
                 "blocked",
                 GRID_RUNTIME_RETIRED_REASON,
-                {"engine": {"value": engine, "passed": False}},
+                {
+                    "strategy_id": {"value": strategy_id, "passed": False},
+                    "engine": {"value": engine, "passed": False},
+                },
             )
-        if engine not in PROMOTABLE_STRATEGY_IDS:
+        if strategy_id not in PROMOTABLE_STRATEGY_IDS:
             return self._result(
                 False,
                 "blocked",
                 "unknown_strategy_engine",
                 {
-                    "engine": {
-                        "value": engine,
+                    "strategy_id": {
+                        "value": strategy_id,
                         "allowed": sorted(PROMOTABLE_STRATEGY_IDS),
                         "passed": False,
                     }
@@ -159,8 +170,28 @@ class StrategyPromotionGate:
         win_rate = _optional_float(selected.get("win_rate"))
         drawdown = _optional_float(selected.get("max_drawdown_eur"))
         validation_status = str(selected.get("validation_status") or "learning")
+        fees_present = bool(
+            selected.get("fees_included")
+            or selected.get("fees_model")
+            or selected.get("fee_bps") is not None
+            or selected.get("fees_eur") is not None
+            or selected.get("total_fees_eur") is not None
+        )
+        slippage_present = bool(
+            selected.get("slippage_included")
+            or selected.get("slippage_model")
+            or selected.get("slippage_bps") is not None
+            or selected.get("slippage_eur") is not None
+            or selected.get("total_slippage_eur") is not None
+        )
+        baseline_present = bool(selected.get("baseline_comparison"))
+        out_of_sample_periods = _safe_int(selected.get("out_of_sample_periods"), 0)
 
         checks = {
+            "strategy_id": {
+                "value": strategy_id,
+                "passed": bool(strategy_id),
+            },
             "closed_trades": {
                 "value": closed_trades,
                 "minimum": self.config.min_closed_trades,
@@ -186,6 +217,23 @@ class StrategyPromotionGate:
                 "value": drawdown,
                 "maximum": self.config.max_drawdown_eur,
                 "passed": drawdown is None or drawdown <= self.config.max_drawdown_eur,
+            },
+            "fees_present": {
+                "value": fees_present,
+                "passed": fees_present,
+            },
+            "slippage_present": {
+                "value": slippage_present,
+                "passed": slippage_present,
+            },
+            "baseline_comparison": {
+                "value": baseline_present,
+                "passed": baseline_present,
+            },
+            "out_of_sample_periods": {
+                "value": out_of_sample_periods,
+                "minimum": 1,
+                "passed": out_of_sample_periods >= 1,
             },
         }
         if self.config.research_workflow_enabled:

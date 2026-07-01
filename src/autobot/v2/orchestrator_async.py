@@ -16,6 +16,7 @@ Public API identical to Orchestrator (with async/await).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -3294,9 +3295,30 @@ class OrchestratorAsync:
             )
             return False
 
+        metadata = position.get("metadata") or {}
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        strategy_id = str(
+            metadata.get("strategy_id")
+            or metadata.get("execution_engine")
+            or position.get("strategy")
+            or position.get("engine")
+            or ""
+        )
+
         kwargs: Dict[str, Any] = {}
         if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
             kwargs["price_hint"] = float(current_price)
+            kwargs["strategy_id"] = strategy_id
+            kwargs["signal_source"] = str(metadata.get("execution_source") or "position_exit")
+            kwargs["decision_id"] = metadata.get("decision_id")
+            kwargs["signal_id"] = metadata.get("signal_id")
+            kwargs["regime"] = str((metadata.get("regime_context") or {}).get("regime") or metadata.get("regime") or "")
 
         result = await self.order_executor.execute_market_order(
             symbol,
@@ -3352,6 +3374,12 @@ class OrchestratorAsync:
                     volume=float(volume),
                     fees=float(getattr(result, "fees", 0.0) or 0.0),
                     slippage_bps=self._sell_slippage_bps(float(trigger_price), executed_price),
+                    strategy_id=strategy_id,
+                    timeframe=metadata.get("timeframe"),
+                    signal_source=str(metadata.get("execution_source") or "position_exit"),
+                    gross_pnl=realized_pnl + float(getattr(result, "fees", 0.0) or 0.0),
+                    net_pnl=realized_pnl,
+                    regime=str((metadata.get("regime_context") or {}).get("regime") or metadata.get("regime") or ""),
                     realized_pnl=realized_pnl,
                     exchange_order_id=getattr(result, "txid", None),
                     decision_id=None,

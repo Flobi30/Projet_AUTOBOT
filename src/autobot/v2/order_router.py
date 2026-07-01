@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
@@ -37,8 +38,12 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 from .order_executor_async import OrderExecutorAsync, OrderResult, OrderSide
 from .modules.rate_limit_optimizer import CallPriority
 from .speculative_order_cache import SpeculativeOrderCache
+from .strategy_runtime_policy import official_paper_strategy_block_reason
 
 logger = logging.getLogger(__name__)
+
+
+ORDER_TYPES_REQUIRING_STRATEGY_ID = frozenset({"market", "limit", "stop_loss"})
 
 __all__ = [
     "OrderRouter",
@@ -442,6 +447,15 @@ class OrderRouter:
         
         order_type = order.get("type", "unknown")
         client_order_id = order.get("client_order_id")
+        strategy_block_reason = self._strategy_block_reason(order)
+        if strategy_block_reason is not None:
+            logger.warning(
+                "Ordre %s rejeté avant file: %s (symbol=%s)",
+                order_type,
+                strategy_block_reason,
+                order.get("symbol"),
+            )
+            return OrderResult(success=False, error=strategy_block_reason)
 
         # Créer la requête
         request = OrderRequest.create(
@@ -501,6 +515,7 @@ class OrderRouter:
         priority: OrderPriority = OrderPriority.ORDER,
         instance_id: Optional[str] = None,
         fallback_capital: float = 0.0,
+        strategy_id: Optional[str] = None,
     ) -> OrderResult:
         """
         P6 fast path — submit a market order using a pre-computed template.
@@ -540,6 +555,7 @@ class OrderRouter:
                     "symbol": template.symbol,
                     "side": template.side,
                     "volume": volume,
+                    "strategy_id": strategy_id,
                 }
                 return await self.submit(order, priority, instance_id)
 
@@ -557,6 +573,7 @@ class OrderRouter:
             "symbol": symbol,
             "side": side,
             "volume": volume,
+            "strategy_id": strategy_id,
         }
         logger.debug(
             "🗃️ SpecCache miss fallback: %s %s lvl=%d vol=%.8f",
@@ -678,27 +695,51 @@ class OrderRouter:
                     "side": OrderSide(params["side"]),
                     "volume": params["volume"],
                     "userref": params.get("userref"),
+                    "strategy_id": params.get("strategy_id"),
+                    "timeframe": params.get("timeframe"),
+                    "signal_source": params.get("signal_source"),
+                    "decision_id": params.get("decision_id"),
+                    "signal_id": params.get("signal_id"),
+                    "regime": params.get("regime"),
                 }
                 if self._executor.__class__.__name__ == "PaperTradingExecutor" and params.get("price"):
                     kwargs["price_hint"] = params.get("price")
-                return await self._executor.execute_market_order(**kwargs)
+                return await self._call_executor(self._executor.execute_market_order, kwargs)
             elif order_type == "limit":
-                return await self._executor.execute_limit_order(
-                    symbol=params["symbol"],
-                    side=OrderSide(params["side"]),
-                    volume=params["volume"],
-                    limit_price=params["price"],
-                    post_only=bool(params.get("post_only", False)),
-                    userref=params.get("userref"),
+                return await self._call_executor(
+                    self._executor.execute_limit_order,
+                    {
+                        "symbol": params["symbol"],
+                        "side": OrderSide(params["side"]),
+                        "volume": params["volume"],
+                        "limit_price": params["price"],
+                        "post_only": bool(params.get("post_only", False)),
+                        "userref": params.get("userref"),
+                        "strategy_id": params.get("strategy_id"),
+                        "timeframe": params.get("timeframe"),
+                        "signal_source": params.get("signal_source"),
+                        "decision_id": params.get("decision_id"),
+                        "signal_id": params.get("signal_id"),
+                        "regime": params.get("regime"),
+                    },
                 )
             
             elif order_type == "stop_loss":
-                return await self._executor.execute_stop_loss_order(
-                    symbol=params["symbol"],
-                    side=OrderSide(params["side"]),
-                    volume=params["volume"],
-                    stop_price=params["stop_price"],
-                    userref=params.get("userref"),
+                return await self._call_executor(
+                    self._executor.execute_stop_loss_order,
+                    {
+                        "symbol": params["symbol"],
+                        "side": OrderSide(params["side"]),
+                        "volume": params["volume"],
+                        "stop_price": params["stop_price"],
+                        "userref": params.get("userref"),
+                        "strategy_id": params.get("strategy_id"),
+                        "timeframe": params.get("timeframe"),
+                        "signal_source": params.get("signal_source"),
+                        "decision_id": params.get("decision_id"),
+                        "signal_id": params.get("signal_id"),
+                        "regime": params.get("regime"),
+                    },
                 )
             
             elif order_type == "cancel":
@@ -743,6 +784,20 @@ class OrderRouter:
                 self._stats.total_failed += 1
             
             return OrderResult(success=False, error=str(exc))
+
+    def _strategy_block_reason(self, order: Dict[str, Any]) -> Optional[str]:
+        order_type = str(order.get("type", "unknown"))
+        if order_type not in ORDER_TYPES_REQUIRING_STRATEGY_ID:
+            return None
+        return official_paper_strategy_block_reason(order.get("strategy_id"))
+
+    async def _call_executor(self, method: Callable[..., Coroutine[Any, Any, OrderResult]], kwargs: Dict[str, Any]) -> OrderResult:
+        signature = inspect.signature(method)
+        if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+            filtered = kwargs
+        else:
+            filtered = {key: value for key, value in kwargs.items() if key in signature.parameters}
+        return await method(**filtered)
     
     # ------------------------------------------------------------------
     # Configuration

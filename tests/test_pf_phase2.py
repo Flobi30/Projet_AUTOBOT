@@ -30,6 +30,7 @@ async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
             fees=0.2,
             realized_pnl=10.0,
             is_closing_leg=True,
+            strategy_id="trend_momentum",
         )
         await p.append_trade_ledger(
             trade_id="t2",
@@ -41,12 +42,54 @@ async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
             fees=0.2,
             realized_pnl=-5.0,
             is_closing_leg=True,
+            strategy_id="trend_momentum",
         )
         metrics = await p.get_trade_ledger_metrics("i1")
         assert metrics["trade_count"] == 2.0
         assert metrics["profit_factor"] == 2.0
         assert metrics["expectancy"] == 2.5
         assert metrics["total_fees"] == 0.4
+        by_strategy = await p.get_trade_ledger_metrics_by_strategy("i1")
+        assert by_strategy["trend_momentum"]["trade_count"] == 2.0
+        assert by_strategy["trend_momentum"]["profit_factor"] == 2.0
+        assert by_strategy["trend_momentum"]["expectancy"] == 2.5
+    finally:
+        await p.close()
+
+
+@pytest.mark.asyncio
+async def test_trade_ledger_blocks_missing_strategy_and_retired_grid(tmp_path):
+    db = tmp_path / "state.db"
+    p = StatePersistence(str(db))
+    try:
+        missing = await p.append_trade_ledger(
+            trade_id="missing-strategy",
+            instance_id="i1",
+            symbol="XXBTZEUR",
+            side="sell",
+            executed_price=101.0,
+            volume=1.0,
+            fees=0.2,
+            realized_pnl=10.0,
+            is_closing_leg=True,
+        )
+        grid = await p.append_trade_ledger(
+            trade_id="grid-strategy",
+            instance_id="i1",
+            symbol="XXBTZEUR",
+            side="sell",
+            executed_price=101.0,
+            volume=1.0,
+            fees=0.2,
+            realized_pnl=10.0,
+            is_closing_leg=True,
+            strategy_id="dynamic_grid",
+        )
+        by_strategy = await p.get_trade_ledger_metrics_by_strategy("i1")
+
+        assert missing is False
+        assert grid is False
+        assert by_strategy == {}
     finally:
         await p.close()
 

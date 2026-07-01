@@ -973,15 +973,28 @@ class SignalHandlerAsync:
         *,
         userref: Optional[int],
         price_hint: Optional[float],
+        strategy_id: Optional[str] = None,
+        signal_source: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
+        regime: Optional[str] = None,
     ) -> Any:
         kwargs = {"userref": userref}
         if (
             self.order_executor is not None
             and self.order_executor.__class__.__name__ == "PaperTradingExecutor"
-            and price_hint is not None
-            and price_hint > 0
         ):
-            kwargs["price_hint"] = float(price_hint)
+            if price_hint is not None and price_hint > 0:
+                kwargs["price_hint"] = float(price_hint)
+            kwargs.update(
+                {
+                    "strategy_id": strategy_id,
+                    "signal_source": signal_source,
+                    "decision_id": decision_id,
+                    "signal_id": signal_id,
+                    "regime": regime,
+                }
+            )
         return await self.order_executor.execute_market_order(symbol, side, volume, **kwargs)
 
     async def _execute_buy(self, signal: TradingSignal) -> None:
@@ -1347,6 +1360,17 @@ class SignalHandlerAsync:
         ))
         await self._maybe_await(self._osm.transition(rec.client_order_id, "SENT", "submitted_to_exchange"))
         if execution_plan["order_type"] == "limit":
+            limit_kwargs = {}
+            if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+                limit_kwargs.update(
+                    {
+                        "strategy_id": signal_engine,
+                        "signal_source": signal_source,
+                        "decision_id": decision_id,
+                        "signal_id": signal_id,
+                        "regime": str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
+                    }
+                )
             result = await self.order_executor.execute_limit_order(
                 symbol=symbol,
                 side=OrderSide.BUY,
@@ -1354,6 +1378,7 @@ class SignalHandlerAsync:
                 limit_price=execution_plan["price"],
                 post_only=bool(execution_plan.get("post_only", False)),
                 userref=getattr(rec, "userref", None),
+                **limit_kwargs,
             )
         else:
             result = await self._execute_market_order_with_price_hint(
@@ -1362,6 +1387,11 @@ class SignalHandlerAsync:
                 volume,
                 userref=getattr(rec, "userref", None),
                 price_hint=signal.price,
+                strategy_id=signal_engine,
+                signal_source=signal_source,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                regime=str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
             )
 
         if not result.success:
@@ -1472,8 +1502,23 @@ class SignalHandlerAsync:
             executed_price,
             signal=signal,
         )
+        stop_kwargs = {}
+        if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+            stop_kwargs.update(
+                {
+                    "strategy_id": signal_engine,
+                    "signal_source": signal_source,
+                    "decision_id": decision_id,
+                    "signal_id": signal_id,
+                    "regime": str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
+                }
+            )
         sl_result = await self.order_executor.execute_stop_loss_order(
-            symbol, OrderSide.SELL, executed_volume, stop_price
+            symbol,
+            OrderSide.SELL,
+            executed_volume,
+            stop_price,
+            **stop_kwargs,
         )
         sl_txid = sl_result.txid if sl_result.success else None
 
@@ -1504,6 +1549,12 @@ class SignalHandlerAsync:
                     volume=executed_volume,
                     fees=result.fees,
                     slippage_bps=self._slippage_bps(signal.price, executed_price, "buy"),
+                    strategy_id=signal_engine,
+                    timeframe=signal_metadata.get("timeframe"),
+                    signal_source=signal_source,
+                    gross_pnl=None,
+                    net_pnl=None,
+                    regime=str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
                     realized_pnl=None,
                     exchange_order_id=result.txid,
                     decision_id=decision_id,
@@ -1641,6 +1692,11 @@ class SignalHandlerAsync:
                 vol,
                 userref=rec.userref,
                 price_hint=signal.price,
+                strategy_id=signal_engine,
+                signal_source=signal_source,
+                decision_id=decision_id,
+                signal_id=signal_id,
+                regime=str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
             )
             if result.success:
                 price = result.executed_price or signal.price
@@ -1704,6 +1760,12 @@ class SignalHandlerAsync:
                     volume=vol,
                     fees=result.fees,
                     slippage_bps=self._slippage_bps(signal.price, price, "sell"),
+                    strategy_id=signal_engine,
+                    timeframe=signal_metadata.get("timeframe"),
+                    signal_source=signal_source,
+                    gross_pnl=None if realized_pnl is None else float(realized_pnl) + float(result.fees or 0.0),
+                    net_pnl=realized_pnl,
+                    regime=str((signal_metadata.get("regime_context") or {}).get("regime") or ""),
                     realized_pnl=realized_pnl,
                     exchange_order_id=result.txid,
                     decision_id=decision_id,

@@ -45,6 +45,7 @@ class PrioritizedOrder:
     volume: float = field(compare=False, default=0.0)
     price: Optional[float] = field(compare=False, default=None)
     stop_price: Optional[float] = field(compare=False, default=None)
+    strategy_id: Optional[str] = field(compare=False, default=None)
     callback: Optional[Callable] = field(compare=False, default=None)
 
 
@@ -122,6 +123,7 @@ class OrderQueueAsync:
         volume: float,
         price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        strategy_id: Optional[str] = None,
         priority: OrderPriority = OrderPriority.ORDER,
         callback: Optional[Callable] = None,
     ) -> None:
@@ -132,6 +134,7 @@ class OrderQueueAsync:
             volume=volume,
             price=price,
             stop_price=stop_price,
+            strategy_id=strategy_id,
             callback=callback,
         )
         await self._queue.put(order)
@@ -155,6 +158,8 @@ class OrderQueueAsync:
                 kwargs = {}
                 if self.order_executor.__class__.__name__ == "PaperTradingExecutor" and order.price:
                     kwargs["price_hint"] = order.price
+                if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+                    kwargs["strategy_id"] = order.strategy_id
                 result = await self.order_executor.execute_market_order(
                     order.symbol, OrderSide.BUY, order.volume, **kwargs
                 )
@@ -162,12 +167,17 @@ class OrderQueueAsync:
                 kwargs = {}
                 if self.order_executor.__class__.__name__ == "PaperTradingExecutor" and order.price:
                     kwargs["price_hint"] = order.price
+                if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+                    kwargs["strategy_id"] = order.strategy_id
                 result = await self.order_executor.execute_market_order(
                     order.symbol, OrderSide.SELL, order.volume, **kwargs
                 )
             elif order.order_type == QueueOrderType.STOP_LOSS:
+                kwargs = {}
+                if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
+                    kwargs["strategy_id"] = order.strategy_id
                 result = await self.order_executor.execute_stop_loss_order(
-                    order.symbol, OrderSide.SELL, order.volume, order.stop_price or 0
+                    order.symbol, OrderSide.SELL, order.volume, order.stop_price or 0, **kwargs
                 )
             elif order.order_type == QueueOrderType.CANCEL:
                 result = await self.order_executor.cancel_order(order.symbol)

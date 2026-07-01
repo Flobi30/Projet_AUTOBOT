@@ -51,6 +51,7 @@ def test_consolidated_review_schema_validity(tmp_path):
         fees=0.4,
         realized_pnl=12.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal_path), runtime_context={"paper_trading": True})
@@ -92,6 +93,7 @@ def test_consolidated_review_safe_when_one_source_absent(tmp_path):
         fees=0.1,
         realized_pnl=4.0,
         is_closing_leg=True,
+        strategy_id="trend_momentum",
     )
 
     # Journal absent, pair attribution present
