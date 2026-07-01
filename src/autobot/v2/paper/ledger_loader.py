@@ -302,6 +302,7 @@ def _trade_record_from_ledger_pair(
             "closing_leg": _compact_trade_row(closing),
             "position": _compact_position_row(position),
             "strategy_source": _strategy_source(strategy_id, opening, closing, open_decision, close_decision, position),
+            "execution_mode": _execution_mode(opening, closing),
             "opening_decision": _compact_decision_row(open_decision),
             "closing_decision": _compact_decision_row(close_decision),
             "slippage": {
@@ -443,6 +444,19 @@ def _strategy_source(
     return LEGACY_UNATTRIBUTED_STRATEGY_ID
 
 
+def _execution_mode(
+    opening: Mapping[str, Any] | None,
+    closing: Mapping[str, Any] | None,
+) -> str:
+    for row in (closing, opening):
+        if not row:
+            continue
+        value = row.get("execution_mode")
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
 def _regime_from_decisions(*decisions: Mapping[str, Any] | None) -> str | None:
     for decision in decisions:
         if not decision:
@@ -522,6 +536,7 @@ def _compact_trade_row(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
         "gross_pnl",
         "net_pnl",
         "regime",
+        "execution_mode",
         "decision_id",
         "signal_id",
         "created_at",

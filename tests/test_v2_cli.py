@@ -927,6 +927,7 @@ def test_cli_paper_performance_summary_reads_official_post_p0_ledger(tmp_path, c
         conn.execute("ALTER TABLE trade_ledger ADD COLUMN gross_pnl REAL")
         conn.execute("ALTER TABLE trade_ledger ADD COLUMN net_pnl REAL")
         conn.execute("ALTER TABLE trade_ledger ADD COLUMN regime TEXT")
+        conn.execute("ALTER TABLE trade_ledger ADD COLUMN execution_mode TEXT")
         conn.execute(
             """
             UPDATE trade_ledger
@@ -935,7 +936,8 @@ def test_cli_paper_performance_summary_reads_official_post_p0_ledger(tmp_path, c
                 signal_source='pytest',
                 gross_pnl=2.0,
                 net_pnl=1.8,
-                regime='range'
+                regime='range',
+                execution_mode='paper_capital'
             WHERE side='sell'
             """
         )

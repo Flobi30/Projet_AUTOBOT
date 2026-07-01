@@ -14,7 +14,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-from .strategy_runtime_policy import LEGACY_UNATTRIBUTED_STRATEGY_ID, official_paper_strategy_block_reason
+from .strategy_runtime_policy import (
+    EXECUTION_MODE_LEGACY_UNSPECIFIED,
+    LEGACY_UNATTRIBUTED_STRATEGY_ID,
+    normalize_execution_mode,
+    official_paper_strategy_block_reason,
+    trade_ledger_append_block_reason,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -579,6 +585,7 @@ class StatePersistence:
                     net_pnl REAL,
                     regime TEXT,
                     execution_liquidity TEXT,
+                    execution_mode TEXT,
                     created_at TEXT NOT NULL
                 )
             """)
@@ -722,6 +729,7 @@ class StatePersistence:
                     "gross_pnl": "REAL",
                     "net_pnl": "REAL",
                     "regime": "TEXT",
+                    "execution_mode": "TEXT",
                 },
             )
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_strategy_id ON trade_ledger(strategy_id)")
@@ -938,9 +946,20 @@ class StatePersistence:
         now = datetime.now(timezone.utc).isoformat()
         try:
             strategy_id = kwargs.get("strategy_id")
-            block_reason = official_paper_strategy_block_reason(strategy_id)
+            explicit_execution_mode = kwargs.get("execution_mode")
+            execution_mode = normalize_execution_mode(explicit_execution_mode)
+            block_reason = trade_ledger_append_block_reason(
+                strategy_id,
+                execution_mode=execution_mode,
+                paper_capital_gate_attested=bool(kwargs.get("paper_capital_gate_attested", False)),
+            )
             if block_reason is not None:
-                logger.warning("Trade ledger append rejected: %s (symbol=%s)", block_reason, kwargs.get("symbol"))
+                logger.warning(
+                    "Trade ledger append rejected: %s (symbol=%s mode=%s)",
+                    block_reason,
+                    kwargs.get("symbol"),
+                    execution_mode,
+                )
                 return False
             # Reusing order repo connection for trade ledger
             conn = await self.orders.get_conn()
@@ -949,7 +968,7 @@ class StatePersistence:
                 "executed_price", "volume", "fees", "slippage_bps", "realized_pnl", 
                 "is_opening_leg", "is_closing_leg", "exchange_order_id", "decision_id", 
                 "signal_id", "strategy_id", "timeframe", "signal_source", "gross_pnl",
-                "net_pnl", "regime", "execution_liquidity", "created_at"
+                "net_pnl", "regime", "execution_liquidity", "execution_mode", "created_at"
             ]
             vals = [
                 kwargs.get("trade_id"), kwargs.get("position_id"), kwargs.get("instance_id"),
@@ -960,7 +979,7 @@ class StatePersistence:
                 kwargs.get("exchange_order_id"), kwargs.get("decision_id"), kwargs.get("signal_id"),
                 strategy_id, kwargs.get("timeframe"), kwargs.get("signal_source"),
                 kwargs.get("gross_pnl"), kwargs.get("net_pnl"), kwargs.get("regime"),
-                kwargs.get("execution_liquidity"), now
+                kwargs.get("execution_liquidity"), execution_mode or EXECUTION_MODE_LEGACY_UNSPECIFIED, now
             ]
             query = f"INSERT INTO trade_ledger ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})"
             await conn.execute(query, tuple(vals))

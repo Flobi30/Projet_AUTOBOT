@@ -88,18 +88,19 @@ def _create_state_db(path):
                 net_pnl REAL,
                 regime TEXT,
                 execution_liquidity TEXT,
+                execution_mode TEXT,
                 created_at TEXT NOT NULL
             )
             """
         )
         rows = [
-            ("legacy", None, "inst", "TRXEUR", "sell", 1.10, 1.10, 100.0, 0.2, 2.0, 99.0, 0, 1, None, None, None, None, None, None, 99.2, 99.0, "range", "taker", "2026-07-01T00:00:00+00:00"),
-            ("open1", "pos1", "inst", "TRXEUR", "buy", 1.00, 1.00, 100.0, 0.1, 1.0, None, 1, 0, None, None, None, "trend_momentum", "5m", "pytest", None, None, "range", "taker", "2026-07-01T01:00:00+00:00"),
-            ("close1", "pos1", "inst", "TRXEUR", "sell", 1.10, 1.10, 100.0, 0.3, 2.0, 10.0, 0, 1, None, None, None, "trend_momentum", "5m", "pytest", 10.4, 10.0, "range", "taker", "2026-07-01T02:00:00+00:00"),
-            ("open2", "pos2", "inst", "XLMEUR", "buy", 1.00, 1.00, 100.0, 0.1, 1.0, None, 1, 0, None, None, None, "trend_momentum", "15m", "pytest", None, None, "trend", "taker", "2026-07-01T03:00:00+00:00"),
-            ("close2", "pos2", "inst", "XLMEUR", "sell", 0.96, 0.96, 100.0, 0.3, 2.0, -4.0, 0, 1, None, None, None, "trend_momentum", "15m", "pytest", -3.6, -4.0, "trend", "taker", "2026-07-01T04:00:00+00:00"),
-            ("unknown", "pos3", "inst", "ADAEUR", "sell", 1.05, 1.05, 10.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "unregistered_alpha", "5m", "pytest", 1.2, 1.0, "range", "taker", "2026-07-01T05:00:00+00:00"),
-            ("grid", "pos4", "inst", "BTCEUR", "sell", 100.0, 100.0, 1.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "dynamic_grid", "5m", "pytest", 1.2, 1.0, "range", "taker", "2026-07-01T06:00:00+00:00"),
+            ("legacy", None, "inst", "TRXEUR", "sell", 1.10, 1.10, 100.0, 0.2, 2.0, 99.0, 0, 1, None, None, None, None, None, None, 99.2, 99.0, "range", "taker", None, "2026-07-01T00:00:00+00:00"),
+            ("open1", "pos1", "inst", "TRXEUR", "buy", 1.00, 1.00, 100.0, 0.1, 1.0, None, 1, 0, None, None, None, "trend_momentum", "5m", "pytest", None, None, "range", "taker", "paper_capital", "2026-07-01T01:00:00+00:00"),
+            ("close1", "pos1", "inst", "TRXEUR", "sell", 1.10, 1.10, 100.0, 0.3, 2.0, 10.0, 0, 1, None, None, None, "trend_momentum", "5m", "pytest", 10.4, 10.0, "range", "taker", "paper_capital", "2026-07-01T02:00:00+00:00"),
+            ("open2", "pos2", "inst", "XLMEUR", "buy", 1.00, 1.00, 100.0, 0.1, 1.0, None, 1, 0, None, None, None, "trend_momentum", "15m", "pytest", None, None, "trend", "taker", "paper_capital", "2026-07-01T03:00:00+00:00"),
+            ("close2", "pos2", "inst", "XLMEUR", "sell", 0.96, 0.96, 100.0, 0.3, 2.0, -4.0, 0, 1, None, None, None, "trend_momentum", "15m", "pytest", -3.6, -4.0, "trend", "taker", "paper_capital", "2026-07-01T04:00:00+00:00"),
+            ("unknown", "pos3", "inst", "ADAEUR", "sell", 1.05, 1.05, 10.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "unregistered_alpha", "5m", "pytest", 1.2, 1.0, "range", "taker", "paper_capital", "2026-07-01T05:00:00+00:00"),
+            ("grid", "pos4", "inst", "BTCEUR", "sell", 100.0, 100.0, 1.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "dynamic_grid", "5m", "pytest", 1.2, 1.0, "range", "taker", "paper_capital", "2026-07-01T06:00:00+00:00"),
         ]
         conn.executemany(
             """
@@ -107,8 +108,8 @@ def _create_state_db(path):
             (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
              volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
              exchange_order_id, decision_id, signal_id, strategy_id, timeframe, signal_source,
-             gross_pnl, net_pnl, regime, execution_liquidity, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             gross_pnl, net_pnl, regime, execution_liquidity, execution_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -134,6 +135,8 @@ def test_official_paper_summary_excludes_legacy_and_retired_grid(tmp_path):
     assert payload["legacy"]["legacy_unattributed_trade_count"] == 1
     assert payload["legacy"]["non_official_excluded_trade_count"] == 2
     assert payload["legacy"]["official_attributed_trade_count"] == 3
+    assert payload["legacy"]["paper_capital_trade_count"] == 3
+    assert payload["legacy"]["shadow_paper_trade_count"] == 0
     trend = next(item for item in payload["ranking"] if item["strategy_id"] == "trend_momentum")
     assert trend["metrics"]["closed_trade_count"] == 2
     assert trend["metrics"]["profit_factor"] == pytest.approx(2.5)

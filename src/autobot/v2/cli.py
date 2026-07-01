@@ -273,6 +273,19 @@ def _build_parser() -> argparse.ArgumentParser:
     paper_performance.add_argument("--no-write-report", action="store_true")
     paper_performance.set_defaults(handler=_cmd_paper_performance_summary)
 
+    shadow_observations = subparsers.add_parser(
+        "shadow-paper-observations",
+        help="Sync closed shadow-lab trades as attributed shadow_paper ledger observations",
+    )
+    shadow_observations.add_argument("--state-db", required=True, help="AUTOBOT state DB containing trade_ledger")
+    shadow_observations.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    shadow_observations.add_argument("--trend-shadow-db", default="data/trend_shadow_lab.db")
+    shadow_observations.add_argument("--mean-reversion-shadow-db", default="data/mean_reversion_shadow_lab.db")
+    shadow_observations.add_argument("--run-id", default=None)
+    shadow_observations.add_argument("--output-dir", default="reports/paper/shadow_observations")
+    shadow_observations.add_argument("--no-write-report", action="store_true")
+    shadow_observations.set_defaults(handler=_cmd_shadow_paper_observations)
+
     compare = subparsers.add_parser(
         "compare-paper-research",
         help="Compare official paper ledger evidence with a research matrix report",
@@ -1750,6 +1763,28 @@ def _cmd_paper_performance_summary(args: argparse.Namespace) -> int:
             output_dir=Path(args.output_dir),
             run_id=args.run_id,
             initial_capital_eur=args.initial_capital_eur,
+        ),
+        write_report=not args.no_write_report,
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_shadow_paper_observations(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.shadow_observation_sync import (
+        ShadowPaperObservationSyncConfig,
+        sync_shadow_paper_observations,
+    )
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=Path(args.state_db),
+            registry_path=Path(args.registry_path),
+            trend_shadow_db_path=Path(args.trend_shadow_db),
+            mean_reversion_shadow_db_path=Path(args.mean_reversion_shadow_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            write_report=not args.no_write_report,
         ),
         write_report=not args.no_write_report,
     )

@@ -18,8 +18,12 @@ from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.metrics_engine import MetricsEngine
 from autobot.v2.research.trade_journal import TradeRecord
 from autobot.v2.strategy_runtime_policy import (
+    EXECUTION_MODE_PAPER_CAPITAL,
+    EXECUTION_MODE_SHADOW_PAPER,
     LEGACY_UNATTRIBUTED_STRATEGY_ID,
+    normalize_execution_mode,
     official_paper_strategy_block_reason,
+    shadow_paper_strategy_block_reason,
 )
 from autobot.v2.strategy_validation_registry import (
     StrategyAcceptanceCriteria,
@@ -66,6 +70,8 @@ class StrategyPaperSummary:
     decision: str
     reason: str
     metrics: dict[str, Any]
+    shadow_paper_metrics: dict[str, Any] = field(default_factory=dict)
+    paper_capital_metrics: dict[str, Any] = field(default_factory=dict)
     best_pairs: tuple[PaperMetricBucket, ...] = ()
     worst_pairs: tuple[PaperMetricBucket, ...] = ()
     blockers: tuple[str, ...] = ()
@@ -80,6 +86,8 @@ class StrategyPaperSummary:
             "decision": self.decision,
             "reason": self.reason,
             "metrics": dict(self.metrics),
+            "shadow_paper_metrics": dict(self.shadow_paper_metrics),
+            "paper_capital_metrics": dict(self.paper_capital_metrics),
             "best_pairs": [item.to_dict() for item in self.best_pairs],
             "worst_pairs": [item.to_dict() for item in self.worst_pairs],
             "blockers": list(self.blockers),
@@ -99,6 +107,7 @@ class OfficialPaperPerformanceReport:
     ranking: tuple[StrategyPaperSummary, ...]
     blocked_strategies: tuple[StrategyPaperSummary, ...]
     by_strategy: tuple[PaperMetricBucket, ...]
+    by_strategy_execution_mode: tuple[PaperMetricBucket, ...]
     by_strategy_symbol: tuple[PaperMetricBucket, ...]
     by_strategy_symbol_timeframe: tuple[PaperMetricBucket, ...]
     by_strategy_symbol_timeframe_regime: tuple[PaperMetricBucket, ...]
@@ -119,6 +128,7 @@ class OfficialPaperPerformanceReport:
             "ranking": [item.to_dict() for item in self.ranking],
             "blocked_strategies": [item.to_dict() for item in self.blocked_strategies],
             "by_strategy": [item.to_dict() for item in self.by_strategy],
+            "by_strategy_execution_mode": [item.to_dict() for item in self.by_strategy_execution_mode],
             "by_strategy_symbol": [item.to_dict() for item in self.by_strategy_symbol],
             "by_strategy_symbol_timeframe": [item.to_dict() for item in self.by_strategy_symbol_timeframe],
             "by_strategy_symbol_timeframe_regime": [
@@ -146,9 +156,13 @@ def build_official_paper_performance_report(
 
     loaded = load_state_db_paper_ledger(config.state_db_path, include_decisions=False)
     all_records = tuple(loaded.journal.records)
-    official_records = tuple(record for record in all_records if _is_official_attributed(record))
+    reportable_records = tuple(record for record in all_records if _is_reportable_attributed(record))
+    shadow_records = tuple(record for record in reportable_records if _execution_mode(record) == EXECUTION_MODE_SHADOW_PAPER)
+    paper_capital_records = tuple(
+        record for record in reportable_records if _execution_mode(record) == EXECUTION_MODE_PAPER_CAPITAL
+    )
     legacy_unattributed_records = tuple(record for record in all_records if _is_legacy_unattributed(record))
-    excluded_non_official_records = tuple(record for record in all_records if not _is_official_attributed(record))
+    excluded_non_reportable_records = tuple(record for record in all_records if not _is_reportable_attributed(record))
 
     registry_warnings: list[str] = []
     try:
@@ -156,7 +170,7 @@ def build_official_paper_performance_report(
     except Exception as exc:
         registry_payload = {"hypotheses": []}
         registry_warnings.append(f"registry_unavailable:{type(exc).__name__}")
-    registry_evidence = _evidence_by_strategy(official_records, config.initial_capital_eur)
+    registry_evidence = _evidence_by_strategy(paper_capital_records, config.initial_capital_eur)
     registry_records = build_strategy_registry_records(
         registry_payload,
         evidence_by_strategy_id=registry_evidence,
@@ -166,11 +180,11 @@ def build_official_paper_performance_report(
     entry_by_id = {
         str(entry.get("strategy_id") or entry.get("id") or ""): entry for entry in registry_entries(registry_payload)
     }
-    strategy_ids = sorted({record.strategy_id for record in registry_records} | {trade.strategy_id for trade in official_records})
+    strategy_ids = sorted({record.strategy_id for record in registry_records} | {trade.strategy_id for trade in reportable_records})
 
     strategy_summaries: list[StrategyPaperSummary] = []
     pair_buckets = _group_metrics(
-        official_records,
+        reportable_records,
         config.initial_capital_eur,
         ("strategy_id", "symbol"),
     )
@@ -179,8 +193,12 @@ def build_official_paper_performance_report(
         pairs_by_strategy[bucket.key["strategy_id"]].append(bucket)
 
     for strategy_id in strategy_ids:
-        records = tuple(trade for trade in official_records if trade.strategy_id == strategy_id)
+        records = tuple(trade for trade in reportable_records if trade.strategy_id == strategy_id)
+        strategy_shadow_records = tuple(trade for trade in shadow_records if trade.strategy_id == strategy_id)
+        strategy_paper_capital_records = tuple(trade for trade in paper_capital_records if trade.strategy_id == strategy_id)
         metrics = _metrics_dict(records, config.initial_capital_eur)
+        shadow_metrics = _metrics_dict(strategy_shadow_records, config.initial_capital_eur)
+        paper_capital_metrics = _metrics_dict(strategy_paper_capital_records, config.initial_capital_eur)
         entry = entry_by_strategy_id(registry_payload, strategy_id)
         registry_record = registry_by_id.get(strategy_id)
         summary = _strategy_summary(
@@ -188,6 +206,8 @@ def build_official_paper_performance_report(
             entry,
             registry_record,
             metrics,
+            shadow_metrics,
+            paper_capital_metrics,
             pairs_by_strategy.get(strategy_id, []),
         )
         strategy_summaries.append(summary)
@@ -205,8 +225,11 @@ def build_official_paper_performance_report(
         initial_capital_eur=float(config.initial_capital_eur),
         legacy={
             "legacy_unattributed_trade_count": len(legacy_unattributed_records),
-            "non_official_excluded_trade_count": len(excluded_non_official_records),
-            "official_attributed_trade_count": len(official_records),
+            "non_official_excluded_trade_count": len(excluded_non_reportable_records),
+            "official_attributed_trade_count": len(reportable_records),
+            "reportable_attributed_trade_count": len(reportable_records),
+            "shadow_paper_trade_count": len(shadow_records),
+            "paper_capital_trade_count": len(paper_capital_records),
             "legacy_strategy_id": LEGACY_UNATTRIBUTED_STRATEGY_ID,
             "excluded_from_official_metrics": True,
         },
@@ -221,15 +244,20 @@ def build_official_paper_performance_report(
         },
         ranking=ranking,
         blocked_strategies=blocked,
-        by_strategy=_group_metrics(official_records, config.initial_capital_eur, ("strategy_id",)),
+        by_strategy=_group_metrics(reportable_records, config.initial_capital_eur, ("strategy_id",)),
+        by_strategy_execution_mode=_group_metrics(
+            reportable_records,
+            config.initial_capital_eur,
+            ("strategy_id", "execution_mode"),
+        ),
         by_strategy_symbol=pair_buckets,
         by_strategy_symbol_timeframe=_group_metrics(
-            official_records,
+            reportable_records,
             config.initial_capital_eur,
             ("strategy_id", "symbol", "timeframe"),
         ),
         by_strategy_symbol_timeframe_regime=_group_metrics(
-            official_records,
+            reportable_records,
             config.initial_capital_eur,
             ("strategy_id", "symbol", "timeframe", "regime"),
         ),
@@ -254,11 +282,16 @@ def write_official_paper_performance_report(
     return replace(report, json_report_path=str(json_path), markdown_report_path=str(md_path))
 
 
-def _is_official_attributed(record: TradeRecord) -> bool:
+def _is_reportable_attributed(record: TradeRecord) -> bool:
     strategy_id = str(record.strategy_id or "").strip()
     if not strategy_id or strategy_id == LEGACY_UNATTRIBUTED_STRATEGY_ID:
         return False
-    return official_paper_strategy_block_reason(strategy_id) is None
+    mode = _execution_mode(record)
+    if mode == EXECUTION_MODE_SHADOW_PAPER:
+        return shadow_paper_strategy_block_reason(strategy_id) is None
+    if mode == EXECUTION_MODE_PAPER_CAPITAL:
+        return official_paper_strategy_block_reason(strategy_id) is None
+    return False
 
 
 def _is_legacy_unattributed(record: TradeRecord) -> bool:
@@ -277,6 +310,8 @@ def _metric_key(record: TradeRecord, fields: Sequence[str]) -> dict[str, str]:
             value = _trade_metadata_value(record, "timeframe") or "unknown"
         elif field == "regime":
             value = record.regime or _trade_metadata_value(record, "regime") or "unknown"
+        elif field == "execution_mode":
+            value = _execution_mode(record) or "unknown"
         else:
             value = "unknown"
         result[field] = str(value or "unknown")
@@ -291,6 +326,13 @@ def _trade_metadata_value(record: TradeRecord, key: str) -> str | None:
             if value not in (None, ""):
                 return str(value)
     return None
+
+
+def _execution_mode(record: TradeRecord) -> str:
+    return normalize_execution_mode(
+        record.metadata.get("execution_mode")
+        or _trade_metadata_value(record, "execution_mode")
+    )
 
 
 def _group_metrics(
@@ -375,6 +417,8 @@ def _strategy_summary(
     entry: Mapping[str, Any] | None,
     registry_record: Any,
     metrics: Mapping[str, Any],
+    shadow_paper_metrics: Mapping[str, Any],
+    paper_capital_metrics: Mapping[str, Any],
     pair_buckets: Sequence[PaperMetricBucket],
 ) -> StrategyPaperSummary:
     if entry is None:
@@ -388,21 +432,28 @@ def _strategy_summary(
             decision="blocked",
             reason="strategy_not_in_registry",
             metrics=dict(metrics),
+            shadow_paper_metrics=dict(shadow_paper_metrics),
+            paper_capital_metrics=dict(paper_capital_metrics),
             best_pairs=_top_pairs(pair_buckets, reverse=True),
             worst_pairs=_top_pairs(pair_buckets, reverse=False),
             blockers=blockers,
         )
 
-    decision = evaluate_paper_capital_gate(entry, metrics=metrics)
+    decision = evaluate_paper_capital_gate(entry, metrics=paper_capital_metrics)
     runtime_status = registry_record.status if registry_record else "unknown"
     paper_capital_enabled = bool(registry_record and registry_record.paper_capital_enabled)
     registry_status = str(entry.get("validation_status") or "learning")
+    shadow_count = int(_safe_float(shadow_paper_metrics.get("closed_trade_count")))
+    paper_capital_count = int(_safe_float(paper_capital_metrics.get("closed_trade_count")))
     if strategy_id == "no_trade_baseline":
         current_decision = "reference"
         reason = "baseline_reference_not_alpha_strategy"
     elif registry_status in {"rejected", "retired_from_execution"}:
         current_decision = "disabled"
         reason = registry_record.reason_if_disabled if registry_record else registry_status
+    elif shadow_count > 0 and paper_capital_count == 0:
+        current_decision = "keep_observing"
+        reason = "shadow_paper_observations_not_promotable"
     elif not metrics.get("closed_trade_count"):
         current_decision = "insufficient_data"
         reason = "no_official_post_p0_trades"
@@ -423,6 +474,8 @@ def _strategy_summary(
         decision=current_decision,
         reason=reason or "insufficient_data",
         metrics=dict(metrics),
+        shadow_paper_metrics=dict(shadow_paper_metrics),
+        paper_capital_metrics=dict(paper_capital_metrics),
         best_pairs=_top_pairs(pair_buckets, reverse=True),
         worst_pairs=_top_pairs(pair_buckets, reverse=False),
         blockers=blockers,
@@ -446,9 +499,10 @@ def _ranking_key(summary: StrategyPaperSummary) -> tuple[int, float, float, int]
     decision_rank = {
         "candidate": 0,
         "blocked": 1,
-        "insufficient_data": 2,
-        "reference": 3,
-        "disabled": 4,
+        "keep_observing": 2,
+        "insufficient_data": 3,
+        "reference": 4,
+        "disabled": 5,
     }.get(summary.decision, 5)
     metrics = summary.metrics
     return (
@@ -478,6 +532,8 @@ def _markdown(report: OfficialPaperPerformanceReport) -> str:
         f"- Registry: `{report.registry_path}`",
         f"- Initial capital: `{report.initial_capital_eur:.2f} EUR`",
         f"- Official attributed trades: `{report.legacy['official_attributed_trade_count']}`",
+        f"- Shadow paper trades: `{report.legacy['shadow_paper_trade_count']}`",
+        f"- Paper capital trades: `{report.legacy['paper_capital_trade_count']}`",
         f"- Legacy unattributed trades excluded: `{report.legacy['legacy_unattributed_trade_count']}`",
         "",
         "## Strategy Ranking",
