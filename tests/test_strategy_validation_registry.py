@@ -21,7 +21,11 @@ from autobot.v2.strategy_validation_registry import (
     validate_registry,
     validate_strategy_entry,
 )
-from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired, retired_grid_snapshot
+from autobot.v2.strategy_runtime_policy import (
+    official_paper_strategy_block_reason,
+    is_runtime_engine_retired,
+    retired_grid_snapshot,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -288,6 +292,11 @@ def test_grid_runtime_flag_cannot_reenable_dynamic_grid(monkeypatch):
     assert is_runtime_engine_retired("dynamic_grid") is True
     assert snapshot["runtime_flag"]["requested_value"] is True
     assert snapshot["runtime_flag"]["effective_runtime_enabled"] is False
+
+
+def test_legacy_unattributed_is_not_an_official_paper_strategy_id():
+    assert official_paper_strategy_block_reason(None) == "strategy_id_required"
+    assert official_paper_strategy_block_reason("legacy_unattributed") == "strategy_id_required"
 
 
 def test_malformed_strategy_entry_blocks_paper_and_live_eligibility():

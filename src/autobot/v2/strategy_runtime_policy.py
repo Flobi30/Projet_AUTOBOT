@@ -14,6 +14,7 @@ from typing import Any, Iterable
 GRID_RUNTIME_RETIRED_REASON = "grid_retired_research_only"
 GRID_STRATEGY_ALIASES = frozenset({"dynamic_grid", "grid", "grid_core"})
 RETIRED_RUNTIME_ENGINES = GRID_STRATEGY_ALIASES
+LEGACY_UNATTRIBUTED_STRATEGY_ID = "legacy_unattributed"
 
 
 def grid_runtime_enabled() -> bool:
@@ -35,6 +36,8 @@ def normalize_strategy_id(strategy_id: Any) -> str:
 def official_paper_strategy_block_reason(strategy_id: Any) -> str | None:
     normalized = normalize_strategy_id(strategy_id)
     if not normalized:
+        return "strategy_id_required"
+    if normalized.lower() == LEGACY_UNATTRIBUTED_STRATEGY_ID:
         return "strategy_id_required"
     if is_runtime_engine_retired(normalized):
         return GRID_RUNTIME_RETIRED_REASON

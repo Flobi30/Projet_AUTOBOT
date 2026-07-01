@@ -526,3 +526,4 @@ def test_paper_trades_db_loader_pairs_fills_fifo(tmp_path):
     assert trade.gross_pnl_eur == pytest.approx(10.0)
     assert trade.net_pnl_eur == pytest.approx(9.6)
     assert trade.fees_eur == pytest.approx(0.4)
+    assert trade.strategy_id == "legacy_unattributed"

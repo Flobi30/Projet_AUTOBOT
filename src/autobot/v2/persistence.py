@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-from .strategy_runtime_policy import official_paper_strategy_block_reason
+from .strategy_runtime_policy import LEGACY_UNATTRIBUTED_STRATEGY_ID, official_paper_strategy_block_reason
 
 logger = logging.getLogger(__name__)
 
@@ -1398,7 +1398,17 @@ class StatePersistence:
     async def get_trade_ledger_metrics_by_strategy(
         self,
         instance_id: Optional[str] = None,
+        *,
+        include_legacy: bool = False,
     ) -> Dict[str, Dict[str, float]]:
+        """Return official closing-trade metrics by strategy.
+
+        Legacy closing rows written before P0 may not have ``strategy_id``.
+        They are historical evidence only: official strategy metrics exclude
+        them by default so they cannot feed promotion or allocation gates.
+        Pass ``include_legacy=True`` only for audit/reporting; those rows are
+        then bucketed as ``legacy_unattributed``.
+        """
         await self.initialize()
         clauses = ["is_closing_leg = 1"]
         args: list[Any] = []
@@ -1410,7 +1420,7 @@ class StatePersistence:
             conn = await self.orders.get_conn()
             async with conn.execute(
                 f"""
-                SELECT COALESCE(strategy_id, 'unknown') AS strategy_id, realized_pnl, net_pnl, fees
+                SELECT strategy_id, realized_pnl, net_pnl, fees
                 FROM trade_ledger
                 {where}
                 """,
@@ -1421,7 +1431,15 @@ class StatePersistence:
             buckets: Dict[str, list[float]] = {}
             fees_by_strategy: Dict[str, float] = {}
             for row in rows:
-                strategy_id = str(row["strategy_id"] or "unknown")
+                raw_strategy_id = str(row["strategy_id"] or "").strip()
+                if not raw_strategy_id:
+                    if not include_legacy:
+                        continue
+                    strategy_id = LEGACY_UNATTRIBUTED_STRATEGY_ID
+                else:
+                    if official_paper_strategy_block_reason(raw_strategy_id) is not None:
+                        continue
+                    strategy_id = raw_strategy_id
                 pnl_value = row["net_pnl"] if row["net_pnl"] is not None else row["realized_pnl"]
                 if pnl_value is None:
                     continue

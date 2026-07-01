@@ -94,6 +94,62 @@ async def test_trade_ledger_blocks_missing_strategy_and_retired_grid(tmp_path):
         await p.close()
 
 
+@pytest.mark.asyncio
+async def test_legacy_unattributed_trades_are_excluded_from_official_strategy_metrics(tmp_path):
+    db = tmp_path / "state.db"
+    p = StatePersistence(str(db))
+    try:
+        await p.initialize()
+        conn = await p.orders.get_conn()
+        await conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, instance_id, symbol, side, executed_price, volume, fees,
+             realized_pnl, net_pnl, is_closing_leg, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy_without_strategy",
+                "i1",
+                "XXBTZEUR",
+                "sell",
+                101.0,
+                1.0,
+                0.4,
+                250.0,
+                250.0,
+                1,
+                "2026-07-01T00:00:00+00:00",
+            ),
+        )
+        await conn.commit()
+        await p.append_trade_ledger(
+            trade_id="official-loss",
+            instance_id="i1",
+            symbol="XXBTZEUR",
+            side="sell",
+            executed_price=99.0,
+            volume=1.0,
+            fees=0.2,
+            realized_pnl=-5.0,
+            net_pnl=-5.0,
+            is_closing_leg=True,
+            strategy_id="trend_momentum",
+        )
+
+        official = await p.get_trade_ledger_metrics_by_strategy("i1")
+        audit = await p.get_trade_ledger_metrics_by_strategy("i1", include_legacy=True)
+
+        assert set(official) == {"trend_momentum"}
+        assert official["trend_momentum"]["trade_count"] == 1.0
+        assert official["trend_momentum"]["profit_factor"] == 0.0
+        assert official["trend_momentum"]["expectancy"] == -5.0
+        assert audit["legacy_unattributed"]["trade_count"] == 1.0
+        assert audit["legacy_unattributed"]["net_pnl"] == 250.0
+    finally:
+        await p.close()
+
+
 @dataclass
 class _DummyConfig:
     max_positions: int = 10

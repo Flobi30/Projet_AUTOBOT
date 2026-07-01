@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
+from autobot.v2.strategy_runtime_policy import LEGACY_UNATTRIBUTED_STRATEGY_ID
 
 from .paper_trading_engine import PaperDecisionRecord
 
@@ -344,7 +345,7 @@ def _fifo_records_from_paper_fills(
                 records.append(
                     TradeRecord(
                         run_id="paper_trades_db_fifo",
-                        strategy_id="unknown",
+                        strategy_id=LEGACY_UNATTRIBUTED_STRATEGY_ID,
                         symbol=symbol,
                         side="buy",
                         opened_at=_parse_datetime(opening.get("timestamp")),
@@ -399,7 +400,7 @@ def _strategy_id(*sources: Mapping[str, Any] | None) -> str:
                 return str(payload["strategy_id"])
             if payload.get("strategy"):
                 return str(payload["strategy"])
-    return "unknown"
+    return LEGACY_UNATTRIBUTED_STRATEGY_ID
 
 
 def _strategy_source(
@@ -408,8 +409,8 @@ def _strategy_source(
     close_decision: Mapping[str, Any] | None,
     position: Mapping[str, Any] | None,
 ) -> str:
-    if strategy_id == "unknown":
-        return "unknown"
+    if strategy_id == LEGACY_UNATTRIBUTED_STRATEGY_ID:
+        return LEGACY_UNATTRIBUTED_STRATEGY_ID
     for label, source in (
         ("opening_decision", open_decision),
         ("closing_decision", close_decision),
@@ -423,7 +424,7 @@ def _strategy_source(
             payload = _json_object(source.get(key))
             if payload.get("strategy_id") or payload.get("strategy"):
                 return label
-    return "unknown"
+    return LEGACY_UNATTRIBUTED_STRATEGY_ID
 
 
 def _regime_from_decisions(*decisions: Mapping[str, Any] | None) -> str | None:
