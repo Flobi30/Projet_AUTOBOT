@@ -2,7 +2,7 @@
 
 ## Verdict
 
-PASS_WITH_WARNINGS pending VPS deployment verification.
+PASS_WITH_WARNINGS.
 
 ## Scope
 
@@ -91,20 +91,41 @@ Warnings:
 
 ## VPS Deployment
 
-Pending at local report creation. Must be updated after deployment with:
+Deployed commit:
 
-- deployed commit SHA;
-- container status;
-- `/health`;
-- `PAPER_TRADING`;
-- `LIVE_TRADING_CONFIRMATION`;
-- `ENABLE_LIVE_TRADING` if present;
-- `ENABLE_INSTANCE_SPLIT_EXECUTOR` if present;
-- log check for tracebacks/critical errors;
-- confirmation no live order was created.
+- `47213731c5ce37359974c3f827d316dd83957ee8`
+
+Deployment commands used:
+
+```bash
+cd /opt/Projet_AUTOBOT
+git pull --ff-only --autostash origin master
+docker compose build autobot
+docker compose up -d autobot
+```
+
+VPS status after deployment:
+
+- Container: `autobot-v2` up and healthy.
+- `/health`: `healthy`, orchestrator `running`, websocket `connected`, instances `14`.
+- `/api/status`: protected route returned `Token manquant`.
+- `/api/capital`: protected route returned `Token manquant`.
+- `PAPER_TRADING=true`.
+- `LIVE_TRADING_CONFIRMATION=false`.
+- `ENABLE_LIVE_TRADING=<unset>`.
+- `STRATEGY_ROUTER_LIVE_ENABLED=false`.
+- `COLONY_AUTO_LIVE_PROMOTION=false`.
+- `ENABLE_INSTANCE_SPLIT_EXECUTOR=<unset>`.
+- `GRID_RUNTIME_ENABLED=<unset>`; code default keeps Grid disabled.
+- Filtered logs: no traceback, critical error, live order, Kraken live order, or live trading activation detected.
+
+Observed non-critical runtime log:
+
+- `WS high_message_rate` warning appeared after startup with drops `0`; this is an existing throughput warning, not a P0 trading-safety regression.
 
 ## Residual Risks
 
 - Existing legacy open paper positions without strategy metadata may be blocked from new official ledger writes until explicitly reconciled or migrated. This is intentional for P0 safety but should be audited before any future paper promotion.
 - Historical ledger rows without `strategy_id` remain historical data and are not retroactively trusted for strategy promotion.
 - Tracked `.pyc` files in the repository were touched by local compilation; they are intentionally not part of this patch.
+- Protected API endpoints require the dashboard/API token for deeper post-deploy data inspection.
