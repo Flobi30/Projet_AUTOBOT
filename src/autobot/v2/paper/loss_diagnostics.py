@@ -300,9 +300,10 @@ def write_paper_loss_diagnostics_report(
     base = output / report.run_id
     json_path = base.with_suffix(".json")
     md_path = base.with_suffix(".md")
-    json_path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
-    md_path.write_text(_markdown(report), encoding="utf-8")
-    return replace(report, json_report_path=str(json_path), markdown_report_path=str(md_path))
+    report_with_paths = replace(report, json_report_path=str(json_path), markdown_report_path=str(md_path))
+    json_path.write_text(json.dumps(report_with_paths.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    md_path.write_text(_markdown(report_with_paths), encoding="utf-8")
+    return report_with_paths
 
 
 def _is_shadow_record(record: TradeRecord) -> bool:

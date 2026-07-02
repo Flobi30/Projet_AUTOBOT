@@ -334,3 +334,6 @@ def test_cli_paper_loss_diagnostics_writes_report(tmp_path, capsys):
     assert exit_code == 0
     assert payload["source"] == "post_p2_shadow_paper_trade_ledger"
     assert (output_dir / "pytest_loss.md").exists()
+    persisted = json.loads((output_dir / "pytest_loss.json").read_text(encoding="utf-8"))
+    assert persisted["json_report_path"].endswith("pytest_loss.json")
+    assert persisted["markdown_report_path"].endswith("pytest_loss.md")
