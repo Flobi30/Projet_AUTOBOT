@@ -63,10 +63,16 @@ Results:
 - Compileall passed.
 - Shell script syntax passed.
 - Diff check passed with Windows CRLF warnings only.
+- VPS smoke after deploy inserted Trend shadow observations and confirmed the
+  P4 ledger path is writable.
+- The smoke initially found a High Conviction replay output permission issue;
+  the systemd runner now prepares `data/research/high_conviction_shadow_sync`
+  as an appuser-writable persistent directory.
 
 ## Warnings
 
-- The next daily research run must confirm that the VPS service user can write both the shadow report folder and `data/autobot_state.db`.
+- The next daily research run must confirm that full-history High Conviction
+  sync completes within the research service budget.
 - High Conviction will still write no observations if the replay produces no closed trades; this is expected and reported as a diagnostic instead of forcing synthetic trades.
 - Score buckets are only as useful as the upstream opportunity metadata available in `decision_ledger` or shadow lab rows.
 
