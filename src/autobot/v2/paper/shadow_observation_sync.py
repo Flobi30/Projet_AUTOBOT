@@ -163,21 +163,23 @@ def sync_shadow_paper_observations(
     registry_payload = load_registry(config.registry_path)
     generated_at = config.generated_at.isoformat()
 
-    state_conn = sqlite3.connect(config.state_db_path)
+    state_conn = sqlite3.connect(config.state_db_path, timeout=30.0)
     state_conn.row_factory = sqlite3.Row
     try:
+        state_conn.execute("PRAGMA busy_timeout=30000")
         _ensure_trade_ledger_schema(state_conn)
         opportunity_lookup = _load_opportunity_score_lookup(state_conn)
         source_results: list[ShadowSyncSourceResult] = []
         for source in SYNCABLE_SHADOW_SOURCES:
             result = _sync_source(config, registry_payload, state_conn, source, generated_at, opportunity_lookup)
             source_results.append(result)
+            state_conn.commit()
         source_results.append(
             _sync_high_conviction_source(config, registry_payload, state_conn, generated_at, opportunity_lookup)
         )
+        state_conn.commit()
         for source in UNSYNCED_OBSERVATION_STRATEGIES:
             source_results.append(_unsynced_source_result(registry_payload, source))
-        state_conn.commit()
         accumulation = _build_accumulation(state_conn, now=config.generated_at)
     finally:
         state_conn.close()
@@ -407,6 +409,9 @@ def _sync_high_conviction_source(
         source_id = _high_conviction_source_id(record, index)
         if _ledger_trade_exists(state_conn, f"{source_id}:close") or _ledger_trade_exists(
             state_conn, f"{source_id}:open"
+        ) or _high_conviction_economic_trade_exists(
+            state_conn,
+            record,
         ):
             duplicates += 1
             continue
@@ -654,9 +659,10 @@ def _insert_trade_record_pair(
         raise ValueError("high_conviction shadow record requires gross and net pnl")
     if record.fees_eur is None or record.slippage_eur is None:
         raise ValueError("high_conviction shadow record requires fees and slippage")
-    total_cost = max(0.0, record.fees_eur + record.spread_cost_eur + record.slippage_eur + record.latency_cost_eur)
-    if total_cost < 0.0:
+    cost_fields = (record.fees_eur, record.spread_cost_eur, record.slippage_eur, record.latency_cost_eur)
+    if any(float(cost) < 0.0 for cost in cost_fields):
         raise ValueError("high_conviction shadow record costs cannot be negative")
+    total_cost = sum(float(cost) for cost in cost_fields)
 
     entry_notional = record.entry_price * record.quantity
     exit_notional = record.exit_price * record.quantity
@@ -746,7 +752,6 @@ def _insert_trade_record_pair(
 def _high_conviction_source_id(record: TradeRecord, index: int) -> str:
     payload = "|".join(
         (
-            record.run_id,
             record.strategy_id,
             record.symbol,
             record.opened_at.isoformat(),
@@ -759,6 +764,39 @@ def _high_conviction_source_id(record: TradeRecord, index: int) -> str:
     )
     digest = sha1(payload.encode("utf-8")).hexdigest()[:16]
     return f"high_conviction_research:{digest}"
+
+
+def _high_conviction_economic_trade_exists(conn: sqlite3.Connection, record: TradeRecord) -> bool:
+    """Detect prior High Conviction syncs even if their replay run_id changed."""
+
+    closed_at = record.closed_at.isoformat() if record.closed_at else None
+    if closed_at is None:
+        return False
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM trade_ledger
+        WHERE strategy_id=?
+          AND execution_mode=?
+          AND is_closing_leg=1
+          AND symbol=?
+          AND created_at=?
+          AND ABS(executed_price - ?) < 0.000000001
+          AND ABS(volume - ?) < 0.000000001
+          AND ABS(COALESCE(net_pnl, 0.0) - ?) < 0.000000001
+        LIMIT 1
+        """,
+        (
+            "high_conviction_swing",
+            EXECUTION_MODE_SHADOW_PAPER,
+            record.symbol.upper(),
+            closed_at,
+            float(record.exit_price),
+            float(record.quantity),
+            float(record.net_pnl_eur or 0.0),
+        ),
+    ).fetchone()
+    return row is not None
 
 
 def _split_legacy_costs(
@@ -1131,7 +1169,7 @@ def _ensure_trade_ledger_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE trade_ledger ADD COLUMN {name} {ddl_type}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_strategy_id ON trade_ledger(strategy_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_execution_mode ON trade_ledger(execution_mode)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_trade_id ON trade_ledger(trade_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_ledger_trade_id_unique ON trade_ledger(trade_id)")
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
