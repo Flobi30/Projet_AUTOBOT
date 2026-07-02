@@ -281,6 +281,16 @@ def _build_parser() -> argparse.ArgumentParser:
     shadow_observations.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
     shadow_observations.add_argument("--trend-shadow-db", default="data/trend_shadow_lab.db")
     shadow_observations.add_argument("--mean-reversion-shadow-db", default="data/mean_reversion_shadow_lab.db")
+    shadow_observations.add_argument(
+        "--high-conviction-data-paths",
+        default=None,
+        help="Comma-separated OHLCV CSV/Parquet path(s) or directories used to build closed high-conviction shadow observations",
+    )
+    shadow_observations.add_argument(
+        "--high-conviction-output-dir",
+        default=None,
+        help="Optional output directory for the research-only high-conviction replay report",
+    )
     shadow_observations.add_argument("--run-id", default=None)
     shadow_observations.add_argument("--output-dir", default="reports/paper/shadow_observations")
     shadow_observations.add_argument("--no-write-report", action="store_true")
@@ -1795,7 +1805,15 @@ def _cmd_shadow_paper_observations(args: argparse.Namespace) -> int:
             registry_path=Path(args.registry_path),
             trend_shadow_db_path=Path(args.trend_shadow_db),
             mean_reversion_shadow_db_path=Path(args.mean_reversion_shadow_db),
+            high_conviction_data_paths=(
+                tuple(Path(item) for item in _csv_tuple(args.high_conviction_data_paths, "--high-conviction-data-paths"))
+                if args.high_conviction_data_paths
+                else ()
+            ),
             output_dir=Path(args.output_dir),
+            high_conviction_output_dir=(
+                Path(args.high_conviction_output_dir) if args.high_conviction_output_dir else None
+            ),
             run_id=args.run_id,
             write_report=not args.no_write_report,
         ),

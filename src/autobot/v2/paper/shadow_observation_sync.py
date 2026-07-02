@@ -12,9 +12,17 @@ import sqlite3
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
+from hashlib import sha1
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from autobot.v2.research.high_conviction_portfolio import (
+    HighConvictionPortfolioConfig,
+    PortfolioScenarioResult,
+    build_high_conviction_portfolio_report,
+    write_high_conviction_portfolio_report,
+)
+from autobot.v2.research.trade_journal import TradeRecord
 from autobot.v2.shadow_cost_bridge import conservative_shadow_cost_defaults
 from autobot.v2.strategy_runtime_policy import (
     EXECUTION_MODE_PAPER_CAPITAL,
@@ -44,11 +52,6 @@ SYNCABLE_SHADOW_SOURCES: tuple[dict[str, str], ...] = (
 
 UNSYNCED_OBSERVATION_STRATEGIES: tuple[dict[str, str], ...] = (
     {
-        "strategy_id": "high_conviction_swing",
-        "source": "high_conviction_research",
-        "reason": "no_closed_shadow_trade_source",
-    },
-    {
         "strategy_id": "opportunity_scoring",
         "source": "opportunity_scoring",
         "reason": "scoring_layer_no_direct_trade_source",
@@ -62,7 +65,9 @@ class ShadowPaperObservationSyncConfig:
     registry_path: Path = Path("docs/research/strategy_hypotheses.json")
     trend_shadow_db_path: Path = Path("data/trend_shadow_lab.db")
     mean_reversion_shadow_db_path: Path = Path("data/mean_reversion_shadow_lab.db")
+    high_conviction_data_paths: tuple[Path, ...] = ()
     output_dir: Path = Path("reports/paper/shadow_observations")
+    high_conviction_output_dir: Path | None = None
     run_id: str | None = None
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     write_report: bool = True
@@ -164,6 +169,7 @@ def sync_shadow_paper_observations(
         for source in SYNCABLE_SHADOW_SOURCES:
             result = _sync_source(config, registry_payload, state_conn, source, generated_at)
             source_results.append(result)
+        source_results.append(_sync_high_conviction_source(config, registry_payload, state_conn, generated_at))
         for source in UNSYNCED_OBSERVATION_STRATEGIES:
             source_results.append(_unsynced_source_result(registry_payload, source))
         state_conn.commit()
@@ -240,15 +246,7 @@ def _sync_source(
                 reason_counts={"source_table_missing": 1},
                 warnings=("source_table_missing",),
             )
-        rows = source_conn.execute(
-            f"""
-            SELECT id, symbol, variant, position_id, entry_price, exit_price,
-                   volume, notional, fees, realized_pnl, reason, opened_at,
-                   closed_at, created_at
-            FROM {source['table']}
-            ORDER BY closed_at ASC, id ASC
-            """
-        ).fetchall()
+        rows = _select_shadow_source_rows(source_conn, source["table"])
     finally:
         source_conn.close()
 
@@ -298,6 +296,161 @@ def _sync_source(
     )
 
 
+def _sync_high_conviction_source(
+    config: ShadowPaperObservationSyncConfig,
+    registry_payload: Mapping[str, Any],
+    state_conn: sqlite3.Connection,
+    generated_at: str,
+) -> ShadowSyncSourceResult:
+    strategy_id = "high_conviction_swing"
+    source_name = "high_conviction_portfolio_replay"
+    policy_reason = shadow_paper_strategy_block_reason(strategy_id)
+    registry_entry = entry_by_strategy_id(registry_payload, strategy_id)
+    if registry_entry is None:
+        policy_reason = policy_reason or "strategy_not_in_registry"
+    elif str(registry_entry.get("validation_status") or "") in {"rejected", "retired_from_execution"}:
+        policy_reason = policy_reason or "strategy_terminal_status"
+
+    if policy_reason is not None:
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=None,
+            can_write_shadow=False,
+            reason_counts={policy_reason: 1},
+        )
+    if not config.high_conviction_data_paths:
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=None,
+            can_write_shadow=True,
+            reason_counts={"high_conviction_data_paths_missing": 1},
+            warnings=("high_conviction_data_paths_missing",),
+        )
+
+    missing = [str(path) for path in config.high_conviction_data_paths if not path.exists()]
+    if missing:
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            can_write_shadow=True,
+            reason_counts={"high_conviction_data_path_missing": len(missing)},
+            warnings=tuple(f"missing:{path}" for path in missing),
+        )
+
+    try:
+        report = write_high_conviction_portfolio_report(
+            build_high_conviction_portfolio_report(
+                HighConvictionPortfolioConfig(
+                    run_id=f"{config.resolved_run_id}_high_conviction_shadow",
+                    data_paths=config.high_conviction_data_paths,
+                    output_dir=config.high_conviction_output_dir
+                    or (config.output_dir / "high_conviction_replay"),
+                    min_expected_move_bps=(500.0,),
+                    risk_reward_ratios=(2.0,),
+                    max_hold_hours=(72.0,),
+                    exit_modes=("fixed_tp_sl",),
+                    cost_profiles=("research_stress",),
+                    initial_capital_eur=500.0,
+                    max_position_fraction=0.20,
+                    risk_per_trade_pct=0.01,
+                    max_global_exposure_pct=0.60,
+                    max_open_positions=3,
+                    cooldown_hours=6.0,
+                    max_daily_loss_pct=0.03,
+                    critical_drawdown_pct=0.12,
+                )
+            ),
+            config.high_conviction_output_dir or (config.output_dir / "high_conviction_replay"),
+        )
+    except Exception as exc:
+        reason = f"high_conviction_replay_error:{type(exc).__name__}"
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            can_write_shadow=True,
+            reason_counts={reason: 1},
+            warnings=(f"{reason}:{exc}",),
+        )
+
+    primary = _select_high_conviction_primary_result(report.portfolio_results)
+    records = tuple(primary.trade_records) if primary is not None else ()
+    if not records:
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            can_write_shadow=True,
+            source_trade_count=0,
+            reason_counts={"no_closed_high_conviction_shadow_trades": 1},
+            warnings=("no_closed_high_conviction_shadow_trades",),
+        )
+
+    inserted = 0
+    duplicates = 0
+    skipped = 0
+    latest_closed_at: str | None = None
+    reason_counts: dict[str, int] = defaultdict(int)
+    warnings: list[str] = []
+    for index, record in enumerate(sorted(records, key=lambda item: (item.closed_at, item.symbol)), start=1):
+        source_id = _high_conviction_source_id(record, index)
+        if _ledger_trade_exists(state_conn, f"{source_id}:close") or _ledger_trade_exists(
+            state_conn, f"{source_id}:open"
+        ):
+            duplicates += 1
+            continue
+        try:
+            _insert_trade_record_pair(
+                state_conn,
+                record,
+                source_id=source_id,
+                source_name=source_name,
+                generated_at=generated_at,
+            )
+            inserted += 1
+            latest_closed_at = record.closed_at.isoformat()
+            reason_counts[str(record.exit_reason or "unknown_exit")] += 1
+        except (TypeError, ValueError, sqlite3.Error) as exc:
+            skipped += 1
+            reason = f"insert_error:{type(exc).__name__}"
+            reason_counts[reason] += 1
+            warnings.append(reason)
+
+    return ShadowSyncSourceResult(
+        strategy_id=strategy_id,
+        source=source_name,
+        source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+        can_write_shadow=True,
+        source_trade_count=len(records),
+        inserted_trade_count=inserted,
+        duplicate_trade_count=duplicates,
+        skipped_trade_count=skipped,
+        latest_closed_at=latest_closed_at,
+        reason_counts=dict(sorted(reason_counts.items())),
+        warnings=tuple(dict.fromkeys(warnings)),
+    )
+
+
+def _select_high_conviction_primary_result(
+    rows: Iterable[PortfolioScenarioResult],
+) -> PortfolioScenarioResult | None:
+    for row in rows:
+        scenario = row.scenario
+        if (
+            row.cost_profile == "research_stress"
+            and row.policy == "conservative"
+            and float(scenario.get("min_expected_move_bps") or 0.0) == 500.0
+            and float(scenario.get("risk_reward_ratio") or 0.0) == 2.0
+            and float(scenario.get("max_hold_hours") or 0.0) == 72.0
+            and str(scenario.get("exit_mode") or "") == "fixed_tp_sl"
+        ):
+            return row
+    return next(iter(rows), None)
+
+
 def _unsynced_source_result(
     registry_payload: Mapping[str, Any],
     source: Mapping[str, str],
@@ -316,6 +469,48 @@ def _unsynced_source_result(
         reason_counts={reason: 1},
         warnings=(reason,),
     )
+
+
+def _select_shadow_source_rows(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
+    columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    optional = [
+        name
+        for name in (
+            "opportunity_score",
+            "score",
+            "opportunity_status",
+            "opportunity_reason",
+            "opportunity_components",
+            "regime",
+            "timeframe",
+            "signal_source",
+        )
+        if name in columns
+    ]
+    selected = [
+        "id",
+        "symbol",
+        "variant",
+        "position_id",
+        "entry_price",
+        "exit_price",
+        "volume",
+        "notional",
+        "fees",
+        "realized_pnl",
+        "reason",
+        "opened_at",
+        "closed_at",
+        "created_at",
+        *optional,
+    ]
+    return conn.execute(
+        f"""
+        SELECT {', '.join(selected)}
+        FROM {table}
+        ORDER BY closed_at ASC, id ASC
+        """
+    ).fetchall()
 
 
 def _insert_shadow_trade_pair(
@@ -339,6 +534,7 @@ def _insert_shadow_trade_pair(
     total_notional = max(entry_notional + exit_notional, 1e-12)
     fee_entry, fee_exit, slippage_bps = _split_legacy_costs(total_cost, entry_notional, exit_notional)
     position_id = f"shadow:{strategy_id}:{row['position_id']}:{int(row['id'])}"
+    opportunity_metadata = _opportunity_metadata_from_mapping(row)
     metadata = json.dumps(
         {
             "source_row_id": int(row["id"]),
@@ -347,6 +543,7 @@ def _insert_shadow_trade_pair(
             "exit_reason": str(row["reason"] or "unknown_exit"),
             "execution_mode": EXECUTION_MODE_SHADOW_PAPER,
             "research_only": True,
+            **opportunity_metadata,
         },
         separators=(",", ":"),
     )
@@ -356,9 +553,11 @@ def _insert_shadow_trade_pair(
         "symbol": str(row["symbol"] or "").strip(),
         "volume": volume,
         "strategy_id": strategy_id,
-        "timeframe": "shadow_tick",
-        "signal_source": f"{source_name}:{row['variant']}",
-        "regime": default_regime,
+        "timeframe": str(_row_value(row, "timeframe", "shadow_tick") or "shadow_tick"),
+        "signal_source": str(
+            _row_value(row, "signal_source", None) or f"{source_name}:{row['variant']}"
+        ),
+        "regime": str(_row_value(row, "regime", default_regime) or default_regime),
         "execution_liquidity": "shadow_lab",
         "execution_mode": EXECUTION_MODE_SHADOW_PAPER,
     }
@@ -403,6 +602,121 @@ def _insert_shadow_trade_pair(
     )
 
 
+def _insert_trade_record_pair(
+    conn: sqlite3.Connection,
+    record: TradeRecord,
+    *,
+    source_id: str,
+    source_name: str,
+    generated_at: str,
+) -> None:
+    if record.strategy_id != "high_conviction_swing":
+        raise ValueError("high_conviction shadow record must use strategy_id=high_conviction_swing")
+    if record.entry_price <= 0.0 or record.exit_price <= 0.0 or record.quantity <= 0.0:
+        raise ValueError("high_conviction shadow record requires positive entry/exit/quantity")
+    if record.gross_pnl_eur is None or record.net_pnl_eur is None:
+        raise ValueError("high_conviction shadow record requires gross and net pnl")
+    if record.fees_eur is None or record.slippage_eur is None:
+        raise ValueError("high_conviction shadow record requires fees and slippage")
+    total_cost = max(0.0, record.fees_eur + record.spread_cost_eur + record.slippage_eur + record.latency_cost_eur)
+    if total_cost < 0.0:
+        raise ValueError("high_conviction shadow record costs cannot be negative")
+
+    entry_notional = record.entry_price * record.quantity
+    exit_notional = record.exit_price * record.quantity
+    total_notional = max(entry_notional + exit_notional, 1e-12)
+    fee_entry = max(0.0, record.fees_eur) * (entry_notional / total_notional)
+    fee_exit = max(0.0, record.fees_eur) * (exit_notional / total_notional)
+    slippage_bps = max(0.0, record.slippage_eur + record.spread_cost_eur + record.latency_cost_eur) / total_notional * 10_000.0
+    position_id = f"shadow:high_conviction_swing:{source_id}"
+    opportunity_metadata = _opportunity_metadata_from_mapping(record.metadata)
+    metadata = json.dumps(
+        {
+            "source": source_name,
+            "source_run_id": record.run_id,
+            "entry_reason": record.entry_reason,
+            "exit_reason": record.exit_reason,
+            "execution_mode": EXECUTION_MODE_SHADOW_PAPER,
+            "research_only": True,
+            "family": record.metadata.get("family"),
+            "policy": record.metadata.get("policy"),
+            "expected_move_bps": record.metadata.get("expected_move_bps"),
+            "logical_stop_bps": record.metadata.get("logical_stop_bps"),
+            "mfe_bps": record.metadata.get("mfe_bps"),
+            "mae_bps": record.metadata.get("mae_bps"),
+            "cost_bps": record.metadata.get("cost_bps"),
+            **opportunity_metadata,
+        },
+        separators=(",", ":"),
+    )
+    common = {
+        "position_id": position_id,
+        "instance_id": "shadow_paper",
+        "symbol": record.symbol.upper(),
+        "volume": record.quantity,
+        "strategy_id": record.strategy_id,
+        "timeframe": str(record.metadata.get("timeframe") or "multi_timeframe"),
+        "signal_source": str(record.metadata.get("signal_source") or source_name),
+        "regime": record.regime or str(record.metadata.get("regime") or "unknown"),
+        "execution_liquidity": "research_replay",
+        "execution_mode": EXECUTION_MODE_SHADOW_PAPER,
+    }
+    _insert_trade_ledger_row(
+        conn,
+        trade_id=f"{source_id}:open",
+        side=record.side or "buy",
+        expected_price=record.entry_price,
+        executed_price=record.entry_price,
+        fees=fee_entry,
+        slippage_bps=slippage_bps,
+        realized_pnl=None,
+        gross_pnl=None,
+        net_pnl=None,
+        is_opening_leg=1,
+        is_closing_leg=0,
+        created_at=record.opened_at.isoformat() if record.opened_at else generated_at,
+        signal_id=source_id,
+        decision_id=metadata,
+        **common,
+    )
+    _insert_trade_ledger_row(
+        conn,
+        trade_id=f"{source_id}:close",
+        side="sell",
+        expected_price=record.exit_price,
+        executed_price=record.exit_price,
+        fees=fee_exit,
+        slippage_bps=slippage_bps,
+        realized_pnl=record.net_pnl_eur,
+        gross_pnl=record.gross_pnl_eur,
+        net_pnl=record.net_pnl_eur,
+        is_opening_leg=0,
+        is_closing_leg=1,
+        created_at=record.closed_at.isoformat() if record.closed_at else generated_at,
+        signal_id=source_id,
+        decision_id=metadata,
+        **common,
+    )
+
+
+def _high_conviction_source_id(record: TradeRecord, index: int) -> str:
+    payload = "|".join(
+        (
+            record.run_id,
+            record.strategy_id,
+            record.symbol,
+            record.opened_at.isoformat(),
+            record.closed_at.isoformat(),
+            f"{record.entry_price:.12g}",
+            f"{record.exit_price:.12g}",
+            f"{record.quantity:.12g}",
+            str(index),
+        )
+    )
+    digest = sha1(payload.encode("utf-8")).hexdigest()[:16]
+    return f"high_conviction_research:{digest}"
+
+
 def _split_legacy_costs(
     total_cost: float,
     entry_notional: float,
@@ -420,6 +734,61 @@ def _split_legacy_costs(
     exit_fee = fee_total * (exit_notional / notional_total)
     slippage_bps = (slippage_total / notional_total) * 10_000.0
     return entry_fee, exit_fee, slippage_bps
+
+
+def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, Any]:
+    score = _optional_float(_mapping_value(source, "opportunity_score"))
+    if score is None:
+        score = _optional_float(_mapping_value(source, "score"))
+    metadata: dict[str, Any] = {"score_bucket": _score_bucket(score)}
+    if score is not None:
+        metadata["opportunity_score"] = score
+    status = _mapping_value(source, "opportunity_status")
+    reason = _mapping_value(source, "opportunity_reason")
+    components = _mapping_value(source, "opportunity_components")
+    if status not in (None, ""):
+        metadata["opportunity_status"] = str(status)
+    if reason not in (None, ""):
+        metadata["opportunity_reason"] = str(reason)
+    parsed_components = _json_mapping(components)
+    if parsed_components:
+        metadata["opportunity_components"] = parsed_components
+    return metadata
+
+
+def _score_bucket(score: float | None) -> str:
+    if score is None:
+        return "missing"
+    if score >= 70.0:
+        return "high"
+    if score >= 40.0:
+        return "medium"
+    return "low"
+
+
+def _mapping_value(source: Mapping[str, Any], key: str) -> Any:
+    if isinstance(source, sqlite3.Row):
+        return _row_value(source, key)
+    return source.get(key)
+
+
+def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
+def _json_mapping(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return dict(parsed) if isinstance(parsed, Mapping) else {}
+    return {}
 
 
 def _insert_trade_ledger_row(conn: sqlite3.Connection, **values: Any) -> None:
@@ -608,6 +977,15 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _write_report(

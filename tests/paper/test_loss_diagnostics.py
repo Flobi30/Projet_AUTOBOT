@@ -12,6 +12,7 @@ from autobot.v2.paper.loss_diagnostics import (
     segment_paper_capital_block_reason,
 )
 from autobot.v2.research.trade_journal import TradeRecord
+from autobot.v2.strategy_promotion_gate import StrategyPromotionGate, StrategyPromotionGateConfig
 
 
 pytestmark = pytest.mark.unit
@@ -304,6 +305,78 @@ def test_opportunity_scoring_is_filter_not_alpha_strategy():
     diagnostic = _opportunity_scoring_diagnostic(trades, 1_000.0).to_dict()
     assert diagnostic["status"] == "score_filter_analysis_available"
     assert "filter only" in diagnostic["notes"][0].lower()
+    assert diagnostic["bucket_metrics"]["high"]["trade_count"] == 1
+    assert diagnostic["bucket_metrics"]["low"]["trade_count"] == 1
+    gate = StrategyPromotionGate(
+        StrategyPromotionGateConfig(
+            min_closed_trades=1,
+            min_sample_count=1,
+            min_profit_factor=1.01,
+            min_win_rate_pct=1.0,
+        )
+    )
+    result = gate.evaluate(
+        {
+            "strategy_id": "opportunity_scoring",
+            "engine": "opportunity_scoring",
+            "closed_trades": 100,
+            "sample_count": 100,
+            "net_pnl_eur": 10,
+            "profit_factor": 2.0,
+            "win_rate": 80,
+            "fees_eur": 1,
+            "slippage_eur": 1,
+            "baseline_comparison": {"no_trade": "required"},
+            "out_of_sample_periods": 1,
+            "validation_status": "paper_validated",
+        },
+        "shadow_candidate_review",
+        paper_mode=True,
+    )
+    assert result["passed"] is False
+    assert result["reason"] == "unknown_strategy_engine"
+
+
+def test_opportunity_score_bucket_metrics_are_calculated_for_high_medium_low_and_missing():
+    now = datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+    def trade(score, net, symbol):
+        metadata = {"execution_mode": "shadow_paper"}
+        if score is not None:
+            metadata["opportunity_score"] = score
+        return TradeRecord(
+            run_id="pytest",
+            strategy_id="trend_momentum",
+            symbol=symbol,
+            side="buy",
+            opened_at=now,
+            closed_at=now,
+            quantity=1.0,
+            entry_price=1.0,
+            exit_price=1.0,
+            gross_pnl_eur=net + 0.2,
+            net_pnl_eur=net,
+            fees_eur=0.1,
+            slippage_eur=0.1,
+            metadata=metadata,
+        )
+
+    diagnostic = _opportunity_scoring_diagnostic(
+        [
+            trade(80, 2.0, "BTCEUR"),
+            trade(55, 1.0, "ETHEUR"),
+            trade(20, -1.5, "XLMEUR"),
+            trade(None, -0.5, "TRXEUR"),
+        ],
+        1_000.0,
+    ).to_dict()
+    buckets = diagnostic["bucket_metrics"]
+    assert buckets["high"]["trade_count"] == 1
+    assert buckets["medium"]["trade_count"] == 1
+    assert buckets["low"]["trade_count"] == 1
+    assert buckets["missing"]["trade_count"] == 1
+    assert buckets["high"]["net_expectancy_eur"] == pytest.approx(2.0)
+    assert buckets["low"]["net_pnl_eur"] == pytest.approx(-1.5)
 
 
 def test_cli_paper_loss_diagnostics_writes_report(tmp_path, capsys):

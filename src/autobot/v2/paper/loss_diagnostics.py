@@ -83,6 +83,7 @@ class OpportunityScoringDiagnostics:
     score_coverage_trade_count: int
     total_shadow_trade_count: int
     status: str
+    bucket_metrics: dict[str, Any] = field(default_factory=dict)
     high_score_metrics: dict[str, Any] = field(default_factory=dict)
     low_score_metrics: dict[str, Any] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
@@ -585,38 +586,67 @@ def _opportunity_scoring_diagnostic(
     initial_capital_eur: float,
 ) -> OpportunityScoringDiagnostics:
     scored = tuple(record for record in shadow_records if _opportunity_score(record) is not None)
+    bucketed = _records_by_score_bucket(shadow_records)
     if not scored:
         return OpportunityScoringDiagnostics(
             score_coverage_trade_count=0,
             total_shadow_trade_count=len(shadow_records),
             status="score_not_available_on_shadow_trades",
+            bucket_metrics={
+                bucket: _metrics_for_segment(
+                    records,
+                    {"score_bucket": bucket},
+                    initial_capital_eur=initial_capital_eur,
+                    min_segment_trades=1,
+                ).to_dict()
+                for bucket, records in bucketed.items()
+                if records
+            },
             notes=(
                 "opportunity_scoring is a filter/scoring layer, not an alpha strategy",
                 "no score fields were found in shadow_paper trade metadata",
             ),
         )
-    sorted_records = tuple(sorted(scored, key=lambda record: _opportunity_score(record) or 0.0))
-    split = max(1, len(sorted_records) // 4)
-    low = sorted_records[:split]
-    high = sorted_records[-split:]
+    metrics_by_bucket = {
+        bucket: _metrics_for_segment(
+            records,
+            {"score_bucket": bucket},
+            initial_capital_eur=initial_capital_eur,
+            min_segment_trades=1,
+        ).to_dict()
+        for bucket, records in bucketed.items()
+        if records
+    }
     return OpportunityScoringDiagnostics(
         score_coverage_trade_count=len(scored),
         total_shadow_trade_count=len(shadow_records),
         status="score_filter_analysis_available",
-        high_score_metrics=_metrics_for_segment(
-            high,
-            {"score_bucket": "top_quartile"},
-            initial_capital_eur=initial_capital_eur,
-            min_segment_trades=1,
-        ).to_dict(),
-        low_score_metrics=_metrics_for_segment(
-            low,
-            {"score_bucket": "bottom_quartile"},
-            initial_capital_eur=initial_capital_eur,
-            min_segment_trades=1,
-        ).to_dict(),
+        bucket_metrics=metrics_by_bucket,
+        high_score_metrics=metrics_by_bucket.get("high", {}),
+        low_score_metrics=metrics_by_bucket.get("low", {}),
         notes=("Compare score buckets as a filter only; do not treat opportunity_scoring as executable alpha.",),
     )
+
+
+def _records_by_score_bucket(records: Sequence[TradeRecord]) -> dict[str, tuple[TradeRecord, ...]]:
+    grouped: dict[str, list[TradeRecord]] = {bucket: [] for bucket in ("high", "medium", "low", "missing")}
+    for record in records:
+        grouped[_opportunity_score_bucket(record)].append(record)
+    return {key: tuple(value) for key, value in grouped.items()}
+
+
+def _opportunity_score_bucket(record: TradeRecord) -> str:
+    bucket = record.metadata.get("score_bucket")
+    if bucket in {"high", "medium", "low", "missing"}:
+        return str(bucket)
+    score = _opportunity_score(record)
+    if score is None:
+        return "missing"
+    if score >= 70.0:
+        return "high"
+    if score >= 40.0:
+        return "medium"
+    return "low"
 
 
 def _opportunity_score(record: TradeRecord) -> float | None:
@@ -629,6 +659,10 @@ def _opportunity_score(record: TradeRecord) -> float | None:
         parsed = _score_from_mapping(source)
         if parsed is not None:
             return parsed
+    ledger_metadata = record.metadata.get("ledger_metadata")
+    parsed = _score_from_mapping(ledger_metadata)
+    if parsed is not None:
+        return parsed
     return None
 
 
@@ -778,6 +812,28 @@ def _markdown(report: PaperLossDiagnosticsReport) -> str:
             "",
             f"- Status: `{report.opportunity_scoring_diagnostic.status}`",
             f"- Score coverage: `{report.opportunity_scoring_diagnostic.score_coverage_trade_count}/{report.opportunity_scoring_diagnostic.total_shadow_trade_count}`",
+            "",
+            "| Score bucket | Trades | Net PnL | PF gross | PF net | Expectancy net | Max DD |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for bucket in ("high", "medium", "low", "missing"):
+        metrics = report.opportunity_scoring_diagnostic.bucket_metrics.get(bucket)
+        if not metrics:
+            continue
+        lines.append(
+            "| {bucket} | {trades} | {net:.2f} | {gpf} | {npf} | {exp} | {dd:.2f} |".format(
+                bucket=bucket,
+                trades=metrics["trade_count"],
+                net=metrics["net_pnl_eur"],
+                gpf=_fmt(metrics["gross_profit_factor"]),
+                npf=_fmt(metrics["net_profit_factor"]),
+                exp=_fmt(metrics["net_expectancy_eur"]),
+                dd=metrics["max_drawdown_eur"],
+            )
+        )
+    lines.extend(
+        [
             "",
             "## Safety",
             "",

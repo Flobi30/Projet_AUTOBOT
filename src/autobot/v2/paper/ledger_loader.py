@@ -265,6 +265,7 @@ def _trade_record_from_ledger_pair(
     open_decision = _linked_decision(opening or {}, decision_lookup)
     close_decision = _linked_decision(closing, decision_lookup)
     strategy_id = _strategy_id(opening, closing, open_decision, close_decision, position)
+    ledger_metadata = _merged_ledger_metadata(opening, closing)
     raw_net_pnl = closing.get("net_pnl")
     raw_gross_pnl = closing.get("gross_pnl")
     if raw_net_pnl is not None:
@@ -291,12 +292,15 @@ def _trade_record_from_ledger_pair(
         regime=str(
             closing.get("regime")
             or (opening or {}).get("regime")
+            or ledger_metadata.get("regime")
             or _regime_from_decisions(open_decision, close_decision)
             or ""
         )
         or None,
         metadata={
             "source": "trade_ledger",
+            **_exposed_ledger_metadata(ledger_metadata),
+            "ledger_metadata": ledger_metadata,
             "opening_leg_missing": opening is None,
             "opening_leg": _compact_trade_row(opening),
             "closing_leg": _compact_trade_row(closing),
@@ -414,6 +418,43 @@ def _strategy_id(*sources: Mapping[str, Any] | None) -> str:
             if payload.get("strategy"):
                 return str(payload["strategy"])
     return LEGACY_UNATTRIBUTED_STRATEGY_ID
+
+
+def _merged_ledger_metadata(
+    opening: Mapping[str, Any] | None,
+    closing: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for row in (opening, closing):
+        if not row:
+            continue
+        for key in ("decision_id", "signal_id"):
+            payload = _json_object(row.get(key))
+            if payload:
+                merged.update(payload)
+    return merged
+
+
+def _exposed_ledger_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    keys = (
+        "opportunity_score",
+        "score_bucket",
+        "opportunity_reason",
+        "opportunity_status",
+        "opportunity_components",
+        "execution_mode",
+        "research_only",
+        "family",
+        "policy",
+        "expected_move_bps",
+        "logical_stop_bps",
+        "mfe_bps",
+        "mae_bps",
+        "cost_bps",
+        "timeframe",
+        "signal_source",
+    )
+    return {key: metadata[key] for key in keys if key in metadata}
 
 
 def _strategy_source(
