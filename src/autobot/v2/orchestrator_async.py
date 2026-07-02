@@ -1858,6 +1858,7 @@ class OrchestratorAsync:
             "summary": router_snapshot.get("summary", {}),
             "routes": router_snapshot.get("routes", []),
         }
+        governance_snapshot["opportunities"] = opportunities
         governance_snapshot["reconciliation"] = {
             "summary": reconciliation_snapshot.get("summary", {}),
             "symbols": reconciliation_snapshot.get("symbols", []),
@@ -2481,7 +2482,12 @@ class OrchestratorAsync:
                 return
             symbol = str(getattr(inst.config, "symbol", "") or "")
             timestamp = getattr(inst, "_last_price_at", None)
-            lab.on_price_tick(symbol=symbol, price=float(price), timestamp=timestamp)
+            lab.on_price_tick(
+                symbol=symbol,
+                price=float(price),
+                timestamp=timestamp,
+                opportunity_context=self._opportunity_context_for_symbol(symbol),
+            )
         except Exception as exc:
             logger.debug("Trend shadow lab update skipped for %s: %s", getattr(inst, "id", "?"), exc)
 
@@ -2503,9 +2509,40 @@ class OrchestratorAsync:
                 return
             symbol = str(getattr(inst.config, "symbol", "") or "")
             timestamp = getattr(inst, "_last_price_at", None)
-            lab.on_price_tick(symbol=symbol, price=float(price), timestamp=timestamp)
+            lab.on_price_tick(
+                symbol=symbol,
+                price=float(price),
+                timestamp=timestamp,
+                opportunity_context=self._opportunity_context_for_symbol(symbol),
+            )
         except Exception as exc:
             logger.debug("Mean-reversion shadow lab update skipped for %s: %s", getattr(inst, "id", "?"), exc)
+
+    def _opportunity_context_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Return the latest opportunity metadata for shadow observations.
+
+        This is metadata-only. It does not affect routing, sizing, risk or
+        execution decisions.
+        """
+
+        try:
+            from .pair_strategy_health import symbol_key
+
+            target = symbol_key(symbol)
+            snapshot = getattr(self, "_strategy_governance_snapshot", {}) or {}
+            opportunities = snapshot.get("opportunities", {}) if isinstance(snapshot, dict) else {}
+            rows = opportunities.get("opportunities", []) if isinstance(opportunities, dict) else []
+            for item in rows:
+                if isinstance(item, dict) and symbol_key(item.get("symbol")) == target:
+                    return {
+                        "opportunity_score": item.get("score"),
+                        "opportunity_status": item.get("status"),
+                        "opportunity_reason": item.get("reason"),
+                        "opportunity_components": item.get("components"),
+                    }
+        except Exception:
+            return None
+        return None
 
     def _journal_major_decision(
         self,

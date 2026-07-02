@@ -16,6 +16,7 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from autobot.v2.pair_strategy_health import symbol_key
 from autobot.v2.research.high_conviction_portfolio import (
     HighConvictionPortfolioConfig,
     PortfolioScenarioResult,
@@ -68,6 +69,7 @@ class ShadowPaperObservationSyncConfig:
     high_conviction_data_paths: tuple[Path, ...] = ()
     output_dir: Path = Path("reports/paper/shadow_observations")
     high_conviction_output_dir: Path | None = None
+    opportunity_match_window_hours: float = 6.0
     run_id: str | None = None
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     write_report: bool = True
@@ -165,11 +167,14 @@ def sync_shadow_paper_observations(
     state_conn.row_factory = sqlite3.Row
     try:
         _ensure_trade_ledger_schema(state_conn)
+        opportunity_lookup = _load_opportunity_score_lookup(state_conn)
         source_results: list[ShadowSyncSourceResult] = []
         for source in SYNCABLE_SHADOW_SOURCES:
-            result = _sync_source(config, registry_payload, state_conn, source, generated_at)
+            result = _sync_source(config, registry_payload, state_conn, source, generated_at, opportunity_lookup)
             source_results.append(result)
-        source_results.append(_sync_high_conviction_source(config, registry_payload, state_conn, generated_at))
+        source_results.append(
+            _sync_high_conviction_source(config, registry_payload, state_conn, generated_at, opportunity_lookup)
+        )
         for source in UNSYNCED_OBSERVATION_STRATEGIES:
             source_results.append(_unsynced_source_result(registry_payload, source))
         state_conn.commit()
@@ -204,6 +209,7 @@ def _sync_source(
     state_conn: sqlite3.Connection,
     source: Mapping[str, str],
     generated_at: str,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]],
 ) -> ShadowSyncSourceResult:
     strategy_id = source["strategy_id"]
     source_path = config.source_path_for(source)
@@ -271,6 +277,8 @@ def _sync_source(
                 source_id=source_id,
                 default_regime=source["default_regime"],
                 generated_at=generated_at,
+                opportunity_lookup=opportunity_lookup,
+                opportunity_match_window_hours=config.opportunity_match_window_hours,
             )
             inserted += 1
             latest_closed_at = str(row["closed_at"] or latest_closed_at or "")
@@ -301,6 +309,7 @@ def _sync_high_conviction_source(
     registry_payload: Mapping[str, Any],
     state_conn: sqlite3.Connection,
     generated_at: str,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]],
 ) -> ShadowSyncSourceResult:
     strategy_id = "high_conviction_swing"
     source_name = "high_conviction_portfolio_replay"
@@ -346,8 +355,7 @@ def _sync_high_conviction_source(
                 HighConvictionPortfolioConfig(
                     run_id=f"{config.resolved_run_id}_high_conviction_shadow",
                     data_paths=config.high_conviction_data_paths,
-                    output_dir=config.high_conviction_output_dir
-                    or (config.output_dir / "high_conviction_replay"),
+                    output_dir=_high_conviction_output_dir(config),
                     min_expected_move_bps=(500.0,),
                     risk_reward_ratios=(2.0,),
                     max_hold_hours=(72.0,),
@@ -363,7 +371,7 @@ def _sync_high_conviction_source(
                     critical_drawdown_pct=0.12,
                 )
             ),
-            config.high_conviction_output_dir or (config.output_dir / "high_conviction_replay"),
+            _high_conviction_output_dir(config),
         )
     except Exception as exc:
         reason = f"high_conviction_replay_error:{type(exc).__name__}"
@@ -409,6 +417,8 @@ def _sync_high_conviction_source(
                 source_id=source_id,
                 source_name=source_name,
                 generated_at=generated_at,
+                opportunity_lookup=opportunity_lookup,
+                opportunity_match_window_hours=config.opportunity_match_window_hours,
             )
             inserted += 1
             latest_closed_at = record.closed_at.isoformat()
@@ -449,6 +459,20 @@ def _select_high_conviction_primary_result(
         ):
             return row
     return next(iter(rows), None)
+
+
+def _high_conviction_output_dir(config: ShadowPaperObservationSyncConfig) -> Path:
+    """Return the persistent research output path for High Conviction replay artifacts.
+
+    The shadow sync report itself can still be written under ``reports/``. The
+    replay artifacts default to ``data/`` because the daily research container
+    mounts that path as a writable persistent volume, while report folders may
+    be root-owned after manual VPS checks.
+    """
+
+    if config.high_conviction_output_dir is not None:
+        return config.high_conviction_output_dir
+    return Path("data/research/high_conviction_shadow_sync") / config.resolved_run_id
 
 
 def _unsynced_source_result(
@@ -522,6 +546,8 @@ def _insert_shadow_trade_pair(
     source_id: str,
     default_regime: str,
     generated_at: str,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]] | None = None,
+    opportunity_match_window_hours: float = 6.0,
 ) -> None:
     entry_price = _positive_float(row["entry_price"], "entry_price")
     exit_price = _positive_float(row["exit_price"], "exit_price")
@@ -534,7 +560,15 @@ def _insert_shadow_trade_pair(
     total_notional = max(entry_notional + exit_notional, 1e-12)
     fee_entry, fee_exit, slippage_bps = _split_legacy_costs(total_cost, entry_notional, exit_notional)
     position_id = f"shadow:{strategy_id}:{row['position_id']}:{int(row['id'])}"
-    opportunity_metadata = _opportunity_metadata_from_mapping(row)
+    opportunity_metadata = _merge_opportunity_metadata(
+        _opportunity_metadata_from_mapping(row),
+        _lookup_opportunity_metadata(
+            opportunity_lookup or {},
+            symbol=str(row["symbol"] or ""),
+            timestamp=str(row["opened_at"] or row["closed_at"] or generated_at),
+            max_window_hours=opportunity_match_window_hours,
+        ),
+    )
     metadata = json.dumps(
         {
             "source_row_id": int(row["id"]),
@@ -609,6 +643,8 @@ def _insert_trade_record_pair(
     source_id: str,
     source_name: str,
     generated_at: str,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]] | None = None,
+    opportunity_match_window_hours: float = 6.0,
 ) -> None:
     if record.strategy_id != "high_conviction_swing":
         raise ValueError("high_conviction shadow record must use strategy_id=high_conviction_swing")
@@ -629,7 +665,15 @@ def _insert_trade_record_pair(
     fee_exit = max(0.0, record.fees_eur) * (exit_notional / total_notional)
     slippage_bps = max(0.0, record.slippage_eur + record.spread_cost_eur + record.latency_cost_eur) / total_notional * 10_000.0
     position_id = f"shadow:high_conviction_swing:{source_id}"
-    opportunity_metadata = _opportunity_metadata_from_mapping(record.metadata)
+    opportunity_metadata = _merge_opportunity_metadata(
+        _opportunity_metadata_from_mapping(record.metadata),
+        _lookup_opportunity_metadata(
+            opportunity_lookup or {},
+            symbol=record.symbol,
+            timestamp=record.opened_at.isoformat() if record.opened_at else generated_at,
+            max_window_hours=opportunity_match_window_hours,
+        ),
+    )
     metadata = json.dumps(
         {
             "source": source_name,
@@ -738,14 +782,48 @@ def _split_legacy_costs(
 
 def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, Any]:
     score = _optional_float(_mapping_value(source, "opportunity_score"))
+    score_source = "opportunity_score" if score is not None else None
     if score is None:
         score = _optional_float(_mapping_value(source, "score"))
+        if score is not None:
+            score_source = "score"
+    if score is None:
+        score = _optional_float(_mapping_value(source, "router_score"))
+        if score is not None:
+            score_source = "router_score"
     metadata: dict[str, Any] = {"score_bucket": _score_bucket(score)}
     if score is not None:
         metadata["opportunity_score"] = score
+    if score_source is not None:
+        metadata["opportunity_score_source"] = score_source
+    has_opportunity_shape = any(
+        _mapping_value(source, key) not in (None, "")
+        for key in (
+            "opportunity_score",
+            "score",
+            "router_score",
+            "opportunity_status",
+            "status",
+            "router_action",
+            "opportunity_reason",
+            "router_reason",
+            "opportunity_components",
+            "components",
+        )
+    )
     status = _mapping_value(source, "opportunity_status")
+    if status in (None, "") and has_opportunity_shape:
+        status = _mapping_value(source, "status")
+    if status in (None, "") and has_opportunity_shape:
+        status = _mapping_value(source, "router_action")
     reason = _mapping_value(source, "opportunity_reason")
+    if reason in (None, "") and has_opportunity_shape:
+        reason = _mapping_value(source, "reason")
+    if reason in (None, "") and has_opportunity_shape:
+        reason = _mapping_value(source, "router_reason")
     components = _mapping_value(source, "opportunity_components")
+    if components in (None, "") and has_opportunity_shape:
+        components = _mapping_value(source, "components")
     if status not in (None, ""):
         metadata["opportunity_status"] = str(status)
     if reason not in (None, ""):
@@ -754,6 +832,17 @@ def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, A
     if parsed_components:
         metadata["opportunity_components"] = parsed_components
     return metadata
+
+
+def _merge_opportunity_metadata(primary: Mapping[str, Any], fallback: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep explicit source score first, then enrich from runtime score lookup."""
+
+    merged = dict(primary)
+    if merged.get("score_bucket") != "missing":
+        return merged
+    if fallback.get("score_bucket") in {"high", "medium", "low"}:
+        merged.update(fallback)
+    return merged
 
 
 def _score_bucket(score: float | None) -> str:
@@ -789,6 +878,101 @@ def _json_mapping(raw: Any) -> dict[str, Any]:
             return {}
         return dict(parsed) if isinstance(parsed, Mapping) else {}
     return {}
+
+
+def _load_opportunity_score_lookup(conn: sqlite3.Connection) -> dict[str, tuple[dict[str, Any], ...]]:
+    """Load runtime opportunity scores as a metadata-only lookup.
+
+    The lookup is intentionally advisory: it enriches shadow observations with
+    the nearest already-persisted opportunity score but never authorizes
+    execution or promotion.
+    """
+
+    if not _table_exists(conn, "decision_ledger"):
+        return {}
+    rows = conn.execute(
+        """
+        SELECT symbol, event_type, event_status, reason, source, payload_json, created_at
+        FROM decision_ledger
+        WHERE payload_json IS NOT NULL
+        ORDER BY created_at ASC, id ASC
+        """
+    ).fetchall()
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        payload = _json_mapping(row["payload_json"])
+        opportunity = payload.get("opportunity") if isinstance(payload.get("opportunity"), Mapping) else {}
+        candidates = (opportunity, payload)
+        metadata: dict[str, Any] = {"score_bucket": "missing"}
+        for candidate in candidates:
+            parsed = _opportunity_metadata_from_mapping(candidate)
+            if parsed.get("score_bucket") != "missing":
+                metadata = parsed
+                break
+        if metadata.get("score_bucket") == "missing":
+            continue
+        parsed_at = _parse_datetime(row["created_at"])
+        if parsed_at is None:
+            continue
+        metadata.update(
+            {
+                "opportunity_source": str(row["source"] or "decision_ledger"),
+                "opportunity_event_type": str(row["event_type"] or ""),
+                "opportunity_event_status": str(row["event_status"] or ""),
+                "opportunity_event_reason": str(row["reason"] or ""),
+                "opportunity_event_created_at": parsed_at.isoformat(),
+            }
+        )
+        grouped[symbol_key(row["symbol"])].append({"created_at": parsed_at, "metadata": metadata})
+    return {key: tuple(values) for key, values in grouped.items()}
+
+
+def _lookup_opportunity_metadata(
+    lookup: Mapping[str, tuple[dict[str, Any], ...]],
+    *,
+    symbol: str,
+    timestamp: str,
+    max_window_hours: float,
+) -> dict[str, Any]:
+    events = lookup.get(symbol_key(symbol), ())
+    if not events:
+        return {}
+    target = _parse_datetime(timestamp)
+    if target is None:
+        return {}
+    max_delta = max(0.0, float(max_window_hours)) * 3600.0
+    best: tuple[float, dict[str, Any]] | None = None
+    for event in events:
+        event_at = event.get("created_at")
+        if not isinstance(event_at, datetime):
+            continue
+        delta = (target - event_at).total_seconds()
+        if delta < 0.0:
+            continue
+        if delta > max_delta:
+            continue
+        if best is None or delta < best[0]:
+            best = (delta, dict(event.get("metadata") or {}))
+    if best is None:
+        return {}
+    metadata = dict(best[1])
+    metadata["opportunity_match_delta_seconds"] = round(best[0], 3)
+    return metadata
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif value not in (None, ""):
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _insert_trade_ledger_row(conn: sqlite3.Connection, **values: Any) -> None:

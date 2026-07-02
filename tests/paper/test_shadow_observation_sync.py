@@ -187,6 +187,71 @@ def _write_scored_shadow_db(path: Path, table: str) -> None:
         )
 
 
+def _write_decision_ledger_router_score(
+    path: Path,
+    *,
+    symbol: str = "TRXEUR",
+    strategy: str = "observation_only",
+    engine: str = "trend_momentum",
+    created_at: str = "2026-07-01T00:55:00+00:00",
+    score: float = 82.0,
+) -> None:
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS decision_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT,
+                decision_id TEXT,
+                signal_id TEXT,
+                instance_id TEXT,
+                symbol TEXT,
+                strategy TEXT,
+                engine TEXT,
+                event_type TEXT,
+                event_status TEXT,
+                reason TEXT,
+                source TEXT,
+                payload_json TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO decision_ledger
+            (event_id, decision_id, signal_id, instance_id, symbol, strategy, engine,
+             event_type, event_status, reason, source, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"pytest_event_{created_at}",
+                f"pytest_decision_{created_at}",
+                None,
+                "pytest",
+                symbol,
+                strategy,
+                engine,
+                "governance_block",
+                "blocked",
+                "research_only_no_runtime_promotion",
+                "strategy_router",
+                json.dumps(
+                    {
+                        "decision": "keep_shadow_learning",
+                        "selected_engine": engine,
+                        "selected_variant": "pytest_variant",
+                        "router_score": score,
+                        "router_action": "watch_best_engine",
+                        "router_reason": "pytest_router_score",
+                        "live_promotion_allowed": False,
+                    }
+                ),
+                created_at,
+            ),
+        )
+
+
 def _high_conviction_record(strategy_id: str = "high_conviction_swing") -> TradeRecord:
     return TradeRecord(
         run_id="pytest_high_conviction",
@@ -285,6 +350,65 @@ def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
     assert trade.metadata["opportunity_components"] == {"edge": 0.8}
 
 
+def test_shadow_sync_enriches_missing_score_from_prior_decision_ledger(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_shadow_db(trend_db, "trend_shadow_trades")
+    _write_decision_ledger_router_score(state_db, score=82.0)
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_router_score_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.metadata["opportunity_score"] == pytest.approx(82.0)
+    assert trade.metadata["opportunity_score_source"] == "router_score"
+    assert trade.metadata["score_bucket"] == "high"
+    assert trade.metadata["opportunity_status"] == "watch_best_engine"
+    assert trade.metadata["opportunity_reason"] == "pytest_router_score"
+    assert trade.metadata["opportunity_event_type"] == "governance_block"
+    assert trade.metadata["opportunity_match_delta_seconds"] == pytest.approx(300.0)
+
+
+def test_shadow_sync_does_not_enrich_from_future_decision_ledger(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_shadow_db(trend_db, "trend_shadow_trades")
+    _write_decision_ledger_router_score(
+        state_db,
+        created_at="2026-07-01T01:05:00+00:00",
+        score=95.0,
+    )
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_no_lookahead_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.metadata["score_bucket"] == "missing"
+    assert "opportunity_score" not in trade.metadata
+
+
 def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path, monkeypatch):
     state_db = tmp_path / "state.db"
     registry = tmp_path / "strategy_hypotheses.json"
@@ -304,8 +428,14 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
         trade_records=(record,),
     )
     fake_report = SimpleNamespace(portfolio_results=(fake_result,))
+    captured_output: dict[str, Path] = {}
     monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", lambda _config: fake_report)
-    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
+
+    def _fake_write(report, output):
+        captured_output["path"] = Path(output)
+        return report
+
+    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", _fake_write)
 
     report = sync_shadow_paper_observations(
         ShadowPaperObservationSyncConfig(
@@ -324,6 +454,9 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
     )
     assert high_conviction["inserted_trade_count"] == 1
     assert high_conviction["source_trade_count"] == 1
+    assert captured_output["path"] == (
+        Path("data/research/high_conviction_shadow_sync") / "pytest_high_conviction_shadow_sync"
+    )
     loaded = load_state_db_paper_ledger(state_db)
     trade = loaded.journal.records[0]
     assert trade.strategy_id == "high_conviction_swing"
@@ -345,6 +478,105 @@ def test_high_conviction_without_strategy_id_is_rejected(tmp_path):
                 source_name="pytest",
                 generated_at="2026-07-01T00:00:00+00:00",
             )
+
+
+def test_high_conviction_missing_data_paths_reports_diagnostic(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    _write_registry(registry)
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_high_conviction_missing_paths",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(
+        item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing"
+    )
+    assert high_conviction["inserted_trade_count"] == 0
+    assert high_conviction["reason_counts"] == {"high_conviction_data_paths_missing": 1}
+
+
+def test_high_conviction_missing_data_path_reports_diagnostic(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    _write_registry(registry)
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_data_paths=(tmp_path / "missing_ohlcv.csv",),
+            output_dir=tmp_path / "reports",
+            run_id="pytest_high_conviction_missing_path",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(
+        item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing"
+    )
+    assert high_conviction["inserted_trade_count"] == 0
+    assert high_conviction["reason_counts"] == {"high_conviction_data_path_missing": 1}
+    assert high_conviction["warnings"][0].startswith("missing:")
+
+
+def test_high_conviction_no_closed_trades_reports_diagnostic(tmp_path, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    data_path = tmp_path / "ohlcv.csv"
+    data_path.write_text("timestamp,symbol,timeframe,open,high,low,close,volume\n", encoding="utf-8")
+    _write_registry(registry)
+    fake_result = SimpleNamespace(
+        cost_profile="research_stress",
+        policy="conservative",
+        scenario={
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 2.0,
+            "max_hold_hours": 72.0,
+            "exit_mode": "fixed_tp_sl",
+        },
+        trade_records=(),
+    )
+    fake_report = SimpleNamespace(portfolio_results=(fake_result,))
+    monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", lambda _config: fake_report)
+    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_data_paths=(data_path,),
+            output_dir=tmp_path / "reports",
+            run_id="pytest_high_conviction_no_closed",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(
+        item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing"
+    )
+    assert high_conviction["inserted_trade_count"] == 0
+    assert high_conviction["reason_counts"] == {"no_closed_high_conviction_shadow_trades": 1}
+
+
+def test_opportunity_score_bucket_boundaries():
+    assert shadow_observation_sync._score_bucket(70.0) == "high"
+    assert shadow_observation_sync._score_bucket(69.999) == "medium"
+    assert shadow_observation_sync._score_bucket(40.0) == "medium"
+    assert shadow_observation_sync._score_bucket(39.999) == "low"
+    assert shadow_observation_sync._score_bucket(None) == "missing"
 
 
 def test_shadow_sync_is_idempotent_and_does_not_duplicate_ledger_rows(tmp_path):
@@ -517,3 +749,59 @@ def test_cli_shadow_paper_observations_syncs_and_reports(tmp_path, capsys):
     trend = next(item for item in payload["source_results"] if item["strategy_id"] == "trend_momentum")
     assert trend["inserted_trade_count"] == 1
     assert (output_dir / "pytest_cli_shadow.md").exists()
+
+
+def test_cli_shadow_paper_observations_accepts_high_conviction_paths(tmp_path, capsys, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    data_path = tmp_path / "ohlcv.csv"
+    output_dir = tmp_path / "shadow_reports"
+    high_output_dir = tmp_path / "high_conviction_reports"
+    data_path.write_text("timestamp,symbol,timeframe,open,high,low,close,volume\n", encoding="utf-8")
+    _write_registry(registry)
+    fake_result = SimpleNamespace(
+        cost_profile="research_stress",
+        policy="conservative",
+        scenario={
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 2.0,
+            "max_hold_hours": 72.0,
+            "exit_mode": "fixed_tp_sl",
+        },
+        trade_records=(_high_conviction_record(),),
+    )
+    fake_report = SimpleNamespace(portfolio_results=(fake_result,))
+    monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", lambda _config: fake_report)
+    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
+
+    exit_code = cli.main(
+        [
+            "shadow-paper-observations",
+            "--state-db",
+            str(state_db),
+            "--registry-path",
+            str(registry),
+            "--trend-shadow-db",
+            str(tmp_path / "missing_trend.db"),
+            "--mean-reversion-shadow-db",
+            str(tmp_path / "missing_mean.db"),
+            "--high-conviction-data-paths",
+            str(data_path),
+            "--high-conviction-output-dir",
+            str(high_output_dir),
+            "--run-id",
+            "pytest_cli_high_conviction_shadow",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    high_conviction = next(
+        item for item in payload["source_results"] if item["strategy_id"] == "high_conviction_swing"
+    )
+    assert high_conviction["inserted_trade_count"] == 1
+    assert (output_dir / "pytest_cli_high_conviction_shadow.md").exists()
+    loaded = load_state_db_paper_ledger(state_db)
+    assert loaded.journal.records[0].strategy_id == "high_conviction_swing"

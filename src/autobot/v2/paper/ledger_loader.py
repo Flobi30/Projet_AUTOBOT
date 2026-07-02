@@ -438,10 +438,17 @@ def _merged_ledger_metadata(
 def _exposed_ledger_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
         "opportunity_score",
+        "opportunity_score_source",
         "score_bucket",
         "opportunity_reason",
         "opportunity_status",
         "opportunity_components",
+        "opportunity_source",
+        "opportunity_event_type",
+        "opportunity_event_status",
+        "opportunity_event_reason",
+        "opportunity_event_created_at",
+        "opportunity_match_delta_seconds",
         "execution_mode",
         "research_only",
         "family",

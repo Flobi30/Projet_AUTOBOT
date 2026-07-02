@@ -1,14 +1,19 @@
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from autobot.v2.paper import shadow_observation_sync
+from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.daily_data_collection_runner import (
     load_daily_research_data_collection_config,
     run_daily_research_data_collection,
 )
 from autobot.v2.research.historical_data_collector import KrakenOHLCPage
+from autobot.v2.research.trade_journal import TradeRecord
 
 
 pytestmark = pytest.mark.unit
@@ -54,6 +59,61 @@ def _write_config(path, tmp_path):
             ]
         ),
         encoding="utf-8",
+    )
+
+
+def _write_registry(path: Path) -> None:
+    payload = {
+        "live_auto_promotion_allowed": False,
+        "hypotheses": [
+            {
+                "strategy_id": strategy,
+                "family": strategy,
+                "hypothesis": "pytest",
+                "market": "spot_crypto",
+                "timeframe": "5m",
+                "required_data": ["ohlcv"],
+                "entry_logic": "pytest",
+                "exit_logic": "pytest",
+                "risk_model": "pytest",
+                "fees_model": {"profile": "paper_current_taker"},
+                "slippage_model": {"profile": "paper_current_taker"},
+                "expected_market_regime": "range",
+                "failure_modes": ["insufficient_edge"],
+                "baseline_comparison": {"no_trade": "required"},
+                "validation_status": "learning",
+                "paper_status": "shadow_only",
+                "decision": "continue_testing",
+                "decision_reason": "pytest",
+            }
+            for strategy in ("trend_momentum", "mean_reversion", "high_conviction_swing", "opportunity_scoring")
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _high_conviction_record() -> TradeRecord:
+    return TradeRecord(
+        run_id="pytest_daily_high_conviction",
+        strategy_id="high_conviction_swing",
+        symbol="TRXEUR",
+        side="buy",
+        opened_at=datetime(2026, 6, 7, 0, 0, tzinfo=timezone.utc),
+        closed_at=datetime(2026, 6, 7, 1, 0, tzinfo=timezone.utc),
+        quantity=100.0,
+        entry_price=1.0,
+        exit_price=1.1,
+        gross_pnl_eur=10.0,
+        net_pnl_eur=8.0,
+        fees_eur=1.0,
+        spread_cost_eur=0.5,
+        slippage_eur=0.4,
+        latency_cost_eur=0.1,
+        entry_reason="pytest",
+        exit_reason="fixed_tp",
+        regime="trend",
+        metadata={"family": "pytest", "policy": "conservative"},
     )
 
 
@@ -264,3 +324,76 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
     assert result.strategy_edge_review_report_path
     assert Path(result.strategy_edge_review_report_path).exists()
     assert result.live_promotion_allowed is False
+
+
+def test_daily_runner_can_sync_shadow_observations_to_persistent_ledger(tmp_path, monkeypatch):
+    config_path = tmp_path / "research_daily_shadow_sync.yaml"
+    state_db = tmp_path / "data" / "autobot_state.db"
+    registry = tmp_path / "docs" / "research" / "strategy_hypotheses.json"
+    state_db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(state_db) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS marker (id INTEGER PRIMARY KEY)")
+    _write_registry(registry)
+    _write_config(config_path, tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            [
+                "shadow_observation_sync:",
+                "  enabled: true",
+                f"  state_db_path: {str(state_db).replace(chr(92), '/')}",
+                f"  registry_path: {str(registry).replace(chr(92), '/')}",
+                f"  trend_shadow_db_path: {str(tmp_path / 'missing_trend.db').replace(chr(92), '/')}",
+                f"  mean_reversion_shadow_db_path: {str(tmp_path / 'missing_mean.db').replace(chr(92), '/')}",
+                f"  output_dir: {str(tmp_path / 'shadow_reports').replace(chr(92), '/')}",
+                f"  high_conviction_output_dir: {str(tmp_path / 'shadow_reports' / 'high_conviction_replay').replace(chr(92), '/')}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def ohlc_fetcher(pair, interval_minutes, since):
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (_epoch_minute(0), "1.0", "1.1", "1.0", "1.0", "1.0", "10", 1),
+                (_epoch_minute(5), "1.0", "1.2", "1.0", "1.1", "1.1", "11", 2),
+            ),
+            last=None,
+        )
+
+    def depth_fetcher(pair, depth_count):
+        return {"error": [], "result": {pair: {"bids": [["1.0", "10", "1"]], "asks": [["1.1", "10", "1"]]}}}
+
+    fake_result = SimpleNamespace(
+        cost_profile="research_stress",
+        policy="conservative",
+        scenario={
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 2.0,
+            "max_hold_hours": 72.0,
+            "exit_mode": "fixed_tp_sl",
+        },
+        trade_records=(_high_conviction_record(),),
+    )
+    fake_report = SimpleNamespace(portfolio_results=(fake_result,))
+    monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", lambda _config: fake_report)
+    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
+
+    result = run_daily_research_data_collection(
+        config_path=config_path,
+        run_id="pytest_daily_shadow_sync",
+        ohlc_fetcher=ohlc_fetcher,
+        depth_fetcher=depth_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    shadow_ops = [op for op in result.operations if op.operation_type == "shadow_observation_sync"]
+    assert len(shadow_ops) == 1
+    assert shadow_ops[0].status == "ok"
+    assert result.shadow_observation_sync_report_path
+    assert Path(result.shadow_observation_sync_report_path).exists()
+    loaded = load_state_db_paper_ledger(state_db)
+    assert loaded.journal.records[0].strategy_id == "high_conviction_swing"
+    assert loaded.journal.records[0].metadata["execution_mode"] == "shadow_paper"

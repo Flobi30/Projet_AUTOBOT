@@ -151,6 +151,31 @@ class DailyStrategyEdgeReviewConfig:
 
 
 @dataclass(frozen=True)
+class DailyShadowObservationSyncConfig:
+    """Optional post-collection sync of closed research/shadow trades.
+
+    This writes attributed ``shadow_paper`` observations only. It does not
+    create orders and does not grant official paper-capital or live permission.
+    """
+
+    enabled: bool = False
+    state_db_path: Path = Path("data/autobot_state.db")
+    registry_path: Path = Path("docs/research/strategy_hypotheses.json")
+    trend_shadow_db_path: Path = Path("data/trend_shadow_lab.db")
+    mean_reversion_shadow_db_path: Path = Path("data/mean_reversion_shadow_lab.db")
+    output_dir: Path = Path("reports/paper/shadow_observations")
+    high_conviction_output_dir: Path | None = None
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if not str(self.state_db_path).strip():
+            raise ValueError("shadow_observation_sync.state_db_path is required when enabled")
+        if not str(self.registry_path).strip():
+            raise ValueError("shadow_observation_sync.registry_path is required when enabled")
+
+
+@dataclass(frozen=True)
 class DailyResearchDataCollectionConfig:
     priority_symbols: tuple[str, ...]
     secondary_symbols: tuple[str, ...]
@@ -169,6 +194,7 @@ class DailyResearchDataCollectionConfig:
     high_conviction_walk_forward: DailyHighConvictionWalkForwardConfig = DailyHighConvictionWalkForwardConfig()
     strategy_orchestrator: DailyStrategyOrchestratorConfig = DailyStrategyOrchestratorConfig()
     strategy_edge_review: DailyStrategyEdgeReviewConfig = DailyStrategyEdgeReviewConfig()
+    shadow_observation_sync: DailyShadowObservationSyncConfig = DailyShadowObservationSyncConfig()
 
     @property
     def all_symbols(self) -> tuple[str, ...]:
@@ -198,6 +224,7 @@ class DailyResearchDataCollectionConfig:
         self.high_conviction_walk_forward.validate()
         self.strategy_orchestrator.validate()
         self.strategy_edge_review.validate()
+        self.shadow_observation_sync.validate()
 
 
 @dataclass(frozen=True)
@@ -230,6 +257,7 @@ class DailyResearchDataCollectionResult:
     high_conviction_walk_forward_report_path: str | None = None
     strategy_orchestrator_report_path: str | None = None
     strategy_edge_review_report_path: str | None = None
+    shadow_observation_sync_report_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -254,6 +282,7 @@ class DailyResearchDataCollectionResult:
             "high_conviction_walk_forward_report_path": self.high_conviction_walk_forward_report_path,
             "strategy_orchestrator_report_path": self.strategy_orchestrator_report_path,
             "strategy_edge_review_report_path": self.strategy_edge_review_report_path,
+            "shadow_observation_sync_report_path": self.shadow_observation_sync_report_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -270,6 +299,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
     high_conviction = payload.get("high_conviction_walk_forward") or {}
     strategy_orchestrator = payload.get("strategy_orchestrator") or {}
     strategy_edge_review = payload.get("strategy_edge_review") or {}
+    shadow_sync = payload.get("shadow_observation_sync") or {}
     config = DailyResearchDataCollectionConfig(
         priority_symbols=_tuple_upper(payload.get("priority_symbols")),
         secondary_symbols=_tuple_upper(payload.get("secondary_symbols")),
@@ -333,6 +363,21 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             max_drawdown_pct=float(strategy_edge_review.get("max_drawdown_pct") or 10.0),
             max_single_symbol_positive_share=float(
                 strategy_edge_review.get("max_single_symbol_positive_share") or 0.40
+            ),
+        ),
+        shadow_observation_sync=DailyShadowObservationSyncConfig(
+            enabled=bool(shadow_sync.get("enabled", False)),
+            state_db_path=Path(str(shadow_sync.get("state_db_path") or "data/autobot_state.db")),
+            registry_path=Path(str(shadow_sync.get("registry_path") or "docs/research/strategy_hypotheses.json")),
+            trend_shadow_db_path=Path(str(shadow_sync.get("trend_shadow_db_path") or "data/trend_shadow_lab.db")),
+            mean_reversion_shadow_db_path=Path(
+                str(shadow_sync.get("mean_reversion_shadow_db_path") or "data/mean_reversion_shadow_lab.db")
+            ),
+            output_dir=Path(str(shadow_sync.get("output_dir") or "reports/paper/shadow_observations")),
+            high_conviction_output_dir=(
+                Path(str(shadow_sync.get("high_conviction_output_dir")))
+                if shadow_sync.get("high_conviction_output_dir") not in (None, "")
+                else None
             ),
         ),
     )
@@ -453,6 +498,12 @@ def run_daily_research_data_collection(
         run_id=run_id,
         operations=operations,
     )
+    shadow_sync_path = _run_shadow_observation_sync(
+        config=config,
+        run_id=run_id,
+        ohlcv_csv_paths=tuple(ohlcv_csv_paths),
+        operations=operations,
+    )
 
     result = DailyResearchDataCollectionResult(
         run_id=run_id,
@@ -465,6 +516,7 @@ def run_daily_research_data_collection(
         high_conviction_walk_forward_report_path=high_conviction_path,
         strategy_orchestrator_report_path=strategy_orchestrator_path,
         strategy_edge_review_report_path=strategy_edge_review_path,
+        shadow_observation_sync_report_path=shadow_sync_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -490,6 +542,7 @@ def write_daily_research_data_collection_report(
         high_conviction_walk_forward_report_path=result.high_conviction_walk_forward_report_path,
         strategy_orchestrator_report_path=result.strategy_orchestrator_report_path,
         strategy_edge_review_report_path=result.strategy_edge_review_report_path,
+        shadow_observation_sync_report_path=result.shadow_observation_sync_report_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -526,6 +579,7 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             f"- High Conviction walk-forward: `{result.high_conviction_walk_forward_report_path or 'not enabled'}`",
             f"- Strategy orchestrator treasury report: `{result.strategy_orchestrator_report_path or 'not enabled'}`",
             f"- Strategy edge review: `{result.strategy_edge_review_report_path or 'not enabled'}`",
+            f"- Shadow observation sync: `{result.shadow_observation_sync_report_path or 'not enabled'}`",
             "",
             "## Safety",
             "",
@@ -740,6 +794,74 @@ def _run_strategy_edge_review(
         operations.append(
             DailyCollectionOperation(
                 operation_type="strategy_edge_review",
+                symbol=None,
+                timeframe=None,
+                status="error",
+                error=str(exc),
+            )
+        )
+    return None
+
+
+def _run_shadow_observation_sync(
+    *,
+    config: DailyResearchDataCollectionConfig,
+    run_id: str,
+    ohlcv_csv_paths: tuple[str, ...],
+    operations: list[DailyCollectionOperation],
+) -> str | None:
+    scheduled = config.shadow_observation_sync
+    if not scheduled.enabled:
+        return None
+    if not scheduled.state_db_path.exists():
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="shadow_observation_sync",
+                symbol=None,
+                timeframe=None,
+                status="skipped",
+                error=f"state_db_missing:{scheduled.state_db_path}",
+            )
+        )
+        return None
+    try:
+        from autobot.v2.paper.shadow_observation_sync import (
+            ShadowPaperObservationSyncConfig,
+            sync_shadow_paper_observations,
+        )
+
+        report = sync_shadow_paper_observations(
+            ShadowPaperObservationSyncConfig(
+                state_db_path=scheduled.state_db_path,
+                registry_path=scheduled.registry_path,
+                trend_shadow_db_path=scheduled.trend_shadow_db_path,
+                mean_reversion_shadow_db_path=scheduled.mean_reversion_shadow_db_path,
+                high_conviction_data_paths=tuple(Path(path) for path in ohlcv_csv_paths),
+                output_dir=scheduled.output_dir,
+                high_conviction_output_dir=scheduled.high_conviction_output_dir,
+                run_id=f"{run_id}_shadow_observation_sync",
+            )
+        )
+        inserted = sum(item.inserted_trade_count for item in report.source_results)
+        source_trades = sum(item.source_trade_count for item in report.source_results)
+        status = "ok" if inserted or source_trades else "no_new_rows"
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="shadow_observation_sync",
+                symbol=None,
+                timeframe=None,
+                status=status,
+                row_count=inserted,
+                output_path=report.json_report_path,
+                markdown_report_path=report.markdown_report_path,
+                error="shadow_paper_only_no_orders",
+            )
+        )
+        return report.markdown_report_path
+    except Exception as exc:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="shadow_observation_sync",
                 symbol=None,
                 timeframe=None,
                 status="error",

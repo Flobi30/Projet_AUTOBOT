@@ -78,6 +78,19 @@ strategy_edge_review:
   max_drawdown_pct: 10
   max_single_symbol_positive_share: 0.40
 
+# Optional post-collection ledger sync. It writes attributed shadow_paper
+# observations only; it cannot create orders, cannot grant paper capital and
+# cannot enable live trading. High Conviction uses the daily OHLCV CSV files
+# collected in this run and writes reports in a persistent mounted directory.
+shadow_observation_sync:
+  enabled: true
+  state_db_path: data/autobot_state.db
+  registry_path: docs/research/strategy_hypotheses.json
+  trend_shadow_db_path: data/trend_shadow_lab.db
+  mean_reversion_shadow_db_path: data/mean_reversion_shadow_lab.db
+  output_dir: reports/paper/shadow_observations
+  high_conviction_output_dir: data/research/high_conviction_shadow_sync
+
 output_dirs:
   ohlcv: data/research/daily/ohlcv
   microstructure: data/research/daily/microstructure

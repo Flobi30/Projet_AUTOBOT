@@ -60,6 +60,15 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _optional_float(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
     return max(minimum, min(maximum, float(value)))
 
@@ -250,6 +259,7 @@ class MeanReversionPosition:
     entry_z: float
     mean_at_entry: float
     std_at_entry: float
+    opportunity: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -262,6 +272,7 @@ class MeanReversionPosition:
             "entry_z": self.entry_z,
             "mean_at_entry": self.mean_at_entry,
             "std_at_entry": self.std_at_entry,
+            "opportunity": dict(self.opportunity),
         }
 
     @classmethod
@@ -276,6 +287,7 @@ class MeanReversionPosition:
             entry_z=_safe_float(payload.get("entry_z")),
             mean_at_entry=_safe_float(payload.get("mean_at_entry")),
             std_at_entry=_safe_float(payload.get("std_at_entry")),
+            opportunity=dict(payload.get("opportunity") or {}) if isinstance(payload.get("opportunity"), Mapping) else {},
         )
 
 
@@ -322,7 +334,14 @@ class MeanReversionShadowLab:
         self._last_persist_mono: float = 0.0
         self._loaded = False
 
-    def on_price_tick(self, *, symbol: str, price: float, timestamp: Any = None) -> dict[str, Any]:
+    def on_price_tick(
+        self,
+        *,
+        symbol: str,
+        price: float,
+        timestamp: Any = None,
+        opportunity_context: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
         symbol = symbol_key(symbol)
         price = _safe_float(price)
         if not self.config.enabled:
@@ -341,9 +360,10 @@ class MeanReversionShadowLab:
             self._last_update_mono[symbol] = now
 
             updated = 0
+            opportunity = _opportunity_context(opportunity_context)
             for variant in self.variants[: self.config.max_variants_per_symbol]:
                 state = self._state(symbol, variant.name, price)
-                self._run_variant_tick(state, variant, price, _iso(timestamp))
+                self._run_variant_tick(state, variant, price, _iso(timestamp), opportunity)
                 updated += 1
 
             if now - self._last_persist_mono >= self.config.persist_interval_seconds:
@@ -429,7 +449,14 @@ class MeanReversionShadowLab:
             self._persist_all()
             self._last_persist_mono = time.monotonic()
 
-    def _run_variant_tick(self, state: MeanReversionState, variant: MeanReversionVariant, price: float, timestamp: str) -> None:
+    def _run_variant_tick(
+        self,
+        state: MeanReversionState,
+        variant: MeanReversionVariant,
+        price: float,
+        timestamp: str,
+        opportunity: Mapping[str, Any],
+    ) -> None:
         state.last_price = price
         state.last_tick_at = timestamp
         state.sample_count += 1
@@ -441,7 +468,7 @@ class MeanReversionShadowLab:
         if state.open_position is not None:
             self._maybe_close_position(state, variant, features, price, timestamp)
         if state.open_position is None:
-            self._maybe_open_position(state, variant, features, price, timestamp)
+            self._maybe_open_position(state, variant, features, price, timestamp, opportunity)
 
         equity = self._equity(state, price)
         state.peak_equity = max(state.peak_equity or self.config.virtual_capital_per_variant, equity)
@@ -455,6 +482,7 @@ class MeanReversionShadowLab:
         features: Mapping[str, Any],
         price: float,
         timestamp: str,
+        opportunity: Mapping[str, Any],
     ) -> None:
         if state.sample_count < state.cooldown_until_sample:
             self._set_rejected(state, variant, features, price, timestamp, "cooldown")
@@ -498,6 +526,7 @@ class MeanReversionShadowLab:
             entry_z=_safe_float(features.get("z_score")),
             mean_at_entry=mean,
             std_at_entry=std,
+            opportunity=dict(opportunity),
         )
         state.last_decision = {
             "timestamp": timestamp,
@@ -893,10 +922,15 @@ class MeanReversionShadowLab:
                     reason TEXT NOT NULL,
                     opened_at TEXT NOT NULL,
                     closed_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    opportunity_score REAL,
+                    opportunity_status TEXT,
+                    opportunity_reason TEXT,
+                    opportunity_components TEXT
                 )
                 """
             )
+            _ensure_trade_metadata_columns(conn, "mean_reversion_shadow_trades")
 
     def _load_states(self) -> None:
         with self._connect() as conn:
@@ -1006,8 +1040,9 @@ class MeanReversionShadowLab:
                 INSERT INTO mean_reversion_shadow_trades (
                     symbol, variant, position_id, entry_price, exit_price,
                     volume, notional, fees, realized_pnl, reason, opened_at,
-                    closed_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    closed_at, created_at, opportunity_score, opportunity_status,
+                    opportunity_reason, opportunity_components
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     state.symbol,
@@ -1023,5 +1058,40 @@ class MeanReversionShadowLab:
                     position.opened_at,
                     timestamp,
                     _utc_now(),
+                    _optional_float(position.opportunity.get("opportunity_score")),
+                    str(position.opportunity.get("opportunity_status") or "") or None,
+                    str(position.opportunity.get("opportunity_reason") or "") or None,
+                    json.dumps(position.opportunity.get("opportunity_components") or {}, separators=(",", ":")),
                 ),
             )
+
+
+def _opportunity_context(raw: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        return {}
+    score = _optional_float(raw.get("opportunity_score", raw.get("score")))
+    result: dict[str, Any] = {}
+    if score is not None:
+        result["opportunity_score"] = score
+    status = raw.get("opportunity_status", raw.get("status"))
+    reason = raw.get("opportunity_reason", raw.get("reason"))
+    components = raw.get("opportunity_components", raw.get("components"))
+    if status not in (None, ""):
+        result["opportunity_status"] = str(status)
+    if reason not in (None, ""):
+        result["opportunity_reason"] = str(reason)
+    if isinstance(components, Mapping):
+        result["opportunity_components"] = dict(components)
+    return result
+
+
+def _ensure_trade_metadata_columns(conn: sqlite3.Connection, table: str) -> None:
+    existing = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, ddl_type in {
+        "opportunity_score": "REAL",
+        "opportunity_status": "TEXT",
+        "opportunity_reason": "TEXT",
+        "opportunity_components": "TEXT",
+    }.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")

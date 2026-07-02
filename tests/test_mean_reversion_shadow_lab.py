@@ -1,3 +1,6 @@
+import json
+import sqlite3
+
 import pytest
 
 from autobot.v2.mean_reversion_shadow_lab import (
@@ -68,6 +71,40 @@ def test_mean_reversion_shadow_lab_opens_and_closes_snapback(tmp_path):
     reloaded = MeanReversionShadowLab(lab.config, variants=[_variant()])
     reloaded_snapshot = reloaded.build_snapshot(symbols=["NEWEUR"])
     assert reloaded_snapshot["by_symbol"]["NEWEUR"]["best_variant"]["closed_trades"] >= 1
+
+
+def test_mean_reversion_shadow_lab_persists_opportunity_score_on_closed_trade(tmp_path):
+    lab = _lab(tmp_path)
+    prices = [100.0, 101.0, 99.0, 100.0, 100.0, 90.0, 95.0, 99.0]
+    opportunity = {
+        "score": 43.5,
+        "status": "non_tradable",
+        "reason": "score_below_threshold",
+        "components": {"spread": 0.4},
+    }
+
+    for idx, price in enumerate(prices):
+        lab.on_price_tick(
+            symbol="SCOREEUR",
+            price=price,
+            timestamp=f"2026-05-20T01:3{idx}:00+00:00",
+            opportunity_context=opportunity,
+        )
+    lab.flush()
+
+    with sqlite3.connect(lab.config.db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT opportunity_score, opportunity_status, opportunity_reason, opportunity_components
+            FROM mean_reversion_shadow_trades
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    assert row[0] == pytest.approx(43.5)
+    assert row[1] == "non_tradable"
+    assert row[2] == "score_below_threshold"
+    assert json.loads(row[3]) == {"spread": 0.4}
 
 
 def test_mean_reversion_shadow_lab_rejects_strong_trend(tmp_path):
