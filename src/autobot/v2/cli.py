@@ -286,6 +286,19 @@ def _build_parser() -> argparse.ArgumentParser:
     shadow_observations.add_argument("--no-write-report", action="store_true")
     shadow_observations.set_defaults(handler=_cmd_shadow_paper_observations)
 
+    paper_loss = subparsers.add_parser(
+        "paper-loss-diagnostics",
+        help="Diagnose post-P2 shadow_paper losses by strategy, pair, timeframe and regime",
+    )
+    paper_loss.add_argument("--state-db", required=True, help="AUTOBOT state DB containing trade_ledger")
+    paper_loss.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    paper_loss.add_argument("--run-id", default=None)
+    paper_loss.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    paper_loss.add_argument("--min-segment-trades", type=int, default=30)
+    paper_loss.add_argument("--output-dir", default="reports/paper/loss_diagnostics")
+    paper_loss.add_argument("--no-write-report", action="store_true")
+    paper_loss.set_defaults(handler=_cmd_paper_loss_diagnostics)
+
     compare = subparsers.add_parser(
         "compare-paper-research",
         help="Compare official paper ledger evidence with a research matrix report",
@@ -1785,6 +1798,27 @@ def _cmd_shadow_paper_observations(args: argparse.Namespace) -> int:
             output_dir=Path(args.output_dir),
             run_id=args.run_id,
             write_report=not args.no_write_report,
+        ),
+        write_report=not args.no_write_report,
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_paper_loss_diagnostics(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.loss_diagnostics import (
+        PaperLossDiagnosticsConfig,
+        build_paper_loss_diagnostics_report,
+    )
+
+    report = build_paper_loss_diagnostics_report(
+        PaperLossDiagnosticsConfig(
+            state_db_path=Path(args.state_db),
+            registry_path=Path(args.registry_path),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            min_segment_trades=args.min_segment_trades,
         ),
         write_report=not args.no_write_report,
     )
