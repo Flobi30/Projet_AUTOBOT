@@ -487,6 +487,23 @@ class StatePersistence:
             if column not in existing:
                 await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
+    async def _ensure_trade_ledger_trade_id_index(self, conn: aiosqlite.Connection) -> None:
+        async with conn.execute(
+            "SELECT trade_id, COUNT(*) AS count FROM trade_ledger "
+            "GROUP BY trade_id HAVING COUNT(*) > 1 LIMIT 1"
+        ) as cursor:
+            duplicate = await cursor.fetchone()
+        if duplicate is not None:
+            logger.warning(
+                "trade_ledger contains duplicate trade_id=%s; unique trade_id index deferred",
+                duplicate[0],
+            )
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_trade_id ON trade_ledger(trade_id)")
+            return
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_ledger_trade_id_unique ON trade_ledger(trade_id)"
+        )
+
     async def initialize(self):
         """Initialise la base de données (async)."""
         if self._initialized:
@@ -733,6 +750,7 @@ class StatePersistence:
                 },
             )
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_strategy_id ON trade_ledger(strategy_id)")
+            await self._ensure_trade_ledger_trade_id_index(conn)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_symbol ON decision_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_created_at ON decision_ledger(created_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ledger_instance_event ON decision_ledger(instance_id, event_type)")
@@ -961,8 +979,6 @@ class StatePersistence:
                     execution_mode,
                 )
                 return False
-            # Reusing order repo connection for trade ledger
-            conn = await self.orders.get_conn()
             cols = [
                 "trade_id", "position_id", "instance_id", "symbol", "side", "expected_price", 
                 "executed_price", "volume", "fees", "slippage_bps", "realized_pnl", 
@@ -981,10 +997,15 @@ class StatePersistence:
                 kwargs.get("gross_pnl"), kwargs.get("net_pnl"), kwargs.get("regime"),
                 kwargs.get("execution_liquidity"), execution_mode or EXECUTION_MODE_LEGACY_UNSPECIFIED, now
             ]
-            query = f"INSERT INTO trade_ledger ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})"
-            await conn.execute(query, tuple(vals))
-            await conn.commit()
-            return True
+            query = f"INSERT OR IGNORE INTO trade_ledger ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})"
+
+            async def _write() -> bool:
+                conn = await self.orders.get_conn()
+                cursor = await conn.execute(query, tuple(vals))
+                await conn.commit()
+                return int(cursor.rowcount or 0) > 0
+
+            return await self.orders._with_write_retries("append_trade_ledger", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur append_trade_ledger: {e}")
             return False
@@ -993,7 +1014,6 @@ class StatePersistence:
         await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.orders.get_conn()
             payload = kwargs.get("payload_json")
             if payload is None:
                 payload = kwargs.get("payload")
@@ -1029,10 +1049,19 @@ class StatePersistence:
                 payload,
                 kwargs.get("created_at") or now,
             ]
-            query = f"INSERT INTO decision_ledger ({', '.join(cols)}) VALUES ({', '.join(['?'] * len(cols))})"
-            await conn.execute(query, tuple(vals))
-            await conn.commit()
-            return True
+            query = (
+                f"INSERT INTO decision_ledger ({', '.join(cols)}) "
+                f"SELECT {', '.join(['?'] * len(cols))} "
+                "WHERE NOT EXISTS (SELECT 1 FROM decision_ledger WHERE event_id = ?)"
+            )
+
+            async def _write() -> bool:
+                conn = await self.orders.get_conn()
+                cursor = await conn.execute(query, tuple([*vals, kwargs.get("event_id")]))
+                await conn.commit()
+                return int(cursor.rowcount or 0) > 0
+
+            return await self.orders._with_write_retries("append_decision_ledger_event", _write)
         except Exception as e:
             logger.exception(f"Erreur append_decision_ledger_event: {e}")
             return False
@@ -1322,10 +1351,13 @@ class StatePersistence:
                 created_at=excluded.created_at
         """
         try:
-            conn = await self.orders.get_conn()
-            await conn.executemany(query, rows)
-            await conn.commit()
-            return len(rows)
+            async def _write() -> int:
+                conn = await self.orders.get_conn()
+                await conn.executemany(query, rows)
+                await conn.commit()
+                return len(rows)
+
+            return await self.orders._with_write_retries("append_market_price_samples", _write)
         except Exception as e:
             logger.exception(f"Erreur append_market_price_samples: {e}")
             return 0
@@ -1365,14 +1397,17 @@ class StatePersistence:
         await self.initialize()
         cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(older_than_hours)))
         try:
-            conn = await self.orders.get_conn()
-            cursor = await conn.execute(
-                "DELETE FROM market_price_samples WHERE observed_at < ?",
-                (cutoff.isoformat(),),
-            )
-            deleted = int(cursor.rowcount or 0)
-            await conn.commit()
-            return deleted
+            async def _write() -> int:
+                conn = await self.orders.get_conn()
+                cursor = await conn.execute(
+                    "DELETE FROM market_price_samples WHERE observed_at < ?",
+                    (cutoff.isoformat(),),
+                )
+                deleted = int(cursor.rowcount or 0)
+                await conn.commit()
+                return deleted
+
+            return await self.orders._with_write_retries("purge_market_price_samples", _write)
         except Exception as e:
             logger.exception(f"Erreur purge_market_price_samples: {e}")
             return 0

@@ -309,6 +309,42 @@ def _build_parser() -> argparse.ArgumentParser:
     paper_loss.add_argument("--no-write-report", action="store_true")
     paper_loss.set_defaults(handler=_cmd_paper_loss_diagnostics)
 
+    db_integrity = subparsers.add_parser(
+        "check-db-integrity",
+        help="Run read-only integrity checks on the AUTOBOT state DB",
+    )
+    db_integrity.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB")
+    db_integrity.add_argument("--run-id", default=None)
+    db_integrity.add_argument("--snapshot-dir", default=None, help="Optional directory for a diagnostic DB snapshot")
+    db_integrity.add_argument("--output-dir", default="reports/paper/db_integrity")
+    db_integrity.add_argument("--no-write-report", action="store_true")
+    db_integrity.set_defaults(handler=_cmd_check_db_integrity)
+
+    score_filter = subparsers.add_parser(
+        "score-filter-simulation",
+        help="Read-only opportunity_score bucket filter simulation",
+    )
+    score_filter.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    score_filter.add_argument("--run-id", default=None)
+    score_filter.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    score_filter.add_argument("--output-dir", default="reports/paper/score_filter_simulation")
+    score_filter.add_argument("--no-write-report", action="store_true")
+    score_filter.set_defaults(handler=_cmd_score_filter_simulation)
+
+    paper_confidence = subparsers.add_parser(
+        "paper-confidence",
+        help="Research-only statistical confidence report for one strategy_id",
+    )
+    paper_confidence.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    paper_confidence.add_argument("--strategy-id", required=True)
+    paper_confidence.add_argument("--run-id", default=None)
+    paper_confidence.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    paper_confidence.add_argument("--bootstrap-iterations", type=int, default=500)
+    paper_confidence.add_argument("--seed", type=int, default=7)
+    paper_confidence.add_argument("--output-dir", default="reports/paper/confidence")
+    paper_confidence.add_argument("--no-write-report", action="store_true")
+    paper_confidence.set_defaults(handler=_cmd_paper_confidence)
+
     compare = subparsers.add_parser(
         "compare-paper-research",
         help="Compare official paper ledger evidence with a research matrix report",
@@ -1839,6 +1875,60 @@ def _cmd_paper_loss_diagnostics(args: argparse.Namespace) -> int:
             min_segment_trades=args.min_segment_trades,
         ),
         write_report=not args.no_write_report,
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_check_db_integrity(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.db_integrity import DbIntegrityConfig, build_db_integrity_report
+
+    report = build_db_integrity_report(
+        DbIntegrityConfig(
+            state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            snapshot_dir=Path(args.snapshot_dir) if args.snapshot_dir else None,
+            write_report=not args.no_write_report,
+        )
+    )
+    _print_json(report.to_dict())
+    return 0 if report.status != "FAIL" else 2
+
+
+def _cmd_score_filter_simulation(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.score_filter_simulation import (
+        ScoreFilterSimulationConfig,
+        build_score_filter_simulation_report,
+    )
+
+    report = build_score_filter_simulation_report(
+        ScoreFilterSimulationConfig(
+            state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            write_report=not args.no_write_report,
+        )
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_paper_confidence(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.paper_confidence import PaperConfidenceConfig, build_paper_confidence_report
+
+    report = build_paper_confidence_report(
+        PaperConfidenceConfig(
+            state_db_path=Path(args.state_db),
+            strategy_id=args.strategy_id,
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            bootstrap_iterations=args.bootstrap_iterations,
+            seed=args.seed,
+            write_report=not args.no_write_report,
+        )
     )
     _print_json(report.to_dict())
     return 0

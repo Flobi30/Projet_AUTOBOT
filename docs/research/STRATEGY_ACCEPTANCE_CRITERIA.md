@@ -25,6 +25,40 @@ No strategy should skip a stage. A strategy may be rejected or retired from any
 stage. Live trading remains disabled unless there is an explicit human decision
 outside this automated workflow.
 
+## Runtime Gate States
+
+P6 adds a stricter runtime vocabulary for interpreting evidence. These states
+document what is allowed; they do not activate any transition by themselves.
+
+| State | Meaning | Minimum evidence | Allowed behavior |
+|---|---|---|---|
+| `shadow_only` | Strategy may produce attributed observations for learning. | `strategy_id` present, costs recorded, grid not selected. | Shadow ledger only. No paper capital. No live. |
+| `research_filter` | Module can enrich or filter observations, but is not alpha. | Score/metadata is reproducible and stored with observations. | Metadata/filter simulation only. No direct trades. |
+| `candidate` | Strategy may be reviewed for limited paper capital later. | At least 50 trades, net PF > 1.0, positive expectancy, costs present, baseline present, no critical DB gaps. | Human/research review only. No automatic promotion. |
+| `paper_capital_allowed` | Strategy may be considered for controlled official paper capital. | Recommended 100+ trades, net PF >= 1.10, bootstrap lower confidence not negative, walk-forward/out-of-sample evidence, drawdown within limits. | Requires explicit future activation. Not enabled by P6. |
+| `live_ready` | Strategy may be considered for human live review. | Paper validation, reconciliation, cost parity, live safety attestation, human approval. | Never automatic. Live flags remain off by default. |
+
+`paper-confidence` and `score-filter-simulation` are research-only commands. A
+positive report from either command cannot promote a strategy, cannot activate
+paper capital, and cannot enable live trading.
+
+## Statistical Confidence Layer
+
+Before a strategy can even be discussed as a paper-capital candidate, P6 expects:
+
+- minimum sample size: 50 closed attributed trades
+- recommended sample size: 100 or more closed attributed trades
+- net profit factor: greater than 1.0 required
+- candidate-quality net profit factor: at least 1.10 recommended
+- net expectancy: positive
+- costs: fees and slippage present
+- baseline: present and not worse than the tested strategy
+- bootstrap: simple net-PnL bootstrap should not show a clearly negative lower confidence band
+- multi-test caution: if many pairs, buckets or variants are compared, the result is early evidence only until walk-forward/out-of-sample checks confirm it
+
+If sample size is too low, the status must remain `insufficient_data`, even when
+PnL is positive.
+
 ## Minimum Backtest Evidence
 
 A backtest can only be marked as passed when all of the following are true:

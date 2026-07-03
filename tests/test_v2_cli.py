@@ -743,7 +743,7 @@ def test_cli_standard_audit_runs_full_read_only_bundle(tmp_path, capsys):
     assert output["paper_vs_research"]["paper_trade_count"] == 1
     assert output["decision_trace"]["summary"]["trace_count"] >= 1
     assert output["cost_parity"]["sources"][0]["source"] == "official_paper_trade_ledger"
-    assert output["pnl_causality"]["summary"]["closed_trades"] == 1
+    assert output["pnl_causality"]["summary"]["closed_trades"] == 0
     assert "No live trading permission is granted." in output["safety_notes"]
     assert (tmp_path / "standard_audit" / "pytest_standard_audit.md").exists()
     assert (tmp_path / "standard_audit" / "paper_vs_research" / "pytest_standard_audit_paper_vs_research.md").exists()

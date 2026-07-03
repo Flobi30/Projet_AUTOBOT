@@ -9,6 +9,7 @@ runtime state.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Iterable as IterableABC
 from collections import defaultdict, deque
@@ -173,9 +174,19 @@ def load_paper_trades_db_journal(
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    timeout_ms = _env_int("SQLITE_BUSY_TIMEOUT_MS", 30_000, 1_000, 300_000)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=timeout_ms / 1000.0)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout={timeout_ms}")
     return conn
+
+
+def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        value = default
+    return max(min_value, min(max_value, value))
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
