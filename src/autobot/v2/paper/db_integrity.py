@@ -89,7 +89,7 @@ def build_db_integrity_report(config: DbIntegrityConfig) -> DbIntegrityReport:
             columns = _columns(conn, "trade_ledger")
             checks["missing_required_columns"] = sorted(
                 column
-                for column in ("strategy_id", "execution_mode", "decision_id", "fees", "slippage_bps")
+                for column in ("strategy_id", "execution_mode", "decision_id", "fees")
                 if column not in columns
             )
             for column in checks["missing_required_columns"]:
@@ -122,12 +122,11 @@ def build_db_integrity_report(config: DbIntegrityConfig) -> DbIntegrityReport:
                     conn,
                     "SELECT COUNT(*) FROM trade_ledger WHERE COALESCE(is_closing_leg, 0) = 1",
                 )
-            if "fees" in columns or "slippage_bps" in columns:
+            if "fees" in columns:
                 fee_expr = "COALESCE(fees, 0) < 0" if "fees" in columns else "0"
-                slippage_expr = "COALESCE(slippage_bps, 0) < 0" if "slippage_bps" in columns else "0"
                 checks["negative_cost_rows"] = _scalar_int(
                     conn,
-                    f"SELECT COUNT(*) FROM trade_ledger WHERE {fee_expr} OR {slippage_expr}",
+                    f"SELECT COUNT(*) FROM trade_ledger WHERE {fee_expr}",
                 )
             checks["invalid_score_bucket_rows"] = _invalid_score_bucket_rows(conn, columns)
     except sqlite3.Error as exc:

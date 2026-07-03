@@ -33,6 +33,8 @@ was changed.
   retry.
 - Decision ledger appends are idempotent by `event_id`.
 - Read-only ledger loading now sets SQLite timeout and `busy_timeout`.
+- DB integrity treats negative `fees` as invalid cost; signed negative
+  `slippage_bps` is allowed as favorable slippage and is not a FAIL condition.
 - New CLI: `check-db-integrity`.
 - New CLI: `score-filter-simulation`.
 - New CLI: `paper-confidence`.
