@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from autobot.v2.pair_strategy_health import symbol_key
 from autobot.v2.research.high_conviction_portfolio import (
@@ -96,10 +96,12 @@ class ShadowSyncSourceResult:
     can_write_shadow: bool
     source_trade_count: int = 0
     inserted_trade_count: int = 0
+    enriched_trade_count: int = 0
     duplicate_trade_count: int = 0
     skipped_trade_count: int = 0
     latest_closed_at: str | None = None
     reason_counts: dict[str, int] = field(default_factory=dict)
+    score_coverage: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,6 +135,7 @@ class ShadowPaperObservationSyncReport:
     execution_mode: str
     source_results: tuple[ShadowSyncSourceResult, ...]
     accumulation: tuple[ShadowAccumulationBucket, ...]
+    score_coverage: dict[str, Any]
     safety_notes: tuple[str, ...]
     json_report_path: str | None = None
     markdown_report_path: str | None = None
@@ -146,6 +149,7 @@ class ShadowPaperObservationSyncReport:
             "execution_mode": self.execution_mode,
             "source_results": [item.to_dict() for item in self.source_results],
             "accumulation": [item.to_dict() for item in self.accumulation],
+            "score_coverage": dict(self.score_coverage),
             "safety_notes": list(self.safety_notes),
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
@@ -181,6 +185,7 @@ def sync_shadow_paper_observations(
         for source in UNSYNCED_OBSERVATION_STRATEGIES:
             source_results.append(_unsynced_source_result(registry_payload, source))
         accumulation = _build_accumulation(state_conn, now=config.generated_at)
+        score_coverage = _build_score_coverage(state_conn)
     finally:
         state_conn.close()
 
@@ -192,6 +197,7 @@ def sync_shadow_paper_observations(
         execution_mode=EXECUTION_MODE_SHADOW_PAPER,
         source_results=tuple(source_results),
         accumulation=tuple(accumulation),
+        score_coverage=score_coverage,
         safety_notes=(
             "Research/paper observation sync only.",
             "No Kraken order is created.",
@@ -260,15 +266,28 @@ def _sync_source(
 
     reason_counts: dict[str, int] = defaultdict(int)
     inserted = 0
+    enriched = 0
     duplicates = 0
     skipped = 0
     latest_closed_at: str | None = None
     for row in rows:
         source_id = f"{source['source']}:{int(row['id'])}"
+        opportunity_metadata = _shadow_row_opportunity_metadata(
+            row,
+            opportunity_lookup=opportunity_lookup,
+            generated_at=generated_at,
+            max_window_hours=config.opportunity_match_window_hours,
+        )
         if _ledger_trade_exists(state_conn, f"{source_id}:close") or _ledger_trade_exists(
             state_conn, f"{source_id}:open"
         ):
             duplicates += 1
+            if _enrich_existing_trade_metadata(
+                state_conn,
+                (f"{source_id}:open", f"{source_id}:close"),
+                opportunity_metadata,
+            ):
+                enriched += 1
             continue
         try:
             _insert_shadow_trade_pair(
@@ -279,8 +298,7 @@ def _sync_source(
                 source_id=source_id,
                 default_regime=source["default_regime"],
                 generated_at=generated_at,
-                opportunity_lookup=opportunity_lookup,
-                opportunity_match_window_hours=config.opportunity_match_window_hours,
+                opportunity_metadata=opportunity_metadata,
             )
             inserted += 1
             latest_closed_at = str(row["closed_at"] or latest_closed_at or "")
@@ -298,10 +316,12 @@ def _sync_source(
         can_write_shadow=True,
         source_trade_count=len(rows),
         inserted_trade_count=inserted,
+        enriched_trade_count=enriched,
         duplicate_trade_count=duplicates,
         skipped_trade_count=skipped,
         latest_closed_at=latest_closed_at,
         reason_counts=dict(sorted(reason_counts.items())),
+        score_coverage=_score_coverage_for_source(state_conn, strategy_id),
         warnings=tuple(dict.fromkeys(warnings)),
     )
 
@@ -400,6 +420,7 @@ def _sync_high_conviction_source(
         )
 
     inserted = 0
+    enriched = 0
     duplicates = 0
     skipped = 0
     latest_closed_at: str | None = None
@@ -407,6 +428,12 @@ def _sync_high_conviction_source(
     warnings: list[str] = []
     for index, record in enumerate(sorted(records, key=lambda item: (item.closed_at, item.symbol)), start=1):
         source_id = _high_conviction_source_id(record, index)
+        opportunity_metadata = _trade_record_opportunity_metadata(
+            record,
+            opportunity_lookup=opportunity_lookup,
+            generated_at=generated_at,
+            max_window_hours=config.opportunity_match_window_hours,
+        )
         if _ledger_trade_exists(state_conn, f"{source_id}:close") or _ledger_trade_exists(
             state_conn, f"{source_id}:open"
         ) or _high_conviction_economic_trade_exists(
@@ -414,6 +441,11 @@ def _sync_high_conviction_source(
             record,
         ):
             duplicates += 1
+            trade_ids = (f"{source_id}:open", f"{source_id}:close")
+            if _enrich_existing_trade_metadata(state_conn, trade_ids, opportunity_metadata):
+                enriched += 1
+            else:
+                enriched += _enrich_high_conviction_economic_match(state_conn, record, opportunity_metadata)
             continue
         try:
             _insert_trade_record_pair(
@@ -422,8 +454,7 @@ def _sync_high_conviction_source(
                 source_id=source_id,
                 source_name=source_name,
                 generated_at=generated_at,
-                opportunity_lookup=opportunity_lookup,
-                opportunity_match_window_hours=config.opportunity_match_window_hours,
+                opportunity_metadata=opportunity_metadata,
             )
             inserted += 1
             latest_closed_at = record.closed_at.isoformat()
@@ -441,10 +472,12 @@ def _sync_high_conviction_source(
         can_write_shadow=True,
         source_trade_count=len(records),
         inserted_trade_count=inserted,
+        enriched_trade_count=enriched,
         duplicate_trade_count=duplicates,
         skipped_trade_count=skipped,
         latest_closed_at=latest_closed_at,
         reason_counts=dict(sorted(reason_counts.items())),
+        score_coverage=_score_coverage_for_source(state_conn, strategy_id),
         warnings=tuple(dict.fromkeys(warnings)),
     )
 
@@ -551,8 +584,7 @@ def _insert_shadow_trade_pair(
     source_id: str,
     default_regime: str,
     generated_at: str,
-    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]] | None = None,
-    opportunity_match_window_hours: float = 6.0,
+    opportunity_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     entry_price = _positive_float(row["entry_price"], "entry_price")
     exit_price = _positive_float(row["exit_price"], "exit_price")
@@ -565,15 +597,6 @@ def _insert_shadow_trade_pair(
     total_notional = max(entry_notional + exit_notional, 1e-12)
     fee_entry, fee_exit, slippage_bps = _split_legacy_costs(total_cost, entry_notional, exit_notional)
     position_id = f"shadow:{strategy_id}:{row['position_id']}:{int(row['id'])}"
-    opportunity_metadata = _merge_opportunity_metadata(
-        _opportunity_metadata_from_mapping(row),
-        _lookup_opportunity_metadata(
-            opportunity_lookup or {},
-            symbol=str(row["symbol"] or ""),
-            timestamp=str(row["opened_at"] or row["closed_at"] or generated_at),
-            max_window_hours=opportunity_match_window_hours,
-        ),
-    )
     metadata = json.dumps(
         {
             "source_row_id": int(row["id"]),
@@ -582,7 +605,7 @@ def _insert_shadow_trade_pair(
             "exit_reason": str(row["reason"] or "unknown_exit"),
             "execution_mode": EXECUTION_MODE_SHADOW_PAPER,
             "research_only": True,
-            **opportunity_metadata,
+            **dict(opportunity_metadata or {"score_bucket": "missing"}),
         },
         separators=(",", ":"),
     )
@@ -648,8 +671,7 @@ def _insert_trade_record_pair(
     source_id: str,
     source_name: str,
     generated_at: str,
-    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]] | None = None,
-    opportunity_match_window_hours: float = 6.0,
+    opportunity_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     if record.strategy_id != "high_conviction_swing":
         raise ValueError("high_conviction shadow record must use strategy_id=high_conviction_swing")
@@ -671,15 +693,6 @@ def _insert_trade_record_pair(
     fee_exit = max(0.0, record.fees_eur) * (exit_notional / total_notional)
     slippage_bps = max(0.0, record.slippage_eur + record.spread_cost_eur + record.latency_cost_eur) / total_notional * 10_000.0
     position_id = f"shadow:high_conviction_swing:{source_id}"
-    opportunity_metadata = _merge_opportunity_metadata(
-        _opportunity_metadata_from_mapping(record.metadata),
-        _lookup_opportunity_metadata(
-            opportunity_lookup or {},
-            symbol=record.symbol,
-            timestamp=record.opened_at.isoformat() if record.opened_at else generated_at,
-            max_window_hours=opportunity_match_window_hours,
-        ),
-    )
     metadata = json.dumps(
         {
             "source": source_name,
@@ -695,7 +708,7 @@ def _insert_trade_record_pair(
             "mfe_bps": record.metadata.get("mfe_bps"),
             "mae_bps": record.metadata.get("mae_bps"),
             "cost_bps": record.metadata.get("cost_bps"),
-            **opportunity_metadata,
+            **dict(opportunity_metadata or {"score_bucket": "missing"}),
         },
         separators=(",", ":"),
     )
@@ -816,6 +829,122 @@ def _split_legacy_costs(
     exit_fee = fee_total * (exit_notional / notional_total)
     slippage_bps = (slippage_total / notional_total) * 10_000.0
     return entry_fee, exit_fee, slippage_bps
+
+
+def _shadow_row_opportunity_metadata(
+    row: sqlite3.Row,
+    *,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]],
+    generated_at: str,
+    max_window_hours: float,
+) -> dict[str, Any]:
+    return _merge_opportunity_metadata(
+        _opportunity_metadata_from_mapping(row),
+        _lookup_opportunity_metadata(
+            opportunity_lookup,
+            symbol=str(row["symbol"] or ""),
+            timestamp=str(row["opened_at"] or row["closed_at"] or generated_at),
+            max_window_hours=max_window_hours,
+        ),
+    )
+
+
+def _trade_record_opportunity_metadata(
+    record: TradeRecord,
+    *,
+    opportunity_lookup: Mapping[str, tuple[dict[str, Any], ...]],
+    generated_at: str,
+    max_window_hours: float,
+) -> dict[str, Any]:
+    return _merge_opportunity_metadata(
+        _opportunity_metadata_from_mapping(record.metadata),
+        _lookup_opportunity_metadata(
+            opportunity_lookup,
+            symbol=record.symbol,
+            timestamp=record.opened_at.isoformat() if record.opened_at else generated_at,
+            max_window_hours=max_window_hours,
+        ),
+    )
+
+
+def _enrich_existing_trade_metadata(
+    conn: sqlite3.Connection,
+    trade_ids: Iterable[str],
+    opportunity_metadata: Mapping[str, Any],
+) -> int:
+    """Fill missing score metadata on existing shadow rows without changing PnL."""
+
+    if opportunity_metadata.get("score_bucket") not in {"high", "medium", "low"}:
+        return 0
+    updated = 0
+    for trade_id in trade_ids:
+        row = conn.execute(
+            "SELECT id, decision_id FROM trade_ledger WHERE trade_id=? LIMIT 1",
+            (trade_id,),
+        ).fetchone()
+        if row is None:
+            continue
+        current = _json_mapping(row["decision_id"])
+        current_score = _opportunity_metadata_from_mapping(current)
+        if current_score.get("score_bucket") in {"high", "medium", "low"}:
+            continue
+        merged = dict(current)
+        merged.update(dict(opportunity_metadata))
+        merged["opportunity_metadata_enriched"] = True
+        conn.execute(
+            "UPDATE trade_ledger SET decision_id=? WHERE id=?",
+            (json.dumps(merged, separators=(",", ":")), int(row["id"])),
+        )
+        updated += 1
+    return 1 if updated else 0
+
+
+def _enrich_high_conviction_economic_match(
+    conn: sqlite3.Connection,
+    record: TradeRecord,
+    opportunity_metadata: Mapping[str, Any],
+) -> int:
+    closed_at = record.closed_at.isoformat() if record.closed_at else None
+    if closed_at is None:
+        return 0
+    rows = conn.execute(
+        """
+        SELECT trade_id
+        FROM trade_ledger
+        WHERE strategy_id=?
+          AND execution_mode=?
+          AND symbol=?
+          AND position_id IN (
+              SELECT position_id
+              FROM trade_ledger
+              WHERE strategy_id=?
+                AND execution_mode=?
+                AND is_closing_leg=1
+                AND symbol=?
+                AND created_at=?
+                AND ABS(executed_price - ?) < 0.000000001
+                AND ABS(volume - ?) < 0.000000001
+                AND ABS(COALESCE(net_pnl, 0.0) - ?) < 0.000000001
+          )
+        """,
+        (
+            "high_conviction_swing",
+            EXECUTION_MODE_SHADOW_PAPER,
+            record.symbol.upper(),
+            "high_conviction_swing",
+            EXECUTION_MODE_SHADOW_PAPER,
+            record.symbol.upper(),
+            closed_at,
+            float(record.exit_price),
+            float(record.quantity),
+            float(record.net_pnl_eur or 0.0),
+        ),
+    ).fetchall()
+    return _enrich_existing_trade_metadata(
+        conn,
+        tuple(str(row["trade_id"]) for row in rows if row["trade_id"]),
+        opportunity_metadata,
+    )
 
 
 def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -1049,6 +1178,64 @@ def _insert_trade_ledger_row(conn: sqlite3.Connection, **values: Any) -> None:
     )
 
 
+def _build_score_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT strategy_id, symbol, decision_id
+        FROM trade_ledger
+        WHERE COALESCE(is_closing_leg, 0) = 1
+          AND strategy_id IS NOT NULL
+          AND strategy_id != ?
+          AND execution_mode = ?
+        """,
+        (LEGACY_UNATTRIBUTED_STRATEGY_ID, EXECUTION_MODE_SHADOW_PAPER),
+    ).fetchall()
+    return {
+        "global": _score_coverage_rows(rows),
+        "by_strategy": _score_coverage_group(rows, "strategy_id"),
+        "by_symbol": _score_coverage_group(rows, "symbol"),
+    }
+
+
+def _score_coverage_for_source(conn: sqlite3.Connection, strategy_id: str) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT strategy_id, symbol, decision_id
+        FROM trade_ledger
+        WHERE COALESCE(is_closing_leg, 0) = 1
+          AND strategy_id = ?
+          AND execution_mode = ?
+        """,
+        (strategy_id, EXECUTION_MODE_SHADOW_PAPER),
+    ).fetchall()
+    return _score_coverage_rows(rows)
+
+
+def _score_coverage_group(rows: Sequence[sqlite3.Row], key: str) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row[key] or "unknown")].append(row)
+    return {name: _score_coverage_rows(tuple(items)) for name, items in sorted(grouped.items())}
+
+
+def _score_coverage_rows(rows: Sequence[sqlite3.Row]) -> dict[str, Any]:
+    buckets = {"high": 0, "medium": 0, "low": 0, "missing": 0}
+    for row in rows:
+        metadata = _opportunity_metadata_from_mapping(_json_mapping(row["decision_id"]))
+        bucket = str(metadata.get("score_bucket") or "missing")
+        if bucket not in buckets:
+            bucket = "missing"
+        buckets[bucket] += 1
+    total = len(rows)
+    scored = total - buckets["missing"]
+    return {
+        "total": total,
+        "scored": scored,
+        "score_coverage_pct": (scored / total * 100.0) if total else 0.0,
+        "buckets": buckets,
+    }
+
+
 def _build_accumulation(
     conn: sqlite3.Connection,
     *,
@@ -1242,19 +1429,23 @@ def _markdown(report: ShadowPaperObservationSyncReport) -> str:
         "",
         "## Sources",
         "",
-        "| Strategy | Source | Can write | Source trades | Inserted | Duplicates | Skipped | Reasons |",
-        "|---|---|---:|---:|---:|---:|---:|---|",
+        "| Strategy | Source | Can write | Source trades | Inserted | Enriched | Duplicates | Skipped | Score coverage | Reasons |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for item in report.source_results:
+        coverage = item.score_coverage.get("score_coverage_pct") if item.score_coverage else None
+        coverage_text = "n/a" if coverage is None else f"{float(coverage):.2f}%"
         lines.append(
-            "| {strategy} | {source} | {can_write} | {source_trades} | {inserted} | {duplicates} | {skipped} | {reasons} |".format(
+            "| {strategy} | {source} | {can_write} | {source_trades} | {inserted} | {enriched} | {duplicates} | {skipped} | {coverage} | {reasons} |".format(
                 strategy=item.strategy_id,
                 source=item.source,
                 can_write=str(item.can_write_shadow).lower(),
                 source_trades=item.source_trade_count,
                 inserted=item.inserted_trade_count,
+                enriched=item.enriched_trade_count,
                 duplicates=item.duplicate_trade_count,
                 skipped=item.skipped_trade_count,
+                coverage=coverage_text,
                 reasons=", ".join(f"{key}:{value}" for key, value in item.reason_counts.items()) or "none",
             )
         )
@@ -1271,6 +1462,31 @@ def _markdown(report: ShadowPaperObservationSyncReport) -> str:
         pf = "n/a" if item.profit_factor_net is None else f"{item.profit_factor_net:.4f}"
         lines.append(
             f"| {item.strategy_id} | {item.execution_mode} | {item.trades_24h} | {item.trades_7d} | {item.total_trades} | {item.net_pnl_eur:.4f} | {pf} | {item.data_status} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Score Coverage",
+            "",
+            f"- Global: `{report.score_coverage.get('global', {}).get('score_coverage_pct', 0.0):.2f}%`",
+            "",
+            "| Strategy | Total | Scored | Coverage | High | Medium | Low | Missing |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for strategy, coverage in report.score_coverage.get("by_strategy", {}).items():
+        buckets = coverage.get("buckets", {})
+        lines.append(
+            "| {strategy} | {total} | {scored} | {coverage:.2f}% | {high} | {medium} | {low} | {missing} |".format(
+                strategy=strategy,
+                total=coverage.get("total", 0),
+                scored=coverage.get("scored", 0),
+                coverage=float(coverage.get("score_coverage_pct") or 0.0),
+                high=buckets.get("high", 0),
+                medium=buckets.get("medium", 0),
+                low=buckets.get("low", 0),
+                missing=buckets.get("missing", 0),
+            )
         )
     lines.extend(
         [

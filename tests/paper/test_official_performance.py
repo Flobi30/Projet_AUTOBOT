@@ -99,7 +99,9 @@ def _create_state_db(path):
             ("close1", "pos1", "inst", "TRXEUR", "sell", 1.10, 1.10, 100.0, 0.3, 2.0, 10.0, 0, 1, None, None, None, "trend_momentum", "5m", "pytest", 10.4, 10.0, "range", "taker", "paper_capital", "2026-07-01T02:00:00+00:00"),
             ("open2", "pos2", "inst", "XLMEUR", "buy", 1.00, 1.00, 100.0, 0.1, 1.0, None, 1, 0, None, None, None, "trend_momentum", "15m", "pytest", None, None, "trend", "taker", "paper_capital", "2026-07-01T03:00:00+00:00"),
             ("close2", "pos2", "inst", "XLMEUR", "sell", 0.96, 0.96, 100.0, 0.3, 2.0, -4.0, 0, 1, None, None, None, "trend_momentum", "15m", "pytest", -3.6, -4.0, "trend", "taker", "paper_capital", "2026-07-01T04:00:00+00:00"),
+            ("open3", "pos3", "inst", "ADAEUR", "buy", 1.00, 1.00, 10.0, 0.1, 1.0, None, 1, 0, None, None, None, "unregistered_alpha", "5m", "pytest", None, None, "range", "taker", "paper_capital", "2026-07-01T04:30:00+00:00"),
             ("unknown", "pos3", "inst", "ADAEUR", "sell", 1.05, 1.05, 10.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "unregistered_alpha", "5m", "pytest", 1.2, 1.0, "range", "taker", "paper_capital", "2026-07-01T05:00:00+00:00"),
+            ("open4", "pos4", "inst", "BTCEUR", "buy", 99.0, 99.0, 1.0, 0.1, 1.0, None, 1, 0, None, None, None, "dynamic_grid", "5m", "pytest", None, None, "range", "taker", "paper_capital", "2026-07-01T05:30:00+00:00"),
             ("grid", "pos4", "inst", "BTCEUR", "sell", 100.0, 100.0, 1.0, 0.2, 1.0, 1.0, 0, 1, None, None, None, "dynamic_grid", "5m", "pytest", 1.2, 1.0, "range", "taker", "paper_capital", "2026-07-01T06:00:00+00:00"),
         ]
         conn.executemany(

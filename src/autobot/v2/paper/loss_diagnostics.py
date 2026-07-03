@@ -16,6 +16,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
+from autobot.v2.paper.ledger_quality import critical_warning_counts, has_critical_ledger_warning, loader_warning_counts
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.trade_journal import TradeRecord
 from autobot.v2.strategy_runtime_policy import (
@@ -134,6 +135,9 @@ class PaperLossDiagnosticsReport:
     execution_mode: str
     legacy_excluded_trade_count: int
     non_shadow_excluded_trade_count: int
+    quality_excluded_trade_count: int
+    quality_exclusion_counts: dict[str, int]
+    warning_counts: dict[str, int]
     strategy_diagnostics: tuple[StrategyLossDiagnostics, ...]
     high_conviction_diagnostic: dict[str, Any]
     opportunity_scoring_diagnostic: OpportunityScoringDiagnostics
@@ -153,6 +157,9 @@ class PaperLossDiagnosticsReport:
             "execution_mode": self.execution_mode,
             "legacy_excluded_trade_count": self.legacy_excluded_trade_count,
             "non_shadow_excluded_trade_count": self.non_shadow_excluded_trade_count,
+            "quality_excluded_trade_count": self.quality_excluded_trade_count,
+            "quality_exclusion_counts": dict(self.quality_exclusion_counts),
+            "warning_counts": dict(self.warning_counts),
             "strategy_diagnostics": [item.to_dict() for item in self.strategy_diagnostics],
             "high_conviction_diagnostic": dict(self.high_conviction_diagnostic),
             "opportunity_scoring_diagnostic": self.opportunity_scoring_diagnostic.to_dict(),
@@ -177,9 +184,11 @@ def build_paper_loss_diagnostics_report(
     loaded = load_state_db_paper_ledger(config.state_db_path, include_decisions=True)
     all_records = tuple(loaded.journal.records)
     legacy_excluded = tuple(record for record in all_records if _is_legacy(record))
-    shadow_records = tuple(record for record in all_records if _is_shadow_record(record))
+    shadow_policy_records = tuple(record for record in all_records if _is_shadow_record_policy_candidate(record))
+    quality_excluded = tuple(record for record in shadow_policy_records if has_critical_ledger_warning(record))
+    shadow_records = tuple(record for record in shadow_policy_records if not has_critical_ledger_warning(record))
     diagnostic_records = tuple(record for record in shadow_records if record.strategy_id in DIAGNOSTIC_STRATEGIES)
-    non_shadow_excluded = len(all_records) - len(shadow_records) - len(legacy_excluded)
+    non_shadow_excluded = len(all_records) - len(shadow_policy_records) - len(legacy_excluded)
 
     segment_tables = _build_segment_tables(
         diagnostic_records,
@@ -253,6 +262,12 @@ def build_paper_loss_diagnostics_report(
         execution_mode=EXECUTION_MODE_SHADOW_PAPER,
         legacy_excluded_trade_count=len(legacy_excluded),
         non_shadow_excluded_trade_count=max(0, non_shadow_excluded),
+        quality_excluded_trade_count=len(quality_excluded),
+        quality_exclusion_counts=critical_warning_counts(quality_excluded),
+        warning_counts={
+            **loader_warning_counts(loaded.warnings),
+            **{f"critical_{key}": value for key, value in critical_warning_counts(shadow_policy_records).items()},
+        },
         strategy_diagnostics=tuple(diagnostics),
         high_conviction_diagnostic=high_conviction,
         opportunity_scoring_diagnostic=opportunity,
@@ -308,6 +323,10 @@ def write_paper_loss_diagnostics_report(
 
 
 def _is_shadow_record(record: TradeRecord) -> bool:
+    return _is_shadow_record_policy_candidate(record) and not has_critical_ledger_warning(record)
+
+
+def _is_shadow_record_policy_candidate(record: TradeRecord) -> bool:
     if record.strategy_id in ("", LEGACY_UNATTRIBUTED_STRATEGY_ID):
         return False
     if _execution_mode(record) != EXECUTION_MODE_SHADOW_PAPER:
@@ -760,6 +779,7 @@ def _markdown(report: PaperLossDiagnosticsReport) -> str:
         f"- Execution mode analyzed: `{report.execution_mode}`",
         f"- Legacy excluded trades: `{report.legacy_excluded_trade_count}`",
         f"- Non-shadow excluded trades: `{report.non_shadow_excluded_trade_count}`",
+        f"- Quality excluded trades: `{report.quality_excluded_trade_count}`",
         "",
         "## Strategy Summary",
         "",
@@ -832,6 +852,16 @@ def _markdown(report: PaperLossDiagnosticsReport) -> str:
                 dd=metrics["max_drawdown_eur"],
             )
         )
+    lines.extend(["", "## Ledger Warnings", ""])
+    if report.warning_counts:
+        lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(report.warning_counts.items()))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Quality Exclusions", ""])
+    if report.quality_exclusion_counts:
+        lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(report.quality_exclusion_counts.items()))
+    else:
+        lines.append("- none")
     lines.extend(
         [
             "",

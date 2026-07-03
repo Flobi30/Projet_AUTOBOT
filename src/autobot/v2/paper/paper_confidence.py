@@ -10,6 +10,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Sequence
 
+from autobot.v2.paper.ledger_quality import (
+    critical_ledger_warning_reason,
+    critical_warning_counts,
+    has_critical_ledger_warning,
+    loader_warning_counts,
+)
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.trade_journal import TradeRecord
 from autobot.v2.strategy_runtime_policy import (
@@ -53,6 +59,9 @@ class PaperConfidenceReport:
     trade_count: int
     paper_capital_trade_count: int
     shadow_trade_count: int
+    quality_excluded_trade_count: int
+    quality_exclusion_counts: dict[str, int]
+    warning_counts: dict[str, int]
     net_pnl_eur: float
     gross_pnl_eur: float
     fees_eur: float
@@ -88,11 +97,13 @@ def build_paper_confidence_report(config: PaperConfidenceConfig) -> PaperConfide
         raise ValueError("bootstrap_iterations must be positive")
 
     loaded = load_state_db_paper_ledger(config.state_db_path, include_decisions=True)
-    all_records = tuple(
+    raw_strategy_records = tuple(
         record
         for record in loaded.journal.records
         if record.strategy_id == config.strategy_id and record.strategy_id not in ("", LEGACY_UNATTRIBUTED_STRATEGY_ID)
     )
+    quality_excluded_records = tuple(record for record in raw_strategy_records if has_critical_ledger_warning(record))
+    all_records = tuple(record for record in raw_strategy_records if not has_critical_ledger_warning(record))
     paper_capital_records = tuple(record for record in all_records if _execution_mode(record) == EXECUTION_MODE_PAPER_CAPITAL)
     shadow_records = tuple(record for record in all_records if _execution_mode(record) != EXECUTION_MODE_PAPER_CAPITAL)
     evidence_records = paper_capital_records if paper_capital_records else shadow_records
@@ -126,6 +137,12 @@ def build_paper_confidence_report(config: PaperConfidenceConfig) -> PaperConfide
         trade_count=trade_count,
         paper_capital_trade_count=len(paper_capital_records),
         shadow_trade_count=len(shadow_records),
+        quality_excluded_trade_count=len(quality_excluded_records),
+        quality_exclusion_counts=critical_warning_counts(quality_excluded_records),
+        warning_counts={
+            **loader_warning_counts(loaded.warnings),
+            **{f"critical_{key}": value for key, value in critical_warning_counts(raw_strategy_records).items()},
+        },
         net_pnl_eur=net_pnl,
         gross_pnl_eur=gross_pnl,
         fees_eur=sum(record.fees_eur for record in evidence_records),
@@ -207,6 +224,8 @@ def _blockers(
         blockers.append("bootstrap_lower_ci_not_positive")
     if any(shadow_paper_strategy_block_reason(record.strategy_id) for record in records):
         blockers.append("strategy_policy_blocks_execution")
+    if any(critical_ledger_warning_reason(record) for record in records):
+        blockers.append("critical_ledger_warning")
     return tuple(dict.fromkeys(blockers))
 
 
@@ -286,6 +305,7 @@ def _markdown(report: PaperConfidenceReport) -> str:
         f"- Trades: `{report.trade_count}`",
         f"- Paper capital trades: `{report.paper_capital_trade_count}`",
         f"- Shadow trades: `{report.shadow_trade_count}`",
+        f"- Quality excluded trades: `{report.quality_excluded_trade_count}`",
         f"- Net PnL: `{report.net_pnl_eur:.2f}`",
         f"- Net PF: `{_fmt(report.net_profit_factor)}`",
         f"- Net expectancy: `{_fmt(report.expectancy_eur)}`",
@@ -295,6 +315,11 @@ def _markdown(report: PaperConfidenceReport) -> str:
         "",
     ]
     lines.extend(f"- `{blocker}`" for blocker in report.blockers)
+    lines.extend(["", "## Quality Exclusions", ""])
+    if report.quality_exclusion_counts:
+        lines.extend(f"- `{key}`: `{value}`" for key, value in report.quality_exclusion_counts.items())
+    else:
+        lines.append("- none")
     lines.extend(["", "## Safety", ""])
     lines.extend(f"- {note}" for note in report.safety_notes)
     return "\n".join(lines) + "\n"

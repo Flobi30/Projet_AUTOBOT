@@ -10,6 +10,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
+from autobot.v2.paper.ledger_quality import (
+    critical_ledger_warning_reason,
+    critical_warning_counts,
+    has_critical_ledger_warning,
+    loader_warning_counts,
+)
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.trade_journal import TradeRecord
 from autobot.v2.strategy_runtime_policy import (
@@ -70,7 +76,13 @@ class ScoreFilterSimulationReport:
     total_trade_count: int
     eligible_trade_count: int
     legacy_excluded_trade_count: int
+    policy_excluded_trade_count: int
+    quality_excluded_trade_count: int
+    exclusion_counts: dict[str, int]
     bucket_counts: dict[str, int]
+    coverage_by_strategy: dict[str, dict[str, Any]]
+    coverage_by_symbol: dict[str, dict[str, Any]]
+    warning_counts: dict[str, int]
     scenarios: tuple[ScoreFilterScenario, ...]
     safety_notes: tuple[str, ...]
     warnings: tuple[str, ...] = ()
@@ -86,7 +98,13 @@ class ScoreFilterSimulationReport:
             "total_trade_count": self.total_trade_count,
             "eligible_trade_count": self.eligible_trade_count,
             "legacy_excluded_trade_count": self.legacy_excluded_trade_count,
+            "policy_excluded_trade_count": self.policy_excluded_trade_count,
+            "quality_excluded_trade_count": self.quality_excluded_trade_count,
+            "exclusion_counts": dict(self.exclusion_counts),
             "bucket_counts": dict(self.bucket_counts),
+            "coverage_by_strategy": self.coverage_by_strategy,
+            "coverage_by_symbol": self.coverage_by_symbol,
+            "warning_counts": dict(self.warning_counts),
             "scenarios": [item.to_dict() for item in self.scenarios],
             "safety_notes": list(self.safety_notes),
             "warnings": list(self.warnings),
@@ -100,8 +118,13 @@ def build_score_filter_simulation_report(config: ScoreFilterSimulationConfig) ->
         raise ValueError("initial_capital_eur must be positive")
     loaded = load_state_db_paper_ledger(config.state_db_path, include_decisions=True)
     all_records = tuple(loaded.journal.records)
-    eligible = tuple(record for record in all_records if _is_eligible(record))
+    policy_candidates = tuple(record for record in all_records if _is_policy_candidate(record))
+    quality_excluded = tuple(record for record in policy_candidates if has_critical_ledger_warning(record))
+    eligible = tuple(record for record in policy_candidates if not has_critical_ledger_warning(record))
     legacy = tuple(record for record in all_records if _is_legacy(record))
+    policy_excluded = tuple(
+        record for record in all_records if not _is_legacy(record) and not _is_policy_candidate(record)
+    )
     by_bucket = _records_by_bucket(eligible)
     scenarios = tuple(
         _scenario(name, buckets, by_bucket, config.initial_capital_eur)
@@ -123,13 +146,23 @@ def build_score_filter_simulation_report(config: ScoreFilterSimulationConfig) ->
         total_trade_count=len(all_records),
         eligible_trade_count=len(eligible),
         legacy_excluded_trade_count=len(legacy),
+        policy_excluded_trade_count=len(policy_excluded),
+        quality_excluded_trade_count=len(quality_excluded),
+        exclusion_counts=_exclusion_counts(legacy, policy_excluded, quality_excluded),
         bucket_counts={bucket: len(by_bucket[bucket]) for bucket in SCORE_BUCKETS},
+        coverage_by_strategy=_coverage(policy_candidates, "strategy_id"),
+        coverage_by_symbol=_coverage(policy_candidates, "symbol"),
+        warning_counts={
+            **loader_warning_counts(loaded.warnings),
+            **{f"critical_{key}": value for key, value in critical_warning_counts(policy_candidates).items()},
+        },
         scenarios=scenarios,
         safety_notes=(
             "Read-only simulation over existing attributed observations.",
             "No trade, order, paper capital, live flag, or strategy promotion is created.",
             "Simulation scenarios are not promotion gates and always return promotable=false.",
             "Grid/legacy/unattributed rows are excluded from executable conclusions.",
+            "Rows with critical ledger quality warnings are counted but excluded from scenarios.",
         ),
         warnings=tuple(loaded.warnings),
     )
@@ -187,6 +220,10 @@ def _scenario(
 
 
 def _is_eligible(record: TradeRecord) -> bool:
+    return _is_policy_candidate(record) and not has_critical_ledger_warning(record)
+
+
+def _is_policy_candidate(record: TradeRecord) -> bool:
     if _is_legacy(record):
         return False
     return shadow_paper_strategy_block_reason(record.strategy_id) is None
@@ -201,6 +238,47 @@ def _records_by_bucket(records: Sequence[TradeRecord]) -> dict[str, tuple[TradeR
     for record in records:
         grouped[_score_bucket(record)].append(record)
     return {bucket: tuple(items) for bucket, items in grouped.items()}
+
+
+def _exclusion_counts(
+    legacy: Sequence[TradeRecord],
+    policy_excluded: Sequence[TradeRecord],
+    quality_excluded: Sequence[TradeRecord],
+) -> dict[str, int]:
+    counts: dict[str, int] = {
+        "legacy_unattributed": len(legacy),
+        "policy_blocked": len(policy_excluded),
+        "quality_warning": len(quality_excluded),
+    }
+    for record in quality_excluded:
+        reason = critical_ledger_warning_reason(record) or "unknown_quality_warning"
+        counts[reason] = counts.get(reason, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _coverage(records: Sequence[TradeRecord], field: str) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[TradeRecord]] = {}
+    for record in records:
+        key = record.strategy_id if field == "strategy_id" else record.symbol
+        grouped.setdefault(str(key or "unknown"), []).append(record)
+    return {key: _coverage_bucket(tuple(items)) for key, items in sorted(grouped.items())}
+
+
+def _coverage_bucket(records: Sequence[TradeRecord]) -> dict[str, Any]:
+    bucket_counts = {bucket: 0 for bucket in SCORE_BUCKETS}
+    warning_counts = critical_warning_counts(records)
+    for record in records:
+        bucket_counts[_score_bucket(record)] += 1
+    total = len(records)
+    scored = total - bucket_counts["missing"]
+    return {
+        "total": total,
+        "scored": scored,
+        "score_coverage_pct": (scored / total * 100.0) if total else 0.0,
+        "buckets": bucket_counts,
+        "critical_warning_count": sum(warning_counts.values()),
+        "critical_warning_counts": warning_counts,
+    }
 
 
 def _score_bucket(record: TradeRecord) -> str:
@@ -290,12 +368,51 @@ def _markdown(report: ScoreFilterSimulationReport) -> str:
         f"- Generated: `{report.generated_at}`",
         f"- Eligible trades: `{report.eligible_trade_count}`",
         f"- Legacy excluded trades: `{report.legacy_excluded_trade_count}`",
+        f"- Policy excluded trades: `{report.policy_excluded_trade_count}`",
+        f"- Quality excluded trades: `{report.quality_excluded_trade_count}`",
         "",
         "## Bucket Counts",
         "",
     ]
     for bucket in SCORE_BUCKETS:
         lines.append(f"- `{bucket}`: `{report.bucket_counts.get(bucket, 0)}`")
+    lines.extend(
+        [
+            "",
+            "## Score Coverage By Strategy",
+            "",
+            "| Strategy | Total | Scored | Coverage | High | Medium | Low | Missing | Critical warnings |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for strategy, coverage in report.coverage_by_strategy.items():
+        buckets = coverage.get("buckets", {})
+        lines.append(
+            "| {strategy} | {total} | {scored} | {coverage:.2f}% | {high} | {medium} | {low} | {missing} | {warnings} |".format(
+                strategy=strategy,
+                total=coverage.get("total", 0),
+                scored=coverage.get("scored", 0),
+                coverage=float(coverage.get("score_coverage_pct") or 0.0),
+                high=buckets.get("high", 0),
+                medium=buckets.get("medium", 0),
+                low=buckets.get("low", 0),
+                missing=buckets.get("missing", 0),
+                warnings=coverage.get("critical_warning_count", 0),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Ledger Warnings",
+            "",
+        ]
+    )
+    if report.warning_counts:
+        lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(report.warning_counts.items()))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Exclusions", ""])
+    lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(report.exclusion_counts.items()))
     lines.extend(
         [
             "",

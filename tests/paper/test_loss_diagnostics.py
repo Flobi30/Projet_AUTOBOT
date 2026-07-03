@@ -184,6 +184,32 @@ def test_loss_diagnostics_uses_only_attributed_shadow_paper_rows(tmp_path):
     assert report["execution_mode"] == "shadow_paper"
 
 
+def test_loss_diagnostics_excludes_critical_ledger_warning_rows(tmp_path):
+    db_path = tmp_path / "state.db"
+    registry = tmp_path / "registry.json"
+    _create_state_db(db_path)
+    _write_registry(registry)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(conn, position_id="clean", gross=2.0, net=1.0)
+        _insert_pair(conn, position_id="bad_slippage", gross=100.0, net=100.0, slippage_bps=250.0)
+
+    report = build_paper_loss_diagnostics_report(
+        PaperLossDiagnosticsConfig(
+            state_db_path=db_path,
+            registry_path=registry,
+            run_id="pytest_loss_quality",
+            min_segment_trades=1,
+        ),
+        write_report=False,
+    ).to_dict()
+
+    trend = next(item for item in report["strategy_diagnostics"] if item["strategy_id"] == "trend_momentum")
+    assert trend["summary"]["trade_count"] == 1
+    assert trend["summary"]["net_pnl_eur"] == pytest.approx(1.0)
+    assert report["quality_excluded_trade_count"] == 1
+    assert report["quality_exclusion_counts"] == {"slippage_bps_anomaly": 1}
+
+
 def test_loss_diagnostics_distinguishes_gross_and_net_pf_and_costs(tmp_path):
     db_path = tmp_path / "state.db"
     registry = tmp_path / "registry.json"

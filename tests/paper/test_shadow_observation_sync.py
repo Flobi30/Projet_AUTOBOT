@@ -715,6 +715,40 @@ def test_shadow_sync_is_idempotent_and_does_not_duplicate_ledger_rows(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == 2
 
 
+def test_shadow_sync_enriches_existing_missing_score_without_duplicate_rows(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_shadow_db(trend_db, "trend_shadow_trades")
+
+    config = ShadowPaperObservationSyncConfig(
+        state_db_path=state_db,
+        registry_path=registry,
+        trend_shadow_db_path=trend_db,
+        mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+        run_id="pytest_shadow_sync",
+        output_dir=tmp_path / "reports",
+    )
+    sync_shadow_paper_observations(config)
+    _write_decision_ledger_router_score(state_db, score=84.0)
+
+    second = sync_shadow_paper_observations(config).to_dict()
+    trend = next(item for item in second["source_results"] if item["strategy_id"] == "trend_momentum")
+    assert trend["inserted_trade_count"] == 0
+    assert trend["duplicate_trade_count"] == 1
+    assert trend["enriched_trade_count"] == 1
+    assert trend["score_coverage"]["buckets"]["high"] == 1
+
+    with sqlite3.connect(state_db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == 2
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.metadata["opportunity_score"] == pytest.approx(84.0)
+    assert trade.metadata["score_bucket"] == "high"
+    assert trade.metadata["opportunity_metadata_enriched"] is True
+
+
 def test_learning_shadow_observations_are_not_promotable_paper_capital(tmp_path):
     state_db = tmp_path / "state.db"
     registry = tmp_path / "strategy_hypotheses.json"
@@ -808,6 +842,40 @@ def test_metrics_distinguish_shadow_paper_and_paper_capital(tmp_path):
                 "taker",
                 "paper_capital",
                 "2026-07-01T04:00:00+00:00",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_ledger
+            (trade_id, position_id, instance_id, symbol, side, expected_price, executed_price,
+             volume, fees, slippage_bps, realized_pnl, is_opening_leg, is_closing_leg,
+             strategy_id, timeframe, signal_source, gross_pnl, net_pnl, regime,
+             execution_liquidity, execution_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "paper_open",
+                "paper_pos",
+                "inst",
+                "XLMEUR",
+                "buy",
+                1.00,
+                1.00,
+                10.0,
+                0.2,
+                1.0,
+                None,
+                1,
+                0,
+                "trend_momentum",
+                "5m",
+                "pytest",
+                None,
+                None,
+                "trend",
+                "taker",
+                "paper_capital",
+                "2026-07-01T03:00:00+00:00",
             ),
         )
 

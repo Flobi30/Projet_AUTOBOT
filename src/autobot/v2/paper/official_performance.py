@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from autobot.v2.paper.ledger_quality import critical_warning_counts, has_critical_ledger_warning
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.metrics_engine import MetricsEngine
 from autobot.v2.research.trade_journal import TradeRecord
@@ -157,6 +158,9 @@ def build_official_paper_performance_report(
     loaded = load_state_db_paper_ledger(config.state_db_path, include_decisions=False)
     all_records = tuple(loaded.journal.records)
     reportable_records = tuple(record for record in all_records if _is_reportable_attributed(record))
+    quality_excluded_records = tuple(
+        record for record in all_records if _is_reportable_policy_candidate(record) and has_critical_ledger_warning(record)
+    )
     shadow_records = tuple(record for record in reportable_records if _execution_mode(record) == EXECUTION_MODE_SHADOW_PAPER)
     paper_capital_records = tuple(
         record for record in reportable_records if _execution_mode(record) == EXECUTION_MODE_PAPER_CAPITAL
@@ -226,6 +230,8 @@ def build_official_paper_performance_report(
         legacy={
             "legacy_unattributed_trade_count": len(legacy_unattributed_records),
             "non_official_excluded_trade_count": len(excluded_non_reportable_records),
+            "quality_excluded_trade_count": len(quality_excluded_records),
+            "quality_exclusion_counts": critical_warning_counts(quality_excluded_records),
             "official_attributed_trade_count": len(reportable_records),
             "reportable_attributed_trade_count": len(reportable_records),
             "shadow_paper_trade_count": len(shadow_records),
@@ -283,6 +289,12 @@ def write_official_paper_performance_report(
 
 
 def _is_reportable_attributed(record: TradeRecord) -> bool:
+    if has_critical_ledger_warning(record):
+        return False
+    return _is_reportable_policy_candidate(record)
+
+
+def _is_reportable_policy_candidate(record: TradeRecord) -> bool:
     strategy_id = str(record.strategy_id or "").strip()
     if not strategy_id or strategy_id == LEGACY_UNATTRIBUTED_STRATEGY_ID:
         return False

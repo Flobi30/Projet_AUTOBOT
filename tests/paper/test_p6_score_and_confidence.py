@@ -5,6 +5,10 @@ import pytest
 
 from autobot.v2 import cli
 from autobot.v2.paper.db_integrity import DbIntegrityConfig, build_db_integrity_report
+from autobot.v2.paper.official_performance import (
+    OfficialPaperPerformanceConfig,
+    build_official_paper_performance_report,
+)
 from autobot.v2.paper.paper_confidence import PaperConfidenceConfig, build_paper_confidence_report
 from autobot.v2.paper.score_filter_simulation import (
     ScoreFilterSimulationConfig,
@@ -166,6 +170,25 @@ def test_score_filter_simulation_is_read_only_and_keeps_buckets_separate(tmp_pat
     assert scenarios["high_only"]["promotable"] is False
 
 
+def test_score_filter_excludes_critical_ledger_warning_rows_from_scenarios(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(conn, position_id="high_clean", net=2.0, score=90)
+        _insert_pair(conn, position_id="high_bad_slippage", net=99.0, score=95, slippage_bps=250.0)
+
+    report = build_score_filter_simulation_report(
+        ScoreFilterSimulationConfig(state_db_path=db_path, run_id="pytest_score_quality", write_report=False)
+    ).to_dict()
+
+    assert report["quality_excluded_trade_count"] == 1
+    assert report["exclusion_counts"]["slippage_bps_anomaly"] == 1
+    assert report["coverage_by_strategy"]["trend_momentum"]["buckets"]["high"] == 2
+    scenarios = {item["name"]: item for item in report["scenarios"]}
+    assert scenarios["high_only"]["trade_count"] == 1
+    assert scenarios["high_only"]["net_pnl_eur"] == pytest.approx(2.0)
+
+
 def test_paper_confidence_blocks_low_sample_and_shadow_evidence(tmp_path):
     db_path = tmp_path / "state.db"
     _create_state_db(db_path)
@@ -189,6 +212,29 @@ def test_paper_confidence_blocks_low_sample_and_shadow_evidence(tmp_path):
     assert "paper_capital_evidence_absent" in report["blockers"]
 
 
+def test_paper_confidence_excludes_critical_ledger_warning_rows(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(conn, position_id="bad_warning", net=99.0, score=95, slippage_bps=250.0)
+
+    report = build_paper_confidence_report(
+        PaperConfidenceConfig(
+            state_db_path=db_path,
+            strategy_id="trend_momentum",
+            run_id="pytest_confidence_quality",
+            bootstrap_iterations=20,
+            write_report=False,
+        )
+    ).to_dict()
+
+    assert report["trade_count"] == 0
+    assert report["quality_excluded_trade_count"] == 1
+    assert report["quality_exclusion_counts"] == {"slippage_bps_anomaly": 1}
+    assert report["confidence_level"] == "insufficient_data"
+    assert report["promotable"] is False
+
+
 def test_paper_confidence_never_promotes_positive_shadow_sample(tmp_path):
     db_path = tmp_path / "state.db"
     _create_state_db(db_path)
@@ -209,6 +255,31 @@ def test_paper_confidence_never_promotes_positive_shadow_sample(tmp_path):
     assert report["confidence_level"] == "early_signal"
     assert report["promotable"] is False
     assert "paper_capital_evidence_absent" in report["blockers"]
+
+
+def test_official_performance_excludes_critical_ledger_warning_rows(tmp_path):
+    db_path = tmp_path / "state.db"
+    registry = tmp_path / "registry.json"
+    registry.write_text(json.dumps({"hypotheses": []}), encoding="utf-8")
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(conn, position_id="clean", net=1.0, score=80)
+        _insert_pair(conn, position_id="warning", net=99.0, score=90, slippage_bps=250.0)
+
+    report = build_official_paper_performance_report(
+        OfficialPaperPerformanceConfig(
+            state_db_path=db_path,
+            registry_path=registry,
+            run_id="pytest_official_quality",
+        ),
+        write_report=False,
+    ).to_dict()
+
+    assert report["legacy"]["quality_excluded_trade_count"] == 1
+    assert report["legacy"]["quality_exclusion_counts"] == {"slippage_bps_anomaly": 1}
+    trend = next(item for item in report["ranking"] if item["strategy_id"] == "trend_momentum")
+    assert trend["metrics"]["closed_trade_count"] == 1
+    assert trend["metrics"]["net_pnl_eur"] == pytest.approx(1.0)
 
 
 def test_db_integrity_reports_snapshot_and_invalid_rows(tmp_path):
