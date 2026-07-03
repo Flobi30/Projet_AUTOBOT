@@ -2,7 +2,7 @@
 
 ## Verdict
 
-PASS_WITH_WARNINGS before VPS smoke.
+PASS_WITH_WARNINGS.
 
 P7 is a metadata/reporting quality patch. It does not enable live trading,
 paper capital, strategy promotion, sizing changes, leverage changes, or UI
@@ -98,7 +98,94 @@ duplicates without enrichment.
 
 ## VPS Smoke
 
-Pending deployment.
+- Commit deployed: `bd25f4ebe65271483fe038b85e10c84cd9bb0641`
+- Container: `autobot-v2` running and healthy
+- `/health`: `healthy`
+- WebSocket: `connected`
+- Instances: `14`
+- Flags checked:
+  - `PAPER_TRADING=true`
+  - `LIVE_TRADING_CONFIRMATION=false`
+  - `STRATEGY_ROUTER_LIVE_ENABLED=false`
+  - `COLONY_AUTO_LIVE_PROMOTION=false`
+  - `ENABLE_INSTANCE_SPLIT_EXECUTOR` unset
+- Container compile:
+  - `docker exec -e PYTHONPATH=/app/src autobot-v2 python -m compileall -q /app/src`
+  - PASS
+- Log scan:
+  - no critical, traceback, database locked/busy, live-order, or Kraken-order lines in the sampled logs
+
+## P7 Runtime Results
+
+Commands run on VPS:
+
+```text
+python -m autobot.v2.cli shadow-paper-observations --state-db data/autobot_state.db --registry-path docs/research/strategy_hypotheses.json --trend-shadow-db data/trend_shadow_lab.db --mean-reversion-shadow-db data/mean_reversion_shadow_lab.db --run-id p7_vps_shadow_sync --output-dir reports/paper/shadow_observations
+python -m autobot.v2.cli score-filter-simulation --state-db data/autobot_state.db --run-id p7_vps_score_filter --output-dir reports/paper/score_filter_simulation
+python -m autobot.v2.cli paper-loss-diagnostics --state-db data/autobot_state.db --run-id p7_vps_loss --output-dir reports/paper/loss_diagnostics
+python -m autobot.v2.cli paper-confidence --state-db data/autobot_state.db --strategy-id trend_momentum --run-id p7_vps_confidence_trend --output-dir reports/paper/confidence --bootstrap-iterations 100
+python -m autobot.v2.cli paper-confidence --state-db data/autobot_state.db --strategy-id mean_reversion --run-id p7_vps_confidence_mean_reversion --output-dir reports/paper/confidence --bootstrap-iterations 100
+python -m autobot.v2.cli paper-confidence --state-db data/autobot_state.db --strategy-id high_conviction_swing --run-id p7_vps_confidence_high_conviction --output-dir reports/paper/confidence --bootstrap-iterations 100
+```
+
+Score coverage before P7:
+
+- Eligible trades: `4,042`
+- Scored trades: `93`
+- Coverage: `2.30%`
+- Buckets: high `12`, medium `47`, low `34`, missing `3,949`
+
+Score coverage after P7 sync:
+
+- Eligible shadow trades: `4,097`
+- Scored trades: `1,963`
+- Coverage: `47.91%`
+- Buckets: high `133`, medium `1,708`, low `122`, missing `2,134`
+- Enriched existing duplicate observations:
+  - `trend_momentum`: `1,177`
+  - `mean_reversion`: `638`
+  - `high_conviction_swing`: `0` in this manual sync because no high-conviction data paths were provided; existing high-conviction observations remain visible in the ledger.
+
+Score coverage by strategy:
+
+| Strategy | Total | Scored | Coverage | High | Medium | Low | Missing |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| high_conviction_swing | 44 | 20 | 45.45% | 7 | 13 | 0 | 24 |
+| mean_reversion | 1443 | 656 | 45.46% | 42 | 586 | 28 | 787 |
+| trend_momentum | 2610 | 1287 | 49.31% | 84 | 1109 | 94 | 1323 |
+
+Score-filter simulation after quality exclusions:
+
+| Scenario | Trades | Net PF | Net PnL | Expectancy | Max DD | Confidence |
+|---|---:|---:|---:|---:|---:|---|
+| all_scored | 1963 | 0.4892 | -248.27 | -0.1265 | 25.83% | rejected |
+| high_only | 133 | 0.6247 | -12.76 | -0.0959 | 2.51% | rejected |
+| high_plus_medium | 1841 | 0.4993 | -231.59 | -0.1258 | 25.21% | rejected |
+| missing_separate | 2134 | 0.4168 | -377.77 | -0.1770 | 38.46% | rejected |
+| low_separate | 122 | 0.2915 | -16.68 | -0.1368 | 1.76% | rejected |
+
+Interpretation:
+
+- The `high` bucket is better than `medium`, `low`, and `missing`, but still negative net after fees/slippage.
+- `missing` remains materially worse and must stay separated from `low`.
+- No bucket or strategy is promotable.
+- `opportunity_score` is useful as a research filter candidate, not as a promotion gate.
+
+Ledger warnings after P7:
+
+- `realized_pnl_missing`: `100`
+- `opening_leg_missing`: `5`
+- `slippage_bps_anomaly`: `21`
+- Quality-excluded closed observations in current actionable simulations: `0`
+- These warnings remain visible in reports. Rows that cannot become valid `TradeRecord` objects are excluded by the loader; critical warning rows are excluded from decision-oriented metrics.
+
+Strategy confidence after P7:
+
+| Strategy | Trades | Net PF | Net PnL | Expectancy | Confidence | Promotable |
+|---|---:|---:|---:|---:|---|---|
+| trend_momentum | 2610 | 0.3991 | -501.17 | -0.1920 | rejected | false |
+| mean_reversion | 1443 | 0.5314 | -109.08 | -0.0756 | rejected | false |
+| high_conviction_swing | 44 | 0.7644 | -15.80 | -0.3591 | insufficient_data | false |
 
 ## Remaining Risks
 
@@ -107,6 +194,8 @@ Pending deployment.
 - Historical rows with no matching score remain `missing` by design.
 - Quality exclusions may reduce apparent sample size, but this is safer than
   allowing incomplete ledger rows into decisions.
+- The high bucket is not profitable net yet, even after improved attribution.
+  It should remain observation-only.
 
 ## Recommendation P8
 
@@ -117,3 +206,11 @@ After P7 runs on the VPS, inspect:
 - warning counts by type;
 - whether future shadow rows are born with score metadata instead of needing
   duplicate enrichment.
+
+Recommended P8:
+
+- Continue accumulating observations with the improved score coverage.
+- Move score stamping further upstream for future shadow rows if coverage stops
+  improving.
+- Investigate why costs erase the `high` bucket's positive gross edge.
+- Keep `low` and `missing` non-promotable and separated.
