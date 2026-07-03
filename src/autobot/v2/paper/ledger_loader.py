@@ -455,6 +455,7 @@ def _exposed_ledger_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "opportunity_status",
         "opportunity_components",
         "opportunity_metadata_enriched",
+        "opportunity_metadata_origin",
         "opportunity_source",
         "opportunity_event_type",
         "opportunity_event_status",

@@ -331,7 +331,7 @@ def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
     _write_registry(registry)
     _write_scored_shadow_db(trend_db, "trend_shadow_trades")
 
-    sync_shadow_paper_observations(
+    report = sync_shadow_paper_observations(
         ShadowPaperObservationSyncConfig(
             state_db_path=state_db,
             registry_path=registry,
@@ -340,15 +340,20 @@ def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
             output_dir=tmp_path / "reports",
             run_id="pytest_scored_shadow_sync",
         )
-    )
+    ).to_dict()
 
     loaded = load_state_db_paper_ledger(state_db)
     trade = loaded.journal.records[0]
     assert trade.metadata["opportunity_score"] == pytest.approx(72.5)
     assert trade.metadata["score_bucket"] == "high"
+    assert trade.metadata["opportunity_metadata_origin"] == "source"
     assert trade.metadata["opportunity_status"] == "tradable"
     assert trade.metadata["opportunity_reason"] == "score_above_threshold"
     assert trade.metadata["opportunity_components"] == {"edge": 0.8}
+    trend = next(item for item in report["source_results"] if item["strategy_id"] == "trend_momentum")
+    assert trend["inserted_score_coverage"]["buckets"]["high"] == 1
+    assert trend["inserted_score_coverage"]["score_coverage_pct"] == pytest.approx(100.0)
+    assert trend["score_origin_counts"] == {"source": 1}
 
 
 def test_shadow_sync_enriches_missing_score_from_prior_decision_ledger(tmp_path):
@@ -374,6 +379,7 @@ def test_shadow_sync_enriches_missing_score_from_prior_decision_ledger(tmp_path)
     trade = loaded.journal.records[0]
     assert trade.metadata["opportunity_score"] == pytest.approx(82.0)
     assert trade.metadata["opportunity_score_source"] == "router_score"
+    assert trade.metadata["opportunity_metadata_origin"] == "decision_ledger_lookup"
     assert trade.metadata["score_bucket"] == "high"
     assert trade.metadata["opportunity_status"] == "watch_best_engine"
     assert trade.metadata["opportunity_reason"] == "pytest_router_score"
@@ -738,6 +744,8 @@ def test_shadow_sync_enriches_existing_missing_score_without_duplicate_rows(tmp_
     assert trend["inserted_trade_count"] == 0
     assert trend["duplicate_trade_count"] == 1
     assert trend["enriched_trade_count"] == 1
+    assert trend["enriched_score_coverage"]["buckets"]["high"] == 1
+    assert trend["score_origin_counts"] == {"decision_ledger_lookup": 1}
     assert trend["score_coverage"]["buckets"]["high"] == 1
 
     with sqlite3.connect(state_db) as conn:

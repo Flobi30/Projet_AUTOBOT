@@ -403,6 +403,15 @@ def test_opportunity_score_bucket_metrics_are_calculated_for_high_medium_low_and
     assert buckets["missing"]["trade_count"] == 1
     assert buckets["high"]["net_expectancy_eur"] == pytest.approx(2.0)
     assert buckets["low"]["net_pnl_eur"] == pytest.approx(-1.5)
+    high_diag = diagnostic["high_bucket_diagnostic"]
+    assert high_diag["summary"]["trade_count"] == 1
+    assert high_diag["summary"]["average_cost_eur"] == pytest.approx(0.2)
+    assert high_diag["research_only_segment_rules"]["paper_capital_allowed"] is False
+    assert high_diag["research_only_segment_rules"]["live_allowed"] is False
+    assert high_diag["segment_tables"]["by_strategy_symbol"][0]["key"] == {
+        "strategy_id": "trend_momentum",
+        "symbol": "BTCEUR",
+    }
 
 
 def test_cli_paper_loss_diagnostics_writes_report(tmp_path, capsys):

@@ -58,6 +58,11 @@ class SegmentMetrics:
     slippage_eur: float
     total_cost_eur: float
     cost_drag_eur: float
+    average_cost_eur: float | None
+    cost_drag_per_trade_eur: float | None
+    gross_to_net_expectancy_delta_eur: float | None
+    fee_share_of_cost_pct: float | None
+    slippage_share_of_cost_pct: float | None
     gross_profit_factor: float | None
     net_profit_factor: float | None
     gross_expectancy_eur: float | None
@@ -87,6 +92,7 @@ class OpportunityScoringDiagnostics:
     bucket_metrics: dict[str, Any] = field(default_factory=dict)
     high_score_metrics: dict[str, Any] = field(default_factory=dict)
     low_score_metrics: dict[str, Any] = field(default_factory=dict)
+    high_bucket_diagnostic: dict[str, Any] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -466,6 +472,11 @@ def _metrics_for_segment(
         slippage_eur=slippage,
         total_cost_eur=total_cost,
         cost_drag_eur=cost_drag,
+        average_cost_eur=(total_cost / count) if count else None,
+        cost_drag_per_trade_eur=(cost_drag / count) if count else None,
+        gross_to_net_expectancy_delta_eur=(cost_drag / count) if count else None,
+        fee_share_of_cost_pct=(fees / total_cost * 100.0) if total_cost > 0.0 else None,
+        slippage_share_of_cost_pct=(slippage / total_cost * 100.0) if total_cost > 0.0 else None,
         gross_profit_factor=gross_pf,
         net_profit_factor=net_pf,
         gross_expectancy_eur=(gross_pnl / count) if count else None,
@@ -621,6 +632,7 @@ def _opportunity_scoring_diagnostic(
                 for bucket, records in bucketed.items()
                 if records
             },
+            high_bucket_diagnostic=_high_bucket_diagnostic(bucketed.get("high", ()), initial_capital_eur),
             notes=(
                 "opportunity_scoring is a filter/scoring layer, not an alpha strategy",
                 "no score fields were found in shadow_paper trade metadata",
@@ -636,6 +648,7 @@ def _opportunity_scoring_diagnostic(
         for bucket, records in bucketed.items()
         if records
     }
+    high_bucket = _high_bucket_diagnostic(bucketed.get("high", ()), initial_capital_eur)
     return OpportunityScoringDiagnostics(
         score_coverage_trade_count=len(scored),
         total_shadow_trade_count=len(shadow_records),
@@ -643,8 +656,90 @@ def _opportunity_scoring_diagnostic(
         bucket_metrics=metrics_by_bucket,
         high_score_metrics=metrics_by_bucket.get("high", {}),
         low_score_metrics=metrics_by_bucket.get("low", {}),
+        high_bucket_diagnostic=high_bucket,
         notes=("Compare score buckets as a filter only; do not treat opportunity_scoring as executable alpha.",),
     )
+
+
+def _high_bucket_diagnostic(
+    records: Sequence[TradeRecord],
+    initial_capital_eur: float,
+) -> dict[str, Any]:
+    records = tuple(records)
+    summary = _metrics_for_segment(
+        records,
+        {"score_bucket": "high"},
+        initial_capital_eur=initial_capital_eur,
+        min_segment_trades=1,
+    )
+    segment_definitions = {
+        "by_strategy": ("strategy_id",),
+        "by_symbol": ("symbol",),
+        "by_strategy_symbol": ("strategy_id", "symbol"),
+        "by_strategy_timeframe": ("strategy_id", "timeframe"),
+        "by_strategy_regime": ("strategy_id", "regime"),
+        "by_strategy_symbol_timeframe_regime": ("strategy_id", "symbol", "timeframe", "regime"),
+    }
+    tables = {
+        name: [
+            item.to_dict()
+            for item in _segment_group(
+                records,
+                fields,
+                initial_capital_eur=initial_capital_eur,
+                min_segment_trades=1,
+            )
+        ]
+        for name, fields in segment_definitions.items()
+    }
+    all_segments = tuple(
+        _segment_group(
+            records,
+            ("strategy_id", "symbol", "timeframe", "regime"),
+            initial_capital_eur=initial_capital_eur,
+            min_segment_trades=1,
+        )
+    )
+    gross_profitable_net_unprofitable = tuple(
+        item
+        for item in all_segments
+        if _gt(item.gross_profit_factor, 1.0) and not _gt(item.net_profit_factor, 1.0)
+    )
+    block_candidates = tuple(item for item in all_segments if item.recommendation == "disabled_segment_recommended")
+    insufficient = tuple(item for item in all_segments if "too_few_trades" in item.reasons)
+    continue_observation = tuple(
+        item
+        for item in all_segments
+        if item.recommendation in {"continue_observation", "cost_aware_review_required", "cost_review_required"}
+    )
+    status = "no_high_bucket_trades"
+    if records:
+        if summary.net_pnl_eur >= 0.0 and _gt(summary.net_profit_factor, 1.0):
+            status = "positive_net_observation_only"
+        elif summary.gross_pnl_eur > 0.0 and summary.net_pnl_eur < 0.0:
+            status = "gross_edge_eroded_by_costs"
+        elif summary.gross_pnl_eur < 0.0:
+            status = "high_bucket_signal_brut_negative"
+        else:
+            status = "high_bucket_non_conclusive"
+    return {
+        "status": status,
+        "summary": summary.to_dict(),
+        "segment_tables": tables,
+        "gross_profitable_net_unprofitable": [item.to_dict() for item in gross_profitable_net_unprofitable[:20]],
+        "research_only_segment_rules": {
+            "continue_observation": [item.to_dict() for item in continue_observation[:20]],
+            "block_shadow_candidate": [item.to_dict() for item in block_candidates[:20]],
+            "insufficient_data": [item.to_dict() for item in insufficient[:20]],
+            "low_missing_policy": "low and missing stay separated and non-promotable",
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+        },
+        "notes": [
+            "High bucket diagnostics are read-only research analysis.",
+            "No segment rule routes paper capital or live execution.",
+        ],
+    }
 
 
 def _records_by_score_bucket(records: Sequence[TradeRecord]) -> dict[str, tuple[TradeRecord, ...]]:
@@ -852,6 +947,56 @@ def _markdown(report: PaperLossDiagnosticsReport) -> str:
                 dd=metrics["max_drawdown_eur"],
             )
         )
+    high_diag = report.opportunity_scoring_diagnostic.high_bucket_diagnostic or {}
+    high_summary = high_diag.get("summary") or {}
+    lines.extend(
+        [
+            "",
+            "## High Bucket Autopsy",
+            "",
+            f"- Status: `{high_diag.get('status', 'n/a')}`",
+            f"- Trades: `{high_summary.get('trade_count', 0)}`",
+            f"- Gross PF: `{_fmt(high_summary.get('gross_profit_factor'))}`",
+            f"- Net PF: `{_fmt(high_summary.get('net_profit_factor'))}`",
+            f"- Gross expectancy: `{_fmt(high_summary.get('gross_expectancy_eur'))}`",
+            f"- Net expectancy: `{_fmt(high_summary.get('net_expectancy_eur'))}`",
+            f"- Average cost/trade: `{_fmt(high_summary.get('average_cost_eur'))}`",
+            f"- Gross-to-net expectancy delta: `{_fmt(high_summary.get('gross_to_net_expectancy_delta_eur'))}`",
+            f"- Dominant loss source: `{high_summary.get('dominant_loss_source', 'n/a')}`",
+            "",
+            "### High Bucket By Strategy/Symbol",
+            "",
+            "| Segment | Trades | Gross PF | Net PF | Net PnL | Avg Cost | Loss source | Recommendation |",
+            "|---|---:|---:|---:|---:|---:|---|---|",
+        ]
+    )
+    for segment in (high_diag.get("segment_tables") or {}).get("by_strategy_symbol", [])[:15]:
+        lines.append(
+            "| {segment} | {trades} | {gpf} | {npf} | {net:.2f} | {avg_cost} | {loss} | {rec} |".format(
+                segment=", ".join(f"{key}={value}" for key, value in segment.get("key", {}).items()),
+                trades=segment.get("trade_count", 0),
+                gpf=_fmt(segment.get("gross_profit_factor")),
+                npf=_fmt(segment.get("net_profit_factor")),
+                net=float(segment.get("net_pnl_eur") or 0.0),
+                avg_cost=_fmt(segment.get("average_cost_eur")),
+                loss=segment.get("dominant_loss_source", "n/a"),
+                rec=segment.get("recommendation", "n/a"),
+            )
+        )
+    rules = high_diag.get("research_only_segment_rules") or {}
+    lines.extend(
+        [
+            "",
+            "### Research-Only Segment Rules",
+            "",
+            f"- Continue observation segments: `{len(rules.get('continue_observation', []))}`",
+            f"- Block shadow candidate segments: `{len(rules.get('block_shadow_candidate', []))}`",
+            f"- Insufficient data segments: `{len(rules.get('insufficient_data', []))}`",
+            f"- Low/missing policy: `{rules.get('low_missing_policy', 'n/a')}`",
+            f"- Paper capital allowed: `{str(rules.get('paper_capital_allowed', False)).lower()}`",
+            f"- Live allowed: `{str(rules.get('live_allowed', False)).lower()}`",
+        ]
+    )
     lines.extend(["", "## Ledger Warnings", ""])
     if report.warning_counts:
         lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(report.warning_counts.items()))
@@ -873,7 +1018,10 @@ def _markdown(report: PaperLossDiagnosticsReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _fmt(value: float | None) -> str:
+def _fmt(value: Any) -> str:
     if value is None:
         return "n/a"
-    return f"{value:.4f}"
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "n/a"

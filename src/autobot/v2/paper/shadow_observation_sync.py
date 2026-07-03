@@ -101,6 +101,9 @@ class ShadowSyncSourceResult:
     skipped_trade_count: int = 0
     latest_closed_at: str | None = None
     reason_counts: dict[str, int] = field(default_factory=dict)
+    inserted_score_coverage: dict[str, Any] = field(default_factory=dict)
+    enriched_score_coverage: dict[str, Any] = field(default_factory=dict)
+    score_origin_counts: dict[str, int] = field(default_factory=dict)
     score_coverage: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
@@ -269,6 +272,9 @@ def _sync_source(
     enriched = 0
     duplicates = 0
     skipped = 0
+    inserted_score_counts = _empty_score_counts()
+    enriched_score_counts = _empty_score_counts()
+    score_origin_counts: dict[str, int] = defaultdict(int)
     latest_closed_at: str | None = None
     for row in rows:
         source_id = f"{source['source']}:{int(row['id'])}"
@@ -288,6 +294,8 @@ def _sync_source(
                 opportunity_metadata,
             ):
                 enriched += 1
+                _increment_score_counts(enriched_score_counts, opportunity_metadata)
+                score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             continue
         try:
             _insert_shadow_trade_pair(
@@ -301,6 +309,8 @@ def _sync_source(
                 opportunity_metadata=opportunity_metadata,
             )
             inserted += 1
+            _increment_score_counts(inserted_score_counts, opportunity_metadata)
+            score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             latest_closed_at = str(row["closed_at"] or latest_closed_at or "")
             reason_counts[str(row["reason"] or "unknown_exit")] += 1
         except (TypeError, ValueError, sqlite3.Error) as exc:
@@ -321,6 +331,9 @@ def _sync_source(
         skipped_trade_count=skipped,
         latest_closed_at=latest_closed_at,
         reason_counts=dict(sorted(reason_counts.items())),
+        inserted_score_coverage=_score_coverage_from_counts(inserted_score_counts),
+        enriched_score_coverage=_score_coverage_from_counts(enriched_score_counts),
+        score_origin_counts=dict(sorted(score_origin_counts.items())),
         score_coverage=_score_coverage_for_source(state_conn, strategy_id),
         warnings=tuple(dict.fromkeys(warnings)),
     )
@@ -423,6 +436,9 @@ def _sync_high_conviction_source(
     enriched = 0
     duplicates = 0
     skipped = 0
+    inserted_score_counts = _empty_score_counts()
+    enriched_score_counts = _empty_score_counts()
+    score_origin_counts: dict[str, int] = defaultdict(int)
     latest_closed_at: str | None = None
     reason_counts: dict[str, int] = defaultdict(int)
     warnings: list[str] = []
@@ -444,8 +460,14 @@ def _sync_high_conviction_source(
             trade_ids = (f"{source_id}:open", f"{source_id}:close")
             if _enrich_existing_trade_metadata(state_conn, trade_ids, opportunity_metadata):
                 enriched += 1
+                _increment_score_counts(enriched_score_counts, opportunity_metadata)
+                score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             else:
-                enriched += _enrich_high_conviction_economic_match(state_conn, record, opportunity_metadata)
+                economic_enriched = _enrich_high_conviction_economic_match(state_conn, record, opportunity_metadata)
+                enriched += economic_enriched
+                if economic_enriched:
+                    _increment_score_counts(enriched_score_counts, opportunity_metadata)
+                    score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += economic_enriched
             continue
         try:
             _insert_trade_record_pair(
@@ -457,6 +479,8 @@ def _sync_high_conviction_source(
                 opportunity_metadata=opportunity_metadata,
             )
             inserted += 1
+            _increment_score_counts(inserted_score_counts, opportunity_metadata)
+            score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             latest_closed_at = record.closed_at.isoformat()
             reason_counts[str(record.exit_reason or "unknown_exit")] += 1
         except (TypeError, ValueError, sqlite3.Error) as exc:
@@ -477,6 +501,9 @@ def _sync_high_conviction_source(
         skipped_trade_count=skipped,
         latest_closed_at=latest_closed_at,
         reason_counts=dict(sorted(reason_counts.items())),
+        inserted_score_coverage=_score_coverage_from_counts(inserted_score_counts),
+        enriched_score_coverage=_score_coverage_from_counts(enriched_score_counts),
+        score_origin_counts=dict(sorted(score_origin_counts.items())),
         score_coverage=_score_coverage_for_source(state_conn, strategy_id),
         warnings=tuple(dict.fromkeys(warnings)),
     )
@@ -961,6 +988,9 @@ def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, A
     metadata: dict[str, Any] = {"score_bucket": _score_bucket(score)}
     if score is not None:
         metadata["opportunity_score"] = score
+        metadata["opportunity_metadata_origin"] = "source"
+    else:
+        metadata["opportunity_metadata_origin"] = "missing"
     if score_source is not None:
         metadata["opportunity_score_source"] = score_source
     has_opportunity_shape = any(
@@ -1083,6 +1113,7 @@ def _load_opportunity_score_lookup(conn: sqlite3.Connection) -> dict[str, tuple[
             continue
         metadata.update(
             {
+                "opportunity_metadata_origin": "decision_ledger_lookup",
                 "opportunity_source": str(row["source"] or "decision_ledger"),
                 "opportunity_event_type": str(row["event_type"] or ""),
                 "opportunity_event_status": str(row["event_status"] or ""),
@@ -1123,6 +1154,7 @@ def _lookup_opportunity_metadata(
     if best is None:
         return {}
     metadata = dict(best[1])
+    metadata["opportunity_metadata_origin"] = "decision_ledger_lookup"
     metadata["opportunity_match_delta_seconds"] = round(best[0], 3)
     return metadata
 
@@ -1194,6 +1226,38 @@ def _build_score_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
         "global": _score_coverage_rows(rows),
         "by_strategy": _score_coverage_group(rows, "strategy_id"),
         "by_symbol": _score_coverage_group(rows, "symbol"),
+    }
+
+
+def _empty_score_counts() -> dict[str, int]:
+    return {"high": 0, "medium": 0, "low": 0, "missing": 0}
+
+
+def _opportunity_metadata_origin(metadata: Mapping[str, Any]) -> str:
+    origin = str(metadata.get("opportunity_metadata_origin") or "")
+    if origin in {"source", "decision_ledger_lookup", "missing"}:
+        return origin
+    if metadata.get("score_bucket") in {"high", "medium", "low"}:
+        return "unknown_scored"
+    return "missing"
+
+
+def _increment_score_counts(counts: dict[str, int], metadata: Mapping[str, Any]) -> None:
+    bucket = str(metadata.get("score_bucket") or "missing")
+    if bucket not in counts:
+        bucket = "missing"
+    counts[bucket] += 1
+
+
+def _score_coverage_from_counts(counts: Mapping[str, int]) -> dict[str, Any]:
+    buckets = {bucket: int(counts.get(bucket, 0)) for bucket in ("high", "medium", "low", "missing")}
+    total = sum(buckets.values())
+    scored = total - buckets["missing"]
+    return {
+        "total": total,
+        "scored": scored,
+        "score_coverage_pct": (scored / total * 100.0) if total else 0.0,
+        "buckets": buckets,
     }
 
 
@@ -1429,23 +1493,31 @@ def _markdown(report: ShadowPaperObservationSyncReport) -> str:
         "",
         "## Sources",
         "",
-        "| Strategy | Source | Can write | Source trades | Inserted | Enriched | Duplicates | Skipped | Score coverage | Reasons |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Strategy | Source | Can write | Source trades | Inserted | Inserted coverage | Enriched | Enriched coverage | Duplicates | Skipped | Score coverage | Origins | Reasons |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for item in report.source_results:
         coverage = item.score_coverage.get("score_coverage_pct") if item.score_coverage else None
         coverage_text = "n/a" if coverage is None else f"{float(coverage):.2f}%"
+        inserted_coverage = item.inserted_score_coverage.get("score_coverage_pct") if item.inserted_score_coverage else None
+        inserted_coverage_text = "n/a" if inserted_coverage is None else f"{float(inserted_coverage):.2f}%"
+        enriched_coverage = item.enriched_score_coverage.get("score_coverage_pct") if item.enriched_score_coverage else None
+        enriched_coverage_text = "n/a" if enriched_coverage is None else f"{float(enriched_coverage):.2f}%"
+        origins = ", ".join(f"{key}:{value}" for key, value in item.score_origin_counts.items()) or "none"
         lines.append(
-            "| {strategy} | {source} | {can_write} | {source_trades} | {inserted} | {enriched} | {duplicates} | {skipped} | {coverage} | {reasons} |".format(
+            "| {strategy} | {source} | {can_write} | {source_trades} | {inserted} | {inserted_coverage} | {enriched} | {enriched_coverage} | {duplicates} | {skipped} | {coverage} | {origins} | {reasons} |".format(
                 strategy=item.strategy_id,
                 source=item.source,
                 can_write=str(item.can_write_shadow).lower(),
                 source_trades=item.source_trade_count,
                 inserted=item.inserted_trade_count,
+                inserted_coverage=inserted_coverage_text,
                 enriched=item.enriched_trade_count,
+                enriched_coverage=enriched_coverage_text,
                 duplicates=item.duplicate_trade_count,
                 skipped=item.skipped_trade_count,
                 coverage=coverage_text,
+                origins=origins,
                 reasons=", ".join(f"{key}:{value}" for key, value in item.reason_counts.items()) or "none",
             )
         )
