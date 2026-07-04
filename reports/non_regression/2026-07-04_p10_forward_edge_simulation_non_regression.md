@@ -69,5 +69,56 @@ Results:
 
 ## VPS
 
-Pending deployment and post-deploy read-only verification.
+Deployed and verified.
 
+Deployment evidence:
+
+- GitHub/VPS HEAD: `780354683e1bc4077fe35387686fa3bfb3ab3a05`
+- Container: `autobot-v2 Up 4 minutes (healthy)` after rebuild/recreate.
+- `/health`: `healthy`, `orchestrator=running`, `websocket=connected`, `instances=14`.
+- Flags observed in container:
+  - `PAPER_TRADING=true`
+  - `LIVE_TRADING_CONFIRMATION=false`
+  - `STRATEGY_ROUTER_LIVE_ENABLED=false`
+  - `COLONY_AUTO_LIVE_PROMOTION=false`
+  - `ENABLE_INSTANCE_SPLIT_EXECUTOR` unset.
+- Container compileall: passed.
+- Critical log scan after deploy: no matching traceback/critical/live-order lines.
+
+VPS P10 simulation:
+
+```bash
+docker exec -e PYTHONPATH=/app/src autobot-v2 python -m autobot.v2.cli forward-edge-simulation \
+  --state-db /app/data/autobot_state.db \
+  --run-id p10_vps_forward_edge \
+  --output-dir /app/reports/paper/forward_edge_simulation
+```
+
+Output files:
+
+- `reports/paper/forward_edge_simulation/p10_vps_forward_edge.json`
+- `reports/paper/forward_edge_simulation/p10_vps_forward_edge.md`
+
+Main results:
+
+| Scenario | Trades | Net PnL | PF net | Confidence | Promotable |
+|---|---:|---:|---:|---|---|
+| all_scored | 2047 | -235.6364 | 0.5390 | rejected | false |
+| opportunity_high_current | 137 | -9.0214 | 0.7637 | rejected | false |
+| cost_aware_high | 4 | 1.2872 | 1.3077 | insufficient_data | false |
+| forward_safe_net_edge_positive | 32 | -2.8638 | 0.9307 | insufficient_data | false |
+| forward_safe_net_edge_top_quantile | 76 | -3.4739 | 0.9233 | rejected | false |
+| forward_safe_net_edge_plus_score_high | 11 | 6.9552 | 1.6087 | insufficient_data | false |
+
+Policy counts:
+
+- `block_shadow_future`: 51
+- `insufficient_data`: 37
+- `observe`: 11
+- `watch`: 9
+
+Conclusion:
+
+- P10 proves the estimator is wired and anti-lookahead guarded.
+- The only positive result is `forward_safe_net_edge_plus_score_high`, but the sample is only 11 trades, so it remains `insufficient_data`.
+- No paper capital, live, sizing, leverage, strategy promotion, or UI behavior was activated.
