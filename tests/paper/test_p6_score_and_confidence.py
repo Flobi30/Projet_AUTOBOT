@@ -168,6 +168,9 @@ def test_score_filter_simulation_is_read_only_and_keeps_buckets_separate(tmp_pat
     assert scenarios["missing_separate"]["trade_count"] == 1
     assert scenarios["low_separate"]["trade_count"] == 1
     assert scenarios["high_only"]["promotable"] is False
+    assert all(item["promotable"] is False for item in report["cost_aware_scenarios"])
+    assert all(item["paper_capital_allowed"] is False for item in report["shadow_segment_policy"])
+    assert all(item["live_allowed"] is False for item in report["shadow_segment_policy"])
 
 
 def test_score_filter_excludes_critical_ledger_warning_rows_from_scenarios(tmp_path):
@@ -187,6 +190,66 @@ def test_score_filter_excludes_critical_ledger_warning_rows_from_scenarios(tmp_p
     scenarios = {item["name"]: item for item in report["scenarios"]}
     assert scenarios["high_only"]["trade_count"] == 1
     assert scenarios["high_only"]["net_pnl_eur"] == pytest.approx(2.0)
+
+
+def test_cost_aware_score_simulation_penalizes_fee_and_slippage_pressure_without_writing(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(conn, position_id="good_high", net=2.0, gross=3.0, score=90, fee=0.1, slippage_bps=1.0)
+        _insert_pair(conn, position_id="cost_eroded_high", net=-1.0, gross=0.25, score=90, fee=1.0, slippage_bps=20.0)
+        before = conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0]
+
+    report = build_score_filter_simulation_report(
+        ScoreFilterSimulationConfig(state_db_path=db_path, run_id="pytest_p9_cost", write_report=False)
+    ).to_dict()
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == before
+
+    scenarios = {item["name"]: item for item in report["cost_aware_scenarios"]}
+    assert scenarios["current_score_high"]["selected_trade_count"] == 2
+    assert scenarios["total_cost_adjusted_high"]["selected_trade_count"] < 2
+    assert scenarios["expected_net_edge_adjusted_high"]["promotable"] is False
+    assert scenarios["fee_adjusted_high"]["fees_eur"] >= 0.0
+    assert scenarios["slippage_adjusted_high"]["slippage_eur"] >= 0.0
+
+
+def test_shadow_segment_policy_blocks_destructive_low_and_keeps_watch_non_promotable(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        for index in range(12):
+            _insert_pair(
+                conn,
+                position_id=f"low_bad_{index}",
+                symbol="XLMEUR",
+                net=-1.0,
+                gross=-0.8,
+                score=10,
+            )
+        for index in range(12):
+            _insert_pair(
+                conn,
+                position_id=f"watch_high_{index}",
+                symbol="BCHEUR",
+                net=0.5,
+                gross=1.0,
+                score=85,
+            )
+
+    report = build_score_filter_simulation_report(
+        ScoreFilterSimulationConfig(state_db_path=db_path, run_id="pytest_p9_policy", write_report=False)
+    ).to_dict()
+
+    policies = report["shadow_segment_policy"]
+    low_policy = next(item for item in policies if item["key"]["score_bucket"] == "low")
+    high_policy = next(item for item in policies if item["key"]["score_bucket"] == "high")
+    assert low_policy["policy"] == "block_shadow_future"
+    assert "low_bucket_non_promotable" in low_policy["reasons"]
+    assert high_policy["policy"] == "watch"
+    assert high_policy["promotable"] is False
+    assert high_policy["paper_capital_allowed"] is False
 
 
 def test_paper_confidence_blocks_low_sample_and_shadow_evidence(tmp_path):
