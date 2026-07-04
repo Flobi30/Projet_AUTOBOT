@@ -12,6 +12,10 @@ from autobot.v2.paper.forward_edge_simulation import (
     estimate_forward_safe_net_edge,
     shadow_routing_allowed_by_forward_policy,
 )
+from autobot.v2.paper.forward_edge_validation import (
+    ForwardEdgeValidationConfig,
+    build_forward_edge_validation_report,
+)
 from autobot.v2.paper.official_performance import (
     OfficialPaperPerformanceConfig,
     build_official_paper_performance_report,
@@ -76,6 +80,8 @@ def _insert_pair(
     fee=0.1,
     slippage_bps=1.0,
     metadata_extra=None,
+    opened_at="2026-07-03T00:00:00+00:00",
+    closed_at="2026-07-03T00:05:00+00:00",
 ):
     metadata = {}
     if score is not None:
@@ -111,7 +117,7 @@ def _insert_pair(
             "trend",
             "shadow_lab",
             execution_mode,
-            "2026-07-03T00:00:00+00:00",
+            opened_at,
         ),
         (
             f"{position_id}-close",
@@ -137,7 +143,7 @@ def _insert_pair(
             "trend",
             "shadow_lab",
             execution_mode,
-            "2026-07-03T00:05:00+00:00",
+            closed_at,
         ),
     ]
     conn.executemany(
@@ -566,6 +572,152 @@ def test_forward_edge_cli_is_read_only(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["scenarios"][0]["promotable"] is False
     assert payload["input_audit"]["decision_uses_post_trade_data"] is False
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == row_count
+
+
+def test_forward_edge_validation_uses_only_post_cutoff_observations(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="pre_p10",
+            net=10.0,
+            score=90,
+            metadata_extra={"expected_move_bps": 240.0, "estimated_round_trip_cost_bps": 96.0},
+            opened_at="2026-07-04T07:50:00+02:00",
+            closed_at="2026-07-04T07:55:00+02:00",
+        )
+        _insert_pair(
+            conn,
+            position_id="post_p10",
+            net=1.0,
+            score=90,
+            metadata_extra={"expected_move_bps": 240.0, "estimated_round_trip_cost_bps": 96.0},
+            opened_at="2026-07-04T08:10:00+02:00",
+            closed_at="2026-07-04T08:15:00+02:00",
+        )
+
+    report = build_forward_edge_validation_report(
+        ForwardEdgeValidationConfig(
+            state_db_path=db_path,
+            since_commit="85199ba235062d3cdc273d015ec67a573ad7d82e",
+            run_id="pytest_forward_validation",
+            write_report=False,
+        )
+    ).to_dict()
+
+    assert report["pre_p10"]["eligible_trade_count"] == 1
+    assert report["post_p10"]["eligible_trade_count"] == 1
+    scenarios = {item["name"]: item for item in report["scenarios"]}
+    assert scenarios["all_scored"]["trade_count"] == 1
+    assert scenarios["all_scored"]["net_pnl_eur"] == pytest.approx(1.0)
+    assert scenarios["forward_safe_net_edge_plus_score_high"]["trade_count"] == 1
+    assert report["forward_only_result"]["promotable"] is False
+    assert report["forward_only_result"]["paper_capital_allowed"] is False
+    assert report["forward_only_result"]["live_allowed"] is False
+
+
+def test_forward_edge_validation_keeps_insufficient_and_blocked_groups_separate(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="post_missing",
+            symbol="LINKEUR",
+            net=-0.5,
+            opened_at="2026-07-04T08:20:00+02:00",
+            closed_at="2026-07-04T08:25:00+02:00",
+        )
+        for index in range(12):
+            _insert_pair(
+                conn,
+                position_id=f"post_low_bad_{index}",
+                symbol="XLMEUR",
+                net=-1.0,
+                score=15,
+                metadata_extra={"expected_move_bps": 60.0, "estimated_round_trip_cost_bps": 96.0},
+                opened_at=f"2026-07-04T09:{index:02d}:00+02:00",
+                closed_at=f"2026-07-04T09:{index:02d}:30+02:00",
+            )
+
+    report = build_forward_edge_validation_report(
+        ForwardEdgeValidationConfig(
+            state_db_path=db_path,
+            since="2026-07-04T08:06:17+02:00",
+            run_id="pytest_forward_validation_groups",
+            write_report=False,
+        )
+    ).to_dict()
+
+    assert report["post_p10"]["bucket_counts"]["missing"] == 1
+    assert report["post_p10"]["bucket_counts"]["low"] == 12
+    scenarios = {item["name"]: item for item in report["scenarios"]}
+    assert scenarios["rejected_or_insufficient_data"]["trade_count"] >= 1
+    assert scenarios["block_shadow_future"]["trade_count"] == 12
+    assert scenarios["block_shadow_future"]["promotable"] is False
+    assert all(item["paper_capital_allowed"] is False for item in report["segment_policy"])
+    assert all(item["live_allowed"] is False for item in report["segment_policy"])
+
+
+def test_forward_edge_validation_reconstructs_expected_move_from_pretrade_net_edge(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="post_net_edge",
+            net=1.0,
+            score=88,
+            metadata_extra={"expected_net_edge_bps": 25.0, "estimated_round_trip_cost_bps": 96.0},
+            opened_at="2026-07-04T08:20:00+02:00",
+            closed_at="2026-07-04T08:25:00+02:00",
+        )
+
+    report = build_forward_edge_validation_report(
+        ForwardEdgeValidationConfig(
+            state_db_path=db_path,
+            since="2026-07-04T08:06:17+02:00",
+            run_id="pytest_forward_validation_coverage",
+            write_report=False,
+        )
+    ).to_dict()
+
+    assert report["post_p10"]["pretrade_coverage"]["expected_move_available"] == 1
+    assert report["post_p10"]["pretrade_coverage"]["forward_edge_valid"] == 1
+    scenarios = {item["name"]: item for item in report["scenarios"]}
+    assert scenarios["forward_safe_net_edge_plus_score_high"]["trade_count"] == 1
+
+
+def test_forward_edge_validation_cli_is_read_only(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="post_cli",
+            net=1.0,
+            score=90,
+            metadata_extra={"expected_move_bps": 220.0, "estimated_round_trip_cost_bps": 96.0},
+            opened_at="2026-07-04T08:20:00+02:00",
+            closed_at="2026-07-04T08:25:00+02:00",
+        )
+        row_count = conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0]
+
+    assert cli.main([
+        "forward-edge-validation",
+        "--state-db",
+        str(db_path),
+        "--since-commit",
+        "85199ba235062d3cdc273d015ec67a573ad7d82e",
+        "--no-write-report",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["post_p10"]["eligible_trade_count"] == 1
+    assert payload["forward_only_result"]["promotable"] is False
 
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == row_count

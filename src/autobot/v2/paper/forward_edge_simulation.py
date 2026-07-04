@@ -463,21 +463,11 @@ def _forward_input_from_record(
 ) -> ForwardSafeNetEdgeInput:
     metadata_sources = _pre_entry_metadata_sources(record)
     score = _score_from_sources(metadata_sources)
-    expected_move = _first_float_from_sources(
-        metadata_sources,
-        (
-            "expected_move_bps",
-            "expected_gross_edge_bps",
-            "gross_edge_bps",
-            "expected_edge_bps",
-            "target_move_bps",
-            "gross_edge",
-        ),
-    )
     fees_bps, spread_bps, slippage_bps, latency_bps, total_cost_bps, cost_source = _cost_components(
         metadata_sources,
         cost_profile,
     )
+    expected_move = _expected_move_bps(metadata_sources, total_cost_bps)
     segment_penalty = _history_penalty(segment_history)
     pair_penalty = _history_penalty(symbol_history)
     return ForwardSafeNetEdgeInput(
@@ -501,6 +491,39 @@ def _forward_input_from_record(
         cost_profile=cost_profile.name,
         cost_source=cost_source,
     )
+
+
+def _expected_move_bps(sources: Sequence[Mapping[str, Any]], total_cost_bps: float | None) -> float | None:
+    expected_move = _first_float_from_sources(
+        sources,
+        (
+            "expected_move_bps",
+            "expected_gross_move_bps",
+            "expected_gross_edge_bps",
+            "gross_edge_bps",
+            "expected_edge_bps",
+            "target_move_bps",
+            "gross_edge",
+        ),
+    )
+    if expected_move is not None:
+        return expected_move
+    if total_cost_bps is None:
+        return None
+    expected_net_edge = _first_float_from_sources(
+        sources,
+        (
+            "expected_net_edge_bps",
+            "expected_net_edge",
+            "net_edge_bps",
+            "net_edge",
+            "edge_after_cost_bps",
+            "cost_adjusted_edge_bps",
+        ),
+    )
+    if expected_net_edge is None:
+        return None
+    return max(0.0, expected_net_edge + total_cost_bps)
 
 
 def _pre_entry_metadata_sources(record: TradeRecord) -> tuple[Mapping[str, Any], ...]:

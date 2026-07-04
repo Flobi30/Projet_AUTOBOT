@@ -344,6 +344,21 @@ def _build_parser() -> argparse.ArgumentParser:
     forward_edge.add_argument("--no-write-report", action="store_true")
     forward_edge.set_defaults(handler=_cmd_forward_edge_simulation)
 
+    forward_validation = subparsers.add_parser(
+        "forward-edge-validation",
+        help="Read-only forward-only validation for post-P10 shadow observations",
+    )
+    forward_validation.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    forward_validation.add_argument("--since", default=None, help="ISO8601 cutoff; only trades opened after it are post-P10")
+    forward_validation.add_argument("--since-commit", default=None, help="Known P10 commit hash mapped to its cutoff timestamp")
+    forward_validation.add_argument("--run-id", default=None)
+    forward_validation.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    forward_validation.add_argument("--cost-profile", default="paper_current_taker")
+    forward_validation.add_argument("--top-quantile-fraction", type=float, default=0.20)
+    forward_validation.add_argument("--output-dir", default="reports/paper/forward_edge_validation")
+    forward_validation.add_argument("--no-write-report", action="store_true")
+    forward_validation.set_defaults(handler=_cmd_forward_edge_validation)
+
     paper_confidence = subparsers.add_parser(
         "paper-confidence",
         help="Research-only statistical confidence report for one strategy_id",
@@ -1937,6 +1952,29 @@ def _cmd_forward_edge_simulation(args: argparse.Namespace) -> int:
     report = build_forward_edge_simulation_report(
         ForwardEdgeSimulationConfig(
             state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            cost_profile_name=args.cost_profile,
+            top_quantile_fraction=args.top_quantile_fraction,
+            write_report=not args.no_write_report,
+        )
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_forward_edge_validation(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.forward_edge_validation import (
+        ForwardEdgeValidationConfig,
+        build_forward_edge_validation_report,
+    )
+
+    report = build_forward_edge_validation_report(
+        ForwardEdgeValidationConfig(
+            state_db_path=Path(args.state_db),
+            since=args.since,
+            since_commit=args.since_commit,
             output_dir=Path(args.output_dir),
             run_id=args.run_id,
             initial_capital_eur=args.initial_capital_eur,
