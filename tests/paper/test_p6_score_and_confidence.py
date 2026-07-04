@@ -5,6 +5,13 @@ import pytest
 
 from autobot.v2 import cli
 from autobot.v2.paper.db_integrity import DbIntegrityConfig, build_db_integrity_report
+from autobot.v2.paper.forward_edge_simulation import (
+    ForwardEdgeSimulationConfig,
+    LookaheadInputError,
+    build_forward_edge_simulation_report,
+    estimate_forward_safe_net_edge,
+    shadow_routing_allowed_by_forward_policy,
+)
 from autobot.v2.paper.official_performance import (
     OfficialPaperPerformanceConfig,
     build_official_paper_performance_report,
@@ -68,12 +75,15 @@ def _insert_pair(
     execution_mode="shadow_paper",
     fee=0.1,
     slippage_bps=1.0,
+    metadata_extra=None,
 ):
     metadata = {}
     if score is not None:
         metadata["opportunity_score"] = score
     if score_bucket is not None:
         metadata["score_bucket"] = score_bucket
+    if metadata_extra:
+        metadata.update(metadata_extra)
     encoded_metadata = json.dumps(metadata) if metadata else None
     gross = net + (2 * fee) if gross is None else gross
     rows = [
@@ -406,6 +416,156 @@ def test_new_p6_cli_commands_are_read_only(tmp_path, capsys):
     assert cli.main(["check-db-integrity", "--state-db", str(db_path), "--no-write-report"]) == 0
     integrity_payload = json.loads(capsys.readouterr().out)
     assert integrity_payload["checks"]["legacy_rows_used_by_official_metrics"] is False
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == row_count
+
+
+def test_forward_safe_net_edge_rejects_post_trade_fields_and_uses_costs():
+    safe_input = {
+        "strategy_id": "trend_momentum",
+        "symbol": "BCHEUR",
+        "opened_at": "2026-07-03T00:00:00+00:00",
+        "score_bucket": "high",
+        "opportunity_score": 82.0,
+        "expected_move_bps": 240.0,
+        "estimated_fees_bps": 80.0,
+        "estimated_spread_cost_bps": 8.0,
+        "estimated_slippage_bps": 6.0,
+        "latency_buffer_bps": 0.0,
+        "estimated_total_cost_bps": 94.0,
+    }
+
+    estimate = estimate_forward_safe_net_edge(safe_input)
+    assert estimate.estimated_net_edge_bps == pytest.approx(146.0)
+    assert estimate.confidence_level == "forward_edge_positive"
+    assert estimate.promotable is False
+    assert estimate.paper_capital_allowed is False
+    assert estimate.live_allowed is False
+
+    with pytest.raises(LookaheadInputError):
+        estimate_forward_safe_net_edge({**safe_input, "net_pnl": 999.0})
+    with pytest.raises(LookaheadInputError):
+        estimate_forward_safe_net_edge({**safe_input, "closing_leg": {"gross_edge_bps": 999.0}})
+
+
+def test_forward_edge_simulation_is_read_only_and_keeps_low_missing_separate(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="forward_high",
+            symbol="BCHEUR",
+            net=2.0,
+            gross=3.0,
+            score=88,
+            metadata_extra={
+                "expected_move_bps": 260.0,
+                "estimated_round_trip_cost_bps": 96.0,
+                "closing_leg": {"gross_edge_bps": 999.0},
+                "mfe_bps": 500.0,
+            },
+        )
+        _insert_pair(
+            conn,
+            position_id="forward_low",
+            symbol="XLMEUR",
+            net=-1.0,
+            gross=-0.5,
+            score=15,
+            metadata_extra={"expected_move_bps": 80.0, "estimated_round_trip_cost_bps": 96.0},
+        )
+        _insert_pair(conn, position_id="forward_missing", symbol="LINKEUR", net=-0.5)
+        _insert_pair(
+            conn,
+            position_id="grid_excluded",
+            strategy="dynamic_grid",
+            symbol="TRXEUR",
+            net=99.0,
+            score=99,
+            metadata_extra={"expected_move_bps": 300.0, "estimated_round_trip_cost_bps": 80.0},
+        )
+        row_count = conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0]
+
+    report = build_forward_edge_simulation_report(
+        ForwardEdgeSimulationConfig(state_db_path=db_path, run_id="pytest_forward", write_report=False)
+    ).to_dict()
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == row_count
+
+    assert report["bucket_counts"] == {"high": 1, "medium": 0, "low": 1, "missing": 1}
+    assert report["input_audit"]["decision_uses_post_trade_data"] is False
+    assert report["input_audit"]["forbidden_fields_used"] == []
+    assert report["input_audit"]["raw_forbidden_fields_seen_count"] >= 1
+    scenarios = {item["name"]: item for item in report["scenarios"]}
+    assert scenarios["all_scored"]["trade_count"] == 2
+    assert scenarios["forward_safe_net_edge_positive"]["trade_count"] == 1
+    assert scenarios["forward_safe_net_edge_plus_score_high"]["trade_count"] == 1
+    assert scenarios["opportunity_high_current"]["promotable"] is False
+    assert all(item["paper_capital_allowed"] is False for item in report["scenarios"])
+    assert all(item["live_allowed"] is False for item in report["scenarios"])
+
+
+def test_forward_edge_segment_policies_never_promote_and_block_low_future_shadow(tmp_path):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        for index in range(12):
+            _insert_pair(
+                conn,
+                position_id=f"low_forward_bad_{index}",
+                symbol="XLMEUR",
+                net=-1.0,
+                gross=-0.6,
+                score=12,
+                metadata_extra={"expected_move_bps": 60.0, "estimated_round_trip_cost_bps": 96.0},
+            )
+        for index in range(12):
+            _insert_pair(
+                conn,
+                position_id=f"watch_forward_{index}",
+                symbol="BCHEUR",
+                net=0.4,
+                gross=1.0,
+                score=86,
+                metadata_extra={"expected_move_bps": 240.0, "estimated_round_trip_cost_bps": 96.0},
+            )
+
+    report = build_forward_edge_simulation_report(
+        ForwardEdgeSimulationConfig(state_db_path=db_path, run_id="pytest_forward_policy", write_report=False)
+    ).to_dict()
+
+    policies = report["segment_policy"]
+    low_policy = next(item for item in policies if item["key"]["score_bucket"] == "low")
+    high_policy = next(item for item in policies if item["key"]["score_bucket"] == "high")
+    assert low_policy["policy"] == "block_shadow_future"
+    assert shadow_routing_allowed_by_forward_policy(low_policy) is False
+    assert "low_bucket_non_promotable" in low_policy["reasons"]
+    assert high_policy["policy"] == "forward_edge_watch"
+    assert high_policy["promotable"] is False
+    assert high_policy["paper_capital_allowed"] is False
+    assert high_policy["live_allowed"] is False
+
+
+def test_forward_edge_cli_is_read_only(tmp_path, capsys):
+    db_path = tmp_path / "state.db"
+    _create_state_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        _insert_pair(
+            conn,
+            position_id="forward_cli",
+            net=1.0,
+            score=90,
+            metadata_extra={"expected_move_bps": 220.0, "estimated_round_trip_cost_bps": 96.0},
+        )
+        row_count = conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0]
+
+    assert cli.main(["forward-edge-simulation", "--state-db", str(db_path), "--no-write-report"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["scenarios"][0]["promotable"] is False
+    assert payload["input_audit"]["decision_uses_post_trade_data"] is False
 
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == row_count

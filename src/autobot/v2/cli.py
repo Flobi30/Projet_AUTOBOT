@@ -331,6 +331,19 @@ def _build_parser() -> argparse.ArgumentParser:
     score_filter.add_argument("--no-write-report", action="store_true")
     score_filter.set_defaults(handler=_cmd_score_filter_simulation)
 
+    forward_edge = subparsers.add_parser(
+        "forward-edge-simulation",
+        help="Read-only forward-safe net-edge simulation for shadow observations",
+    )
+    forward_edge.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    forward_edge.add_argument("--run-id", default=None)
+    forward_edge.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    forward_edge.add_argument("--cost-profile", default="paper_current_taker")
+    forward_edge.add_argument("--top-quantile-fraction", type=float, default=0.20)
+    forward_edge.add_argument("--output-dir", default="reports/paper/forward_edge_simulation")
+    forward_edge.add_argument("--no-write-report", action="store_true")
+    forward_edge.set_defaults(handler=_cmd_forward_edge_simulation)
+
     paper_confidence = subparsers.add_parser(
         "paper-confidence",
         help="Research-only statistical confidence report for one strategy_id",
@@ -1908,6 +1921,27 @@ def _cmd_score_filter_simulation(args: argparse.Namespace) -> int:
             output_dir=Path(args.output_dir),
             run_id=args.run_id,
             initial_capital_eur=args.initial_capital_eur,
+            write_report=not args.no_write_report,
+        )
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_forward_edge_simulation(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.forward_edge_simulation import (
+        ForwardEdgeSimulationConfig,
+        build_forward_edge_simulation_report,
+    )
+
+    report = build_forward_edge_simulation_report(
+        ForwardEdgeSimulationConfig(
+            state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            cost_profile_name=args.cost_profile,
+            top_quantile_fraction=args.top_quantile_fraction,
             write_report=not args.no_write_report,
         )
     )
