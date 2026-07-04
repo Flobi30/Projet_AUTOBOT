@@ -64,17 +64,44 @@ $env:PYTHONPATH='src'; python -m autobot.v2.cli forward-edge-validation --state-
 
 ## VPS Validation
 
-Pending deployment.
+Completed after deployment.
 
-After deploy, run:
+- GitHub/VPS HEAD: `de83dcc47b974ba580f2aa4c00d8dcccebcb8e54`
+- Container: `autobot-v2 Up (healthy) projet_autobot-autobot`
+- `/health`: `status=healthy`, `orchestrator=running`, `websocket=connected`, `instances=14`
+- Flags:
+  - `PAPER_TRADING=true`
+  - `LIVE_TRADING_CONFIRMATION=false`
+  - `STRATEGY_ROUTER_LIVE_ENABLED=false`
+  - `COLONY_AUTO_LIVE_PROMOTION=false`
+  - `ENABLE_LIVE_TRADING` unset/not present
+  - `ENABLE_INSTANCE_SPLIT_EXECUTOR` unset/not present
+- Recent critical/live-order logs: none matched in the 10 minute post-deploy window.
+
+VPS command:
 
 ```bash
 python -m autobot.v2.cli forward-edge-validation \
   --state-db data/autobot_state.db \
   --since-commit 85199ba235062d3cdc273d015ec67a573ad7d82e \
-  --run-id p11_vps_forward_validation
+  --run-id p11_vps_forward_validation \
+  --output-dir reports/paper/forward_edge_validation
 ```
+
+VPS result:
+
+- Report JSON: `/app/reports/paper/forward_edge_validation/p11_vps_forward_validation.json`
+- Report Markdown: `/app/reports/paper/forward_edge_validation/p11_vps_forward_validation.md`
+- `pre_p10.eligible_trade_count=4184`
+- `post_p10.eligible_trade_count=0`
+- `post_p10.bucket_counts={high: 0, medium: 0, low: 0, missing: 0}`
+- `post_p10.forward_edge_valid=0`
+- `forward_safe_net_edge_plus_score_high.trade_count=0`
+- `forward_only_result.confidence_level=insufficient_data`
+- `forward_only_result.reason=no_post_p10_eligible_observations`
+- `forward_only_result.recommendation=continue_collection`
+- `promotable=false`, `paper_capital_allowed=false`, `live_allowed=false`
 
 ## Recommendation
 
-Deploy P11, run the forward validation on VPS, and keep collecting until the `forward_safe_net_edge_plus_score_high` post-P10 cohort has enough observations. It must remain shadow/research-only.
+Keep collecting. P11 is working, but no post-P10 eligible closed observations exist yet after the deploy/restart window. The next useful check is after the next shadow observation cycle has closed trades. The `forward_safe_net_edge_plus_score_high` group must remain shadow/research-only until it has enough forward-only observations.
