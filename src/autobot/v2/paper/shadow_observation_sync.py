@@ -24,6 +24,11 @@ from autobot.v2.research.high_conviction_portfolio import (
     write_high_conviction_portfolio_report,
 )
 from autobot.v2.research.trade_journal import TradeRecord
+from autobot.v2.paper.opportunity_score_v2 import (
+    FORBIDDEN_SCORE_V2_CONTAINER_KEYS,
+    FORBIDDEN_SCORE_V2_KEYS,
+    build_opportunity_score_v2_metadata,
+)
 from autobot.v2.shadow_cost_bridge import conservative_shadow_cost_defaults
 from autobot.v2.strategy_runtime_policy import (
     EXECUTION_MODE_PAPER_CAPITAL,
@@ -865,7 +870,7 @@ def _shadow_row_opportunity_metadata(
     generated_at: str,
     max_window_hours: float,
 ) -> dict[str, Any]:
-    return _merge_opportunity_metadata(
+    merged = _merge_opportunity_metadata(
         _opportunity_metadata_from_mapping(row),
         _lookup_opportunity_metadata(
             opportunity_lookup,
@@ -874,6 +879,7 @@ def _shadow_row_opportunity_metadata(
             max_window_hours=max_window_hours,
         ),
     )
+    return _with_score_v2_metadata(merged, _row_score_v2_source(row), merged)
 
 
 def _trade_record_opportunity_metadata(
@@ -883,7 +889,7 @@ def _trade_record_opportunity_metadata(
     generated_at: str,
     max_window_hours: float,
 ) -> dict[str, Any]:
-    return _merge_opportunity_metadata(
+    merged = _merge_opportunity_metadata(
         _opportunity_metadata_from_mapping(record.metadata),
         _lookup_opportunity_metadata(
             opportunity_lookup,
@@ -892,6 +898,7 @@ def _trade_record_opportunity_metadata(
             max_window_hours=max_window_hours,
         ),
     )
+    return _with_score_v2_metadata(merged, _trade_record_score_v2_source(record), merged)
 
 
 def _enrich_existing_trade_metadata(
@@ -901,7 +908,9 @@ def _enrich_existing_trade_metadata(
 ) -> int:
     """Fill missing score metadata on existing shadow rows without changing PnL."""
 
-    if opportunity_metadata.get("score_bucket") not in {"high", "medium", "low"}:
+    if opportunity_metadata.get("score_bucket") not in {"high", "medium", "low"} and opportunity_metadata.get(
+        "score_v2_bucket"
+    ) not in {"high", "medium", "low", "missing"}:
         return 0
     updated = 0
     for trade_id in trade_ids:
@@ -913,7 +922,7 @@ def _enrich_existing_trade_metadata(
             continue
         current = _json_mapping(row["decision_id"])
         current_score = _opportunity_metadata_from_mapping(current)
-        if current_score.get("score_bucket") in {"high", "medium", "low"}:
+        if current_score.get("score_bucket") in {"high", "medium", "low"} and current.get("score_v2_bucket"):
             continue
         merged = dict(current)
         merged.update(dict(opportunity_metadata))
@@ -1028,7 +1037,7 @@ def _opportunity_metadata_from_mapping(source: Mapping[str, Any]) -> dict[str, A
     parsed_components = _json_mapping(components)
     if parsed_components:
         metadata["opportunity_components"] = parsed_components
-    return metadata
+    return _with_score_v2_metadata(metadata, _mapping_score_v2_source(source), metadata)
 
 
 def _merge_opportunity_metadata(primary: Mapping[str, Any], fallback: Mapping[str, Any]) -> dict[str, Any]:
@@ -1036,10 +1045,133 @@ def _merge_opportunity_metadata(primary: Mapping[str, Any], fallback: Mapping[st
 
     merged = dict(primary)
     if merged.get("score_bucket") != "missing":
-        return merged
+        return _with_score_v2_metadata(merged, merged)
     if fallback.get("score_bucket") in {"high", "medium", "low"}:
         merged.update(fallback)
+    return _with_score_v2_metadata(merged, merged)
+
+
+def _with_score_v2_metadata(metadata: Mapping[str, Any], *sources: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(metadata)
+    current_bucket = merged.get("score_v2_bucket")
+    if current_bucket in {"high", "medium", "low"}:
+        return merged
+    if current_bucket == "missing" and not sources:
+        return merged
+    score_source: dict[str, Any] = {}
+    for source in sources:
+        score_source.update(_sanitize_score_v2_source(source))
+    if not score_source:
+        score_source = {}
+    score_v2 = build_opportunity_score_v2_metadata(score_source)
+    merged.update(score_v2)
     return merged
+
+
+def _mapping_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:
+    raw: dict[str, Any] = {}
+    for key in (
+        "strategy_id",
+        "symbol",
+        "timeframe",
+        "regime",
+        "opportunity_score",
+        "score",
+        "router_score",
+        "expected_move_bps",
+        "expected_gross_move_bps",
+        "estimated_total_cost_bps",
+        "estimated_round_trip_cost_bps",
+        "estimated_fees_bps",
+        "estimated_spread_cost_bps",
+        "estimated_slippage_bps",
+        "latency_buffer_bps",
+        "estimated_net_edge_bps",
+        "expected_net_edge_bps",
+        "logical_stop_bps",
+        "stop_loss_bps",
+        "risk_reward_ratio",
+        "breakout_quality",
+        "breakout_score",
+        "trend_quality",
+        "trend_strength",
+        "trend_timeframe_alignment",
+        "multi_timeframe_alignment",
+        "volatility_expansion",
+        "volatility_expansion_score",
+        "support_resistance",
+        "support_strength",
+        "spread_bps",
+        "liquidity_score",
+        "depth_score",
+        "pair_health_score",
+        "pair_health_penalty_bps",
+        "segment_health_score",
+        "segment_health_penalty_bps",
+        "trade_frequency_penalty_bps",
+        "drawdown_penalty_bps",
+    ):
+        value = _mapping_value(source, key)
+        if value not in (None, ""):
+            raw[key] = value
+    components = _mapping_value(source, "opportunity_components")
+    parsed_components = _json_mapping(components)
+    if parsed_components:
+        raw["opportunity_components"] = parsed_components
+    nested = _mapping_value(source, "components")
+    parsed_nested = _json_mapping(nested)
+    if parsed_nested:
+        raw["components"] = parsed_nested
+    return _sanitize_score_v2_source(raw)
+
+
+def _row_score_v2_source(row: sqlite3.Row) -> dict[str, Any]:
+    source = _mapping_score_v2_source(row)
+    source.setdefault("symbol", str(_row_value(row, "symbol", "") or ""))
+    source.setdefault("timeframe", str(_row_value(row, "timeframe", "") or ""))
+    source.setdefault("estimated_total_cost_bps", _safe_float(_row_value(row, "cost_bps", None)) or None)
+    return _sanitize_score_v2_source(source)
+
+
+def _trade_record_score_v2_source(record: TradeRecord) -> dict[str, Any]:
+    metadata = record.metadata if isinstance(record.metadata, Mapping) else {}
+    source = _mapping_score_v2_source(metadata)
+    source.setdefault("strategy_id", record.strategy_id)
+    source.setdefault("symbol", record.symbol)
+    source.setdefault("timeframe", str(metadata.get("timeframe") or "multi_timeframe"))
+    source.setdefault("regime", record.regime or metadata.get("regime"))
+    if metadata.get("cost_bps") not in (None, ""):
+        source.setdefault("estimated_total_cost_bps", metadata.get("cost_bps"))
+    if metadata.get("logical_stop_bps") not in (None, ""):
+        source.setdefault("logical_stop_bps", metadata.get("logical_stop_bps"))
+    return _sanitize_score_v2_source(source)
+
+
+def _sanitize_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:
+    cleaned: dict[str, Any] = {}
+    for key, value in source.items():
+        normalized = str(key).lower()
+        if normalized in FORBIDDEN_SCORE_V2_KEYS or normalized in FORBIDDEN_SCORE_V2_CONTAINER_KEYS:
+            continue
+        if isinstance(value, Mapping):
+            nested = _sanitize_score_v2_source(value)
+            if nested:
+                cleaned[str(key)] = nested
+            continue
+        if isinstance(value, (list, tuple)):
+            items = []
+            for item in value:
+                if isinstance(item, Mapping):
+                    nested = _sanitize_score_v2_source(item)
+                    if nested:
+                        items.append(nested)
+                elif not isinstance(item, (list, tuple)):
+                    items.append(item)
+            if items:
+                cleaned[str(key)] = items
+            continue
+        cleaned[str(key)] = value
+    return cleaned
 
 
 def _score_bucket(score: float | None) -> str:

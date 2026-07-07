@@ -180,7 +180,22 @@ def _write_scored_shadow_db(path: Path, table: str) -> None:
                 72.5,
                 "tradable",
                 "score_above_threshold",
-                json.dumps({"edge": 0.8}),
+                json.dumps(
+                    {
+                        "edge": 0.8,
+                        "expected_move_bps": 500.0,
+                        "estimated_total_cost_bps": 90.0,
+                        "estimated_net_edge_bps": 410.0,
+                        "risk_reward_ratio": 3.0,
+                        "breakout_quality": 0.8,
+                        "trend_timeframe_alignment": 0.9,
+                        "volatility_expansion": 0.7,
+                        "support_strength": 0.6,
+                        "liquidity_score": 0.8,
+                        "pair_health_score": 0.75,
+                        "segment_health_score": 0.7,
+                    }
+                ),
                 "trend",
                 "5m",
                 "pytest_score",
@@ -349,7 +364,13 @@ def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
     assert trade.metadata["opportunity_metadata_origin"] == "source"
     assert trade.metadata["opportunity_status"] == "tradable"
     assert trade.metadata["opportunity_reason"] == "score_above_threshold"
-    assert trade.metadata["opportunity_components"] == {"edge": 0.8}
+    assert trade.metadata["opportunity_components"]["edge"] == 0.8
+    assert trade.metadata["opportunity_score_v2"] >= 70.0
+    assert trade.metadata["score_v2_bucket"] == "high"
+    assert trade.metadata["score_v2_version"]
+    assert trade.metadata["score_v2_promotable"] is False
+    assert trade.metadata["score_v2_paper_capital_allowed"] is False
+    assert trade.metadata["score_v2_live_allowed"] is False
     trend = next(item for item in report["source_results"] if item["strategy_id"] == "trend_momentum")
     assert trend["inserted_score_coverage"]["buckets"]["high"] == 1
     assert trend["inserted_score_coverage"]["score_coverage_pct"] == pytest.approx(100.0)
@@ -469,6 +490,10 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
     assert trade.strategy_id == "high_conviction_swing"
     assert trade.metadata["execution_mode"] == EXECUTION_MODE_SHADOW_PAPER
     assert trade.metadata["score_bucket"] == "missing"
+    assert trade.metadata["score_v2_bucket"] in {"low", "medium", "missing"}
+    assert trade.metadata["score_v2_promotable"] is False
+    assert "mfe_bps" in trade.metadata
+    assert "mfe_bps" not in trade.metadata["score_v2_components"]
     assert trade.metadata["family"] == "breakout_1h_4h"
     assert trade.net_pnl_eur == pytest.approx(7.5)
 

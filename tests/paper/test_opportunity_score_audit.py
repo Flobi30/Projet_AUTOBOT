@@ -11,6 +11,10 @@ from autobot.v2.paper.opportunity_score_audit import (
     build_opportunity_score_audit_report,
     calculate_score_variant,
 )
+from autobot.v2.paper.opportunity_score_v2 import (
+    SCORE_V2_VERSION,
+    calculate_opportunity_score_v2,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -163,6 +167,48 @@ def test_score_variant_rejects_post_trade_fields_and_keeps_threshold_constant():
         calculate_score_variant("forward_edge_aware", {**source, "closing_leg": {"exit_price": 99.0}})
 
 
+def test_opportunity_score_v2_is_forward_safe_and_reports_missing_components():
+    source = {
+        "strategy_id": "high_conviction_swing",
+        "symbol": "BTCEUR",
+        "opportunity_score": 44.0,
+        "expected_move_bps": 500.0,
+        "estimated_total_cost_bps": 90.0,
+        "estimated_net_edge_bps": 410.0,
+        "risk_reward_ratio": 3.0,
+        "breakout_quality": 0.8,
+        "trend_timeframe_alignment": 0.9,
+        "volatility_expansion": 0.7,
+        "support_strength": 0.6,
+        "liquidity_score": 0.8,
+        "pair_health_score": 0.75,
+        "segment_health_score": 0.7,
+    }
+
+    assert HIGH_THRESHOLD == 70.0
+    result = calculate_opportunity_score_v2(source)
+    assert result.version == SCORE_V2_VERSION
+    assert result.score is not None
+    assert result.bucket == "high"
+    assert result.promotable is False
+    assert result.paper_capital_allowed is False
+    assert result.live_allowed is False
+    assert result.missing_components == ()
+
+    sparse = calculate_opportunity_score_v2(
+        {
+            "strategy_id": "high_conviction_swing",
+            "expected_move_bps": 500.0,
+            "estimated_total_cost_bps": 90.0,
+        }
+    )
+    assert "breakout_quality" in sparse.missing_components
+    assert sparse.promotable is False
+
+    with pytest.raises(LookaheadInputError):
+        calculate_opportunity_score_v2({**source, "net_pnl": 12.0})
+
+
 def test_opportunity_score_audit_explains_compressed_current_scores_and_high_conviction_gap(tmp_path):
     db_path = tmp_path / "state.db"
     _create_state_db(db_path)
@@ -174,12 +220,19 @@ def test_opportunity_score_audit_explains_compressed_current_scores_and_high_con
             symbol="ADAEUR",
             net=3.0,
             score=44.0,
-            metadata_extra={
-                "expected_move_bps": 400.0,
-                "estimated_round_trip_cost_bps": 98.0,
-                "trend_context": "aligned",
-                "risk_reward_ratio": 3.0,
-            },
+                metadata_extra={
+                    "expected_move_bps": 400.0,
+                    "estimated_round_trip_cost_bps": 98.0,
+                    "trend_context": "aligned",
+                    "breakout_quality": 0.8,
+                    "trend_timeframe_alignment": 0.9,
+                    "volatility_expansion": 0.7,
+                    "support_strength": 0.6,
+                    "liquidity_score": 0.8,
+                    "pair_health_score": 0.75,
+                    "segment_health_score": 0.7,
+                    "risk_reward_ratio": 3.0,
+                },
         )
         _insert_pair(
             conn,
@@ -217,7 +270,11 @@ def test_opportunity_score_audit_explains_compressed_current_scores_and_high_con
     variants = {item["name"]: item for item in report["score_variants"]}
     assert variants["current_score"]["distribution"]["bucket_counts"]["high"] == 0
     assert variants["high_conviction_aware"]["distribution"]["bucket_counts"]["high"] == 1
+    assert variants["opportunity_score_v2"]["distribution"]["bucket_counts"]["high"] == 1
+    assert variants["opportunity_score_v2"]["correlations"]["score_vs_forward_safe_net_edge"]["sample_size"] >= 1
     assert all(item["promotable"] is False for item in report["score_variants"])
+    assert report["opportunity_formula"]["score_v2"]["version"] == SCORE_V2_VERSION
+    assert report["opportunity_formula"]["score_v2"]["bucket_thresholds"]["high"] == HIGH_THRESHOLD
     assert report["anti_lookahead_audit"]["decision_uses_post_trade_data"] is False
 
 
@@ -270,4 +327,3 @@ def test_opportunity_score_audit_cli_is_read_only(tmp_path, capsys):
 
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == before
-

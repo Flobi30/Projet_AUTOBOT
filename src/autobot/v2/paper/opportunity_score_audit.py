@@ -35,6 +35,11 @@ from autobot.v2.paper.forward_edge_simulation import (
 from autobot.v2.paper.forward_edge_validation import resolve_cutoff
 from autobot.v2.paper.ledger_quality import has_critical_ledger_warning, loader_warning_counts
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
+from autobot.v2.paper.opportunity_score_v2 import (
+    COMPONENT_WEIGHTS as SCORE_V2_COMPONENT_WEIGHTS,
+    SCORE_V2_VERSION,
+    calculate_opportunity_score_v2,
+)
 from autobot.v2.research.trade_journal import TradeRecord
 
 
@@ -44,6 +49,7 @@ SCORE_VARIANTS = (
     "cost_aware",
     "high_conviction_aware",
     "forward_edge_aware",
+    "opportunity_score_v2",
 )
 HIGH_THRESHOLD = 70.0
 MEDIUM_THRESHOLD = 40.0
@@ -145,6 +151,7 @@ class ScoreVariantReport:
     live_allowed: bool
     distribution: ScoreDistribution
     bucket_metrics: dict[str, BucketMetrics]
+    correlations: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -156,6 +163,7 @@ class ScoreVariantReport:
             "live_allowed": self.live_allowed,
             "distribution": self.distribution.to_dict(),
             "bucket_metrics": {bucket: metrics.to_dict() for bucket, metrics in self.bucket_metrics.items()},
+            "correlations": dict(self.correlations),
         }
 
 
@@ -305,6 +313,9 @@ def calculate_score_variant(name: str, source: Mapping[str, Any]) -> float | Non
     _audit_score_variant_input(source)
     if name not in SCORE_VARIANTS:
         raise ValueError(f"unknown score variant: {name}")
+    if name == "opportunity_score_v2":
+        result = calculate_opportunity_score_v2(source)
+        return result.score
     current_score = _optional_float(source.get("opportunity_score"))
     if name == "current_score":
         return _clamp_score(current_score) if current_score is not None else None
@@ -385,6 +396,15 @@ def _opportunity_formula_summary() -> dict[str, Any]:
             "score_below": cfg.min_score,
         },
         "p12_note": "P12 does not change this runtime formula or thresholds.",
+        "score_v2": {
+            "version": SCORE_V2_VERSION,
+            "status": "research_only_shadow_only",
+            "bucket_thresholds": {"high": HIGH_THRESHOLD, "medium": MEDIUM_THRESHOLD, "low": 0.0},
+            "weights": dict(SCORE_V2_COMPONENT_WEIGHTS),
+            "required_pretrade_components": ["expected_move_bps", "estimated_total_cost_bps"],
+            "forbidden_post_trade_components": sorted(FORBIDDEN_SCORE_VARIANT_KEYS),
+            "note": "P13 score_v2 is metadata/research only and does not replace runtime opportunity_score.",
+        },
     }
 
 
@@ -544,6 +564,7 @@ def _variant_report(
         live_allowed=False,
         distribution=_distribution(scores),
         bucket_metrics=_bucket_metrics_for_scores(estimate_pairs, scores, initial_capital_eur),
+        correlations=_variant_correlations(estimate_pairs, scores),
     )
 
 
@@ -714,7 +735,26 @@ def _variant_description(name: str) -> str:
         "cost_aware": "Research-only adjustment of current score by estimated cost pressure and forward-safe net edge.",
         "high_conviction_aware": "Research-only variant that allows high-conviction swing context components to contribute when present.",
         "forward_edge_aware": "Research-only score centered on forward_safe_net_edge without realized outcome fields.",
+        "opportunity_score_v2": "P13 research-only alpha score using pre-entry net edge, risk/reward, high-conviction context, liquidity, health, and cost pressure.",
     }[name]
+
+
+def _variant_correlations(
+    estimate_pairs: Sequence[tuple[TradeRecord, ForwardSafeNetEdgeEstimate]],
+    scores: Sequence[float | None],
+) -> dict[str, Any]:
+    scored_edges: list[tuple[float, float]] = []
+    scored_net_pnl: list[tuple[float, float]] = []
+    for (record, estimate), score in zip(estimate_pairs, scores):
+        if score is not None and estimate.estimated_net_edge_bps is not None:
+            scored_edges.append((float(score), float(estimate.estimated_net_edge_bps)))
+        if score is not None:
+            scored_net_pnl.append((float(score), float(record.net_pnl_eur)))
+    return {
+        "score_vs_forward_safe_net_edge": _correlation_payload(scored_edges),
+        "score_vs_realized_net_pnl_evaluation_only": _correlation_payload(scored_net_pnl),
+        "lookahead_note": "Realized net PnL is used only for after-the-fact evaluation.",
+    }
 
 
 def _distribution(scores: Sequence[float | None]) -> ScoreDistribution:
@@ -1110,6 +1150,22 @@ def _markdown(report: OpportunityScoreAuditReport) -> str:
             f"{_fmt(vdist.max_score)} | {_fmt(vdist.median_score)} | {_fmt(high_metrics.net_profit_factor)} | "
             f"{high_metrics.trade_count} | {str(variant.promotable).lower()} |"
         )
+    lines.extend(["", "### Variant Correlations", ""])
+    lines.append("| Variant | Corr vs forward edge | Corr vs realized net PnL eval-only |")
+    lines.append("|---|---:|---:|")
+    for variant in report.score_variants:
+        forward = variant.correlations.get("score_vs_forward_safe_net_edge", {})
+        realized = variant.correlations.get("score_vs_realized_net_pnl_evaluation_only", {})
+        lines.append(
+            f"| {variant.name} | {_fmt(forward.get('pearson'))} | {_fmt(realized.get('pearson'))} |"
+        )
+    lines.extend(["", "### Opportunity Score V2 Components", ""])
+    score_v2 = report.opportunity_formula.get("score_v2", {})
+    lines.append(f"- Version: `{score_v2.get('version')}`")
+    lines.append(f"- Status: `{score_v2.get('status')}`")
+    lines.append(f"- Thresholds: `{score_v2.get('bucket_thresholds')}`")
+    lines.append(f"- Weights: `{score_v2.get('weights')}`")
+    lines.append(f"- Required pre-trade components: `{score_v2.get('required_pretrade_components')}`")
     lines.extend(["", "## Correlations", ""])
     for key, value in report.correlations.items():
         lines.append(f"- `{key}`: `{value}`")
@@ -1127,4 +1183,3 @@ def _markdown(report: OpportunityScoreAuditReport) -> str:
         counts = loader_warning_counts(report.warnings)
         lines.extend(f"- `{key}`: `{value}`" for key, value in sorted(counts.items()))
     return "\n".join(lines) + "\n"
-
