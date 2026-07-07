@@ -359,6 +359,20 @@ def _build_parser() -> argparse.ArgumentParser:
     forward_validation.add_argument("--no-write-report", action="store_true")
     forward_validation.set_defaults(handler=_cmd_forward_edge_validation)
 
+    opportunity_score_audit = subparsers.add_parser(
+        "opportunity-score-audit",
+        help="Read-only audit of opportunity_score distribution, forward edge alignment and high-conviction scoring",
+    )
+    opportunity_score_audit.add_argument("--state-db", required=True, help="Read-only AUTOBOT state DB containing trade_ledger")
+    opportunity_score_audit.add_argument("--since", default=None, help="ISO8601 cutoff; only trades opened after it are included")
+    opportunity_score_audit.add_argument("--since-commit", default=None, help="Known P10 commit hash mapped to its cutoff timestamp")
+    opportunity_score_audit.add_argument("--run-id", default=None)
+    opportunity_score_audit.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    opportunity_score_audit.add_argument("--cost-profile", default="paper_current_taker")
+    opportunity_score_audit.add_argument("--output-dir", default="reports/paper/opportunity_score_audit")
+    opportunity_score_audit.add_argument("--no-write-report", action="store_true")
+    opportunity_score_audit.set_defaults(handler=_cmd_opportunity_score_audit)
+
     paper_confidence = subparsers.add_parser(
         "paper-confidence",
         help="Research-only statistical confidence report for one strategy_id",
@@ -1980,6 +1994,28 @@ def _cmd_forward_edge_validation(args: argparse.Namespace) -> int:
             initial_capital_eur=args.initial_capital_eur,
             cost_profile_name=args.cost_profile,
             top_quantile_fraction=args.top_quantile_fraction,
+            write_report=not args.no_write_report,
+        )
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_opportunity_score_audit(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.opportunity_score_audit import (
+        OpportunityScoreAuditConfig,
+        build_opportunity_score_audit_report,
+    )
+
+    report = build_opportunity_score_audit_report(
+        OpportunityScoreAuditConfig(
+            state_db_path=Path(args.state_db),
+            since=args.since,
+            since_commit=args.since_commit,
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            initial_capital_eur=args.initial_capital_eur,
+            cost_profile_name=args.cost_profile,
             write_report=not args.no_write_report,
         )
     )
