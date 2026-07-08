@@ -107,6 +107,30 @@ def test_mean_reversion_shadow_lab_persists_opportunity_score_on_closed_trade(tm
     assert json.loads(row[3]) == {"spread": 0.4}
 
 
+def test_mean_reversion_shadow_lab_persists_entry_features_on_closed_trade(tmp_path):
+    lab = _lab(tmp_path)
+    prices = [100.0, 101.0, 99.0, 100.0, 100.0, 90.0, 95.0, 99.0]
+
+    for idx, price in enumerate(prices):
+        lab.on_price_tick(symbol="FEATUREEUR", price=price, timestamp=f"2026-05-20T01:4{idx}:00+00:00")
+    lab.flush()
+
+    with sqlite3.connect(lab.config.db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT entry_features_json
+            FROM mean_reversion_shadow_trades
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    features = json.loads(row[0])
+    assert features["ready"] is True
+    assert features["expected_gross_edge_bps"] > 0
+    assert "realized_pnl" not in features
+    assert "net_pnl" not in features
+
+
 def test_mean_reversion_shadow_lab_rejects_strong_trend(tmp_path):
     lab = _lab(tmp_path)
     trend_variant = MeanReversionVariant(

@@ -260,6 +260,7 @@ class MeanReversionPosition:
     mean_at_entry: float
     std_at_entry: float
     opportunity: dict[str, Any] = field(default_factory=dict)
+    entry_features: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -273,6 +274,7 @@ class MeanReversionPosition:
             "mean_at_entry": self.mean_at_entry,
             "std_at_entry": self.std_at_entry,
             "opportunity": dict(self.opportunity),
+            "entry_features": dict(self.entry_features),
         }
 
     @classmethod
@@ -288,6 +290,7 @@ class MeanReversionPosition:
             mean_at_entry=_safe_float(payload.get("mean_at_entry")),
             std_at_entry=_safe_float(payload.get("std_at_entry")),
             opportunity=dict(payload.get("opportunity") or {}) if isinstance(payload.get("opportunity"), Mapping) else {},
+            entry_features=dict(payload.get("entry_features") or {}) if isinstance(payload.get("entry_features"), Mapping) else {},
         )
 
 
@@ -527,6 +530,7 @@ class MeanReversionShadowLab:
             mean_at_entry=mean,
             std_at_entry=std,
             opportunity=dict(opportunity),
+            entry_features=dict(features),
         )
         state.last_decision = {
             "timestamp": timestamp,
@@ -1041,8 +1045,8 @@ class MeanReversionShadowLab:
                     symbol, variant, position_id, entry_price, exit_price,
                     volume, notional, fees, realized_pnl, reason, opened_at,
                     closed_at, created_at, opportunity_score, opportunity_status,
-                    opportunity_reason, opportunity_components
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    opportunity_reason, opportunity_components, entry_features_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     state.symbol,
@@ -1062,6 +1066,7 @@ class MeanReversionShadowLab:
                     str(position.opportunity.get("opportunity_status") or "") or None,
                     str(position.opportunity.get("opportunity_reason") or "") or None,
                     json.dumps(position.opportunity.get("opportunity_components") or {}, separators=(",", ":")),
+                    json.dumps(position.entry_features or {}, separators=(",", ":")),
                 ),
             )
 
@@ -1092,6 +1097,7 @@ def _ensure_trade_metadata_columns(conn: sqlite3.Connection, table: str) -> None
         "opportunity_status": "TEXT",
         "opportunity_reason": "TEXT",
         "opportunity_components": "TEXT",
+        "entry_features_json": "TEXT",
     }.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")

@@ -373,6 +373,22 @@ def _build_parser() -> argparse.ArgumentParser:
     opportunity_score_audit.add_argument("--no-write-report", action="store_true")
     opportunity_score_audit.set_defaults(handler=_cmd_opportunity_score_audit)
 
+    expected_move = subparsers.add_parser(
+        "expected-move-diagnostics",
+        help="Research-only audit of upstream expected_move/net-edge quality in shadow observations",
+    )
+    expected_move.add_argument("--state-db", required=True, help="AUTOBOT state DB containing trade_ledger")
+    expected_move.add_argument("--since", default=None, help="ISO8601 cutoff; only trades opened after it are included")
+    expected_move.add_argument(
+        "--high-conviction-data-paths",
+        default=None,
+        help="Optional comma-separated OHLCV path(s) used by high-conviction shadow sync",
+    )
+    expected_move.add_argument("--run-id", default=None)
+    expected_move.add_argument("--output-dir", default="reports/paper/expected_move_diagnostics")
+    expected_move.add_argument("--no-write-report", action="store_true")
+    expected_move.set_defaults(handler=_cmd_expected_move_diagnostics)
+
     paper_confidence = subparsers.add_parser(
         "paper-confidence",
         help="Research-only statistical confidence report for one strategy_id",
@@ -1919,6 +1935,33 @@ def _cmd_paper_loss_diagnostics(args: argparse.Namespace) -> int:
         write_report=not args.no_write_report,
     )
     _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_expected_move_diagnostics(args: argparse.Namespace) -> int:
+    from autobot.v2.paper.expected_move_diagnostics import (
+        ExpectedMoveDiagnosticsConfig,
+        build_expected_move_diagnostics,
+        write_expected_move_diagnostics,
+    )
+
+    report = build_expected_move_diagnostics(
+        ExpectedMoveDiagnosticsConfig(
+            state_db_path=Path(args.state_db),
+            output_dir=Path(args.output_dir),
+            run_id=args.run_id,
+            since=args.since,
+            high_conviction_data_paths=(
+                tuple(Path(item) for item in _csv_tuple(args.high_conviction_data_paths, "--high-conviction-data-paths"))
+                if args.high_conviction_data_paths
+                else ()
+            ),
+            write_report=not args.no_write_report,
+        )
+    )
+    if not args.no_write_report:
+        write_expected_move_diagnostics(report, Path(args.output_dir))
+    _print_json(report)
     return 0
 
 

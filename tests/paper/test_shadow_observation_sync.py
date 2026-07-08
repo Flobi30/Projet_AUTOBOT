@@ -275,6 +275,78 @@ def _write_pretrade_component_shadow_db(path: Path, table: str) -> None:
         )
 
 
+def _write_entry_features_shadow_db(
+    path: Path,
+    table: str,
+    *,
+    position_id: str = "shadow_pos_entry_features",
+    symbol: str = "BCHEUR",
+    strategy_shape: str = "trend",
+    entry_features: dict | None = None,
+) -> None:
+    entry_features = entry_features or {
+        "ready": True,
+        "atr_bps": 20.0,
+        "momentum_bps": 40.0,
+        "breakout_bps": 12.0,
+    }
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            f"""
+            CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                variant TEXT NOT NULL,
+                position_id TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                volume REAL NOT NULL,
+                notional REAL NOT NULL,
+                fees REAL NOT NULL,
+                realized_pnl REAL NOT NULL,
+                reason TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                closed_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                opportunity_components TEXT,
+                entry_features_json TEXT,
+                regime TEXT,
+                timeframe TEXT,
+                signal_source TEXT
+            )
+            """
+        )
+        conn.execute(
+            f"""
+            INSERT INTO {table}
+            (symbol, variant, position_id, entry_price, exit_price, volume,
+             notional, fees, realized_pnl, reason, opened_at, closed_at, created_at,
+             opportunity_components, entry_features_json, regime, timeframe, signal_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                symbol,
+                f"{strategy_shape}-entry-features",
+                position_id,
+                1.00,
+                1.02,
+                100.0,
+                100.0,
+                1.00,
+                1.00,
+                "take_profit",
+                "2026-07-01T01:00:00+00:00",
+                "2026-07-01T03:00:00+00:00",
+                "2026-07-01T03:00:01+00:00",
+                json.dumps({}),
+                json.dumps(entry_features),
+                "trend" if strategy_shape == "trend" else "range",
+                "5m",
+                f"pytest_{strategy_shape}_entry_features",
+            ),
+        )
+
+
 def _write_decision_ledger_router_score(
     path: Path,
     *,
@@ -480,6 +552,84 @@ def test_shadow_sync_derives_score_v2_inputs_from_pretrade_components(tmp_path):
     assert trade.metadata["score_v2_bucket"] in {"low", "medium", "high"}
     assert trade.metadata["score_v2_promotable"] is False
     assert "net_pnl" not in trade.metadata["score_v2_components"]
+
+
+def test_shadow_sync_derives_trend_expected_move_from_entry_features(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_entry_features_shadow_db(
+        trend_db,
+        "trend_shadow_trades",
+        entry_features={"ready": True, "atr_bps": 20.0, "momentum_bps": 40.0, "breakout_bps": 12.0},
+    )
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_trend_entry_features_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.metadata["expected_move_bps"] == pytest.approx(50.0)
+    assert trade.metadata["estimated_total_cost_bps"] == pytest.approx(94.0)
+    assert trade.metadata["estimated_net_edge_bps"] == pytest.approx(-44.0)
+    assert trade.metadata["score_v2_input_status"] == "ready"
+    assert trade.metadata["score_v2_feature_sources"]["expected_move_bps"] == "entry_features.forward_safe_estimate"
+    assert trade.metadata["score_v2_feature_sources"]["estimated_net_edge_bps"] == "expected_move_minus_estimated_total_cost"
+    assert trade.metadata["score_v2_promotable"] is False
+    assert "net_pnl" not in trade.metadata["score_v2_components"]
+
+
+def test_shadow_sync_derives_mean_reversion_expected_move_from_entry_features(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    mean_db = tmp_path / "mean_reversion_shadow_lab.db"
+    _write_registry(registry)
+    _write_entry_features_shadow_db(
+        mean_db,
+        "mean_reversion_shadow_trades",
+        position_id="shadow_pos_mean_entry_features",
+        symbol="LINKEUR",
+        strategy_shape="mean_reversion",
+        entry_features={
+            "ready": True,
+            "expected_gross_edge_bps": 120.0,
+            "estimated_round_trip_cost_bps": 30.0,
+            "expected_net_edge_bps": 90.0,
+        },
+    )
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=mean_db,
+            output_dir=tmp_path / "reports",
+            run_id="pytest_mean_entry_features_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.strategy_id == "mean_reversion"
+    assert trade.metadata["expected_move_bps"] == pytest.approx(120.0)
+    assert trade.metadata["estimated_total_cost_bps"] == pytest.approx(30.0)
+    assert trade.metadata["estimated_net_edge_bps"] == pytest.approx(90.0)
+    assert trade.metadata["score_v2_input_status"] == "ready"
+    assert trade.metadata["score_v2_feature_sources"]["expected_move_bps"] == "entry_features.forward_safe_estimate"
+    assert trade.metadata["score_v2_feature_sources"]["estimated_total_cost_bps"] == "entry_features.estimated_round_trip_cost_bps"
+    assert trade.metadata["score_v2_feature_sources"]["estimated_net_edge_bps"] == "entry_features.expected_net_edge_bps"
+    assert trade.metadata["score_v2_promotable"] is False
+    assert "realized_pnl" not in trade.metadata["score_v2_components"]
 
 
 def test_shadow_sync_reports_missing_score_v2_inputs_without_inventing_expected_move(tmp_path):

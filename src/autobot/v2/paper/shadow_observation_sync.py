@@ -576,6 +576,7 @@ def _select_shadow_source_rows(conn: sqlite3.Connection, table: str) -> list[sql
             "opportunity_status",
             "opportunity_reason",
             "opportunity_components",
+            "entry_features_json",
             "regime",
             "timeframe",
             "signal_source",
@@ -1158,6 +1159,10 @@ def _mapping_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:
     parsed_components = _json_mapping(components)
     if parsed_components:
         raw["opportunity_components"] = parsed_components
+    entry_features = _mapping_value(source, "entry_features_json")
+    parsed_entry_features = _json_mapping(entry_features)
+    if parsed_entry_features:
+        raw["entry_features"] = parsed_entry_features
     nested = _mapping_value(source, "components")
     parsed_nested = _json_mapping(nested)
     if parsed_nested:
@@ -1201,6 +1206,7 @@ def _augment_score_v2_pretrade_source(source: Mapping[str, Any]) -> dict[str, An
     components = _json_mapping(normalized.get("opportunity_components"))
     if not components:
         components = _json_mapping(normalized.get("components"))
+    entry_features = _json_mapping(normalized.get("entry_features"))
 
     feature_sources: dict[str, str] = {}
     if _first_pretrade_float(normalized, ("expected_move_bps", "expected_gross_move_bps", "target_move_bps")) is None:
@@ -1208,28 +1214,44 @@ def _augment_score_v2_pretrade_source(source: Mapping[str, Any]) -> dict[str, An
             components,
             ("expected_move_bps", "expected_gross_move_bps", "target_move_bps", "gross_edge_bps", "gross_edge"),
         )
+        if expected is not None:
+            feature_sources["expected_move_bps"] = "opportunity_components.gross_edge"
+        else:
+            expected = _expected_move_from_entry_features(entry_features)
+            if expected is not None:
+                feature_sources["expected_move_bps"] = "entry_features.forward_safe_estimate"
         if expected is None:
             net_edge = _first_pretrade_float(components, ("estimated_net_edge_bps", "net_edge_bps", "net_edge"))
             cost = _first_pretrade_float(components, ("estimated_total_cost_bps", "total_cost_bps", "cost_bps", "cost"))
             if net_edge is not None and cost is not None:
                 expected = max(0.0, float(net_edge) + float(cost))
                 feature_sources["expected_move_bps"] = "opportunity_components.net_edge_plus_cost"
-        else:
-            feature_sources["expected_move_bps"] = "opportunity_components.gross_edge"
         if expected is not None:
             normalized["expected_move_bps"] = expected
 
     if _first_pretrade_float(normalized, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps")) is None:
-        net_edge = _first_pretrade_float(components, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps", "net_edge"))
+        net_edge = _first_pretrade_float(entry_features, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps"))
+        if net_edge is None:
+            net_edge = _first_pretrade_float(components, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps", "net_edge"))
         if net_edge is not None:
             normalized["estimated_net_edge_bps"] = net_edge
-            feature_sources["estimated_net_edge_bps"] = "opportunity_components.net_edge"
+            feature_sources["estimated_net_edge_bps"] = (
+                "entry_features.expected_net_edge_bps"
+                if _first_pretrade_float(entry_features, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps")) is not None
+                else "opportunity_components.net_edge"
+            )
 
     if _first_pretrade_float(normalized, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps")) is None:
-        cost = _first_pretrade_float(components, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps", "cost"))
+        cost = _first_pretrade_float(entry_features, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "cost_bps"))
+        if cost is None:
+            cost = _first_pretrade_float(components, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps", "cost"))
         if cost is not None:
             normalized["estimated_total_cost_bps"] = cost
-            feature_sources["estimated_total_cost_bps"] = "opportunity_components.cost"
+            feature_sources["estimated_total_cost_bps"] = (
+                "entry_features.estimated_round_trip_cost_bps"
+                if _first_pretrade_float(entry_features, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "cost_bps")) is not None
+                else "opportunity_components.cost"
+            )
 
     cost_profile = get_cost_profile(DEFAULT_PAPER_COST_PROFILE)
     if _first_pretrade_float(normalized, ("estimated_fees_bps", "fees_bps", "round_trip_fee_bps")) is None:
@@ -1253,9 +1275,17 @@ def _augment_score_v2_pretrade_source(source: Mapping[str, Any]) -> dict[str, An
         normalized["estimated_total_cost_bps"] = cost_profile.round_trip_cost_estimate_bps
         feature_sources["estimated_total_cost_bps"] = f"{cost_profile.name}.round_trip_cost_estimate"
 
+    if _first_pretrade_float(normalized, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps")) is None:
+        expected = _first_pretrade_float(normalized, ("expected_move_bps",))
+        total_cost = _first_pretrade_float(normalized, ("estimated_total_cost_bps",))
+        if expected is not None and total_cost is not None:
+            normalized["estimated_net_edge_bps"] = float(expected) - float(total_cost)
+            feature_sources["estimated_net_edge_bps"] = "expected_move_minus_estimated_total_cost"
+
     existing_sources = _json_mapping(normalized.get("score_v2_feature_sources"))
     if feature_sources:
-        existing_sources.update(feature_sources)
+        for key, source_name in feature_sources.items():
+            existing_sources.setdefault(key, source_name)
         normalized["score_v2_feature_sources"] = existing_sources
     return _sanitize_score_v2_source(normalized)
 
@@ -1285,6 +1315,30 @@ def _first_pretrade_float(source: Mapping[str, Any], keys: Sequence[str]) -> flo
         if parsed is not None:
             return parsed
     return None
+
+
+def _expected_move_from_entry_features(features: Mapping[str, Any]) -> float | None:
+    """Estimate pre-entry target movement from shadow-lab features only.
+
+    This mirrors existing shadow adapter heuristics and uses only values known
+    at entry time. It deliberately does not inspect exit, PnL, MFE/MAE, or any
+    post-trade outcome field.
+    """
+
+    if not features:
+        return None
+    mean_reversion_gross = _first_pretrade_float(features, ("expected_gross_edge_bps",))
+    if mean_reversion_gross is not None:
+        return max(0.0, float(mean_reversion_gross))
+    atr = _first_pretrade_float(features, ("atr_bps",)) or 0.0
+    trend_candidates = (
+        (_first_pretrade_float(features, ("breakout_bps",)) or 0.0) + (float(atr) * 0.60),
+        (_first_pretrade_float(features, ("momentum_bps",)) or 0.0) * 1.25,
+        (_first_pretrade_float(features, ("ema_spread_bps",)) or 0.0) * 2.0,
+        float(atr) * 1.50,
+    )
+    best = max(trend_candidates)
+    return max(0.0, best) if best > 0.0 else None
 
 
 def _sanitize_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:

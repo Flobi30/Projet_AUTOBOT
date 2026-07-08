@@ -108,6 +108,31 @@ def test_trend_shadow_lab_persists_opportunity_score_on_closed_trade(tmp_path):
     assert json.loads(row[3]) == {"net_edge": 0.9}
 
 
+def test_trend_shadow_lab_persists_entry_features_on_closed_trade(tmp_path):
+    lab = _lab(tmp_path)
+    prices = [100.0, 101.0, 102.0, 104.0, 108.0, 110.0, 107.0]
+
+    for idx, price in enumerate(prices):
+        lab.on_price_tick(symbol="FEATUREEUR", price=price, timestamp=f"2026-05-20T00:4{idx}:00+00:00")
+    lab.flush()
+
+    with sqlite3.connect(lab.config.db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT entry_features_json
+            FROM trend_shadow_trades
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    features = json.loads(row[0])
+    assert features["ready"] is True
+    assert features["atr_bps"] > 0
+    assert features["momentum_bps"] > 0
+    assert "realized_pnl" not in features
+    assert "net_pnl" not in features
+
+
 def test_trend_shadow_lab_does_not_trade_flat_market(tmp_path):
     lab = _lab(tmp_path)
     for idx, price in enumerate([100.0, 100.01, 100.0, 100.02, 100.01, 100.0, 100.01]):
