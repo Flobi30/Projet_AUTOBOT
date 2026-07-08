@@ -16,6 +16,7 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from autobot.v2.cost_profiles import DEFAULT_PAPER_COST_PROFILE, get_cost_profile
 from autobot.v2.pair_strategy_health import symbol_key
 from autobot.v2.research.high_conviction_portfolio import (
     HighConvictionPortfolioConfig,
@@ -879,7 +880,7 @@ def _shadow_row_opportunity_metadata(
             max_window_hours=max_window_hours,
         ),
     )
-    return _with_score_v2_metadata(merged, _row_score_v2_source(row), merged)
+    return _with_score_v2_metadata(merged, merged, _row_score_v2_source(row))
 
 
 def _trade_record_opportunity_metadata(
@@ -898,7 +899,7 @@ def _trade_record_opportunity_metadata(
             max_window_hours=max_window_hours,
         ),
     )
-    return _with_score_v2_metadata(merged, _trade_record_score_v2_source(record), merged)
+    return _with_score_v2_metadata(merged, merged, _trade_record_score_v2_source(record))
 
 
 def _enrich_existing_trade_metadata(
@@ -922,7 +923,12 @@ def _enrich_existing_trade_metadata(
             continue
         current = _json_mapping(row["decision_id"])
         current_score = _opportunity_metadata_from_mapping(current)
-        if current_score.get("score_bucket") in {"high", "medium", "low"} and current.get("score_v2_bucket"):
+        if (
+            current_score.get("score_bucket") in {"high", "medium", "low"}
+            and current.get("score_v2_bucket")
+            and current.get("score_v2_input_status")
+            and current.get("score_v2_required_inputs_present") is not None
+        ):
             continue
         merged = dict(current)
         merged.update(dict(opportunity_metadata))
@@ -1054,18 +1060,52 @@ def _merge_opportunity_metadata(primary: Mapping[str, Any], fallback: Mapping[st
 def _with_score_v2_metadata(metadata: Mapping[str, Any], *sources: Mapping[str, Any]) -> dict[str, Any]:
     merged = dict(metadata)
     current_bucket = merged.get("score_v2_bucket")
-    if current_bucket in {"high", "medium", "low"}:
-        return merged
     if current_bucket == "missing" and not sources:
         return merged
     score_source: dict[str, Any] = {}
     for source in sources:
         score_source.update(_sanitize_score_v2_source(source))
-    if not score_source:
-        score_source = {}
+    score_source = _augment_score_v2_pretrade_source(score_source)
+    for key in _SCORE_V2_LEDGER_INPUT_FIELDS:
+        if key in score_source and score_source[key] not in (None, ""):
+            merged[key] = score_source[key]
     score_v2 = build_opportunity_score_v2_metadata(score_source)
-    merged.update(score_v2)
+    next_bucket = str(score_v2.get("score_v2_bucket") or "").lower()
+    if current_bucket in {"high", "medium", "low"} and next_bucket == "missing":
+        score_v2_for_diagnostics = dict(merged)
+    else:
+        merged.update(score_v2)
+        score_v2_for_diagnostics = score_v2
+    merged.update(_score_v2_input_diagnostics(score_source, score_v2_for_diagnostics))
     return merged
+
+
+_SCORE_V2_LEDGER_INPUT_FIELDS: tuple[str, ...] = (
+    "expected_move_bps",
+    "expected_net_edge_bps",
+    "estimated_net_edge_bps",
+    "estimated_fees_bps",
+    "estimated_spread_cost_bps",
+    "estimated_slippage_bps",
+    "latency_buffer_bps",
+    "estimated_total_cost_bps",
+    "risk_reward_ratio",
+    "logical_stop_bps",
+    "breakout_quality",
+    "trend_quality",
+    "trend_strength",
+    "trend_timeframe_alignment",
+    "multi_timeframe_alignment",
+    "volatility_expansion",
+    "support_resistance",
+    "liquidity_score",
+    "pair_health_score",
+    "pair_health_penalty_bps",
+    "segment_health_score",
+    "segment_health_penalty_bps",
+    "timeframe",
+    "regime",
+)
 
 
 def _mapping_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -1122,7 +1162,7 @@ def _mapping_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:
     parsed_nested = _json_mapping(nested)
     if parsed_nested:
         raw["components"] = parsed_nested
-    return _sanitize_score_v2_source(raw)
+    return _augment_score_v2_pretrade_source(_sanitize_score_v2_source(raw))
 
 
 def _row_score_v2_source(row: sqlite3.Row) -> dict[str, Any]:
@@ -1141,10 +1181,110 @@ def _trade_record_score_v2_source(record: TradeRecord) -> dict[str, Any]:
     source.setdefault("timeframe", str(metadata.get("timeframe") or "multi_timeframe"))
     source.setdefault("regime", record.regime or metadata.get("regime"))
     if metadata.get("cost_bps") not in (None, ""):
-        source.setdefault("estimated_total_cost_bps", metadata.get("cost_bps"))
+        source["estimated_total_cost_bps"] = metadata.get("cost_bps")
     if metadata.get("logical_stop_bps") not in (None, ""):
         source.setdefault("logical_stop_bps", metadata.get("logical_stop_bps"))
-    return _sanitize_score_v2_source(source)
+    return _augment_score_v2_pretrade_source(_sanitize_score_v2_source(source))
+
+
+def _augment_score_v2_pretrade_source(source: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize score-v2 inputs from pre-entry metadata only.
+
+    Shadow labs often store the router/opportunity components under compact
+    names such as ``gross_edge`` and ``cost``. Those values are already known
+    before entry, so this function exposes them under the explicit v2 field
+    names without touching realized PnL, exit price, MFE/MAE, or any other
+    post-entry outcome field.
+    """
+
+    normalized = _sanitize_score_v2_source(dict(source))
+    components = _json_mapping(normalized.get("opportunity_components"))
+    if not components:
+        components = _json_mapping(normalized.get("components"))
+
+    feature_sources: dict[str, str] = {}
+    if _first_pretrade_float(normalized, ("expected_move_bps", "expected_gross_move_bps", "target_move_bps")) is None:
+        expected = _first_pretrade_float(
+            components,
+            ("expected_move_bps", "expected_gross_move_bps", "target_move_bps", "gross_edge_bps", "gross_edge"),
+        )
+        if expected is None:
+            net_edge = _first_pretrade_float(components, ("estimated_net_edge_bps", "net_edge_bps", "net_edge"))
+            cost = _first_pretrade_float(components, ("estimated_total_cost_bps", "total_cost_bps", "cost_bps", "cost"))
+            if net_edge is not None and cost is not None:
+                expected = max(0.0, float(net_edge) + float(cost))
+                feature_sources["expected_move_bps"] = "opportunity_components.net_edge_plus_cost"
+        else:
+            feature_sources["expected_move_bps"] = "opportunity_components.gross_edge"
+        if expected is not None:
+            normalized["expected_move_bps"] = expected
+
+    if _first_pretrade_float(normalized, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps")) is None:
+        net_edge = _first_pretrade_float(components, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps", "net_edge"))
+        if net_edge is not None:
+            normalized["estimated_net_edge_bps"] = net_edge
+            feature_sources["estimated_net_edge_bps"] = "opportunity_components.net_edge"
+
+    if _first_pretrade_float(normalized, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps")) is None:
+        cost = _first_pretrade_float(components, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps", "cost"))
+        if cost is not None:
+            normalized["estimated_total_cost_bps"] = cost
+            feature_sources["estimated_total_cost_bps"] = "opportunity_components.cost"
+
+    cost_profile = get_cost_profile(DEFAULT_PAPER_COST_PROFILE)
+    if _first_pretrade_float(normalized, ("estimated_fees_bps", "fees_bps", "round_trip_fee_bps")) is None:
+        normalized["estimated_fees_bps"] = cost_profile.fee_bps(cost_profile.entry_liquidity) + cost_profile.fee_bps(
+            cost_profile.exit_liquidity
+        )
+        feature_sources["estimated_fees_bps"] = f"{cost_profile.name}.fee_bps"
+    if _first_pretrade_float(normalized, ("estimated_spread_cost_bps", "spread_bps", "spread_cost_bps")) is None:
+        normalized["estimated_spread_cost_bps"] = (
+            cost_profile.fallback_spread_bps * cost_profile.spread_charge_fraction
+        )
+        feature_sources["estimated_spread_cost_bps"] = f"{cost_profile.name}.spread_fallback"
+    if _first_pretrade_float(normalized, ("estimated_slippage_bps", "expected_slippage_bps", "slippage_cost_bps")) is None:
+        normalized["estimated_slippage_bps"] = 2.0 * cost_profile.slippage_bps_per_leg
+        feature_sources["estimated_slippage_bps"] = f"{cost_profile.name}.slippage_fallback"
+    if _first_pretrade_float(normalized, ("latency_buffer_bps", "estimated_latency_bps")) is None:
+        normalized["latency_buffer_bps"] = 2.0 * cost_profile.latency_buffer_bps_per_leg
+        feature_sources["latency_buffer_bps"] = f"{cost_profile.name}.latency_fallback"
+
+    if _first_pretrade_float(normalized, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps")) is None:
+        normalized["estimated_total_cost_bps"] = cost_profile.round_trip_cost_estimate_bps
+        feature_sources["estimated_total_cost_bps"] = f"{cost_profile.name}.round_trip_cost_estimate"
+
+    existing_sources = _json_mapping(normalized.get("score_v2_feature_sources"))
+    if feature_sources:
+        existing_sources.update(feature_sources)
+        normalized["score_v2_feature_sources"] = existing_sources
+    return _sanitize_score_v2_source(normalized)
+
+
+def _score_v2_input_diagnostics(source: Mapping[str, Any], score_v2: Mapping[str, Any]) -> dict[str, Any]:
+    missing = tuple(str(item) for item in score_v2.get("score_v2_missing_components") or ())
+    required_missing = [item for item in ("expected_move_bps", "estimated_total_cost_bps") if item in missing]
+    diagnostics: dict[str, Any] = {
+        "score_v2_input_status": "ready" if not required_missing else "insufficient_data",
+        "score_v2_required_inputs_present": not required_missing,
+        "score_v2_feature_sources": _json_mapping(source.get("score_v2_feature_sources")),
+    }
+    if required_missing:
+        diagnostics["feature_missing_reason"] = {
+            item: "pretrade_feature_not_available" for item in required_missing
+        }
+    optional_missing = [item for item in missing if item not in {"expected_move_bps", "estimated_total_cost_bps"}]
+    if optional_missing:
+        diagnostics["score_v2_optional_missing_features"] = optional_missing
+    return diagnostics
+
+
+def _first_pretrade_float(source: Mapping[str, Any], keys: Sequence[str]) -> float | None:
+    for key in keys:
+        value = _mapping_value(source, key)
+        parsed = _optional_float(value)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _sanitize_score_v2_source(source: Mapping[str, Any]) -> dict[str, Any]:

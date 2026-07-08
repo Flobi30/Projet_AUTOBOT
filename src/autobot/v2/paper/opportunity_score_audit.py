@@ -435,12 +435,89 @@ def _formula_diagnostics(
         "score_distribution": _score_distribution_dict(scores),
         "expected_move_distribution_bps": _numeric_distribution(expected),
         "estimated_net_edge_distribution_bps": _numeric_distribution(valid_edges),
+        "score_v2_input_coverage": _score_v2_input_coverage(estimate_pairs),
         "scores_above_60_count": sum(1 for value in scores if value >= NEAR_HIGH_LOWER_BOUND),
         "scores_60_to_69_count": sum(1 for value in scores if NEAR_HIGH_LOWER_BOUND <= value < HIGH_THRESHOLD),
         "scores_high_count": sum(1 for value in scores if value >= HIGH_THRESHOLD),
         "missing_component_counts": missing_components,
         "by_strategy": by_strategy,
     }
+
+
+def _score_v2_input_coverage(
+    estimate_pairs: Sequence[tuple[TradeRecord, ForwardSafeNetEdgeEstimate]],
+) -> dict[str, Any]:
+    total = len(estimate_pairs)
+    required_fields = ("expected_move_bps", "estimated_total_cost_bps")
+    component_fields = (
+        "estimated_fees_bps",
+        "estimated_spread_cost_bps",
+        "estimated_slippage_bps",
+        "risk_reward_ratio",
+        "breakout_quality",
+        "trend_quality",
+        "volatility_expansion",
+        "liquidity_score",
+        "pair_health_score",
+        "segment_health_score",
+    )
+    counts: Counter[str] = Counter()
+    status_counts: Counter[str] = Counter()
+    missing_reason_counts: Counter[str] = Counter()
+    by_strategy: dict[str, Counter[str]] = defaultdict(Counter)
+    for record, estimate in estimate_pairs:
+        strategy = str(record.strategy_id or "unknown")
+        metadata = record.metadata if isinstance(record.metadata, Mapping) else {}
+        status = str(metadata.get("score_v2_input_status") or "unknown")
+        status_counts[status] += 1
+        by_strategy[strategy][status] += 1
+        if estimate.expected_move_bps is not None:
+            counts["expected_move_bps"] += 1
+        if estimate.estimated_total_cost_bps is not None:
+            counts["estimated_total_cost_bps"] += 1
+        if estimate.estimated_fees_bps is not None:
+            counts["estimated_fees_bps"] += 1
+        if estimate.estimated_spread_cost_bps is not None:
+            counts["estimated_spread_cost_bps"] += 1
+        if estimate.estimated_slippage_bps is not None:
+            counts["estimated_slippage_bps"] += 1
+        for field in component_fields[3:]:
+            if _deep_metadata_get(metadata, field) not in (None, ""):
+                counts[field] += 1
+        missing_reason = metadata.get("feature_missing_reason")
+        if isinstance(missing_reason, Mapping):
+            for field, reason in missing_reason.items():
+                missing_reason_counts[f"{field}:{reason}"] += 1
+    coverage = {
+        field: {
+            "count": int(counts.get(field, 0)),
+            "coverage_pct": round((float(counts.get(field, 0)) / total * 100.0), 3) if total else 0.0,
+        }
+        for field in (*required_fields, *component_fields)
+    }
+    return {
+        "total": total,
+        "fields": coverage,
+        "input_status_counts": dict(sorted(status_counts.items())),
+        "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+        "by_strategy_input_status": {key: dict(sorted(value.items())) for key, value in sorted(by_strategy.items())},
+    }
+
+
+def _deep_metadata_get(source: Any, key: str) -> Any:
+    if isinstance(source, Mapping):
+        if key in source:
+            return source[key]
+        for value in source.values():
+            found = _deep_metadata_get(value, key)
+            if found is not None:
+                return found
+    elif isinstance(source, (list, tuple)):
+        for item in source:
+            found = _deep_metadata_get(item, key)
+            if found is not None:
+                return found
+    return None
 
 
 def _correlations(

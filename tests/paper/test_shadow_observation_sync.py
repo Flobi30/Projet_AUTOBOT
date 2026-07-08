@@ -203,6 +203,78 @@ def _write_scored_shadow_db(path: Path, table: str) -> None:
         )
 
 
+def _write_pretrade_component_shadow_db(path: Path, table: str) -> None:
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            f"""
+            CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                variant TEXT NOT NULL,
+                position_id TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                volume REAL NOT NULL,
+                notional REAL NOT NULL,
+                fees REAL NOT NULL,
+                realized_pnl REAL NOT NULL,
+                reason TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                closed_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                opportunity_score REAL,
+                opportunity_status TEXT,
+                opportunity_reason TEXT,
+                opportunity_components TEXT,
+                regime TEXT,
+                timeframe TEXT,
+                signal_source TEXT
+            )
+            """
+        )
+        conn.execute(
+            f"""
+            INSERT INTO {table}
+            (symbol, variant, position_id, entry_price, exit_price, volume,
+             notional, fees, realized_pnl, reason, opened_at, closed_at, created_at,
+             opportunity_score, opportunity_status, opportunity_reason, opportunity_components,
+             regime, timeframe, signal_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "BCHEUR",
+                "pretrade-components",
+                "shadow_pos_pretrade",
+                200.0,
+                204.0,
+                0.1,
+                20.0,
+                0.20,
+                0.20,
+                "take_profit",
+                "2026-07-01T01:00:00+00:00",
+                "2026-07-01T03:00:00+00:00",
+                "2026-07-01T03:00:01+00:00",
+                44.0,
+                "watch",
+                "pretrade_components_available",
+                json.dumps(
+                    {
+                        "gross_edge": 260.0,
+                        "net_edge": 166.0,
+                        "cost": 94.0,
+                        "volatility": 0.7,
+                        "spread": 8.0,
+                        "liquidity": 0.6,
+                    }
+                ),
+                "trend",
+                "5m",
+                "pytest_pretrade_components",
+            ),
+        )
+
+
 def _write_decision_ledger_router_score(
     path: Path,
     *,
@@ -377,6 +449,66 @@ def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
     assert trend["score_origin_counts"] == {"source": 1}
 
 
+def test_shadow_sync_derives_score_v2_inputs_from_pretrade_components(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_pretrade_component_shadow_db(trend_db, "trend_shadow_trades")
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_pretrade_component_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert trade.metadata["expected_move_bps"] == pytest.approx(260.0)
+    assert trade.metadata["estimated_net_edge_bps"] == pytest.approx(166.0)
+    assert trade.metadata["estimated_total_cost_bps"] == pytest.approx(94.0)
+    assert trade.metadata["estimated_fees_bps"] == pytest.approx(80.0)
+    assert trade.metadata["estimated_spread_cost_bps"] == pytest.approx(8.0)
+    assert trade.metadata["estimated_slippage_bps"] == pytest.approx(6.0)
+    assert trade.metadata["score_v2_input_status"] == "ready"
+    assert trade.metadata["score_v2_required_inputs_present"] is True
+    assert trade.metadata["score_v2_bucket"] in {"low", "medium", "high"}
+    assert trade.metadata["score_v2_promotable"] is False
+    assert "net_pnl" not in trade.metadata["score_v2_components"]
+
+
+def test_shadow_sync_reports_missing_score_v2_inputs_without_inventing_expected_move(tmp_path):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_shadow_db(trend_db, "trend_shadow_trades")
+
+    sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_missing_pretrade_component_shadow_sync",
+        )
+    )
+
+    loaded = load_state_db_paper_ledger(state_db)
+    trade = loaded.journal.records[0]
+    assert "expected_move_bps" not in trade.metadata
+    assert trade.metadata["estimated_total_cost_bps"] == pytest.approx(94.0)
+    assert trade.metadata["score_v2_input_status"] == "insufficient_data"
+    assert trade.metadata["feature_missing_reason"] == {"expected_move_bps": "pretrade_feature_not_available"}
+    assert trade.metadata["score_v2_bucket"] == "missing"
+
+
 def test_shadow_sync_enriches_missing_score_from_prior_decision_ledger(tmp_path):
     state_db = tmp_path / "state.db"
     registry = tmp_path / "strategy_hypotheses.json"
@@ -492,6 +624,10 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
     assert trade.metadata["score_bucket"] == "missing"
     assert trade.metadata["score_v2_bucket"] in {"low", "medium", "missing"}
     assert trade.metadata["score_v2_promotable"] is False
+    assert trade.metadata["score_v2_input_status"] == "ready"
+    assert trade.metadata["expected_move_bps"] == pytest.approx(500)
+    assert trade.metadata["estimated_total_cost_bps"] == pytest.approx(90)
+    assert trade.metadata["logical_stop_bps"] == pytest.approx(180)
     assert "mfe_bps" in trade.metadata
     assert "mfe_bps" not in trade.metadata["score_v2_components"]
     assert trade.metadata["family"] == "breakout_1h_4h"
