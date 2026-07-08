@@ -24,6 +24,8 @@ def _insert_shadow_pair(
     expected_move_bps: float | None = 0.0,
     estimated_total_cost_bps: float = 15.0,
     estimated_net_edge_bps: float = -15.0,
+    cost_alias_key: str = "estimated_total_cost_bps",
+    include_explicit_net_edge: bool = True,
     opened_at: str = "2026-07-08T01:00:00+00:00",
     closed_at: str = "2026-07-08T02:00:00+00:00",
 ) -> None:
@@ -35,9 +37,10 @@ def _insert_shadow_pair(
         "score_v2_promotable": False,
         "score_v2_paper_capital_allowed": False,
         "score_v2_live_allowed": False,
-        "estimated_total_cost_bps": estimated_total_cost_bps,
-        "estimated_net_edge_bps": estimated_net_edge_bps,
+        cost_alias_key: estimated_total_cost_bps,
     }
+    if include_explicit_net_edge:
+        metadata["estimated_net_edge_bps"] = estimated_net_edge_bps
     if expected_move_bps is not None:
         metadata["expected_move_bps"] = expected_move_bps
     encoded = json.dumps(metadata, sort_keys=True)
@@ -153,6 +156,18 @@ def test_expected_move_diagnostics_reports_zero_expected_move_and_high_convictio
             estimated_net_edge_bps=-15.0,
             net_pnl=-1.25,
         )
+        _insert_shadow_pair(
+            conn,
+            position_id="hc_cost_alias",
+            strategy_id="high_conviction_swing",
+            symbol="ADAEUR",
+            expected_move_bps=500.0,
+            estimated_total_cost_bps=90.0,
+            estimated_net_edge_bps=410.0,
+            cost_alias_key="cost_bps",
+            include_explicit_net_edge=False,
+            net_pnl=2.0,
+        )
 
     report = build_expected_move_diagnostics(
         ExpectedMoveDiagnosticsConfig(
@@ -172,6 +187,10 @@ def test_expected_move_diagnostics_reports_zero_expected_move_and_high_convictio
     assert trend["estimated_net_edge_bps"]["median"] == pytest.approx(-15.0)
     assert trend["decision"] == "needs_rework"
     assert trend["decision_reason"] == "expected_move_zero_pretrade"
+    high_conviction = report["by_strategy"]["high_conviction_swing"]
+    assert high_conviction["expected_move_bps"]["median"] == pytest.approx(500.0)
+    assert high_conviction["estimated_total_cost_bps"]["median"] == pytest.approx(90.0)
+    assert high_conviction["estimated_net_edge_bps"]["median"] == pytest.approx(410.0)
     assert report["high_conviction"]["diagnosis"] == "high_conviction_data_paths_missing"
 
 

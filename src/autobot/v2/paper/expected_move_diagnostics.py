@@ -108,9 +108,15 @@ def _is_shadow_record(record: TradeRecord) -> bool:
 
 
 def _segment_summary(records: Sequence[TradeRecord]) -> dict[str, Any]:
-    expected = [_float_meta(record, "expected_move_bps") for record in records]
-    costs = [_float_meta(record, "estimated_total_cost_bps") for record in records]
-    net_edges = [_float_meta(record, "estimated_net_edge_bps") for record in records]
+    expected = [_float_meta_any(record, ("expected_move_bps", "expected_gross_move_bps", "target_move_bps")) for record in records]
+    costs = [
+        _float_meta_any(record, ("estimated_total_cost_bps", "estimated_round_trip_cost_bps", "total_cost_bps", "cost_bps"))
+        for record in records
+    ]
+    net_edges = [
+        _estimated_net_edge(record, expected_move=expected[idx], total_cost=costs[idx])
+        for idx, record in enumerate(records)
+    ]
     risk_reward = [_float_meta(record, "risk_reward_ratio") for record in records]
     trend_quality = [_float_meta(record, "trend_quality") for record in records]
     breakout_quality = [_float_meta(record, "breakout_quality") for record in records]
@@ -231,6 +237,29 @@ def _group(records: Iterable[TradeRecord], key_fn) -> dict[str, list[TradeRecord
 def _float_meta(record: TradeRecord, key: str) -> float | None:
     metadata = record.metadata if isinstance(record.metadata, Mapping) else {}
     return _to_float(metadata.get(key))
+
+
+def _float_meta_any(record: TradeRecord, keys: Sequence[str]) -> float | None:
+    metadata = record.metadata if isinstance(record.metadata, Mapping) else {}
+    for key in keys:
+        value = _to_float(metadata.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _estimated_net_edge(
+    record: TradeRecord,
+    *,
+    expected_move: float | None,
+    total_cost: float | None,
+) -> float | None:
+    explicit = _float_meta_any(record, ("estimated_net_edge_bps", "expected_net_edge_bps", "net_edge_bps"))
+    if explicit is not None:
+        return explicit
+    if expected_move is not None and total_cost is not None:
+        return float(expected_move) - float(total_cost)
+    return None
 
 
 def _to_float(value: Any) -> float | None:
