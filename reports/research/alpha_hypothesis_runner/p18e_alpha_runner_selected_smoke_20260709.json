@@ -1,0 +1,284 @@
+{
+  "autonomy_policy_summary": {
+    "auto_allowed_gates": [
+      "DATA_CHECK",
+      "FAST_NET_EDGE_TEST",
+      "WALK_FORWARD",
+      "STRESS_MONTE_CARLO"
+    ],
+    "human_review_gates": [
+      "SHADOW_REVIEW_CANDIDATE"
+    ],
+    "principle": "AUTOBOT may automatically reduce risk, but may never automatically increase risk."
+  },
+  "commit": null,
+  "data_paths": [
+    "/app/data/research/daily/ohlcv"
+  ],
+  "final_decision": "STOPPED",
+  "final_status": "REJECT_FAST",
+  "gates": [
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "DATA_CHECK",
+      "metrics": {
+        "available": true,
+        "cost_estimate": "L/M bounded smoke",
+        "duplicate_count": 275439,
+        "end_at": "2026-07-09T00:15:00+00:00",
+        "gap_count": 0,
+        "hypothesis_id": "long_timeframe_adaptive_trend",
+        "reason": null,
+        "row_count": 68478,
+        "start_at": "2026-05-16T16:00:00+00:00",
+        "status": "READY",
+        "symbols": [
+          "ADAEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "ETHZEUR",
+          "SOLEUR",
+          "XRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "5m"
+        ]
+      },
+      "passed": true,
+      "reasons": [
+        "data_ready"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 25.906334,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    },
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "FAST_NET_EDGE_TEST",
+      "metrics": {
+        "adapter_decision": "REJECT_FAST",
+        "best_variant": "1h_sma20_50_trend250_hold168_rr3",
+        "by_period": {
+          "2026-05-21": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-22": {
+            "net_pnl_eur": -33.22,
+            "trade_count": 14
+          },
+          "2026-05-24": {
+            "net_pnl_eur": -29.883189,
+            "trade_count": 13
+          },
+          "2026-05-26": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-29": {
+            "net_pnl_eur": -2.524571,
+            "trade_count": 1
+          },
+          "2026-05-30": {
+            "net_pnl_eur": -4.703262,
+            "trade_count": 2
+          },
+          "2026-05-31": {
+            "net_pnl_eur": -29.131388,
+            "trade_count": 12
+          },
+          "2026-06-07": {
+            "net_pnl_eur": -14.540495,
+            "trade_count": 14
+          },
+          "2026-06-08": {
+            "net_pnl_eur": -16.683468,
+            "trade_count": 15
+          },
+          "2026-06-09": {
+            "net_pnl_eur": -91.805922,
+            "trade_count": 28
+          },
+          "2026-06-10": {
+            "net_pnl_eur": -12.913706,
+            "trade_count": 4
+          },
+          "2026-06-12": {
+            "net_pnl_eur": -15.267474,
+            "trade_count": 8
+          },
+          "2026-06-13": {
+            "net_pnl_eur": 2.990244,
+            "trade_count": 3
+          },
+          "2026-06-14": {
+            "net_pnl_eur": -45.917374,
+            "trade_count": 44
+          },
+          "2026-06-15": {
+            "net_pnl_eur": 21.199108,
+            "trade_count": 20
+          },
+          "2026-06-16": {
+            "net_pnl_eur": 20.801241,
+            "trade_count": 13
+          },
+          "2026-06-17": {
+            "net_pnl_eur": -33.399439,
+            "trade_count": 12
+          },
+          "2026-06-20": {
+            "net_pnl_eur": 7.879917,
+            "trade_count": 3
+          },
+          "2026-06-21": {
+            "net_pnl_eur": -17.452139,
+            "trade_count": 7
+          },
+          "2026-06-22": {
+            "net_pnl_eur": -11.815082,
+            "trade_count": 15
+          },
+          "2026-06-26": {
+            "net_pnl_eur": 4.208332,
+            "trade_count": 1
+          },
+          "2026-06-27": {
+            "net_pnl_eur": -17.508354,
+            "trade_count": 7
+          },
+          "2026-06-28": {
+            "net_pnl_eur": -47.944331,
+            "trade_count": 15
+          },
+          "2026-06-29": {
+            "net_pnl_eur": 12.345109,
+            "trade_count": 3
+          },
+          "2026-06-30": {
+            "net_pnl_eur": -57.053961,
+            "trade_count": 19
+          },
+          "2026-07-01": {
+            "net_pnl_eur": 11.807354,
+            "trade_count": 10
+          },
+          "2026-07-02": {
+            "net_pnl_eur": 44.449014,
+            "trade_count": 17
+          },
+          "2026-07-03": {
+            "net_pnl_eur": 81.541517,
+            "trade_count": 24
+          },
+          "2026-07-04": {
+            "net_pnl_eur": 59.965864,
+            "trade_count": 33
+          },
+          "2026-07-05": {
+            "net_pnl_eur": -1.088526,
+            "trade_count": 17
+          },
+          "2026-07-06": {
+            "net_pnl_eur": -40.825737,
+            "trade_count": 16
+          },
+          "2026-07-07": {
+            "net_pnl_eur": -6.043853,
+            "trade_count": 2
+          },
+          "2026-07-08": {
+            "net_pnl_eur": -14.766857,
+            "trade_count": 6
+          }
+        },
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": -68.806588,
+            "trade_count": 76
+          },
+          "BCHEUR": {
+            "net_pnl_eur": -33.387116,
+            "trade_count": 76
+          },
+          "BTCZEUR": {
+            "net_pnl_eur": -36.059423,
+            "trade_count": 47
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -39.553207,
+            "trade_count": 56
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -53.841125,
+            "trade_count": 82
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -60.533969,
+            "trade_count": 67
+          }
+        },
+        "expectancy_net": -0.723221356435643,
+        "max_drawdown_eur": 294.092956,
+        "net_pnl_eur": -292.181428,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 0.5992017913191805,
+        "total_cost_bps": 39592.0,
+        "trade_count": 404,
+        "variant_count": 3,
+        "winrate_pct": 34.4059405940594
+      },
+      "passed": false,
+      "reasons": [
+        "edge_net_not_positive",
+        "profit_factor_net_not_above_1",
+        "expectancy_net_not_positive"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 52.287579,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "REJECT_FAST",
+      "stopped": true
+    }
+  ],
+  "generated_at": "2026-07-09T16:22:10.439397+00:00",
+  "hypothesis_id": "long_trend",
+  "json_report_path": null,
+  "live_allowed": false,
+  "markdown_report_path": null,
+  "mode": "smoke",
+  "next_allowed_stage": null,
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "reasons": [
+    "edge_net_not_positive",
+    "profit_factor_net_not_above_1",
+    "expectancy_net_not_positive"
+  ],
+  "requested_hypothesis_id": "long_trend",
+  "run_id": "p18e_alpha_runner_selected_smoke_20260709",
+  "runtime_seconds": 52.288312,
+  "safety_notes": [
+    "Research-only alpha hypothesis runner.",
+    "No runtime order path is imported or called.",
+    "No paper capital, live activation, promotion, sizing, leverage, or UI path is changed.",
+    "Risk-reducing actions may be automatic; risk-increasing actions require human review."
+  ],
+  "state_db": "/app/data/autobot_state.db"
+}
