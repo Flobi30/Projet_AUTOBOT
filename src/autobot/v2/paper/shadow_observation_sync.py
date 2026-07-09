@@ -369,7 +369,8 @@ def _sync_high_conviction_source(
             can_write_shadow=False,
             reason_counts={policy_reason: 1},
         )
-    if not config.high_conviction_data_paths:
+    high_conviction_data_paths = _resolve_high_conviction_data_paths(config)
+    if not high_conviction_data_paths:
         return ShadowSyncSourceResult(
             strategy_id=strategy_id,
             source=source_name,
@@ -379,12 +380,12 @@ def _sync_high_conviction_source(
             warnings=("high_conviction_data_paths_missing",),
         )
 
-    missing = [str(path) for path in config.high_conviction_data_paths if not path.exists()]
+    missing = [str(path) for path in high_conviction_data_paths if not path.exists()]
     if missing:
         return ShadowSyncSourceResult(
             strategy_id=strategy_id,
             source=source_name,
-            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            source_path=",".join(str(path) for path in high_conviction_data_paths),
             can_write_shadow=True,
             reason_counts={"high_conviction_data_path_missing": len(missing)},
             warnings=tuple(f"missing:{path}" for path in missing),
@@ -395,7 +396,7 @@ def _sync_high_conviction_source(
             build_high_conviction_portfolio_report(
                 HighConvictionPortfolioConfig(
                     run_id=f"{config.resolved_run_id}_high_conviction_shadow",
-                    data_paths=config.high_conviction_data_paths,
+                    data_paths=high_conviction_data_paths,
                     output_dir=_high_conviction_output_dir(config),
                     min_expected_move_bps=(500.0,),
                     risk_reward_ratios=(2.0,),
@@ -419,7 +420,7 @@ def _sync_high_conviction_source(
         return ShadowSyncSourceResult(
             strategy_id=strategy_id,
             source=source_name,
-            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            source_path=",".join(str(path) for path in high_conviction_data_paths),
             can_write_shadow=True,
             reason_counts={reason: 1},
             warnings=(f"{reason}:{exc}",),
@@ -431,7 +432,7 @@ def _sync_high_conviction_source(
         return ShadowSyncSourceResult(
             strategy_id=strategy_id,
             source=source_name,
-            source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+            source_path=",".join(str(path) for path in high_conviction_data_paths),
             can_write_shadow=True,
             source_trade_count=0,
             reason_counts={"no_closed_high_conviction_shadow_trades": 1},
@@ -498,7 +499,7 @@ def _sync_high_conviction_source(
     return ShadowSyncSourceResult(
         strategy_id=strategy_id,
         source=source_name,
-        source_path=",".join(str(path) for path in config.high_conviction_data_paths),
+        source_path=",".join(str(path) for path in high_conviction_data_paths),
         can_write_shadow=True,
         source_trade_count=len(records),
         inserted_trade_count=inserted,
@@ -513,6 +514,21 @@ def _sync_high_conviction_source(
         score_coverage=_score_coverage_for_source(state_conn, strategy_id),
         warnings=tuple(dict.fromkeys(warnings)),
     )
+
+
+def _resolve_high_conviction_data_paths(config: ShadowPaperObservationSyncConfig) -> tuple[Path, ...]:
+    """Return explicit or latest daily OHLCV paths for High Conviction sync."""
+
+    if config.high_conviction_data_paths:
+        return config.high_conviction_data_paths
+    daily_root = config.state_db_path.parent / "research" / "daily" / "ohlcv"
+    if not daily_root.exists() or not daily_root.is_dir():
+        return ()
+    candidates = [path for path in daily_root.iterdir() if path.is_dir() and any(path.rglob("*.csv"))]
+    if not candidates:
+        return ()
+    latest = max(candidates, key=lambda path: path.stat().st_mtime)
+    return (latest,)
 
 
 def _select_high_conviction_primary_result(

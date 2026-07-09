@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -930,6 +931,62 @@ def test_high_conviction_missing_data_paths_reports_diagnostic(tmp_path):
     )
     assert high_conviction["inserted_trade_count"] == 0
     assert high_conviction["reason_counts"] == {"high_conviction_data_paths_missing": 1}
+
+
+def test_high_conviction_shadow_sync_auto_discovers_latest_daily_ohlcv(tmp_path, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    older_dir = tmp_path / "research" / "daily" / "ohlcv" / "daily_old"
+    latest_dir = tmp_path / "research" / "daily" / "ohlcv" / "daily_latest"
+    older_dir.mkdir(parents=True)
+    latest_dir.mkdir(parents=True)
+    (older_dir / "old.csv").write_text("timestamp,symbol,timeframe,open,high,low,close,volume\n", encoding="utf-8")
+    (latest_dir / "latest.csv").write_text(
+        "timestamp,symbol,timeframe,open,high,low,close,volume\n",
+        encoding="utf-8",
+    )
+    os.utime(older_dir, (1_700_000_000, 1_700_000_000))
+    os.utime(latest_dir, (1_800_000_000, 1_800_000_000))
+    _write_registry(registry)
+    captured_paths: dict[str, tuple[Path, ...]] = {}
+    fake_result = SimpleNamespace(
+        cost_profile="research_stress",
+        policy="conservative",
+        scenario={
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 2.0,
+            "max_hold_hours": 72.0,
+            "exit_mode": "fixed_tp_sl",
+        },
+        trade_records=(_high_conviction_record(),),
+    )
+    fake_report = SimpleNamespace(portfolio_results=(fake_result,))
+
+    def _fake_build(config):
+        captured_paths["data_paths"] = tuple(config.data_paths)
+        return fake_report
+
+    monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", _fake_build)
+    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            run_id="pytest_high_conviction_auto_discover",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(
+        item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing"
+    )
+    assert captured_paths["data_paths"] == (latest_dir,)
+    assert high_conviction["source_path"] == str(latest_dir)
+    assert high_conviction["inserted_trade_count"] == 1
 
 
 def test_high_conviction_missing_data_path_reports_diagnostic(tmp_path):
