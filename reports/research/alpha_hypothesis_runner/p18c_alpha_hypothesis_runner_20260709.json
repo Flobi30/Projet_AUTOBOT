@@ -1,0 +1,144 @@
+{
+  "autonomy_policy_summary": {
+    "auto_allowed_gates": [
+      "DATA_CHECK",
+      "FAST_NET_EDGE_TEST",
+      "WALK_FORWARD",
+      "STRESS_MONTE_CARLO"
+    ],
+    "human_review_gates": [
+      "SHADOW_REVIEW_CANDIDATE"
+    ],
+    "principle": "AUTOBOT may automatically reduce risk, but may never automatically increase risk."
+  },
+  "commit": "cae5f8dcddcc36365167d28d0691452cc1bdc0a2",
+  "data_paths": [
+    "/app/data/research/daily/ohlcv"
+  ],
+  "final_decision": "NEXT_STAGE_AVAILABLE",
+  "final_status": "KEEP_RESEARCH",
+  "gates": [
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "DATA_CHECK",
+      "metrics": {
+        "available": true,
+        "cost_estimate": "L/M bounded smoke",
+        "duplicate_count": 275439,
+        "end_at": "2026-07-09T00:15:00+00:00",
+        "gap_count": 0,
+        "hypothesis_id": "volatility_breakout_high_conviction",
+        "reason": null,
+        "row_count": 68478,
+        "start_at": "2026-05-16T16:00:00+00:00",
+        "status": "READY",
+        "symbols": [
+          "ADAEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "ETHZEUR",
+          "SOLEUR",
+          "XRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "5m"
+        ]
+      },
+      "passed": true,
+      "reasons": [
+        "data_ready"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 26.752349,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    },
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "FAST_NET_EDGE_TEST",
+      "metrics": {
+        "adapter_decision": "KEEP_RESEARCH",
+        "best_variant": "fixed_tp_sl__min500bps__rr2__hold72h",
+        "by_period": {},
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": 16.86005,
+            "trade_count": 59
+          },
+          "BCHEUR": {
+            "net_pnl_eur": 93.768388,
+            "trade_count": 51
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -2.761545,
+            "trade_count": 23
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -64.437705,
+            "trade_count": 43
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -32.436502,
+            "trade_count": 30
+          }
+        },
+        "expectancy_net": 0.05336255339805825,
+        "max_drawdown_eur": 119.800035,
+        "net_pnl_eur": 10.992686,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 1.0247690793047701,
+        "total_cost_bps": 20188.0,
+        "trade_count": 206,
+        "variant_count": 3,
+        "winrate_pct": 36.89320388349515
+      },
+      "passed": true,
+      "reasons": [
+        "positive_smoke_requires_walk_forward_before_shadow",
+        "no_shadow_or_paper_allowed"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 53.179253,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    }
+  ],
+  "generated_at": "2026-07-09T10:59:42.192987+00:00",
+  "hypothesis_id": "volatility_breakout",
+  "json_report_path": null,
+  "live_allowed": false,
+  "markdown_report_path": null,
+  "mode": "smoke",
+  "next_allowed_stage": "WALK_FORWARD",
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "reasons": [
+    "requested_mode_stage_completed"
+  ],
+  "requested_hypothesis_id": "volatility_breakout",
+  "run_id": "p18c_alpha_hypothesis_runner_20260709",
+  "runtime_seconds": 53.179838,
+  "safety_notes": [
+    "Research-only alpha hypothesis runner.",
+    "No runtime order path is imported or called.",
+    "No paper capital, live activation, promotion, sizing, leverage, or UI path is changed.",
+    "Risk-reducing actions may be automatic; risk-increasing actions require human review."
+  ],
+  "state_db": "/app/data/autobot_state.db"
+}
