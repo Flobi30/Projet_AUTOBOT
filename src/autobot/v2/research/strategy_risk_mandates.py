@@ -252,8 +252,8 @@ def load_strategy_risk_mandates(path: str | Path) -> dict[str, StrategyRiskManda
 
 
 def classify_autonomy_decision(decision: AutonomyDecision) -> dict[str, list[str]]:
-    passed = sorted(name for name, check in decision.checks.items() if bool(check.get("passed")))
-    failed = sorted(name for name, check in decision.checks.items() if not bool(check.get("passed")))
+    passed = sorted(name for name, check in decision.checks.items() if check.get("passed") is True)
+    failed = sorted(name for name, check in decision.checks.items() if check.get("passed") is False)
     blockers = list(failed)
     warnings: list[str] = []
     if decision.decision == DECISION_HUMAN_REVIEW:
@@ -393,9 +393,10 @@ class AutoKillDowngradeEngine:
             reasons.append("ledger_errors_detected")
         if health.paper_backtest_divergence is not None and health.paper_backtest_divergence > 0.35:
             reasons.append("paper_backtest_divergence_too_high")
+        health_check = {"passed": not bool(reasons), **asdict(health)}
         if reasons:
-            return _decision(DECISION_KILL, reasons, mandate, mandate.strategy_id, {"health": asdict(health)})
-        return _decision(DECISION_ALLOW, ["health_within_mandate"], mandate, mandate.strategy_id, {"health": asdict(health)})
+            return _decision(DECISION_KILL, reasons, mandate, mandate.strategy_id, {"health": health_check})
+        return _decision(DECISION_ALLOW, ["health_within_mandate"], mandate, mandate.strategy_id, {"health": health_check})
 
 
 def build_default_request(strategy_id: str) -> PreTradeAutonomyRequest:

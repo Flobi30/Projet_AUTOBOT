@@ -113,6 +113,21 @@ def test_auto_kill_downgrade_triggers_on_bad_health(tmp_path):
 
     assert decision.decision == DECISION_KILL
     assert "rolling_pf_below_mandate" in decision.reasons
+    payload = decision.to_dict()
+    assert payload["failed_checks"] == ["health"]
+    assert "health" in payload["blockers"]
+
+
+def test_auto_kill_allow_does_not_report_health_as_blocker(tmp_path):
+    mandate = _mandate(tmp_path, capital=100.0, symbols=["BCHEUR"], timeframes=["15m"], order_types=["market"])
+
+    decision = AutoKillDowngradeEngine().evaluate(mandate, StrategyHealthSnapshot())
+    payload = decision.to_dict()
+
+    assert decision.decision == DECISION_ALLOW
+    assert payload["passed_checks"] == ["health"]
+    assert payload["failed_checks"] == []
+    assert payload["blockers"] == []
 
 
 def test_grid_mandate_is_rejected(tmp_path):
