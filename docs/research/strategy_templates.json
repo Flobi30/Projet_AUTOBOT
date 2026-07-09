@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-09",
+  "research_only": true,
+  "paper_capital_allowed": false,
+  "live_allowed": false,
+  "free_code_generation_allowed": false,
+  "templates": [
+    {
+      "template_id": "breakout_after_compression",
+      "alpha_family_id": "volatility_breakout",
+      "signal_inputs": ["spot_ohlcv", "atr", "range_compression", "breakout_confirmation", "fees_slippage"],
+      "entry_logic_description": "Long-only entry after bounded range compression and confirmed breakout using only pre-entry OHLCV.",
+      "exit_logic_description": "Fixed TP/SL or bounded trailing comparison from the existing volatility breakout adapter.",
+      "risk_logic_description": "Reject if expected move does not exceed costs, drawdown is too high, or symbol concentration dominates.",
+      "required_adapter": "volatility_breakout",
+      "max_variants": 5,
+      "max_symbols": 6,
+      "max_runtime_seconds": 300,
+      "allowed_parameter_ranges": {
+        "min_expected_move_bps": [450, 500, 600],
+        "risk_reward_ratio": [2.0, 2.5],
+        "max_hold_hours": [72],
+        "exit_model": ["fixed_tp_sl", "trailing"]
+      },
+      "forbidden_optimizations": ["unbounded_parameter_search", "select_symbol_by_global_future_pnl", "lower_costs_to_improve_pf"],
+      "anti_lookahead_rules": ["features_end_at_detection_time", "no_exit_or_pnl_in_entry", "diagnostic_symbol_exclusions_only"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 50,
+      "rejection_rules": ["majority_folds_negative", "drawdown_above_12pct", "single_symbol_profit_share_above_40pct"]
+    },
+    {
+      "template_id": "leader_laggard_momentum",
+      "alpha_family_id": "cross_sectional_momentum",
+      "signal_inputs": ["spot_ohlcv_multi_symbol", "relative_momentum", "rolling_correlation", "fees_slippage"],
+      "entry_logic_description": "Long-only laggard or leader continuation candidate when related assets show stable directional leadership.",
+      "exit_logic_description": "Bounded hold, invalidation on correlation breakdown, fixed stop.",
+      "risk_logic_description": "Reject if correlation is unstable or cost-adjusted relative move is negative.",
+      "required_adapter": "missing",
+      "max_variants": 3,
+      "max_symbols": 6,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "lookback_bars": [24, 48],
+        "min_relative_strength_bps": [150, 250],
+        "min_correlation": [0.45, 0.6]
+      },
+      "forbidden_optimizations": ["pair_mining_without_walk_forward", "short_leg_on_spot_account", "unbounded_universe_search"],
+      "anti_lookahead_rules": ["correlation_window_ends_before_entry", "no_future_leader_selection"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 50,
+      "rejection_rules": ["correlation_unstable", "net_edge_negative", "sample_size_insufficient"]
+    },
+    {
+      "template_id": "regime_filtered_trend",
+      "alpha_family_id": "trend_momentum",
+      "signal_inputs": ["spot_ohlcv", "multi_timeframe_trend", "atr", "fees_slippage"],
+      "entry_logic_description": "Long-only higher-timeframe trend continuation with range/chop avoidance.",
+      "exit_logic_description": "Trend invalidation, fixed stop and bounded max hold.",
+      "risk_logic_description": "Reject if folds are negative or trend quality is absent.",
+      "required_adapter": "long_trend",
+      "max_variants": 3,
+      "max_symbols": 6,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "trend_timeframe": ["1h"],
+        "min_trend_strength": [0.55, 0.65],
+        "max_hold_hours": [72]
+      },
+      "forbidden_optimizations": ["micro_trade_frequency_increase", "select_only_recent_winners", "lower_costs_to_improve_pf"],
+      "anti_lookahead_rules": ["trend_context_pre_entry_only", "no_future_close_for_trend_state"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 50,
+      "rejection_rules": ["pf_net_below_1", "expectancy_negative", "majority_folds_negative"]
+    },
+    {
+      "template_id": "volatility_reversal_after_extension",
+      "alpha_family_id": "mean_reversion",
+      "signal_inputs": ["spot_ohlcv", "extension_from_mean", "range_regime", "fees_slippage"],
+      "entry_logic_description": "Long-only reversal after downside extension only in range-like regimes.",
+      "exit_logic_description": "Exit near mean or time stop, with fixed loss control.",
+      "risk_logic_description": "Reject if expected reversal does not clear costs with margin.",
+      "required_adapter": "missing",
+      "max_variants": 3,
+      "max_symbols": 6,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "zscore_entry": [-2.0, -2.5],
+        "mean_target_fraction": [0.5, 0.75],
+        "max_hold_hours": [24, 48]
+      },
+      "forbidden_optimizations": ["fit_zscore_to_best_symbol", "ignore_trend_regime", "ignore_costs"],
+      "anti_lookahead_rules": ["rolling_mean_pre_entry_only", "regime_pre_entry_only"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 50,
+      "rejection_rules": ["gross_positive_net_negative", "trend_regime_losses", "costs_exceed_reversal"]
+    },
+    {
+      "template_id": "funding_extreme_reversion",
+      "alpha_family_id": "funding_basis",
+      "signal_inputs": ["derivatives_funding", "basis", "spot_ohlcv", "fees_slippage"],
+      "entry_logic_description": "Spot-only long candidate after extreme negative funding or basis pressure.",
+      "exit_logic_description": "Exit on funding normalization or bounded hold.",
+      "risk_logic_description": "Reject if derivatives data is unavailable or unverified.",
+      "required_adapter": "missing",
+      "max_variants": 2,
+      "max_symbols": 4,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "funding_percentile": [5, 10],
+        "max_hold_hours": [24, 72]
+      },
+      "forbidden_optimizations": ["use_private_exchange_data", "derive_funding_from_future_price", "free_text_strategy_generation"],
+      "anti_lookahead_rules": ["funding_timestamp_before_entry", "no_future_basis"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 30,
+      "rejection_rules": ["funding_data_missing", "basis_data_missing"]
+    },
+    {
+      "template_id": "liquidation_recovery",
+      "alpha_family_id": "liquidation_cascade",
+      "signal_inputs": ["liquidation_events", "spot_ohlcv", "spread_depth"],
+      "entry_logic_description": "Long-only recovery or continuation after verified liquidation event and depth recovery.",
+      "exit_logic_description": "Fixed TP/SL with time stop.",
+      "risk_logic_description": "Reject if liquidation event data or depth data is missing.",
+      "required_adapter": "missing",
+      "max_variants": 2,
+      "max_symbols": 4,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "event_size_percentile": [90, 95],
+        "depth_recovery_minutes": [5, 15]
+      },
+      "forbidden_optimizations": ["use_unverified_event_feeds", "ignore_slippage_spikes", "fit_event_threshold_to_best_trade"],
+      "anti_lookahead_rules": ["event_timestamp_before_entry", "depth_recovery_pre_entry_only"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 30,
+      "rejection_rules": ["liquidation_data_missing", "depth_missing", "slippage_dominates_edge"]
+    },
+    {
+      "template_id": "relative_strength_rotation",
+      "alpha_family_id": "cross_sectional_momentum",
+      "signal_inputs": ["spot_ohlcv_multi_symbol", "relative_strength_rank", "volatility_regime", "fees_slippage"],
+      "entry_logic_description": "Long-only rotation into assets with improving relative strength and acceptable volatility.",
+      "exit_logic_description": "Exit on rank deterioration, fixed stop or bounded hold.",
+      "risk_logic_description": "Reject if result is dominated by one symbol or rank stability is poor.",
+      "required_adapter": "missing",
+      "max_variants": 3,
+      "max_symbols": 6,
+      "max_runtime_seconds": 120,
+      "allowed_parameter_ranges": {
+        "rank_lookback_bars": [24, 72],
+        "top_n": [2, 3],
+        "max_hold_hours": [24, 72]
+      },
+      "forbidden_optimizations": ["unbounded_rank_windows", "select_winners_by_full_sample_pnl", "ignore_symbol_concentration"],
+      "anti_lookahead_rules": ["rank_pre_entry_only", "no_future_universe_filter"],
+      "expected_cost_model": "research_stress",
+      "minimum_sample_size": 50,
+      "rejection_rules": ["net_edge_negative", "single_symbol_profit_share_above_40pct", "sample_size_insufficient"]
+    }
+  ]
+}

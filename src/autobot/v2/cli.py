@@ -303,7 +303,26 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--max-symbols", type=int, default=6)
     alpha_hypothesis_runner.add_argument("--max-data-rows", type=int, default=250000)
     alpha_hypothesis_runner.add_argument("--commit", default=None)
+    alpha_hypothesis_runner.add_argument("--templates", default="docs/research/strategy_templates.json")
+    alpha_hypothesis_runner.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
+
+    alpha_hypothesis_scheduler = subparsers.add_parser(
+        "alpha-hypothesis-scheduler",
+        help="Rank bounded alpha hypotheses from the knowledge base, templates, data readiness and research memory",
+    )
+    alpha_hypothesis_scheduler.add_argument("--state-db", default=None)
+    alpha_hypothesis_scheduler.add_argument("--data-paths", required=True)
+    alpha_hypothesis_scheduler.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
+    alpha_hypothesis_scheduler.add_argument("--templates", default="docs/research/strategy_templates.json")
+    alpha_hypothesis_scheduler.add_argument("--hypotheses", default="docs/research/alpha_hypotheses.json")
+    alpha_hypothesis_scheduler.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
+    alpha_hypothesis_scheduler.add_argument("--output-dir", default="reports/research/alpha_hypothesis_runner")
+    alpha_hypothesis_scheduler.add_argument("--run-id", default=None)
+    alpha_hypothesis_scheduler.add_argument("--max-variants", type=int, default=5)
+    alpha_hypothesis_scheduler.add_argument("--max-symbols", type=int, default=6)
+    alpha_hypothesis_scheduler.add_argument("--max-runtime-seconds", type=int, default=300)
+    alpha_hypothesis_scheduler.set_defaults(handler=_cmd_alpha_hypothesis_scheduler)
 
     strategy_autonomy = subparsers.add_parser(
         "strategy-autonomy-check",
@@ -1858,6 +1877,10 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         build_alpha_hypothesis_runner_report,
         write_alpha_hypothesis_runner_report,
     )
+    from autobot.v2.research.alpha_hypothesis_scheduler import (
+        load_strategy_templates,
+        record_alpha_runner_trial,
+    )
 
     run_id = args.run_id or f"alpha_hypothesis_runner_{args.hypothesis_id}_{args.mode}"
     data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
@@ -1883,7 +1906,46 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         ),
         Path(args.output_dir),
     )
+    templates = load_strategy_templates(args.templates)
+    template = _template_for_hypothesis(result.hypothesis_id, templates)
+    if template is not None:
+        record_alpha_runner_trial(
+            result,
+            memory_path=Path(args.memory_path),
+            template_id=str(template["template_id"]),
+            alpha_family_id=str(template["alpha_family_id"]),
+        )
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
+    from autobot.v2.research.alpha_hypothesis_scheduler import (
+        AlphaSchedulerConfig,
+        build_alpha_hypothesis_scheduler_report,
+        write_alpha_hypothesis_scheduler_report,
+    )
+
+    run_id = args.run_id or "alpha_hypothesis_scheduler"
+    report = write_alpha_hypothesis_scheduler_report(
+        build_alpha_hypothesis_scheduler_report(
+            AlphaSchedulerConfig(
+                run_id=run_id,
+                state_db=Path(args.state_db) if args.state_db else None,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                knowledge_base_path=Path(args.knowledge_base),
+                templates_path=Path(args.templates),
+                hypotheses_path=Path(args.hypotheses),
+                memory_path=Path(args.memory_path),
+                output_dir=Path(args.output_dir),
+                max_variants=args.max_variants,
+                max_symbols=args.max_symbols,
+                max_runtime_seconds=args.max_runtime_seconds,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
     return 0
 
 
@@ -1926,6 +1988,29 @@ def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
     }
     _print_json(payload)
     return 0
+
+
+def _template_for_hypothesis(hypothesis_id: str, templates_payload: dict[str, Any]) -> dict[str, Any] | None:
+    family_by_hypothesis = {
+        "volatility_breakout": "volatility_breakout",
+        "long_trend": "trend_momentum",
+        "cross_momentum": "cross_sectional_momentum",
+        "funding_basis": "funding_basis",
+        "liquidation_cascade": "liquidation_cascade",
+    }
+    family_id = family_by_hypothesis.get(hypothesis_id)
+    if family_id is None:
+        return None
+    for template in templates_payload.get("templates", []):
+        if template.get("alpha_family_id") == family_id and template.get("required_adapter") in {
+            "volatility_breakout",
+            "long_trend",
+        }:
+            return dict(template)
+    for template in templates_payload.get("templates", []):
+        if template.get("alpha_family_id") == family_id:
+            return dict(template)
+    return None
 
 
 def _attach_matrix_report_bundle(

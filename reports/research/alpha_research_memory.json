@@ -1,0 +1,86 @@
+{
+  "free_code_generation_allowed": false,
+  "live_allowed": false,
+  "paper_capital_allowed": false,
+  "records": [
+    {
+      "alpha_family_id": "volatility_breakout",
+      "created_at": "2026-07-09T12:12:26+00:00",
+      "data_snapshot": {
+        "data_paths": [
+          "/app/data/research/daily/ohlcv"
+        ],
+        "deduped_rows": 68478,
+        "symbols": [
+          "ADAEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "ETHZEUR",
+          "SOLEUR",
+          "XRPZEUR"
+        ],
+        "timeframes": [
+          "5m",
+          "15m",
+          "1h"
+        ]
+      },
+      "do_not_rerun_until": "2026-07-16T00:00:00+00:00",
+      "final_status": "REJECTED",
+      "gate_results": [
+        {
+          "gate": "DATA_CHECK",
+          "passed": true,
+          "status": "KEEP_RESEARCH"
+        },
+        {
+          "gate": "FAST_NET_EDGE_TEST",
+          "passed": true,
+          "status": "KEEP_RESEARCH"
+        },
+        {
+          "gate": "WALK_FORWARD",
+          "passed": false,
+          "status": "REJECT"
+        }
+      ],
+      "hypothesis_id": "volatility_breakout",
+      "live_allowed": false,
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "max_runtime_seconds": 300,
+        "max_symbols": 6,
+        "max_variants": 5,
+        "mode": "walk_forward"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "drawdown_above_12_pct_proxy",
+        "majority_folds_not_positive",
+        "positive_pnl_concentrated_in_one_symbol",
+        "fails_without_bcheur",
+        "fails_without_bcheur_adaeur"
+      ],
+      "related_rejected_hypotheses": [
+        "volatility_breakout"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "p18d_alpha_hypothesis_runner_walk_forward_20260709",
+      "symbols_tested": [
+        "BTCZEUR",
+        "ETHZEUR",
+        "BCHEUR",
+        "ADAEUR",
+        "XRPZEUR",
+        "SOLEUR"
+      ],
+      "template_id": "breakout_after_compression",
+      "trial_count_for_family": 5,
+      "trial_count_for_template": 5,
+      "variant_count": 5
+    }
+  ],
+  "research_only": true,
+  "schema_version": 1,
+  "updated_at": "2026-07-09T12:16:46+00:00"
+}
