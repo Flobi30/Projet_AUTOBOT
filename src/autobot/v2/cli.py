@@ -260,6 +260,7 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_smoke.add_argument("--max-symbols", type=int, default=6)
     alpha_smoke.add_argument("--max-cpu-seconds", type=float, default=60.0)
     alpha_smoke.add_argument("--order-notional-eur", type=float, default=100.0)
+    alpha_smoke.add_argument("--commit", default=None, help="Optional commit SHA to stamp in the generated report")
     alpha_smoke.set_defaults(handler=_cmd_alpha_smoke_runner)
 
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
@@ -1761,7 +1762,8 @@ def _cmd_alpha_smoke_runner(args: argparse.Namespace) -> int:
                 max_symbols=args.max_symbols,
                 max_cpu_seconds=args.max_cpu_seconds,
                 order_notional_eur=args.order_notional_eur,
-            )
+            ),
+            commit=args.commit,
         ),
         Path(args.output_dir),
     )

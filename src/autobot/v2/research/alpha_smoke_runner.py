@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import time
 from collections import Counter, defaultdict
@@ -41,6 +42,9 @@ P18B_SKIPPED_HYPOTHESES: tuple[str, ...] = ("funding_basis", "liquidation_cascad
 
 
 def _current_git_commit() -> str | None:
+    env_commit = os.environ.get("AUTOBOT_COMMIT") or os.environ.get("GIT_COMMIT")
+    if env_commit:
+        return env_commit.strip() or None
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
