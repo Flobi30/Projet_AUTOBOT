@@ -263,6 +263,23 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_smoke.add_argument("--commit", default=None, help="Optional commit SHA to stamp in the generated report")
     alpha_smoke.set_defaults(handler=_cmd_alpha_smoke_runner)
 
+    volatility_breakout_wf = subparsers.add_parser(
+        "volatility-breakout-walk-forward",
+        help="Run strict research-only P18C walk-forward for volatility_breakout_high_conviction",
+    )
+    volatility_breakout_wf.add_argument("--run-id", required=True)
+    volatility_breakout_wf.add_argument("--data-paths", required=True, help="Comma-separated OHLCV CSV/Parquet path(s) or directories")
+    volatility_breakout_wf.add_argument("--output-dir", default="reports/research")
+    volatility_breakout_wf.add_argument("--symbols", default="BTCZEUR,ETHZEUR,BCHEUR,ADAEUR,XRPZEUR,SOLEUR")
+    volatility_breakout_wf.add_argument("--cost-profile", default="research_stress")
+    volatility_breakout_wf.add_argument("--max-variants", type=int, default=5)
+    volatility_breakout_wf.add_argument("--folds", type=int, default=5)
+    volatility_breakout_wf.add_argument("--train-fraction", type=float, default=0.45)
+    volatility_breakout_wf.add_argument("--order-notional-eur", type=float, default=100.0)
+    volatility_breakout_wf.add_argument("--max-cpu-seconds", type=float, default=120.0)
+    volatility_breakout_wf.add_argument("--commit", default=None, help="Optional commit SHA to stamp in the generated report")
+    volatility_breakout_wf.set_defaults(handler=_cmd_volatility_breakout_walk_forward)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -1762,6 +1779,35 @@ def _cmd_alpha_smoke_runner(args: argparse.Namespace) -> int:
                 max_symbols=args.max_symbols,
                 max_cpu_seconds=args.max_cpu_seconds,
                 order_notional_eur=args.order_notional_eur,
+            ),
+            commit=args.commit,
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_volatility_breakout_walk_forward(args: argparse.Namespace) -> int:
+    from autobot.v2.research.volatility_breakout_walk_forward import (
+        VolatilityBreakoutWalkForwardConfig,
+        build_volatility_breakout_walk_forward_report,
+        write_volatility_breakout_walk_forward_report,
+    )
+
+    result = write_volatility_breakout_walk_forward_report(
+        build_volatility_breakout_walk_forward_report(
+            VolatilityBreakoutWalkForwardConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                output_dir=Path(args.output_dir),
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+                cost_profile=args.cost_profile,
+                max_variants=args.max_variants,
+                folds=args.folds,
+                train_fraction=args.train_fraction,
+                order_notional_eur=args.order_notional_eur,
+                max_cpu_seconds=args.max_cpu_seconds,
             ),
             commit=args.commit,
         ),
