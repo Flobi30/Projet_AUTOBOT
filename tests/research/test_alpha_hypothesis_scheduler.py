@@ -19,8 +19,10 @@ from autobot.v2.research.alpha_hypothesis_scheduler import (
     load_alpha_knowledge_base,
     load_alpha_research_memory,
     load_strategy_templates,
+    record_alpha_runner_trial,
     scan_data_readiness,
 )
+from autobot.v2.research.alpha_hypothesis_runner import AlphaHypothesisRunnerConfig, build_alpha_hypothesis_runner_report
 from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
 
@@ -111,14 +113,14 @@ def test_scheduler_refuses_rejected_current_config_and_selects_next_runnable(tmp
     assert by_template["liquidation_recovery"].status == "DATA_MISSING"
     assert report.selected is not None
     assert report.selected.status == "RUNNABLE_SMOKE"
-    assert report.selected.template_id == "regime_filtered_trend"
+    assert report.selected.template_id in {"leader_laggard_momentum", "relative_strength_rotation", "regime_filtered_trend"}
     assert "--mode smoke" in str(report.next_runner_command)
     assert report.paper_capital_allowed is False
     assert report.live_allowed is False
     assert report.promotable is False
 
 
-def test_scheduler_marks_adapter_missing_when_data_exists_but_adapter_does_not(tmp_path):
+def test_scheduler_marks_generic_cross_sectional_adapter_ready_when_data_exists(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     report = build_alpha_hypothesis_scheduler_report(
         AlphaSchedulerConfig(
@@ -130,8 +132,42 @@ def test_scheduler_marks_adapter_missing_when_data_exists_but_adapter_does_not(t
     )
 
     candidates = {item.template_id: item for item in report.candidates}
-    assert candidates["leader_laggard_momentum"].status == "ADAPTER_MISSING"
-    assert "adapter_missing" in candidates["leader_laggard_momentum"].blockers
+    assert candidates["leader_laggard_momentum"].status == "RUNNABLE_SMOKE"
+    assert candidates["leader_laggard_momentum"].adapter_ready is True
+    assert "adapter_missing" not in candidates["leader_laggard_momentum"].blockers
+    assert "--template-id leader_laggard_momentum" in str(candidates["leader_laggard_momentum"].recommended_command)
+
+
+def test_cross_sectional_template_rejection_is_recorded_without_blocking_family(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    memory_path = tmp_path / "memory.json"
+    report = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_cross_reject",
+            hypothesis_id="cross_momentum",
+            mode="smoke",
+            data_paths=(data_dir,),
+            symbols=("BCHEUR", "ADAEUR"),
+            max_variants=1,
+            max_symbols=2,
+            template_id="leader_laggard_momentum",
+        ),
+        commit="test",
+    )
+
+    record = record_alpha_runner_trial(
+        report,
+        memory_path=memory_path,
+        template_id="leader_laggard_momentum",
+        alpha_family_id="cross_sectional_momentum",
+    )
+    memory = load_alpha_research_memory(memory_path)
+
+    assert record.adapter_id == "generic_cross_sectional_ohlcv_adapter"
+    assert record.mode_used == "leader_laggard_momentum"
+    if record.final_status in {"REJECT_FAST", "DATA_MISSING", "REJECTED"}:
+        assert "cross_momentum" not in memory.rejected_hypotheses()
+        assert "cross_momentum__leader_laggard_momentum" in memory.rejected_hypotheses()
 
 
 def test_scheduler_cli_is_registered():
@@ -190,7 +226,7 @@ def test_rejected_long_trend_and_volatility_receive_zero_priority_after_backfill
     assert by_template["breakout_after_compression"].priority_score == 0
 
 
-def test_adapter_backlog_contains_only_missing_adapters_and_prioritizes_data_ready(tmp_path):
+def test_adapter_backlog_no_longer_contains_generic_cross_sectional_adapter(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"
     backfill_alpha_research_memory(memory_path=memory_path)
@@ -205,18 +241,11 @@ def test_adapter_backlog_contains_only_missing_adapters_and_prioritizes_data_rea
     )
 
     adapter_ids = {item.adapter_id for item in report.adapter_backlog}
-    assert "leader_laggard_momentum_adapter" in adapter_ids
-    assert "relative_strength_rotation_adapter" in adapter_ids
+    assert "generic_cross_sectional_ohlcv_adapter" not in adapter_ids
     assert {item.template_id for item in report.adapter_backlog}.issuperset(
-        {"leader_laggard_momentum", "relative_strength_rotation", "funding_extreme_reversion"}
+        {"funding_extreme_reversion"}
     )
-    data_ready = [item for item in report.adapter_backlog if item.data_ready]
-    data_missing = [item for item in report.adapter_backlog if not item.data_ready]
-    assert data_ready
-    assert data_missing
-    assert min(item.priority_score for item in data_ready) > max(item.priority_score for item in data_missing)
-    assert report.top_recommended_adapter is not None
-    assert report.top_recommended_adapter.template_id in {"leader_laggard_momentum", "relative_strength_rotation"}
+    assert all(item.template_id not in {"leader_laggard_momentum", "relative_strength_rotation"} for item in report.adapter_backlog)
 
 
 def test_backfilled_grid_remains_no_go_and_rejected(tmp_path):

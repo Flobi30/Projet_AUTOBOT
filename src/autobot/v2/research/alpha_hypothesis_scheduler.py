@@ -63,6 +63,7 @@ REQUIRED_TEMPLATE_FIELDS = (
 KNOWN_ADAPTERS = {
     "volatility_breakout": "alpha-hypothesis-runner",
     "long_trend": "alpha-hypothesis-runner",
+    "generic_cross_sectional_ohlcv_adapter": "alpha-hypothesis-runner",
 }
 FAMILY_TO_HYPOTHESIS = {
     "volatility_breakout": "volatility_breakout",
@@ -151,6 +152,8 @@ class ResearchMemoryRecord:
     fold_results: tuple[dict[str, Any], ...] = ()
     source_report_path: str | None = None
     source_report_status: str = "available"
+    adapter_id: str | None = None
+    mode_used: str | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ResearchMemoryRecord":
@@ -179,6 +182,8 @@ class ResearchMemoryRecord:
             fold_results=tuple(dict(item) for item in payload.get("fold_results", ())),
             source_report_path=payload.get("source_report_path"),
             source_report_status=str(payload.get("source_report_status") or "available"),
+            adapter_id=payload.get("adapter_id"),
+            mode_used=payload.get("mode_used"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -223,7 +228,12 @@ class AlphaResearchMemory:
         rejected = set()
         for record in self.records:
             if record.final_status.upper() in REJECTED_MEMORY_STATUSES:
-                rejected.add(record.hypothesis_id)
+                template_specific = any(
+                    item.startswith(f"{record.hypothesis_id}__")
+                    for item in record.related_rejected_hypotheses
+                )
+                if not template_specific:
+                    rejected.add(record.hypothesis_id)
                 rejected.update(record.related_rejected_hypotheses)
         return rejected
 
@@ -466,6 +476,8 @@ def record_alpha_runner_trial(
 ) -> ResearchMemoryRecord:
     memory = load_alpha_research_memory(memory_path)
     variant_count = _variant_count_from_report(report)
+    metrics = _metrics_from_runner_report(report)
+    rejected_keys = _related_rejected_hypotheses(report, template_id)
     record = ResearchMemoryRecord(
         run_id=report.run_id,
         hypothesis_id=report.hypothesis_id,
@@ -490,10 +502,12 @@ def record_alpha_runner_trial(
         rejection_reasons=tuple(report.reasons),
         trial_count_for_family=variant_count,
         trial_count_for_template=variant_count,
-        related_rejected_hypotheses=(report.hypothesis_id,) if _is_rejected_status(report.final_status) else (),
+        related_rejected_hypotheses=rejected_keys,
         do_not_rerun_until=None,
         requires_new_data_before_rerun=_is_rejected_status(report.final_status),
-        metrics=_metrics_from_runner_report(report),
+        metrics=metrics,
+        adapter_id=str(metrics.get("adapter_id") or "") or None,
+        mode_used=str(metrics.get("mode_used") or "") or None,
     )
     updated = memory.add_record(record)
     updated.write(memory_path)
@@ -1152,7 +1166,9 @@ def _schedule_template(
     blockers.extend(missing)
     if adapter_status != "READY":
         blockers.append("adapter_missing")
-    if hypothesis_id in memory.rejected_hypotheses():
+    rejected_key = f"{hypothesis_id}__{template_id}"
+    rejected = memory.rejected_hypotheses()
+    if hypothesis_id in rejected or rejected_key in rejected:
         blockers.append("rejected_current_config_requires_new_data")
     if int(template["max_variants"]) > config.max_variants:
         warnings.append("template_variants_clipped_by_scheduler")
@@ -1491,7 +1507,8 @@ def _runner_command(
         f"--output-dir {config.output_dir} "
         f"--max-variants {max_variants} "
         f"--max-symbols {max_symbols} "
-        f"--max-runtime-seconds {max_runtime}"
+        f"--max-runtime-seconds {max_runtime} "
+        f"--template-id {template['template_id']}"
     )
 
 
@@ -1511,6 +1528,14 @@ def _memory_final_status(status: str) -> str:
 
 def _is_rejected_status(status: str) -> bool:
     return status in {"REJECT", "REJECTED", "REJECT_FAST", "DATA_MISSING"}
+
+
+def _related_rejected_hypotheses(report: AlphaHypothesisRunnerReport, template_id: str) -> tuple[str, ...]:
+    if not _is_rejected_status(report.final_status):
+        return ()
+    if report.hypothesis_id == "cross_momentum":
+        return (f"{report.hypothesis_id}__{template_id}",)
+    return (report.hypothesis_id,)
 
 
 def _variant_count_from_report(report: AlphaHypothesisRunnerReport) -> int:

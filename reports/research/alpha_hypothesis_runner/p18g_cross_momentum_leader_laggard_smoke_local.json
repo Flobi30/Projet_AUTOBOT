@@ -1,0 +1,638 @@
+{
+  "autonomy_policy_summary": {
+    "auto_allowed_gates": [
+      "DATA_CHECK",
+      "FAST_NET_EDGE_TEST",
+      "WALK_FORWARD",
+      "STRESS_MONTE_CARLO"
+    ],
+    "human_review_gates": [
+      "SHADOW_REVIEW_CANDIDATE"
+    ],
+    "principle": "AUTOBOT may automatically reduce risk, but may never automatically increase risk."
+  },
+  "commit": "9170d2222ff86ef7a9cc9ce3d80e069128d27448",
+  "data_paths": [
+    "data\\research\\daily\\ohlcv"
+  ],
+  "final_decision": "STOPPED",
+  "final_status": "REJECT_FAST",
+  "gates": [
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "DATA_CHECK",
+      "metrics": {
+        "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+        "available": true,
+        "duplicate_count": 0,
+        "end_at": "2026-06-08T08:25:00+00:00",
+        "mode": "leader_laggard_momentum",
+        "reason": null,
+        "row_count": 6489,
+        "selected_timeframe": "1h",
+        "start_at": "2026-05-09T08:00:00+00:00",
+        "status": "READY",
+        "symbols": [
+          "ADAEUR",
+          "SOLEUR",
+          "XRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "5m"
+        ]
+      },
+      "passed": true,
+      "reasons": [
+        "data_ready"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 0.222886,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    },
+    {
+      "artifacts": {
+        "variants": [
+          {
+            "live_allowed": false,
+            "metrics": {
+              "by_period": {
+                "2026-05-11": {
+                  "net_pnl_eur": 3.164127,
+                  "trade_count": 2
+                },
+                "2026-05-12": {
+                  "net_pnl_eur": -9.143501,
+                  "trade_count": 2
+                },
+                "2026-05-13": {
+                  "net_pnl_eur": -5.593548,
+                  "trade_count": 2
+                },
+                "2026-05-14": {
+                  "net_pnl_eur": -4.87698,
+                  "trade_count": 2
+                },
+                "2026-05-15": {
+                  "net_pnl_eur": -7.160331,
+                  "trade_count": 4
+                },
+                "2026-05-16": {
+                  "net_pnl_eur": -14.141185,
+                  "trade_count": 3
+                },
+                "2026-05-17": {
+                  "net_pnl_eur": -0.224468,
+                  "trade_count": 1
+                },
+                "2026-05-18": {
+                  "net_pnl_eur": -2.00981,
+                  "trade_count": 1
+                },
+                "2026-05-20": {
+                  "net_pnl_eur": -0.905874,
+                  "trade_count": 1
+                },
+                "2026-05-21": {
+                  "net_pnl_eur": -1.521305,
+                  "trade_count": 2
+                },
+                "2026-05-22": {
+                  "net_pnl_eur": -1.337006,
+                  "trade_count": 2
+                },
+                "2026-05-23": {
+                  "net_pnl_eur": -4.413612,
+                  "trade_count": 1
+                },
+                "2026-05-24": {
+                  "net_pnl_eur": 6.537122,
+                  "trade_count": 2
+                },
+                "2026-05-25": {
+                  "net_pnl_eur": -1.993027,
+                  "trade_count": 3
+                },
+                "2026-05-29": {
+                  "net_pnl_eur": 0.815647,
+                  "trade_count": 2
+                },
+                "2026-05-31": {
+                  "net_pnl_eur": -3.584106,
+                  "trade_count": 4
+                },
+                "2026-06-01": {
+                  "net_pnl_eur": -1.76324,
+                  "trade_count": 1
+                },
+                "2026-06-02": {
+                  "net_pnl_eur": -6.888427,
+                  "trade_count": 1
+                },
+                "2026-06-03": {
+                  "net_pnl_eur": -11.484705,
+                  "trade_count": 2
+                },
+                "2026-06-04": {
+                  "net_pnl_eur": -30.935266,
+                  "trade_count": 3
+                },
+                "2026-06-05": {
+                  "net_pnl_eur": -47.544213,
+                  "trade_count": 4
+                },
+                "2026-06-06": {
+                  "net_pnl_eur": -8.860425,
+                  "trade_count": 3
+                },
+                "2026-06-07": {
+                  "net_pnl_eur": 5.114542,
+                  "trade_count": 3
+                },
+                "2026-06-08": {
+                  "net_pnl_eur": 1.234096,
+                  "trade_count": 2
+                }
+              },
+              "by_symbol": {
+                "ADAEUR": {
+                  "net_pnl_eur": -92.699406,
+                  "trade_count": 21
+                },
+                "SOLEUR": {
+                  "net_pnl_eur": -32.118547,
+                  "trade_count": 19
+                },
+                "XRPZEUR": {
+                  "net_pnl_eur": -22.697542,
+                  "trade_count": 13
+                }
+              },
+              "concentration": {
+                "top_positive_pnl_share": 0.0,
+                "top_positive_symbol": null
+              },
+              "expectancy_net": -2.783311,
+              "max_drawdown_eur": 158.38698,
+              "net_pnl_eur": -147.515495,
+              "no_trade_baseline_eur": 0.0,
+              "profit_factor_net": 0.13846401196693212,
+              "total_cost_bps": 5194.0,
+              "trade_count": 53,
+              "winrate_pct": 28.301887
+            },
+            "paper_capital_allowed": false,
+            "promotable": false,
+            "selection_policy": "bounded_template_order_not_best_pnl",
+            "status": "research_only",
+            "variant": {
+              "lookback_bars": 24,
+              "min_correlation": 0.45,
+              "min_relative_strength_bps": 150
+            },
+            "variant_index": 0
+          },
+          {
+            "live_allowed": false,
+            "metrics": {
+              "by_period": {
+                "2026-05-11": {
+                  "net_pnl_eur": 1.040596,
+                  "trade_count": 2
+                },
+                "2026-05-12": {
+                  "net_pnl_eur": -9.143501,
+                  "trade_count": 2
+                },
+                "2026-05-13": {
+                  "net_pnl_eur": -5.593548,
+                  "trade_count": 2
+                },
+                "2026-05-14": {
+                  "net_pnl_eur": -4.87698,
+                  "trade_count": 2
+                },
+                "2026-05-15": {
+                  "net_pnl_eur": -7.160331,
+                  "trade_count": 4
+                },
+                "2026-05-16": {
+                  "net_pnl_eur": -14.141185,
+                  "trade_count": 3
+                },
+                "2026-05-17": {
+                  "net_pnl_eur": -0.224468,
+                  "trade_count": 1
+                },
+                "2026-05-18": {
+                  "net_pnl_eur": -2.00981,
+                  "trade_count": 1
+                },
+                "2026-05-20": {
+                  "net_pnl_eur": -0.905874,
+                  "trade_count": 1
+                },
+                "2026-05-21": {
+                  "net_pnl_eur": -1.521305,
+                  "trade_count": 2
+                },
+                "2026-05-22": {
+                  "net_pnl_eur": -1.337006,
+                  "trade_count": 2
+                },
+                "2026-05-23": {
+                  "net_pnl_eur": -4.413612,
+                  "trade_count": 1
+                },
+                "2026-05-24": {
+                  "net_pnl_eur": 6.537122,
+                  "trade_count": 2
+                },
+                "2026-05-25": {
+                  "net_pnl_eur": -1.993027,
+                  "trade_count": 3
+                },
+                "2026-05-29": {
+                  "net_pnl_eur": 0.815647,
+                  "trade_count": 2
+                },
+                "2026-05-31": {
+                  "net_pnl_eur": -3.584106,
+                  "trade_count": 4
+                },
+                "2026-06-01": {
+                  "net_pnl_eur": -1.76324,
+                  "trade_count": 1
+                },
+                "2026-06-02": {
+                  "net_pnl_eur": -6.888427,
+                  "trade_count": 1
+                },
+                "2026-06-03": {
+                  "net_pnl_eur": -11.484705,
+                  "trade_count": 2
+                },
+                "2026-06-04": {
+                  "net_pnl_eur": -30.935266,
+                  "trade_count": 3
+                },
+                "2026-06-05": {
+                  "net_pnl_eur": -47.544213,
+                  "trade_count": 4
+                },
+                "2026-06-06": {
+                  "net_pnl_eur": -8.860425,
+                  "trade_count": 3
+                },
+                "2026-06-07": {
+                  "net_pnl_eur": 5.114542,
+                  "trade_count": 3
+                },
+                "2026-06-08": {
+                  "net_pnl_eur": 1.234096,
+                  "trade_count": 2
+                }
+              },
+              "by_symbol": {
+                "ADAEUR": {
+                  "net_pnl_eur": -92.699406,
+                  "trade_count": 21
+                },
+                "SOLEUR": {
+                  "net_pnl_eur": -34.242078,
+                  "trade_count": 19
+                },
+                "XRPZEUR": {
+                  "net_pnl_eur": -22.697542,
+                  "trade_count": 13
+                }
+              },
+              "concentration": {
+                "top_positive_pnl_share": 0.0,
+                "top_positive_symbol": null
+              },
+              "expectancy_net": -2.823378,
+              "max_drawdown_eur": 158.499857,
+              "net_pnl_eur": -149.639026,
+              "no_trade_baseline_eur": 0.0,
+              "profit_factor_net": 0.12663768828853028,
+              "total_cost_bps": 5194.0,
+              "trade_count": 53,
+              "winrate_pct": 26.415094
+            },
+            "paper_capital_allowed": false,
+            "promotable": false,
+            "selection_policy": "bounded_template_order_not_best_pnl",
+            "status": "research_only",
+            "variant": {
+              "lookback_bars": 24,
+              "min_correlation": 0.6,
+              "min_relative_strength_bps": 150
+            },
+            "variant_index": 1
+          },
+          {
+            "live_allowed": false,
+            "metrics": {
+              "by_period": {
+                "2026-05-11": {
+                  "net_pnl_eur": 2.113168,
+                  "trade_count": 1
+                },
+                "2026-05-12": {
+                  "net_pnl_eur": -8.101898,
+                  "trade_count": 2
+                },
+                "2026-05-13": {
+                  "net_pnl_eur": -3.666535,
+                  "trade_count": 1
+                },
+                "2026-05-14": {
+                  "net_pnl_eur": 0.780653,
+                  "trade_count": 1
+                },
+                "2026-05-15": {
+                  "net_pnl_eur": -10.537671,
+                  "trade_count": 3
+                },
+                "2026-05-23": {
+                  "net_pnl_eur": -3.310463,
+                  "trade_count": 1
+                },
+                "2026-05-24": {
+                  "net_pnl_eur": 5.796342,
+                  "trade_count": 2
+                },
+                "2026-05-25": {
+                  "net_pnl_eur": -1.490632,
+                  "trade_count": 1
+                },
+                "2026-05-31": {
+                  "net_pnl_eur": -0.467675,
+                  "trade_count": 2
+                },
+                "2026-06-04": {
+                  "net_pnl_eur": -22.325866,
+                  "trade_count": 3
+                },
+                "2026-06-05": {
+                  "net_pnl_eur": -34.265218,
+                  "trade_count": 3
+                },
+                "2026-06-06": {
+                  "net_pnl_eur": -4.398208,
+                  "trade_count": 1
+                },
+                "2026-06-07": {
+                  "net_pnl_eur": 4.187856,
+                  "trade_count": 3
+                }
+              },
+              "by_symbol": {
+                "ADAEUR": {
+                  "net_pnl_eur": -61.419237,
+                  "trade_count": 11
+                },
+                "SOLEUR": {
+                  "net_pnl_eur": -7.323277,
+                  "trade_count": 11
+                },
+                "XRPZEUR": {
+                  "net_pnl_eur": -6.943633,
+                  "trade_count": 2
+                }
+              },
+              "concentration": {
+                "top_positive_pnl_share": 0.0,
+                "top_positive_symbol": null
+              },
+              "expectancy_net": -3.153589,
+              "max_drawdown_eur": 83.304481,
+              "net_pnl_eur": -75.686147,
+              "no_trade_baseline_eur": 0.0,
+              "profit_factor_net": 0.15793386615057367,
+              "total_cost_bps": 2352.0,
+              "trade_count": 24,
+              "winrate_pct": 25.0
+            },
+            "paper_capital_allowed": false,
+            "promotable": false,
+            "selection_policy": "bounded_template_order_not_best_pnl",
+            "status": "research_only",
+            "variant": {
+              "lookback_bars": 24,
+              "min_correlation": 0.45,
+              "min_relative_strength_bps": 250
+            },
+            "variant_index": 2
+          }
+        ]
+      },
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "FAST_NET_EDGE_TEST",
+      "metrics": {
+        "adapter_decision": "REJECT_FAST",
+        "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+        "availability": {
+          "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+          "available": true,
+          "duplicate_count": 0,
+          "end_at": "2026-06-08T08:25:00+00:00",
+          "mode": "leader_laggard_momentum",
+          "reason": null,
+          "row_count": 6489,
+          "selected_timeframe": "1h",
+          "start_at": "2026-05-09T08:00:00+00:00",
+          "status": "READY",
+          "symbols": [
+            "ADAEUR",
+            "SOLEUR",
+            "XRPZEUR"
+          ],
+          "timeframes": [
+            "15m",
+            "1h",
+            "5m"
+          ]
+        },
+        "by_period": {
+          "2026-05-11": {
+            "net_pnl_eur": 3.164127,
+            "trade_count": 2
+          },
+          "2026-05-12": {
+            "net_pnl_eur": -9.143501,
+            "trade_count": 2
+          },
+          "2026-05-13": {
+            "net_pnl_eur": -5.593548,
+            "trade_count": 2
+          },
+          "2026-05-14": {
+            "net_pnl_eur": -4.87698,
+            "trade_count": 2
+          },
+          "2026-05-15": {
+            "net_pnl_eur": -7.160331,
+            "trade_count": 4
+          },
+          "2026-05-16": {
+            "net_pnl_eur": -14.141185,
+            "trade_count": 3
+          },
+          "2026-05-17": {
+            "net_pnl_eur": -0.224468,
+            "trade_count": 1
+          },
+          "2026-05-18": {
+            "net_pnl_eur": -2.00981,
+            "trade_count": 1
+          },
+          "2026-05-20": {
+            "net_pnl_eur": -0.905874,
+            "trade_count": 1
+          },
+          "2026-05-21": {
+            "net_pnl_eur": -1.521305,
+            "trade_count": 2
+          },
+          "2026-05-22": {
+            "net_pnl_eur": -1.337006,
+            "trade_count": 2
+          },
+          "2026-05-23": {
+            "net_pnl_eur": -4.413612,
+            "trade_count": 1
+          },
+          "2026-05-24": {
+            "net_pnl_eur": 6.537122,
+            "trade_count": 2
+          },
+          "2026-05-25": {
+            "net_pnl_eur": -1.993027,
+            "trade_count": 3
+          },
+          "2026-05-29": {
+            "net_pnl_eur": 0.815647,
+            "trade_count": 2
+          },
+          "2026-05-31": {
+            "net_pnl_eur": -3.584106,
+            "trade_count": 4
+          },
+          "2026-06-01": {
+            "net_pnl_eur": -1.76324,
+            "trade_count": 1
+          },
+          "2026-06-02": {
+            "net_pnl_eur": -6.888427,
+            "trade_count": 1
+          },
+          "2026-06-03": {
+            "net_pnl_eur": -11.484705,
+            "trade_count": 2
+          },
+          "2026-06-04": {
+            "net_pnl_eur": -30.935266,
+            "trade_count": 3
+          },
+          "2026-06-05": {
+            "net_pnl_eur": -47.544213,
+            "trade_count": 4
+          },
+          "2026-06-06": {
+            "net_pnl_eur": -8.860425,
+            "trade_count": 3
+          },
+          "2026-06-07": {
+            "net_pnl_eur": 5.114542,
+            "trade_count": 3
+          },
+          "2026-06-08": {
+            "net_pnl_eur": 1.234096,
+            "trade_count": 2
+          }
+        },
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": -92.699406,
+            "trade_count": 21
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -32.118547,
+            "trade_count": 19
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -22.697542,
+            "trade_count": 13
+          }
+        },
+        "concentration": {
+          "top_positive_pnl_share": 0.0,
+          "top_positive_symbol": null
+        },
+        "expectancy_net": -2.783311,
+        "max_drawdown_eur": 158.38698,
+        "mode_used": "leader_laggard_momentum",
+        "net_pnl_eur": -147.515495,
+        "no_trade_baseline_eur": 0.0,
+        "primary_variant": "lookback_bars24__min_correlation0.45__min_relative_strength_bps150",
+        "profit_factor_net": 0.13846401196693212,
+        "template_id": "leader_laggard_momentum",
+        "total_cost_bps": 5194.0,
+        "trade_count": 53,
+        "variant_count": 3,
+        "winrate_pct": 28.301887
+      },
+      "passed": false,
+      "reasons": [
+        "edge_net_not_positive",
+        "profit_factor_net_not_above_1",
+        "expectancy_net_not_positive"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 0.415444,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "REJECT_FAST",
+      "stopped": true
+    }
+  ],
+  "generated_at": "2026-07-09T18:02:57.539481+00:00",
+  "hypothesis_id": "cross_momentum",
+  "json_report_path": null,
+  "live_allowed": false,
+  "markdown_report_path": null,
+  "mode": "smoke",
+  "next_allowed_stage": null,
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "reasons": [
+    "edge_net_not_positive",
+    "profit_factor_net_not_above_1",
+    "expectancy_net_not_positive"
+  ],
+  "requested_hypothesis_id": "cross_momentum",
+  "run_id": "p18g_cross_momentum_leader_laggard_smoke_local",
+  "runtime_seconds": 0.415494,
+  "safety_notes": [
+    "Research-only alpha hypothesis runner.",
+    "No runtime order path is imported or called.",
+    "No paper capital, live activation, promotion, sizing, leverage, or UI path is changed.",
+    "Risk-reducing actions may be automatic; risk-increasing actions require human review."
+  ],
+  "state_db": "data\\autobot_state.db"
+}

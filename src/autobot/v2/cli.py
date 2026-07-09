@@ -304,6 +304,7 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--max-data-rows", type=int, default=250000)
     alpha_hypothesis_runner.add_argument("--commit", default=None)
     alpha_hypothesis_runner.add_argument("--templates", default="docs/research/strategy_templates.json")
+    alpha_hypothesis_runner.add_argument("--template-id", default=None)
     alpha_hypothesis_runner.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
@@ -1897,6 +1898,8 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 mode=args.mode,
                 hypotheses_path=Path(args.hypotheses_path),
                 autonomy_policy_path=Path(args.autonomy_policy),
+                templates_path=Path(args.templates),
+                template_id=args.template_id,
                 state_db=Path(args.state_db) if args.state_db else None,
                 data_paths=data_paths,
                 output_dir=Path(args.output_dir),
@@ -1912,7 +1915,7 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         Path(args.output_dir),
     )
     templates = load_strategy_templates(args.templates)
-    template = _template_for_hypothesis(result.hypothesis_id, templates)
+    template = _template_for_hypothesis(result.hypothesis_id, templates, template_id=args.template_id)
     if template is not None:
         record_alpha_runner_trial(
             result,
@@ -2005,7 +2008,12 @@ def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def _template_for_hypothesis(hypothesis_id: str, templates_payload: dict[str, Any]) -> dict[str, Any] | None:
+def _template_for_hypothesis(
+    hypothesis_id: str,
+    templates_payload: dict[str, Any],
+    *,
+    template_id: str | None = None,
+) -> dict[str, Any] | None:
     family_by_hypothesis = {
         "volatility_breakout": "volatility_breakout",
         "long_trend": "trend_momentum",
@@ -2016,10 +2024,16 @@ def _template_for_hypothesis(hypothesis_id: str, templates_payload: dict[str, An
     family_id = family_by_hypothesis.get(hypothesis_id)
     if family_id is None:
         return None
+    if template_id:
+        for template in templates_payload.get("templates", []):
+            if template.get("template_id") == template_id and template.get("alpha_family_id") == family_id:
+                return dict(template)
+        return None
     for template in templates_payload.get("templates", []):
         if template.get("alpha_family_id") == family_id and template.get("required_adapter") in {
             "volatility_breakout",
             "long_trend",
+            "generic_cross_sectional_ohlcv_adapter",
         }:
             return dict(template)
     for template in templates_payload.get("templates", []):

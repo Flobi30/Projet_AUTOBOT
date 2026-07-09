@@ -18,6 +18,13 @@ from typing import Any, Mapping, Sequence
 
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS, load_alpha_hypotheses
 from .alpha_smoke_runner import AlphaSmokeConfig, build_alpha_smoke_report
+from .generic_cross_sectional_ohlcv_adapter import (
+    ADAPTER_ID as GENERIC_CROSS_SECTIONAL_ADAPTER_ID,
+    GenericCrossSectionalConfig,
+    build_cross_sectional_availability,
+    load_cross_sectional_bars,
+    run_generic_cross_sectional_ohlcv_smoke,
+)
 from .volatility_breakout_walk_forward import (
     VolatilityBreakoutWalkForwardConfig,
     build_volatility_breakout_walk_forward_report,
@@ -45,8 +52,9 @@ STAGE_ORDER = (
 SMOKE_ADAPTER_IDS = {
     "volatility_breakout": "volatility_breakout_high_conviction",
     "long_trend": "long_timeframe_adaptive_trend",
+    "cross_momentum": GENERIC_CROSS_SECTIONAL_ADAPTER_ID,
 }
-MISSING_DATA_IDS = {"funding_basis", "liquidation_cascade", "cross_momentum"}
+MISSING_DATA_IDS = {"funding_basis", "liquidation_cascade"}
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,8 @@ class AlphaHypothesisRunnerConfig:
     mode: str
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
     autonomy_policy_path: Path = Path("docs/research/alpha_autonomy_policy.json")
+    templates_path: Path = Path("docs/research/strategy_templates.json")
+    template_id: str | None = None
     state_db: Path | None = None
     data_paths: tuple[Path, ...] = ()
     output_dir: Path = Path("reports/research/alpha_hypothesis_runner")
@@ -358,6 +368,36 @@ def _data_check(
         )
     if not config.data_paths:
         return _gate("DATA_CHECK", "DATA_MISSING", False, True, ["data_paths_missing"], policy, started)
+    if hypothesis_id == "cross_momentum":
+        template = _cross_sectional_template(config)
+        bars, duplicate_count = load_cross_sectional_bars(config.data_paths, max_rows=config.max_data_rows)
+        groups = _group_cross_sectional_for_availability(bars, config.symbols[: config.max_symbols])
+        availability = build_cross_sectional_availability(
+            _cross_sectional_config(config, template),
+            groups,
+            duplicate_count,
+        )
+        if not availability.available:
+            return _gate(
+                "DATA_CHECK",
+                "DATA_MISSING",
+                False,
+                True,
+                [availability.reason or "generic_cross_sectional_data_missing"],
+                policy,
+                started,
+                metrics=availability.to_dict(),
+            )
+        return _gate(
+            "DATA_CHECK",
+            "KEEP_RESEARCH",
+            True,
+            False,
+            ["data_ready"],
+            policy,
+            started,
+            metrics=availability.to_dict(),
+        )
     smoke = _build_smoke(config, commit=None)
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     availability = next((row for row in smoke.availability if row.hypothesis_id == adapter_id), None)
@@ -404,6 +444,30 @@ def _fast_net_edge_test(
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     if not adapter_id:
         return _gate("FAST_NET_EDGE_TEST", "REJECT_FAST", False, True, ["fast_adapter_missing"], policy, started)
+    if adapter_id == GENERIC_CROSS_SECTIONAL_ADAPTER_ID:
+        template = _cross_sectional_template(config)
+        result = run_generic_cross_sectional_ohlcv_smoke(_cross_sectional_config(config, template))
+        metrics = result.metrics.to_dict()
+        metrics["adapter_id"] = result.adapter_id
+        metrics["mode_used"] = result.mode
+        metrics["template_id"] = result.template_id
+        metrics["adapter_decision"] = result.decision
+        metrics["variant_count"] = result.variant_count
+        metrics["primary_variant"] = result.primary_variant
+        metrics["availability"] = result.availability.to_dict()
+        passed = result.decision in {"KEEP_RESEARCH", "WALK_FORWARD_AVAILABLE"}
+        status = "KEEP_RESEARCH" if passed else result.decision
+        return _gate(
+            "FAST_NET_EDGE_TEST",
+            status,
+            passed,
+            not passed,
+            tuple(result.reasons),
+            policy,
+            started,
+            metrics=metrics,
+            artifacts={"variants": [dict(item) for item in result.variants]},
+        )
     smoke = _build_smoke(config, commit=commit)
     result = next((row for row in smoke.tested if row.hypothesis_id == adapter_id), None)
     if result is None:
@@ -487,6 +551,56 @@ def _build_smoke(config: AlphaHypothesisRunnerConfig, commit: str | None):
         ),
         commit=commit,
     )
+
+
+def _cross_sectional_template(config: AlphaHypothesisRunnerConfig) -> dict[str, Any]:
+    payload = json.loads(config.templates_path.read_text(encoding="utf-8"))
+    templates = [
+        dict(item)
+        for item in payload.get("templates", [])
+        if item.get("alpha_family_id") == "cross_sectional_momentum"
+        and item.get("required_adapter") == GENERIC_CROSS_SECTIONAL_ADAPTER_ID
+    ]
+    if not templates:
+        raise ValueError("generic cross-sectional template is missing")
+    if config.template_id:
+        for template in templates:
+            if template.get("template_id") == config.template_id:
+                return template
+        raise ValueError(f"unknown cross-sectional template: {config.template_id}")
+    return templates[0]
+
+
+def _cross_sectional_config(
+    config: AlphaHypothesisRunnerConfig,
+    template: Mapping[str, Any],
+) -> GenericCrossSectionalConfig:
+    return GenericCrossSectionalConfig(
+        run_id=f"{config.run_id}_{template['template_id']}",
+        mode=str(template["template_id"]),
+        data_paths=config.data_paths,
+        template=template,
+        symbols=config.symbols,
+        cost_profile=config.cost_profile,
+        max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+        max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+        max_runtime_seconds=min(config.max_runtime_seconds, float(template.get("max_runtime_seconds", config.max_runtime_seconds))),
+        max_data_rows=config.max_data_rows,
+    )
+
+
+def _group_cross_sectional_for_availability(
+    bars: Sequence[Any],
+    symbols: Sequence[str],
+) -> dict[tuple[str, str], list[Any]]:
+    allowed = {symbol.upper() for symbol in symbols}
+    groups: dict[tuple[str, str], list[Any]] = {}
+    for bar in bars:
+        symbol = str(bar.symbol).upper()
+        if allowed and symbol not in allowed:
+            continue
+        groups.setdefault((symbol, str(bar.timeframe).lower()), []).append(bar)
+    return groups
 
 
 def _gate(

@@ -4,6 +4,7 @@
   "paper_capital_allowed": false,
   "records": [
     {
+      "adapter_id": null,
       "alpha_family_id": "volatility_breakout",
       "created_at": "2026-07-09T00:00:00+00:00",
       "data_snapshot": {
@@ -114,6 +115,7 @@
         "trade_count": 82,
         "winrate_pct": 34.15
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "initial_capital_eur": 500,
@@ -159,6 +161,7 @@
       "variant_count": 4
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "volatility_breakout",
       "created_at": "2026-07-09T10:09:56.414619+00:00",
       "data_snapshot": {
@@ -206,6 +209,7 @@
         "trade_count": 206,
         "winrate_pct": 36.89320388349515
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "best_variant": "fixed_tp_sl__min500bps__rr2__hold72h",
@@ -234,6 +238,7 @@
       "variant_count": 3
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "volatility_breakout",
       "created_at": "2026-07-09T12:12:26.022867+00:00",
       "data_snapshot": {
@@ -275,6 +280,7 @@
         "trade_count": 206,
         "winrate_pct": 36.89320388349515
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "max_stage_reached": "WALK_FORWARD",
@@ -302,6 +308,7 @@
       "variant_count": 3
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "trend_momentum",
       "created_at": "2026-07-09T16:22:10.439397+00:00",
       "data_snapshot": {
@@ -666,6 +673,7 @@
         "variant_count": 3,
         "winrate_pct": 34.4059405940594
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "max_stage_reached": "FAST_NET_EDGE_TEST",
@@ -698,6 +706,7 @@
       "variant_count": 3
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "trend_momentum",
       "created_at": "2026-06-29T16:54:17.346280+00:00",
       "data_snapshot": {
@@ -724,6 +733,7 @@
         "trade_count": 0,
         "winrate_pct": null
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "status_review": "research_signal_only"
@@ -748,6 +758,7 @@
       "variant_count": 1
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "mean_reversion",
       "created_at": "2026-06-29T16:54:17.346280+00:00",
       "data_snapshot": {
@@ -774,6 +785,7 @@
         "trade_count": 0,
         "winrate_pct": null
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "status_review": "research_signal_only"
@@ -798,6 +810,7 @@
       "variant_count": 1
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "relative_value",
       "created_at": "2026-06-29T16:54:17.346280+00:00",
       "data_snapshot": {
@@ -824,6 +837,7 @@
         "trade_count": 0,
         "winrate_pct": null
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "status_review": "no_go"
@@ -846,6 +860,7 @@
       "variant_count": 1
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "grid",
       "created_at": "2026-06-29T16:54:17.346280+00:00",
       "data_snapshot": {
@@ -872,6 +887,7 @@
         "trade_count": 0,
         "winrate_pct": null
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "status_review": "archived"
@@ -894,6 +910,7 @@
       "variant_count": 1
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "relative_value",
       "created_at": "2026-06-22T21:00:27.315660+00:00",
       "data_snapshot": {
@@ -924,6 +941,7 @@
         "trade_count": 14,
         "winrate_pct": 35.714285714285715
       },
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {
         "cost_profiles": [
@@ -957,6 +975,7 @@
       "variant_count": 2
     },
     {
+      "adapter_id": null,
       "alpha_family_id": "grid",
       "created_at": "2026-07-09T00:00:00+00:00",
       "data_snapshot": {
@@ -975,6 +994,7 @@
       "hypothesis_id": "grid",
       "live_allowed": false,
       "metrics": {},
+      "mode_used": null,
       "paper_capital_allowed": false,
       "parameters_tested": {},
       "promotable": false,
@@ -996,9 +1016,215 @@
       "trial_count_for_family": 2,
       "trial_count_for_template": 2,
       "variant_count": 1
+    },
+    {
+      "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+      "alpha_family_id": "cross_sectional_momentum",
+      "created_at": "2026-07-09T18:02:57.539481+00:00",
+      "data_snapshot": {
+        "data_paths": [
+          "data\\research\\daily\\ohlcv"
+        ],
+        "state_db": "data\\autobot_state.db"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "REJECT_FAST",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "DATA_CHECK",
+          "passed": true,
+          "status": "KEEP_RESEARCH"
+        },
+        {
+          "gate": "FAST_NET_EDGE_TEST",
+          "passed": false,
+          "status": "REJECT_FAST"
+        }
+      ],
+      "hypothesis_id": "cross_momentum",
+      "live_allowed": false,
+      "metrics": {
+        "adapter_decision": "REJECT_FAST",
+        "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+        "availability": {
+          "adapter_id": "generic_cross_sectional_ohlcv_adapter",
+          "available": true,
+          "duplicate_count": 0,
+          "end_at": "2026-06-08T08:25:00+00:00",
+          "mode": "leader_laggard_momentum",
+          "reason": null,
+          "row_count": 6489,
+          "selected_timeframe": "1h",
+          "start_at": "2026-05-09T08:00:00+00:00",
+          "status": "READY",
+          "symbols": [
+            "ADAEUR",
+            "SOLEUR",
+            "XRPZEUR"
+          ],
+          "timeframes": [
+            "15m",
+            "1h",
+            "5m"
+          ]
+        },
+        "by_period": {
+          "2026-05-11": {
+            "net_pnl_eur": 3.164127,
+            "trade_count": 2
+          },
+          "2026-05-12": {
+            "net_pnl_eur": -9.143501,
+            "trade_count": 2
+          },
+          "2026-05-13": {
+            "net_pnl_eur": -5.593548,
+            "trade_count": 2
+          },
+          "2026-05-14": {
+            "net_pnl_eur": -4.87698,
+            "trade_count": 2
+          },
+          "2026-05-15": {
+            "net_pnl_eur": -7.160331,
+            "trade_count": 4
+          },
+          "2026-05-16": {
+            "net_pnl_eur": -14.141185,
+            "trade_count": 3
+          },
+          "2026-05-17": {
+            "net_pnl_eur": -0.224468,
+            "trade_count": 1
+          },
+          "2026-05-18": {
+            "net_pnl_eur": -2.00981,
+            "trade_count": 1
+          },
+          "2026-05-20": {
+            "net_pnl_eur": -0.905874,
+            "trade_count": 1
+          },
+          "2026-05-21": {
+            "net_pnl_eur": -1.521305,
+            "trade_count": 2
+          },
+          "2026-05-22": {
+            "net_pnl_eur": -1.337006,
+            "trade_count": 2
+          },
+          "2026-05-23": {
+            "net_pnl_eur": -4.413612,
+            "trade_count": 1
+          },
+          "2026-05-24": {
+            "net_pnl_eur": 6.537122,
+            "trade_count": 2
+          },
+          "2026-05-25": {
+            "net_pnl_eur": -1.993027,
+            "trade_count": 3
+          },
+          "2026-05-29": {
+            "net_pnl_eur": 0.815647,
+            "trade_count": 2
+          },
+          "2026-05-31": {
+            "net_pnl_eur": -3.584106,
+            "trade_count": 4
+          },
+          "2026-06-01": {
+            "net_pnl_eur": -1.76324,
+            "trade_count": 1
+          },
+          "2026-06-02": {
+            "net_pnl_eur": -6.888427,
+            "trade_count": 1
+          },
+          "2026-06-03": {
+            "net_pnl_eur": -11.484705,
+            "trade_count": 2
+          },
+          "2026-06-04": {
+            "net_pnl_eur": -30.935266,
+            "trade_count": 3
+          },
+          "2026-06-05": {
+            "net_pnl_eur": -47.544213,
+            "trade_count": 4
+          },
+          "2026-06-06": {
+            "net_pnl_eur": -8.860425,
+            "trade_count": 3
+          },
+          "2026-06-07": {
+            "net_pnl_eur": 5.114542,
+            "trade_count": 3
+          },
+          "2026-06-08": {
+            "net_pnl_eur": 1.234096,
+            "trade_count": 2
+          }
+        },
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": -92.699406,
+            "trade_count": 21
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -32.118547,
+            "trade_count": 19
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -22.697542,
+            "trade_count": 13
+          }
+        },
+        "concentration": {
+          "top_positive_pnl_share": 0.0,
+          "top_positive_symbol": null
+        },
+        "expectancy_net": -2.783311,
+        "max_drawdown_eur": 158.38698,
+        "mode_used": "leader_laggard_momentum",
+        "net_pnl_eur": -147.515495,
+        "no_trade_baseline_eur": 0.0,
+        "primary_variant": "lookback_bars24__min_correlation0.45__min_relative_strength_bps150",
+        "profit_factor_net": 0.13846401196693212,
+        "template_id": "leader_laggard_momentum",
+        "total_cost_bps": 5194.0,
+        "trade_count": 53,
+        "variant_count": 3,
+        "winrate_pct": 28.301887
+      },
+      "mode_used": "leader_laggard_momentum",
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "max_stage_reached": "FAST_NET_EDGE_TEST",
+        "mode": "smoke"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "edge_net_not_positive",
+        "profit_factor_net_not_above_1",
+        "expectancy_net_not_positive"
+      ],
+      "related_rejected_hypotheses": [
+        "cross_momentum__leader_laggard_momentum"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "p18g_cross_momentum_leader_laggard_smoke_local",
+      "source_report_path": null,
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "leader_laggard_momentum",
+      "trial_count_for_family": 3,
+      "trial_count_for_template": 3,
+      "variant_count": 3
     }
   ],
   "research_only": true,
   "schema_version": 1,
-  "updated_at": "2026-07-09T17:24:19.393594+00:00"
+  "updated_at": "2026-07-09T18:02:57.541480+00:00"
 }

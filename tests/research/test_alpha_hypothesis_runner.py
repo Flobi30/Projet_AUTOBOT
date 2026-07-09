@@ -87,6 +87,33 @@ def test_alpha_runner_does_not_run_walk_forward_when_fast_test_fails(tmp_path):
     assert report.final_status == "REJECT_FAST"
 
 
+def test_alpha_runner_runs_generic_cross_sectional_smoke_from_template(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    report = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_cross",
+            hypothesis_id="cross_momentum",
+            mode="smoke",
+            data_paths=(data_dir,),
+            symbols=("BCHEUR", "ADAEUR"),
+            max_variants=2,
+            max_symbols=2,
+            template_id="leader_laggard_momentum",
+        ),
+        commit="test",
+    )
+
+    gates = {gate.gate: gate for gate in report.gates}
+    assert report.hypothesis_id == "cross_momentum"
+    assert gates["DATA_CHECK"].passed is True
+    assert gates["FAST_NET_EDGE_TEST"].metrics["adapter_id"] == "generic_cross_sectional_ohlcv_adapter"
+    assert gates["FAST_NET_EDGE_TEST"].metrics["mode_used"] == "leader_laggard_momentum"
+    assert gates["FAST_NET_EDGE_TEST"].metrics["variant_count"] <= 2
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
+    assert report.promotable is False
+
+
 def test_alpha_runner_policy_requires_human_review_for_shadow_gate():
     policy = load_alpha_autonomy_policy("docs/research/alpha_autonomy_policy.json")
     shadow = next(gate for gate in policy["gates"] if gate["name"] == "SHADOW_REVIEW_CANDIDATE")
@@ -109,12 +136,15 @@ def test_alpha_runner_cli_is_registered():
             "data/autobot_state.db",
             "--data-paths",
             "data/research/daily/ohlcv",
+            "--template-id",
+            "leader_laggard_momentum",
         ]
     )
 
     assert args.command == "alpha-hypothesis-runner"
     assert args.max_variants == 5
     assert args.max_symbols == 6
+    assert args.template_id == "leader_laggard_momentum"
 
 
 def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):
