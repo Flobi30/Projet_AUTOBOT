@@ -1,0 +1,296 @@
+{
+  "root": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT",
+  "folders": [
+    {
+      "path": ".codex_python_deps",
+      "size_bytes": 19911331
+    },
+    {
+      "path": ".github",
+      "size_bytes": 10789
+    },
+    {
+      "path": "adaptive_grid_files",
+      "size_bytes": 104684
+    },
+    {
+      "path": "artifacts",
+      "size_bytes": 152730
+    },
+    {
+      "path": "config",
+      "size_bytes": 2790
+    },
+    {
+      "path": "dashboard",
+      "size_bytes": 179933073
+    },
+    {
+      "path": "data",
+      "size_bytes": 305693555
+    },
+    {
+      "path": "deploy",
+      "size_bytes": 4713
+    },
+    {
+      "path": "docs",
+      "size_bytes": 82431
+    },
+    {
+      "path": "plans",
+      "size_bytes": 3331
+    },
+    {
+      "path": "reports",
+      "size_bytes": 126532216
+    },
+    {
+      "path": "requirements",
+      "size_bytes": 6847
+    },
+    {
+      "path": "skills",
+      "size_bytes": 116744
+    },
+    {
+      "path": "src",
+      "size_bytes": 4776487
+    },
+    {
+      "path": "test-env",
+      "size_bytes": 216
+    },
+    {
+      "path": "tests",
+      "size_bytes": 875013
+    },
+    {
+      "path": "tools",
+      "size_bytes": 29690
+    }
+  ],
+  "cleanup_candidates_count": 11,
+  "cleanup_candidates_size_bytes": 176198,
+  "databases": [
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/autobot_state.db",
+      "size_bytes": 208896,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 132
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 0
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 0
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 0
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 0
+        },
+        {
+          "name": "orders",
+          "rows": 0
+        },
+        {
+          "name": "positions",
+          "rows": 0
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 0
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 0
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 0
+        },
+        {
+          "name": "trades",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/global_kill_switch.db",
+      "size_bytes": 8192,
+      "tables": [
+        {
+          "name": "global_kill_state",
+          "rows": 1
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/nonce_state.db",
+      "size_bytes": 12288,
+      "tables": [
+        {
+          "name": "nonce_state",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/setup_shadow_lab.db",
+      "size_bytes": 20480,
+      "tables": [
+        {
+          "name": "setup_shadow_state",
+          "rows": 0
+        },
+        {
+          "name": "setup_shadow_trades",
+          "rows": 0
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/vps_autobot_state_2026-06-01.db",
+      "size_bytes": 49152000,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 683
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 3212
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 14
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 87490
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 17270
+        },
+        {
+          "name": "orders",
+          "rows": 5811
+        },
+        {
+          "name": "positions",
+          "rows": 629
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 1995
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 6
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 1142
+        },
+        {
+          "name": "trades",
+          "rows": 624
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/vps_autobot_state_2026-06-04_2026-06-04_121159.db",
+      "size_bytes": 65933312,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 683
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 3234
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 14
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 135046
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 17270
+        },
+        {
+          "name": "orders",
+          "rows": 5811
+        },
+        {
+          "name": "positions",
+          "rows": 629
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 2027
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 6
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 1142
+        },
+        {
+          "name": "trades",
+          "rows": 624
+        }
+      ]
+    }
+  ],
+  "import_graph": {
+    "nodes": 265,
+    "edges": 630,
+    "networkx_available": true,
+    "scc_count": 4,
+    "parse_errors": []
+  }
+}

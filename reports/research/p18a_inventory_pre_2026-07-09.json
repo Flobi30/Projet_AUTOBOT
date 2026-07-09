@@ -1,0 +1,590 @@
+{
+  "root": "C:\\Users\\flore\\Documents\\Codex\\2026-04-27\\bonjour-voil-j-ai-utilis-r\\Projet_AUTOBOT",
+  "folders": [
+    {
+      "path": ".codex_python_deps",
+      "size_bytes": 37653280
+    },
+    {
+      "path": ".github",
+      "size_bytes": 10789
+    },
+    {
+      "path": ".pytest_cache",
+      "size_bytes": 149985
+    },
+    {
+      "path": "__pycache__",
+      "size_bytes": 13874
+    },
+    {
+      "path": "adaptive_grid_files",
+      "size_bytes": 225629
+    },
+    {
+      "path": "artifacts",
+      "size_bytes": 269771
+    },
+    {
+      "path": "config",
+      "size_bytes": 2790
+    },
+    {
+      "path": "dashboard",
+      "size_bytes": 179933073
+    },
+    {
+      "path": "data",
+      "size_bytes": 305628019
+    },
+    {
+      "path": "deploy",
+      "size_bytes": 4713
+    },
+    {
+      "path": "docs",
+      "size_bytes": 82431
+    },
+    {
+      "path": "plans",
+      "size_bytes": 3331
+    },
+    {
+      "path": "reports",
+      "size_bytes": 126138295
+    },
+    {
+      "path": "requirements",
+      "size_bytes": 6847
+    },
+    {
+      "path": "skills",
+      "size_bytes": 116744
+    },
+    {
+      "path": "src",
+      "size_bytes": 17642351
+    },
+    {
+      "path": "test-env",
+      "size_bytes": 216
+    },
+    {
+      "path": "tests",
+      "size_bytes": 6609624
+    },
+    {
+      "path": "tools",
+      "size_bytes": 29690
+    }
+  ],
+  "top_files": [
+    {
+      "path": ".env.example",
+      "size_bytes": 34642
+    },
+    {
+      "path": ".gitignore",
+      "size_bytes": 573
+    },
+    {
+      "path": "add_debug.py",
+      "size_bytes": 767
+    },
+    {
+      "path": "Analytics.tsx",
+      "size_bytes": 5788
+    },
+    {
+      "path": "audit_script.py",
+      "size_bytes": 2222
+    },
+    {
+      "path": "autobot_async.log",
+      "size_bytes": 912315
+    },
+    {
+      "path": "autoevolution.db",
+      "size_bytes": 12288
+    },
+    {
+      "path": "conftest.py",
+      "size_bytes": 978
+    },
+    {
+      "path": "dashboard-preview.html",
+      "size_bytes": 17500
+    },
+    {
+      "path": "dashboard_files.tar.gz",
+      "size_bytes": 20796
+    },
+    {
+      "path": "diagnose-autobot.sh",
+      "size_bytes": 2400
+    },
+    {
+      "path": "docker-compose.yml",
+      "size_bytes": 2926
+    },
+    {
+      "path": "Dockerfile",
+      "size_bytes": 2002
+    },
+    {
+      "path": "Dockerfile.pypy",
+      "size_bytes": 703
+    },
+    {
+      "path": "fix_app.py",
+      "size_bytes": 1478
+    },
+    {
+      "path": "fix_audit.sh",
+      "size_bytes": 12987
+    },
+    {
+      "path": "fix_diagnostic.py",
+      "size_bytes": 2004
+    },
+    {
+      "path": "fix_paper_api.py",
+      "size_bytes": 3612
+    },
+    {
+      "path": "fix_paper_v2.py",
+      "size_bytes": 5351
+    },
+    {
+      "path": "install-hetzner.sh",
+      "size_bytes": 3525
+    },
+    {
+      "path": "Nouveau Frontend AUTOBOT.zip",
+      "size_bytes": 73675
+    },
+    {
+      "path": "paper_trading_fix.py",
+      "size_bytes": 18638
+    },
+    {
+      "path": "pytest.ini",
+      "size_bytes": 411
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 6594
+    },
+    {
+      "path": "requirements.txt",
+      "size_bytes": 2859
+    },
+    {
+      "path": "RUNBOOK.md",
+      "size_bytes": 3146
+    },
+    {
+      "path": "SECURITY.md",
+      "size_bytes": 511
+    },
+    {
+      "path": "setup-vps.sh",
+      "size_bytes": 4380
+    },
+    {
+      "path": "start-autobot.sh",
+      "size_bytes": 2405
+    },
+    {
+      "path": "start-paper.sh",
+      "size_bytes": 1389
+    },
+    {
+      "path": "stop-autobot.sh",
+      "size_bytes": 512
+    },
+    {
+      "path": "system_endpoint.py",
+      "size_bytes": 1633
+    },
+    {
+      "path": "test_preflight.py",
+      "size_bytes": 4611
+    }
+  ],
+  "cleanup_candidates_count": 2148,
+  "cleanup_candidates_size_bytes": 74310025,
+  "cleanup_candidates_sample": [
+    {
+      "path": ".codex_python_deps/__pycache__",
+      "size_bytes": 385629,
+      "reason": "generated_cache_dir:__pycache__"
+    },
+    {
+      "path": ".codex_python_deps/__pycache__/py.cpython-311.pyc",
+      "size_bytes": 575,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/__pycache__/py.cpython-312.pyc",
+      "size_bytes": 530,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/__pycache__/six.cpython-312.pyc",
+      "size_bytes": 41340,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/__pycache__/typing_extensions.cpython-311.pyc",
+      "size_bytes": 179506,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/__pycache__/typing_extensions.cpython-312.pyc",
+      "size_bytes": 163678,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__",
+      "size_bytes": 2317063,
+      "reason": "generated_cache_dir:__pycache__"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/__init__.cpython-311.pyc",
+      "size_bytes": 591,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/__init__.cpython-312.pyc",
+      "size_bytes": 480,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/_argcomplete.cpython-311.pyc",
+      "size_bytes": 5332,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/_argcomplete.cpython-312.pyc",
+      "size_bytes": 4825,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/_version.cpython-311.pyc",
+      "size_bytes": 741,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/_version.cpython-312.pyc",
+      "size_bytes": 635,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/cacheprovider.cpython-311.pyc",
+      "size_bytes": 35024,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/cacheprovider.cpython-312.pyc",
+      "size_bytes": 31619,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/capture.cpython-311.pyc",
+      "size_bytes": 61436,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/capture.cpython-312.pyc",
+      "size_bytes": 55694,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/compat.cpython-311.pyc",
+      "size_bytes": 14462,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/compat.cpython-312.pyc",
+      "size_bytes": 13021,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/debugging.cpython-311.pyc",
+      "size_bytes": 20145,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/debugging.cpython-312.pyc",
+      "size_bytes": 18278,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/deprecated.cpython-311.pyc",
+      "size_bytes": 3354,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/deprecated.cpython-312.pyc",
+      "size_bytes": 3029,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/doctest.cpython-311.pyc",
+      "size_bytes": 36105,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/doctest.cpython-312.pyc",
+      "size_bytes": 32625,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/faulthandler.cpython-311.pyc",
+      "size_bytes": 5727,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/faulthandler.cpython-312.pyc",
+      "size_bytes": 5079,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/fixtures.cpython-311.pyc",
+      "size_bytes": 89468,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/fixtures.cpython-312.pyc",
+      "size_bytes": 82725,
+      "reason": "generated_python_cache:.pyc"
+    },
+    {
+      "path": ".codex_python_deps/_pytest/__pycache__/freeze_support.cpython-311.pyc",
+      "size_bytes": 2049,
+      "reason": "generated_python_cache:.pyc"
+    }
+  ],
+  "databases": [
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/autobot_state.db",
+      "size_bytes": 208896,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 132
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 0
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 0
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 0
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 0
+        },
+        {
+          "name": "orders",
+          "rows": 0
+        },
+        {
+          "name": "positions",
+          "rows": 0
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 0
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 0
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 0
+        },
+        {
+          "name": "trades",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/global_kill_switch.db",
+      "size_bytes": 8192,
+      "tables": [
+        {
+          "name": "global_kill_state",
+          "rows": 1
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/nonce_state.db",
+      "size_bytes": 12288,
+      "tables": [
+        {
+          "name": "nonce_state",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/setup_shadow_lab.db",
+      "size_bytes": 20480,
+      "tables": [
+        {
+          "name": "setup_shadow_state",
+          "rows": 0
+        },
+        {
+          "name": "setup_shadow_trades",
+          "rows": 0
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/vps_autobot_state_2026-06-01.db",
+      "size_bytes": 49152000,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 683
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 3212
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 14
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 87490
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 17270
+        },
+        {
+          "name": "orders",
+          "rows": 5811
+        },
+        {
+          "name": "positions",
+          "rows": 629
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 1995
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 6
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 1142
+        },
+        {
+          "name": "trades",
+          "rows": 624
+        }
+      ]
+    },
+    {
+      "path": "C:/Users/flore/Documents/Codex/2026-04-27/bonjour-voil-j-ai-utilis-r/Projet_AUTOBOT/data/vps_autobot_state_2026-06-04_2026-06-04_121159.db",
+      "size_bytes": 65933312,
+      "tables": [
+        {
+          "name": "audit_events",
+          "rows": 683
+        },
+        {
+          "name": "decision_ledger",
+          "rows": 3234
+        },
+        {
+          "name": "instance_lineage",
+          "rows": 0
+        },
+        {
+          "name": "instance_state",
+          "rows": 14
+        },
+        {
+          "name": "market_price_samples",
+          "rows": 135046
+        },
+        {
+          "name": "order_state_transitions",
+          "rows": 17270
+        },
+        {
+          "name": "orders",
+          "rows": 5811
+        },
+        {
+          "name": "positions",
+          "rows": 629
+        },
+        {
+          "name": "signal_outcomes",
+          "rows": 2027
+        },
+        {
+          "name": "sqlite_sequence",
+          "rows": 6
+        },
+        {
+          "name": "startup_health_checks",
+          "rows": 0
+        },
+        {
+          "name": "trade_ledger",
+          "rows": 1142
+        },
+        {
+          "name": "trades",
+          "rows": 624
+        }
+      ]
+    }
+  ],
+  "import_graph": {
+    "nodes": 265,
+    "edges": 630,
+    "networkx_available": true,
+    "scc_count": 4,
+    "parse_errors": []
+  }
+}

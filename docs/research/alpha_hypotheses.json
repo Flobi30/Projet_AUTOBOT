@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-09",
+  "research_only": true,
+  "paper_capital_allowed": false,
+  "live_allowed": false,
+  "auto_promotion_allowed": false,
+  "hypotheses": [
+    {
+      "id": "funding_basis",
+      "thesis": "Persistent derivatives funding or basis pressure can identify spot assets likely to mean-revert or continue after a funding imbalance, but AUTOBOT must use public/research data only until evidence is validated.",
+      "data": ["spot_ohlcv", "derivatives_funding_or_basis_if_available", "spread_depth", "fees_slippage"],
+      "symbols": ["BTCZEUR", "ETHZEUR", "SOLEUR", "XRPZEUR"],
+      "timeframe": ["15m", "1h", "4h"],
+      "metrics": ["net_pnl", "profit_factor_net", "expectancy_net", "max_drawdown", "fold_positive_ratio", "cost_survival"],
+      "kill_rules": ["missing_funding_data", "pf_net_below_0_9_after_50_trades", "oos_expectancy_negative", "drawdown_above_10pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "id": "liquidation_cascade",
+      "thesis": "Large downside or upside liquidation cascades can create spot continuation or exhaustion opportunities when volatility expansion and depth recovery confirm the move.",
+      "data": ["spot_ohlcv", "spread_depth", "volatility_expansion", "liquidation_proxy_if_available"],
+      "symbols": ["BTCZEUR", "ETHZEUR", "SOLEUR", "AVAXEUR", "XRPZEUR"],
+      "timeframe": ["5m", "15m", "1h"],
+      "metrics": ["post_event_mfe_mae", "net_pnl", "profit_factor_net", "expectancy_net", "slippage_sensitivity"],
+      "kill_rules": ["event_proxy_missing", "slippage_dominates_edge", "three_negative_oos_folds", "single_symbol_profit_share_above_40pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "id": "volatility_breakout",
+      "thesis": "Range compression followed by volatility expansion and clean breakout confirmation may generate a larger expected move than the current micro-trade stack.",
+      "data": ["spot_ohlcv", "atr", "range_compression", "spread_depth", "fees_slippage"],
+      "symbols": ["AAVEEUR", "ADAEUR", "AVAXEUR", "BCHEUR", "XLMZEUR", "XRPZEUR"],
+      "timeframe": ["15m", "1h"],
+      "metrics": ["expected_move_bps", "net_edge_bps", "profit_factor_net", "walk_forward_stability", "drawdown"],
+      "kill_rules": ["expected_move_below_costs", "breakout_failure_rate_high", "pf_net_below_1_after_50_trades", "oos_folds_below_60pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "id": "cross_momentum",
+      "thesis": "Momentum leadership across correlated crypto assets may identify laggards with forward-safe net edge when the leader move is strong and costs remain low.",
+      "data": ["spot_ohlcv_multi_symbol", "rolling_correlation", "relative_momentum", "spread_depth"],
+      "symbols": ["BTCZEUR", "ETHZEUR", "SOLEUR", "ADAEUR", "XRPZEUR", "LINKEUR"],
+      "timeframe": ["15m", "1h"],
+      "metrics": ["leader_lagger_spread", "net_pnl", "profit_factor_net", "expectancy_net", "correlation_stability"],
+      "kill_rules": ["correlation_unstable", "laggard_signal_negative_after_costs", "pf_net_below_1_after_50_trades", "max_drawdown_above_10pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "id": "long_trend",
+      "thesis": "Long-only spot trend continuation on higher timeframes may be more suitable than frequent micro-trades if multi-timeframe trend quality, risk/reward, and cost pressure are favorable.",
+      "data": ["spot_ohlcv", "multi_timeframe_trend", "atr", "spread_depth", "fees_slippage"],
+      "symbols": ["BTCZEUR", "ETHZEUR", "SOLEUR", "TRXEUR", "BCHEUR", "ADAEUR"],
+      "timeframe": ["1h", "4h"],
+      "metrics": ["net_pnl", "profit_factor_net", "expectancy_net", "fold_positive_ratio", "max_drawdown", "trade_duration"],
+      "kill_rules": ["trend_quality_missing", "expectancy_negative_oos", "pf_net_below_1_after_50_trades", "drawdown_above_10pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    }
+  ],
+  "validation_pipeline": [
+    {
+      "name": "data_check",
+      "required_inputs": ["ohlcv", "cost_profile", "symbol_mapping"],
+      "pass_conditions": ["minimum_history_days_met", "no_duplicate_bars", "gap_report_created", "cost_profile_present"],
+      "budget": {"max_cpu_minutes": 5, "max_variants": 1, "max_symbols": 14},
+      "autostop_rules": ["stop_if_missing_required_data"],
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "name": "quick_net_test",
+      "required_inputs": ["signals", "fees", "spread", "slippage"],
+      "pass_conditions": ["net_pnl_after_costs_positive", "profit_factor_net_above_1"],
+      "budget": {"max_cpu_minutes": 10, "max_variants": 3, "max_symbols": 14},
+      "autostop_rules": ["stop_if_pf_net_below_0_9_after_30_trades"],
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "name": "walk_forward",
+      "required_inputs": ["time_ordered_folds", "baseline", "cost_profile"],
+      "pass_conditions": ["positive_oos_folds_ratio_at_least_0_6", "baseline_beaten_net"],
+      "budget": {"max_cpu_minutes": 20, "max_variants": 5, "max_symbols": 14},
+      "autostop_rules": ["stop_if_two_consecutive_oos_folds_negative"],
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "name": "monte_carlo_stress",
+      "required_inputs": ["closed_trades", "cost_stress_profile"],
+      "pass_conditions": ["survival_probability_acceptable", "drawdown_under_limit"],
+      "budget": {"max_cpu_minutes": 10, "max_variants": 2, "max_symbols": 14},
+      "autostop_rules": ["stop_if_bootstrap_expectancy_p95_below_zero"],
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "name": "shadow_observation",
+      "required_inputs": ["registry_record", "shadow_ledger", "no_live_flags"],
+      "pass_conditions": ["shadow_sample_size_met", "no_promotion", "no_paper_capital"],
+      "budget": {"max_cpu_minutes": 5, "max_variants": 1, "max_symbols": 14},
+      "autostop_rules": ["stop_if_rolling_pf_below_0_9", "stop_if_drawdown_above_10pct"],
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    }
+  ],
+  "shadow_monitor_rules": {
+    "max_consecutive_losses": 6,
+    "rolling_pf_warning_below": 0.9,
+    "rolling_expectancy_warning_below": 0.0,
+    "max_shadow_drawdown_pct": 10.0,
+    "action": "alert_only_no_runtime_change"
+  }
+}

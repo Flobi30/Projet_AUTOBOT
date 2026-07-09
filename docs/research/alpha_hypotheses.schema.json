@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AUTOBOT Research-Only Alpha Hypotheses",
+  "type": "object",
+  "required": ["schema_version", "updated_at", "research_only", "hypotheses", "validation_pipeline"],
+  "properties": {
+    "schema_version": {"type": "integer", "minimum": 1},
+    "updated_at": {"type": "string"},
+    "research_only": {"const": true},
+    "paper_capital_allowed": {"const": false},
+    "live_allowed": {"const": false},
+    "auto_promotion_allowed": {"const": false},
+    "hypotheses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "thesis", "data", "symbols", "timeframe", "metrics", "kill_rules", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "thesis": {"type": "string"},
+          "data": {"type": "array", "items": {"type": "string"}},
+          "symbols": {"type": "array", "items": {"type": "string"}},
+          "timeframe": {"type": "array", "items": {"type": "string"}},
+          "metrics": {"type": "array", "items": {"type": "string"}},
+          "kill_rules": {"type": "array", "items": {"type": "string"}},
+          "status": {
+            "type": "string",
+            "enum": ["idea", "data_check", "quick_test", "walk_forward", "monte_carlo", "shadow", "rejected", "paused"]
+          },
+          "paper_capital_allowed": {"const": false},
+          "live_allowed": {"const": false},
+          "promotable": {"const": false}
+        }
+      }
+    }
+  }
+}
