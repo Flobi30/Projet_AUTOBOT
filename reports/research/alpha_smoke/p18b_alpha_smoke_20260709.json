@@ -1,0 +1,1410 @@
+{
+  "availability": [
+    {
+      "available": true,
+      "cost_estimate": "L/M bounded smoke",
+      "duplicate_count": 275439,
+      "end_at": "2026-07-09T00:15:00+00:00",
+      "gap_count": 0,
+      "hypothesis_id": "volatility_breakout_high_conviction",
+      "reason": null,
+      "row_count": 68478,
+      "start_at": "2026-05-16T16:00:00+00:00",
+      "status": "READY",
+      "symbols": [
+        "ADAEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "5m"
+      ]
+    },
+    {
+      "available": true,
+      "cost_estimate": "L/M bounded smoke",
+      "duplicate_count": 275439,
+      "end_at": "2026-07-09T00:15:00+00:00",
+      "gap_count": 0,
+      "hypothesis_id": "long_timeframe_adaptive_trend",
+      "reason": null,
+      "row_count": 68478,
+      "start_at": "2026-05-16T16:00:00+00:00",
+      "status": "READY",
+      "symbols": [
+        "ADAEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "5m"
+      ]
+    },
+    {
+      "available": false,
+      "cost_estimate": "L/M bounded smoke",
+      "duplicate_count": 275439,
+      "end_at": "2026-07-09T00:15:00+00:00",
+      "gap_count": 0,
+      "hypothesis_id": "funding_basis",
+      "reason": "requires non-OHLCV derivatives/event data not available in this smoke runner",
+      "row_count": 68478,
+      "start_at": "2026-05-16T16:00:00+00:00",
+      "status": "MISSING_DATA",
+      "symbols": [
+        "ADAEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "5m"
+      ]
+    },
+    {
+      "available": false,
+      "cost_estimate": "L/M bounded smoke",
+      "duplicate_count": 275439,
+      "end_at": "2026-07-09T00:15:00+00:00",
+      "gap_count": 0,
+      "hypothesis_id": "liquidation_cascade",
+      "reason": "requires non-OHLCV derivatives/event data not available in this smoke runner",
+      "row_count": 68478,
+      "start_at": "2026-05-16T16:00:00+00:00",
+      "status": "MISSING_DATA",
+      "symbols": [
+        "ADAEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "5m"
+      ]
+    }
+  ],
+  "commit": "7748bf109cb34cc376398578a38b9bc6cd816fee",
+  "data_paths": [
+    "/app/data/research/daily/ohlcv"
+  ],
+  "generated_at": "2026-07-09T10:09:56.414619+00:00",
+  "json_report_path": null,
+  "live_promotion_allowed": false,
+  "markdown_report_path": null,
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "run_id": "p18b_alpha_smoke_20260709",
+  "safety_notes": [
+    "Read-only Alpha Hypothesis Lab smoke runner.",
+    "No runtime trading component is imported or called.",
+    "No order, paper capital, live flag, sizing, leverage, dashboard, or promotion path is touched.",
+    "Grid remains archived/no-go; trend and mean reversion remain benchmarks only."
+  ],
+  "skipped": [
+    {
+      "hypothesis_id": "funding_basis",
+      "live_allowed": false,
+      "paper_capital_allowed": false,
+      "promotable": false,
+      "reason": "requires derivatives funding/liquidation data not collected in the current Kraken Spot OHLCV research store",
+      "status": "MISSING_DATA"
+    },
+    {
+      "hypothesis_id": "liquidation_cascade",
+      "live_allowed": false,
+      "paper_capital_allowed": false,
+      "promotable": false,
+      "reason": "requires derivatives funding/liquidation data not collected in the current Kraken Spot OHLCV research store",
+      "status": "MISSING_DATA"
+    }
+  ],
+  "tested": [
+    {
+      "best_variant": "fixed_tp_sl__min500bps__rr2__hold72h",
+      "decision": "KEEP_RESEARCH",
+      "elapsed_seconds": 6.681899,
+      "hypothesis_id": "volatility_breakout_high_conviction",
+      "metrics": {
+        "by_period": {},
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": 16.86005,
+            "trade_count": 59
+          },
+          "BCHEUR": {
+            "net_pnl_eur": 93.768388,
+            "trade_count": 51
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -2.761545,
+            "trade_count": 23
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -64.437705,
+            "trade_count": 43
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -32.436502,
+            "trade_count": 30
+          }
+        },
+        "expectancy_net": 0.05336255339805825,
+        "max_drawdown_eur": 119.800035,
+        "net_pnl_eur": 10.992686,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 1.0247690793047701,
+        "total_cost_bps": 20188.0,
+        "trade_count": 206,
+        "winrate_pct": 36.89320388349515
+      },
+      "reasons": [
+        "positive_smoke_requires_walk_forward_before_shadow",
+        "no_shadow_or_paper_allowed"
+      ],
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "variant_count": 3,
+      "variants": [
+        {
+          "average_duration_minutes": 1371.4786585365853,
+          "average_loss_bps": -282.47230127751186,
+          "average_mae_bps": -170.17216665548787,
+          "average_mfe_bps": 387.30078878658514,
+          "average_mfe_mae_ratio": 9.12379324137931,
+          "average_win_bps": 481.30179773109217,
+          "best_family": "breakout_1h_4h",
+          "best_symbol": "BCHEUR",
+          "blockers": [
+            "net_pnl_not_positive_after_costs",
+            "profit_factor_below_candidate_minimum",
+            "drawdown_above_candidate_maximum"
+          ],
+          "evaluated_setups": 356,
+          "expectancy_bps": -5.371332429878054,
+          "live_promotion_allowed": false,
+          "max_drawdown_bps": 16101.968119000003,
+          "net_pnl_eur": -17.617961,
+          "profit_factor": 0.9701576018016177,
+          "sample_trades": [
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1825.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1742.46244,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1742.46244,
+              "logical_stop_bps": 229.976512,
+              "mae_bps": -111.851893,
+              "mfe_bps": 2295.99427,
+              "mfe_mae_ratio": 20.527094,
+              "net_return_bps": 1644.46244,
+              "pnl_eur": 16.444624,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1810.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1740.678856,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1740.678856,
+              "logical_stop_bps": 239.019378,
+              "mae_bps": -135.766504,
+              "mfe_bps": 2266.256252,
+              "mfe_mae_ratio": 16.692308,
+              "net_return_bps": 1642.678856,
+              "pnl_eur": 16.426789,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1240.0,
+              "entry_at": "2026-06-15T09:50:00+00:00",
+              "entry_price": 183.95,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1733.789779,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1733.789779,
+              "logical_stop_bps": 280.534351,
+              "mae_bps": 43.490079,
+              "mfe_bps": 2131.557488,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1635.789779,
+              "pnl_eur": 16.357898,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T09:50:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1225.0,
+              "entry_at": "2026-06-15T10:05:00+00:00",
+              "entry_price": 186.17,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1728.617716,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1728.617716,
+              "logical_stop_bps": 326.159718,
+              "mae_bps": -14.502874,
+              "mfe_bps": 1986.893699,
+              "mfe_mae_ratio": 137.0,
+              "net_return_bps": 1630.617716,
+              "pnl_eur": 16.306177,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T10:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 25.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1393.969952,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1393.969952,
+              "logical_stop_bps": 115.345572,
+              "mae_bps": 12.672875,
+              "mfe_bps": 1666.207505,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1295.969952,
+              "pnl_eur": 12.9597,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 10.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1392.543085,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1392.543085,
+              "logical_stop_bps": 117.040771,
+              "mae_bps": 6.595943,
+              "mfe_bps": 1637.992635,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1294.543085,
+              "pnl_eur": 12.945431,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1390.0,
+              "entry_at": "2026-07-03T17:05:00+00:00",
+              "entry_price": 0.153381,
+              "exit_at": "2026-07-04T16:15:00+00:00",
+              "exit_price": 0.171358,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1140.685566,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1140.685566,
+              "logical_stop_bps": 505.233786,
+              "mae_bps": -43.421284,
+              "mfe_bps": 1174.52618,
+              "mfe_mae_ratio": 27.04955,
+              "net_return_bps": 1042.685566,
+              "pnl_eur": 10.426856,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T17:05:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2210.0,
+              "entry_at": "2026-07-03T02:20:00+00:00",
+              "entry_price": 0.146904,
+              "exit_at": "2026-07-04T15:10:00+00:00",
+              "exit_price": 0.163656,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1099.959427,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1099.959427,
+              "logical_stop_bps": 506.857802,
+              "mae_bps": -294.818385,
+              "mfe_bps": 1143.399771,
+              "mfe_mae_ratio": 3.878319,
+              "net_return_bps": 1001.959427,
+              "pnl_eur": 10.019594,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T02:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1140.0,
+              "entry_at": "2026-07-02T23:35:00+00:00",
+              "entry_price": 0.14204,
+              "exit_at": "2026-07-03T18:35:00+00:00",
+              "exit_price": 0.157484,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1077.377703,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1077.377703,
+              "logical_stop_bps": 493.092369,
+              "mae_bps": -107.504928,
+              "mfe_bps": 1112.644326,
+              "mfe_mae_ratio": 10.349705,
+              "net_return_bps": 979.377703,
+              "pnl_eur": 9.793777,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-02T23:35:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2240.0,
+              "entry_at": "2026-07-03T01:35:00+00:00",
+              "entry_price": 0.144755,
+              "exit_at": "2026-07-04T14:55:00+00:00",
+              "exit_price": 0.160906,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1073.501399,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1073.501399,
+              "logical_stop_bps": 495.067696,
+              "mae_bps": -150.737453,
+              "mfe_bps": 1234.845083,
+              "mfe_mae_ratio": 8.192026,
+              "net_return_bps": 975.501399,
+              "pnl_eur": 9.755014,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T01:35:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1070.0,
+              "entry_at": "2026-07-03T01:20:00+00:00",
+              "entry_price": 0.143409,
+              "exit_at": "2026-07-03T19:10:00+00:00",
+              "exit_price": 0.158275,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1064.410233,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1064.410233,
+              "logical_stop_bps": 457.91968,
+              "mae_bps": -58.294807,
+              "mfe_bps": 1079.360431,
+              "mfe_mae_ratio": 18.51555,
+              "net_return_bps": 966.410233,
+              "pnl_eur": 9.664102,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T01:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1320.0,
+              "entry_at": "2026-07-03T18:20:00+00:00",
+              "entry_price": 0.155216,
+              "exit_at": "2026-07-04T16:20:00+00:00",
+              "exit_price": 0.171496,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1049.846476,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1049.846476,
+              "logical_stop_bps": 143.5991,
+              "mae_bps": -139.547469,
+              "mfe_bps": 1109.099577,
+              "mfe_mae_ratio": 7.94783,
+              "net_return_bps": 951.846476,
+              "pnl_eur": 9.518465,
+              "setup_id": "ADAEUR:volatility_expansion:2026-07-03T18:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            }
+          ],
+          "scenario": {
+            "exit_mode": "fixed_tp_sl",
+            "label": "fixed_tp_sl__min300bps__rr2__hold48h",
+            "max_hold_hours": 48.0,
+            "min_expected_move_bps": 300.0,
+            "risk_reward_ratio": 2.0
+          },
+          "skipped_expected_move": 28,
+          "skipped_missing_path": 0,
+          "skipped_rr": 0,
+          "status": "research_only",
+          "total_gross_return_bps": 30382.202963,
+          "total_net_return_bps": -1761.797037,
+          "trade_count": 328,
+          "trades_by_family": {
+            "breakout_1h_4h": {
+              "net_pnl_eur": 50.796569,
+              "trade_count": 242
+            },
+            "volatility_expansion": {
+              "net_pnl_eur": -68.41453,
+              "trade_count": 86
+            }
+          },
+          "trades_by_symbol": {
+            "ADAEUR": {
+              "net_pnl_eur": 51.620663,
+              "trade_count": 72
+            },
+            "BCHEUR": {
+              "net_pnl_eur": 65.055476,
+              "trade_count": 69
+            },
+            "BTCZEUR": {
+              "net_pnl_eur": -17.351917,
+              "trade_count": 18
+            },
+            "ETHZEUR": {
+              "net_pnl_eur": -37.026987,
+              "trade_count": 52
+            },
+            "SOLEUR": {
+              "net_pnl_eur": -38.195206,
+              "trade_count": 67
+            },
+            "XRPZEUR": {
+              "net_pnl_eur": -41.71999,
+              "trade_count": 50
+            }
+          },
+          "winrate_pct": 36.28048780487805,
+          "worst_family": "volatility_expansion",
+          "worst_symbol": "XRPZEUR"
+        },
+        {
+          "average_duration_minutes": 2001.868932038835,
+          "average_loss_bps": -341.3896627615385,
+          "average_mae_bps": -216.98629239320388,
+          "average_mfe_bps": 501.078887116505,
+          "average_mfe_mae_ratio": 8.540675094527357,
+          "average_win_bps": 598.4200546184211,
+          "best_family": "breakout_1h_4h",
+          "best_symbol": "BCHEUR",
+          "blockers": [
+            "profit_factor_below_candidate_minimum",
+            "drawdown_above_candidate_maximum"
+          ],
+          "evaluated_setups": 356,
+          "expectancy_bps": 5.336252388349549,
+          "live_promotion_allowed": false,
+          "max_drawdown_bps": 11980.003500999997,
+          "net_pnl_eur": 10.992686,
+          "profit_factor": 1.0247690793047701,
+          "sample_trades": [
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1825.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1742.46244,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1742.46244,
+              "logical_stop_bps": 229.976512,
+              "mae_bps": -111.851893,
+              "mfe_bps": 2295.99427,
+              "mfe_mae_ratio": 20.527094,
+              "net_return_bps": 1644.46244,
+              "pnl_eur": 16.444624,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1810.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1740.678856,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1740.678856,
+              "logical_stop_bps": 239.019378,
+              "mae_bps": -135.766504,
+              "mfe_bps": 2266.256252,
+              "mfe_mae_ratio": 16.692308,
+              "net_return_bps": 1642.678856,
+              "pnl_eur": 16.426789,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1240.0,
+              "entry_at": "2026-06-15T09:50:00+00:00",
+              "entry_price": 183.95,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1733.789779,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1733.789779,
+              "logical_stop_bps": 280.534351,
+              "mae_bps": 43.490079,
+              "mfe_bps": 2131.557488,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1635.789779,
+              "pnl_eur": 16.357898,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T09:50:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1225.0,
+              "entry_at": "2026-06-15T10:05:00+00:00",
+              "entry_price": 186.17,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1728.617716,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1728.617716,
+              "logical_stop_bps": 326.159718,
+              "mae_bps": -14.502874,
+              "mfe_bps": 1986.893699,
+              "mfe_mae_ratio": 137.0,
+              "net_return_bps": 1630.617716,
+              "pnl_eur": 16.306177,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T10:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 25.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1393.969952,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1393.969952,
+              "logical_stop_bps": 115.345572,
+              "mae_bps": 12.672875,
+              "mfe_bps": 1666.207505,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1295.969952,
+              "pnl_eur": 12.9597,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 10.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1392.543085,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1392.543085,
+              "logical_stop_bps": 117.040771,
+              "mae_bps": 6.595943,
+              "mfe_bps": 1637.992635,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1294.543085,
+              "pnl_eur": 12.945431,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1390.0,
+              "entry_at": "2026-07-03T17:05:00+00:00",
+              "entry_price": 0.153381,
+              "exit_at": "2026-07-04T16:15:00+00:00",
+              "exit_price": 0.171358,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1140.685566,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1140.685566,
+              "logical_stop_bps": 505.233786,
+              "mae_bps": -43.421284,
+              "mfe_bps": 1174.52618,
+              "mfe_mae_ratio": 27.04955,
+              "net_return_bps": 1042.685566,
+              "pnl_eur": 10.426856,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T17:05:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2210.0,
+              "entry_at": "2026-07-03T02:20:00+00:00",
+              "entry_price": 0.146904,
+              "exit_at": "2026-07-04T15:10:00+00:00",
+              "exit_price": 0.163656,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1099.959427,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1099.959427,
+              "logical_stop_bps": 506.857802,
+              "mae_bps": -294.818385,
+              "mfe_bps": 1143.399771,
+              "mfe_mae_ratio": 3.878319,
+              "net_return_bps": 1001.959427,
+              "pnl_eur": 10.019594,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T02:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1140.0,
+              "entry_at": "2026-07-02T23:35:00+00:00",
+              "entry_price": 0.14204,
+              "exit_at": "2026-07-03T18:35:00+00:00",
+              "exit_price": 0.157484,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1077.377703,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1077.377703,
+              "logical_stop_bps": 493.092369,
+              "mae_bps": -107.504928,
+              "mfe_bps": 1112.644326,
+              "mfe_mae_ratio": 10.349705,
+              "net_return_bps": 979.377703,
+              "pnl_eur": 9.793777,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-02T23:35:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2240.0,
+              "entry_at": "2026-07-03T01:35:00+00:00",
+              "entry_price": 0.144755,
+              "exit_at": "2026-07-04T14:55:00+00:00",
+              "exit_price": 0.160906,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1073.501399,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1073.501399,
+              "logical_stop_bps": 495.067696,
+              "mae_bps": -150.737453,
+              "mfe_bps": 1234.845083,
+              "mfe_mae_ratio": 8.192026,
+              "net_return_bps": 975.501399,
+              "pnl_eur": 9.755014,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T01:35:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1070.0,
+              "entry_at": "2026-07-03T01:20:00+00:00",
+              "entry_price": 0.143409,
+              "exit_at": "2026-07-03T19:10:00+00:00",
+              "exit_price": 0.158275,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1064.410233,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1064.410233,
+              "logical_stop_bps": 457.91968,
+              "mae_bps": -58.294807,
+              "mfe_bps": 1079.360431,
+              "mfe_mae_ratio": 18.51555,
+              "net_return_bps": 966.410233,
+              "pnl_eur": 9.664102,
+              "setup_id": "ADAEUR:breakout_1h_4h:2026-07-03T01:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1320.0,
+              "entry_at": "2026-07-03T18:20:00+00:00",
+              "entry_price": 0.155216,
+              "exit_at": "2026-07-04T16:20:00+00:00",
+              "exit_price": 0.171496,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1049.846476,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1049.846476,
+              "logical_stop_bps": 143.5991,
+              "mae_bps": -139.547469,
+              "mfe_bps": 1109.099577,
+              "mfe_mae_ratio": 7.94783,
+              "net_return_bps": 951.846476,
+              "pnl_eur": 9.518465,
+              "setup_id": "ADAEUR:volatility_expansion:2026-07-03T18:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            }
+          ],
+          "scenario": {
+            "exit_mode": "fixed_tp_sl",
+            "label": "fixed_tp_sl__min500bps__rr2__hold72h",
+            "max_hold_hours": 72.0,
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 2.0
+          },
+          "skipped_expected_move": 150,
+          "skipped_missing_path": 0,
+          "skipped_rr": 0,
+          "status": "research_only",
+          "total_gross_return_bps": 21287.267992,
+          "total_net_return_bps": 1099.267992,
+          "trade_count": 206,
+          "trades_by_family": {
+            "breakout_1h_4h": {
+              "net_pnl_eur": 58.00613,
+              "trade_count": 157
+            },
+            "volatility_expansion": {
+              "net_pnl_eur": -47.013444,
+              "trade_count": 49
+            }
+          },
+          "trades_by_symbol": {
+            "ADAEUR": {
+              "net_pnl_eur": 16.86005,
+              "trade_count": 59
+            },
+            "BCHEUR": {
+              "net_pnl_eur": 93.768388,
+              "trade_count": 51
+            },
+            "ETHZEUR": {
+              "net_pnl_eur": -2.761545,
+              "trade_count": 23
+            },
+            "SOLEUR": {
+              "net_pnl_eur": -64.437705,
+              "trade_count": 43
+            },
+            "XRPZEUR": {
+              "net_pnl_eur": -32.436502,
+              "trade_count": 30
+            }
+          },
+          "winrate_pct": 36.89320388349515,
+          "worst_family": "volatility_expansion",
+          "worst_symbol": "SOLEUR"
+        },
+        {
+          "average_duration_minutes": 964.927536231884,
+          "average_loss_bps": -287.77198718965525,
+          "average_mae_bps": -181.41544853623185,
+          "average_mfe_bps": 513.1793911449276,
+          "average_mfe_mae_ratio": 5.321254292307695,
+          "average_win_bps": 1108.7627001818182,
+          "best_family": "breakout_1h_4h",
+          "best_symbol": "BCHEUR",
+          "blockers": [
+            "net_pnl_not_positive_after_costs",
+            "profit_factor_below_candidate_minimum",
+            "drawdown_above_candidate_maximum"
+          ],
+          "evaluated_setups": 356,
+          "expectancy_bps": -65.13602253623188,
+          "live_promotion_allowed": false,
+          "max_drawdown_bps": 8668.832436,
+          "net_pnl_eur": -44.943852,
+          "profit_factor": 0.7307263751505438,
+          "sample_trades": [
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1825.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1742.46244,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1742.46244,
+              "logical_stop_bps": 229.976512,
+              "mae_bps": -111.851893,
+              "mfe_bps": 2295.99427,
+              "mfe_mae_ratio": 20.527094,
+              "net_return_bps": 1644.46244,
+              "pnl_eur": 16.444624,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1810.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1740.678856,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1740.678856,
+              "logical_stop_bps": 239.019378,
+              "mae_bps": -135.766504,
+              "mfe_bps": 2266.256252,
+              "mfe_mae_ratio": 16.692308,
+              "net_return_bps": 1642.678856,
+              "pnl_eur": 16.426789,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1240.0,
+              "entry_at": "2026-06-15T09:50:00+00:00",
+              "entry_price": 183.95,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1733.789779,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1733.789779,
+              "logical_stop_bps": 280.534351,
+              "mae_bps": 43.490079,
+              "mfe_bps": 2131.557488,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1635.789779,
+              "pnl_eur": 16.357898,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T09:50:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1225.0,
+              "entry_at": "2026-06-15T10:05:00+00:00",
+              "entry_price": 186.17,
+              "exit_at": "2026-06-16T06:30:00+00:00",
+              "exit_price": 193.31,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1728.617716,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 1728.617716,
+              "logical_stop_bps": 326.159718,
+              "mae_bps": -14.502874,
+              "mfe_bps": 1986.893699,
+              "mfe_mae_ratio": 137.0,
+              "net_return_bps": 1630.617716,
+              "pnl_eur": 16.306177,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-15T10:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 25.0,
+              "entry_at": "2026-06-15T00:05:00+00:00",
+              "entry_price": 181.49,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1393.969952,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1393.969952,
+              "logical_stop_bps": 115.345572,
+              "mae_bps": 12.672875,
+              "mfe_bps": 1666.207505,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1295.969952,
+              "pnl_eur": 12.9597,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 10.0,
+              "entry_at": "2026-06-15T00:20:00+00:00",
+              "entry_price": 181.93,
+              "exit_at": "2026-06-15T00:30:00+00:00",
+              "exit_price": 182.14,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1392.543085,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1392.543085,
+              "logical_stop_bps": 117.040771,
+              "mae_bps": 6.595943,
+              "mfe_bps": 1637.992635,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 1294.543085,
+              "pnl_eur": 12.945431,
+              "setup_id": "BCHEUR:volatility_expansion:2026-06-15T00:20:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 1320.0,
+              "entry_at": "2026-07-03T18:20:00+00:00",
+              "entry_price": 0.155216,
+              "exit_at": "2026-07-04T16:20:00+00:00",
+              "exit_price": 0.171496,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 1049.846476,
+              "family": "volatility_expansion",
+              "gross_return_bps": 1049.846476,
+              "logical_stop_bps": 143.5991,
+              "mae_bps": -139.547469,
+              "mfe_bps": 1109.099577,
+              "mfe_mae_ratio": 7.94783,
+              "net_return_bps": 951.846476,
+              "pnl_eur": 9.518465,
+              "setup_id": "ADAEUR:volatility_expansion:2026-07-03T18:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 3320.0,
+              "entry_at": "2026-06-13T04:00:00+00:00",
+              "entry_price": 0.97951,
+              "exit_at": "2026-06-15T11:20:00+00:00",
+              "exit_price": 1.05377,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 702.381319,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": 702.381319,
+              "logical_stop_bps": 158.08596,
+              "mae_bps": -45.941338,
+              "mfe_bps": 781.513206,
+              "mfe_mae_ratio": 17.011111,
+              "net_return_bps": 604.381319,
+              "pnl_eur": 6.043813,
+              "setup_id": "XRPZEUR:breakout_1h_4h:2026-06-13T04:00:00+00:00",
+              "side": "buy",
+              "symbol": "XRPZEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 800.0,
+              "entry_at": "2026-06-14T23:20:00+00:00",
+              "entry_price": 0.152415,
+              "exit_at": "2026-06-15T12:40:00+00:00",
+              "exit_price": 0.162934,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 616.632704,
+              "family": "volatility_expansion",
+              "gross_return_bps": 616.632704,
+              "logical_stop_bps": 107.112936,
+              "mae_bps": 11.416199,
+              "mfe_bps": 690.155168,
+              "mfe_mae_ratio": null,
+              "net_return_bps": 518.632704,
+              "pnl_eur": 5.186327,
+              "setup_id": "ADAEUR:volatility_expansion:2026-06-14T23:20:00+00:00",
+              "side": "buy",
+              "symbol": "ADAEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2985.0,
+              "entry_at": "2026-07-02T13:20:00+00:00",
+              "entry_price": 1471.16,
+              "exit_at": "2026-07-04T15:05:00+00:00",
+              "exit_price": 1562.86,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 586.913579,
+              "family": "volatility_expansion",
+              "gross_return_bps": 586.913579,
+              "logical_stop_bps": 100.0,
+              "mae_bps": -36.637755,
+              "mfe_bps": 683.134397,
+              "mfe_mae_ratio": 18.64564,
+              "net_return_bps": 488.913579,
+              "pnl_eur": 4.889136,
+              "setup_id": "ETHZEUR:volatility_expansion:2026-07-02T13:20:00+00:00",
+              "side": "buy",
+              "symbol": "ETHZEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 2625.0,
+              "entry_at": "2026-06-13T04:00:00+00:00",
+              "entry_price": 57.7,
+              "exit_at": "2026-06-14T23:45:00+00:00",
+              "exit_price": 61.17,
+              "exit_reason": "take_profit",
+              "expected_move_bps": 586.553796,
+              "family": "volatility_expansion",
+              "gross_return_bps": 586.553796,
+              "logical_stop_bps": 100.0,
+              "mae_bps": -19.064125,
+              "mfe_bps": 601.386482,
+              "mfe_mae_ratio": 31.545455,
+              "net_return_bps": 488.553796,
+              "pnl_eur": 4.885538,
+              "setup_id": "SOLEUR:volatility_expansion:2026-06-13T04:00:00+00:00",
+              "side": "buy",
+              "symbol": "SOLEUR"
+            },
+            {
+              "cost_bps": 98.0,
+              "duration_minutes": 540.0,
+              "entry_at": "2026-06-20T05:05:00+00:00",
+              "entry_price": 172.84,
+              "exit_at": "2026-06-20T14:05:00+00:00",
+              "exit_price": 170.91,
+              "exit_reason": "logical_stop",
+              "expected_move_bps": 637.956632,
+              "family": "breakout_1h_4h",
+              "gross_return_bps": -94.201176,
+              "logical_stop_bps": 94.201176,
+              "mae_bps": -111.663967,
+              "mfe_bps": 111.663967,
+              "mfe_mae_ratio": 1.0,
+              "net_return_bps": -192.201176,
+              "pnl_eur": -1.922012,
+              "setup_id": "BCHEUR:breakout_1h_4h:2026-06-20T05:05:00+00:00",
+              "side": "buy",
+              "symbol": "BCHEUR"
+            }
+          ],
+          "scenario": {
+            "exit_mode": "fixed_tp_sl",
+            "label": "fixed_tp_sl__min500bps__rr3__hold72h",
+            "max_hold_hours": 72.0,
+            "min_expected_move_bps": 500.0,
+            "risk_reward_ratio": 3.0
+          },
+          "skipped_expected_move": 150,
+          "skipped_missing_path": 0,
+          "skipped_rr": 137,
+          "status": "research_only",
+          "total_gross_return_bps": 2267.614445,
+          "total_net_return_bps": -4494.385555,
+          "trade_count": 69,
+          "trades_by_family": {
+            "breakout_1h_4h": {
+              "net_pnl_eur": 2.069592,
+              "trade_count": 20
+            },
+            "volatility_expansion": {
+              "net_pnl_eur": -47.013444,
+              "trade_count": 49
+            }
+          },
+          "trades_by_symbol": {
+            "ADAEUR": {
+              "net_pnl_eur": -47.669397,
+              "trade_count": 22
+            },
+            "BCHEUR": {
+              "net_pnl_eur": 41.133037,
+              "trade_count": 20
+            },
+            "ETHZEUR": {
+              "net_pnl_eur": -9.195237,
+              "trade_count": 8
+            },
+            "SOLEUR": {
+              "net_pnl_eur": -15.096929,
+              "trade_count": 9
+            },
+            "XRPZEUR": {
+              "net_pnl_eur": -14.115326,
+              "trade_count": 10
+            }
+          },
+          "winrate_pct": 15.942028985507244,
+          "worst_family": "volatility_expansion",
+          "worst_symbol": "ADAEUR"
+        }
+      ]
+    },
+    {
+      "best_variant": "1h_sma20_50_trend250_hold168_rr3",
+      "decision": "REJECT_FAST",
+      "elapsed_seconds": 0.429107,
+      "hypothesis_id": "long_timeframe_adaptive_trend",
+      "metrics": {
+        "by_period": {
+          "2026-05-21": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-22": {
+            "net_pnl_eur": -33.22,
+            "trade_count": 14
+          },
+          "2026-05-24": {
+            "net_pnl_eur": -29.883189,
+            "trade_count": 13
+          },
+          "2026-05-26": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-29": {
+            "net_pnl_eur": -2.524571,
+            "trade_count": 1
+          },
+          "2026-05-30": {
+            "net_pnl_eur": -4.703262,
+            "trade_count": 2
+          },
+          "2026-05-31": {
+            "net_pnl_eur": -29.131388,
+            "trade_count": 12
+          },
+          "2026-06-07": {
+            "net_pnl_eur": -14.540495,
+            "trade_count": 14
+          },
+          "2026-06-08": {
+            "net_pnl_eur": -16.683468,
+            "trade_count": 15
+          },
+          "2026-06-09": {
+            "net_pnl_eur": -91.805922,
+            "trade_count": 28
+          },
+          "2026-06-10": {
+            "net_pnl_eur": -12.913706,
+            "trade_count": 4
+          },
+          "2026-06-12": {
+            "net_pnl_eur": -15.267474,
+            "trade_count": 8
+          },
+          "2026-06-13": {
+            "net_pnl_eur": 2.990244,
+            "trade_count": 3
+          },
+          "2026-06-14": {
+            "net_pnl_eur": -45.917374,
+            "trade_count": 44
+          },
+          "2026-06-15": {
+            "net_pnl_eur": 21.199108,
+            "trade_count": 20
+          },
+          "2026-06-16": {
+            "net_pnl_eur": 20.801241,
+            "trade_count": 13
+          },
+          "2026-06-17": {
+            "net_pnl_eur": -33.399439,
+            "trade_count": 12
+          },
+          "2026-06-20": {
+            "net_pnl_eur": 7.879917,
+            "trade_count": 3
+          },
+          "2026-06-21": {
+            "net_pnl_eur": -17.452139,
+            "trade_count": 7
+          },
+          "2026-06-22": {
+            "net_pnl_eur": -11.815082,
+            "trade_count": 15
+          },
+          "2026-06-26": {
+            "net_pnl_eur": 4.208332,
+            "trade_count": 1
+          },
+          "2026-06-27": {
+            "net_pnl_eur": -17.508354,
+            "trade_count": 7
+          },
+          "2026-06-28": {
+            "net_pnl_eur": -47.944331,
+            "trade_count": 15
+          },
+          "2026-06-29": {
+            "net_pnl_eur": 12.345109,
+            "trade_count": 3
+          },
+          "2026-06-30": {
+            "net_pnl_eur": -57.053961,
+            "trade_count": 19
+          },
+          "2026-07-01": {
+            "net_pnl_eur": 11.807354,
+            "trade_count": 10
+          },
+          "2026-07-02": {
+            "net_pnl_eur": 44.449014,
+            "trade_count": 17
+          },
+          "2026-07-03": {
+            "net_pnl_eur": 81.541517,
+            "trade_count": 24
+          },
+          "2026-07-04": {
+            "net_pnl_eur": 59.965864,
+            "trade_count": 33
+          },
+          "2026-07-05": {
+            "net_pnl_eur": -1.088526,
+            "trade_count": 17
+          },
+          "2026-07-06": {
+            "net_pnl_eur": -40.825737,
+            "trade_count": 16
+          },
+          "2026-07-07": {
+            "net_pnl_eur": -6.043853,
+            "trade_count": 2
+          },
+          "2026-07-08": {
+            "net_pnl_eur": -14.766857,
+            "trade_count": 6
+          }
+        },
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": -68.806588,
+            "trade_count": 76
+          },
+          "BCHEUR": {
+            "net_pnl_eur": -33.387116,
+            "trade_count": 76
+          },
+          "BTCZEUR": {
+            "net_pnl_eur": -36.059423,
+            "trade_count": 47
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -39.553207,
+            "trade_count": 56
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -53.841125,
+            "trade_count": 82
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -60.533969,
+            "trade_count": 67
+          }
+        },
+        "expectancy_net": -0.723221356435643,
+        "max_drawdown_eur": 294.092956,
+        "net_pnl_eur": -292.181428,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 0.5992017913191805,
+        "total_cost_bps": 39592.0,
+        "trade_count": 404,
+        "winrate_pct": 34.4059405940594
+      },
+      "reasons": [
+        "edge_net_not_positive",
+        "profit_factor_net_not_above_1",
+        "expectancy_net_not_positive"
+      ],
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "variant_count": 3,
+      "variants": [
+        {
+          "expectancy": -0.7740042048192775,
+          "live_allowed": false,
+          "max_drawdown_eur": 129.350495,
+          "net_pnl_eur": -128.484698,
+          "paper_capital_allowed": false,
+          "profit_factor": 0.5799500914739001,
+          "promotable": false,
+          "scenario": {
+            "label": "1h_sma20_50_trend150_hold72_rr2",
+            "max_hold_bars": 72,
+            "min_trend_bps": 150.0,
+            "rr": 2.0
+          },
+          "status": "research_only",
+          "trade_count": 166,
+          "winrate_pct": 34.93975903614458
+        },
+        {
+          "expectancy": -0.7226573445378155,
+          "live_allowed": false,
+          "max_drawdown_eur": 92.194315,
+          "net_pnl_eur": -85.996224,
+          "paper_capital_allowed": false,
+          "profit_factor": 0.6178807830784139,
+          "promotable": false,
+          "scenario": {
+            "label": "1h_sma20_50_trend250_hold72_rr2",
+            "max_hold_bars": 72,
+            "min_trend_bps": 250.0,
+            "rr": 2.0
+          },
+          "status": "research_only",
+          "trade_count": 119,
+          "winrate_pct": 36.97478991596639
+        },
+        {
+          "expectancy": -0.6529454285714292,
+          "live_allowed": false,
+          "max_drawdown_eur": 79.612034,
+          "net_pnl_eur": -77.700506,
+          "paper_capital_allowed": false,
+          "profit_factor": 0.6077088535248774,
+          "promotable": false,
+          "scenario": {
+            "label": "1h_sma20_50_trend250_hold168_rr3",
+            "max_hold_bars": 168,
+            "min_trend_bps": 250.0,
+            "rr": 3.0
+          },
+          "status": "research_only",
+          "trade_count": 119,
+          "winrate_pct": 31.092436974789916
+        }
+      ]
+    }
+  ]
+}
