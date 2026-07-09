@@ -14,6 +14,7 @@ from autobot.v2.research.alpha_hypothesis_scheduler import (
     AlphaSchedulerConfig,
     AlphaSchedulerError,
     ResearchMemoryRecord,
+    backfill_alpha_research_memory,
     build_alpha_hypothesis_scheduler_report,
     load_alpha_knowledge_base,
     load_alpha_research_memory,
@@ -148,6 +149,86 @@ def test_scheduler_cli_is_registered():
     assert args.command == "alpha-hypothesis-scheduler"
     assert args.max_variants == 5
     assert args.max_symbols == 6
+
+
+def test_memory_backfill_is_idempotent_and_adds_historical_records(tmp_path):
+    memory_path = tmp_path / "memory.json"
+
+    first = backfill_alpha_research_memory(memory_path=memory_path)
+    second = backfill_alpha_research_memory(memory_path=memory_path)
+    memory = load_alpha_research_memory(memory_path)
+    run_ids = [record.run_id for record in memory.records]
+
+    assert first.added_count >= 5
+    assert second.added_count == 0
+    assert len(run_ids) == len(set(run_ids))
+    assert "p17_high_conviction_history_20260709" in run_ids
+    assert "relative_value_20260622" in run_ids
+    assert all(record.paper_capital_allowed is False for record in memory.records)
+    assert all(record.live_allowed is False for record in memory.records)
+    assert all(record.promotable is False for record in memory.records)
+
+
+def test_rejected_long_trend_and_volatility_receive_zero_priority_after_backfill(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    memory_path = tmp_path / "memory.json"
+    backfill_alpha_research_memory(memory_path=memory_path)
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_backfilled_scheduler",
+            state_db=tmp_path / "state.db",
+            data_paths=(data_dir,),
+            memory_path=memory_path,
+        )
+    )
+    by_template = {item.template_id: item for item in report.candidates}
+
+    assert by_template["regime_filtered_trend"].status == "REJECTED_CURRENT_CONFIG"
+    assert by_template["regime_filtered_trend"].priority_score == 0
+    assert by_template["breakout_after_compression"].status == "REJECTED_CURRENT_CONFIG"
+    assert by_template["breakout_after_compression"].priority_score == 0
+
+
+def test_adapter_backlog_contains_only_missing_adapters_and_prioritizes_data_ready(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    memory_path = tmp_path / "memory.json"
+    backfill_alpha_research_memory(memory_path=memory_path)
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_adapter_backlog",
+            state_db=None,
+            data_paths=(data_dir,),
+            memory_path=memory_path,
+        )
+    )
+
+    adapter_ids = {item.adapter_id for item in report.adapter_backlog}
+    assert "leader_laggard_momentum_adapter" in adapter_ids
+    assert "relative_strength_rotation_adapter" in adapter_ids
+    assert {item.template_id for item in report.adapter_backlog}.issuperset(
+        {"leader_laggard_momentum", "relative_strength_rotation", "funding_extreme_reversion"}
+    )
+    data_ready = [item for item in report.adapter_backlog if item.data_ready]
+    data_missing = [item for item in report.adapter_backlog if not item.data_ready]
+    assert data_ready
+    assert data_missing
+    assert min(item.priority_score for item in data_ready) > max(item.priority_score for item in data_missing)
+    assert report.top_recommended_adapter is not None
+    assert report.top_recommended_adapter.template_id in {"leader_laggard_momentum", "relative_strength_rotation"}
+
+
+def test_backfilled_grid_remains_no_go_and_rejected(tmp_path):
+    memory_path = tmp_path / "memory.json"
+    backfill_alpha_research_memory(memory_path=memory_path)
+    memory = load_alpha_research_memory(memory_path)
+    grid_record = next(record for record in memory.records if record.hypothesis_id == "grid")
+
+    assert "grid" in memory.rejected_hypotheses()
+    assert grid_record.final_status == "RETIRED_FROM_EXECUTION"
+    assert grid_record.paper_capital_allowed is False
+    assert grid_record.live_allowed is False
 
 
 def test_data_readiness_detects_ohlcv_symbols_and_timeframes(tmp_path):

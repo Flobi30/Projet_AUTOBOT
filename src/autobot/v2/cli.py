@@ -322,6 +322,11 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_scheduler.add_argument("--max-variants", type=int, default=5)
     alpha_hypothesis_scheduler.add_argument("--max-symbols", type=int, default=6)
     alpha_hypothesis_scheduler.add_argument("--max-runtime-seconds", type=int, default=300)
+    alpha_hypothesis_scheduler.add_argument(
+        "--no-memory-backfill",
+        action="store_true",
+        help="Skip conservative historical memory backfill before ranking",
+    )
     alpha_hypothesis_scheduler.set_defaults(handler=_cmd_alpha_hypothesis_scheduler)
 
     strategy_autonomy = subparsers.add_parser(
@@ -1920,29 +1925,39 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
 
 
 def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
+    from dataclasses import replace
+
     from autobot.v2.research.alpha_hypothesis_scheduler import (
         AlphaSchedulerConfig,
+        backfill_alpha_research_memory,
         build_alpha_hypothesis_scheduler_report,
         write_alpha_hypothesis_scheduler_report,
     )
 
     run_id = args.run_id or "alpha_hypothesis_scheduler"
+    backfill = None
+    if not args.no_memory_backfill:
+        backfill = backfill_alpha_research_memory(memory_path=Path(args.memory_path))
+    
+    built = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id=run_id,
+            state_db=Path(args.state_db) if args.state_db else None,
+            data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+            knowledge_base_path=Path(args.knowledge_base),
+            templates_path=Path(args.templates),
+            hypotheses_path=Path(args.hypotheses),
+            memory_path=Path(args.memory_path),
+            output_dir=Path(args.output_dir),
+            max_variants=args.max_variants,
+            max_symbols=args.max_symbols,
+            max_runtime_seconds=args.max_runtime_seconds,
+        )
+    )
+    if backfill is not None:
+        built = replace(built, memory_backfill=backfill)
     report = write_alpha_hypothesis_scheduler_report(
-        build_alpha_hypothesis_scheduler_report(
-            AlphaSchedulerConfig(
-                run_id=run_id,
-                state_db=Path(args.state_db) if args.state_db else None,
-                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
-                knowledge_base_path=Path(args.knowledge_base),
-                templates_path=Path(args.templates),
-                hypotheses_path=Path(args.hypotheses),
-                memory_path=Path(args.memory_path),
-                output_dir=Path(args.output_dir),
-                max_variants=args.max_variants,
-                max_symbols=args.max_symbols,
-                max_runtime_seconds=args.max_runtime_seconds,
-            )
-        ),
+        built,
         Path(args.output_dir),
     )
     _print_json(report.to_dict())

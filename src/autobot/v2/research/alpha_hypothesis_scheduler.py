@@ -97,6 +97,28 @@ STATUSES = {
     "WAITING_FOR_MORE_DATA",
     "HUMAN_REVIEW_REQUIRED",
 }
+REJECTED_MEMORY_STATUSES = {
+    "ARCHIVED",
+    "BENCHMARK_REJECTED",
+    "DATA_MISSING",
+    "HISTORICAL_RESULT_MISSING",
+    "NO_GO",
+    "REJECT",
+    "REJECTED",
+    "REJECT_FAST",
+    "REJECTED_CURRENT_CONFIG",
+    "RETIRED",
+    "RETIRED_FROM_EXECUTION",
+}
+BACKFILL_SOURCE_REPORTS = {
+    "p17_high_conviction_history_20260709": Path("reports/research/p17_high_conviction_historical_validation_2026-07-09.md"),
+    "p18b_volatility_breakout_smoke_20260709": Path("reports/research/alpha_smoke/p18b_alpha_smoke_20260709.json"),
+    "p18d_alpha_hypothesis_runner_walk_forward_20260709": Path("reports/research/alpha_hypothesis_runner/p18d_alpha_hypothesis_runner_walk_forward_20260709.json"),
+    "p18e_alpha_runner_selected_smoke_20260709": Path("reports/research/alpha_hypothesis_runner/p18e_alpha_runner_selected_smoke_20260709.json"),
+    "strategy_edge_review_20260629": Path("reports/research/strategy_edge_improvement_2026_06_29.json"),
+    "relative_value_20260622": Path("reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json"),
+    "strategy_hypotheses_registry": Path("docs/research/strategy_hypotheses.json"),
+}
 
 
 class AlphaSchedulerError(ValueError):
@@ -125,6 +147,10 @@ class ResearchMemoryRecord:
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     promotable: bool = False
+    metrics: dict[str, Any] = field(default_factory=dict)
+    fold_results: tuple[dict[str, Any], ...] = ()
+    source_report_path: str | None = None
+    source_report_status: str = "available"
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ResearchMemoryRecord":
@@ -149,6 +175,10 @@ class ResearchMemoryRecord:
             paper_capital_allowed=bool(payload.get("paper_capital_allowed", False)),
             live_allowed=bool(payload.get("live_allowed", False)),
             promotable=bool(payload.get("promotable", False)),
+            metrics=dict(payload.get("metrics") or {}),
+            fold_results=tuple(dict(item) for item in payload.get("fold_results", ())),
+            source_report_path=payload.get("source_report_path"),
+            source_report_status=str(payload.get("source_report_status") or "available"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -157,6 +187,7 @@ class ResearchMemoryRecord:
         payload["gate_results"] = [dict(item) for item in self.gate_results]
         payload["rejection_reasons"] = list(self.rejection_reasons)
         payload["related_rejected_hypotheses"] = list(self.related_rejected_hypotheses)
+        payload["fold_results"] = [dict(item) for item in self.fold_results]
         return payload
 
 
@@ -191,13 +222,14 @@ class AlphaResearchMemory:
     def rejected_hypotheses(self) -> set[str]:
         rejected = set()
         for record in self.records:
-            if record.final_status in {"REJECT", "REJECTED", "REJECT_FAST", "DATA_MISSING"}:
+            if record.final_status.upper() in REJECTED_MEMORY_STATUSES:
                 rejected.add(record.hypothesis_id)
                 rejected.update(record.related_rejected_hypotheses)
         return rejected
 
     def add_record(self, record: ResearchMemoryRecord) -> "AlphaResearchMemory":
-        records = [*self.records, record]
+        records = [existing for existing in self.records if existing.run_id != record.run_id]
+        records.append(record)
         return AlphaResearchMemory(self.path, tuple(_with_running_counts(records)))
 
     def write(self, path: str | Path | None = None) -> None:
@@ -257,6 +289,51 @@ class ScheduledHypothesis:
 
 
 @dataclass(frozen=True)
+class AdapterBacklogItem:
+    adapter_id: str
+    template_id: str
+    alpha_family_id: str
+    hypotheses_blocked: tuple[str, ...]
+    data_ready: bool
+    data_missing_reasons: tuple[str, ...]
+    estimated_implementation_complexity: str
+    estimated_cpu_cost: str
+    expected_trade_frequency: str
+    current_vps_suitable: bool
+    expected_reuse_score: float
+    priority_score: float
+    reason_for_priority: str
+    blockers: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["hypotheses_blocked"] = list(self.hypotheses_blocked)
+        payload["data_missing_reasons"] = list(self.data_missing_reasons)
+        payload["blockers"] = list(self.blockers)
+        return payload
+
+
+@dataclass(frozen=True)
+class MemoryBackfillSummary:
+    before_count: int
+    after_count: int
+    added_count: int
+    updated_count: int
+    imported_run_ids: tuple[str, ...]
+    missing_sources: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "before_count": self.before_count,
+            "after_count": self.after_count,
+            "added_count": self.added_count,
+            "updated_count": self.updated_count,
+            "imported_run_ids": list(self.imported_run_ids),
+            "missing_sources": list(self.missing_sources),
+        }
+
+
+@dataclass(frozen=True)
 class AlphaSchedulerConfig:
     state_db: Path | None
     data_paths: tuple[Path, ...]
@@ -293,8 +370,11 @@ class AlphaSchedulerReport:
     trial_counts_by_template: dict[str, int]
     candidates: tuple[ScheduledHypothesis, ...]
     selected: ScheduledHypothesis | None
+    adapter_backlog: tuple[AdapterBacklogItem, ...]
+    top_recommended_adapter: AdapterBacklogItem | None
     next_runner_command: str | None
     safety_notes: tuple[str, ...]
+    memory_backfill: MemoryBackfillSummary | None = None
     json_report_path: str | None = None
     markdown_report_path: str | None = None
     paper_capital_allowed: bool = False
@@ -315,8 +395,11 @@ class AlphaSchedulerReport:
             "trial_counts_by_template": dict(self.trial_counts_by_template),
             "candidates": [item.to_dict() for item in self.candidates],
             "selected": self.selected.to_dict() if self.selected else None,
+            "adapter_backlog": [item.to_dict() for item in self.adapter_backlog],
+            "top_recommended_adapter": self.top_recommended_adapter.to_dict() if self.top_recommended_adapter else None,
             "next_runner_command": self.next_runner_command,
             "safety_notes": list(self.safety_notes),
+            "memory_backfill": self.memory_backfill.to_dict() if self.memory_backfill else None,
             "json_report_path": self.json_report_path,
             "markdown_report_path": self.markdown_report_path,
             "paper_capital_allowed": self.paper_capital_allowed,
@@ -410,10 +493,47 @@ def record_alpha_runner_trial(
         related_rejected_hypotheses=(report.hypothesis_id,) if _is_rejected_status(report.final_status) else (),
         do_not_rerun_until=None,
         requires_new_data_before_rerun=_is_rejected_status(report.final_status),
+        metrics=_metrics_from_runner_report(report),
     )
     updated = memory.add_record(record)
     updated.write(memory_path)
     return updated.records[-1]
+
+
+def backfill_alpha_research_memory(
+    *,
+    memory_path: str | Path,
+    repo_root: str | Path = ".",
+) -> MemoryBackfillSummary:
+    """Import bounded historical results into research memory.
+
+    The backfill is intentionally conservative: it imports metrics only from
+    known source reports, marks unavailable reports explicitly, and keeps all
+    imported records research-only/non-promotable.
+    """
+
+    root = Path(repo_root)
+    memory = load_alpha_research_memory(memory_path)
+    before_by_run = {record.run_id: record for record in memory.records}
+    imported: list[ResearchMemoryRecord] = []
+    missing_sources: list[str] = []
+    for record in _historical_backfill_records(root):
+        imported.append(record)
+        if record.source_report_status != "available":
+            missing_sources.append(record.run_id)
+        memory = memory.add_record(record)
+    memory.write(memory_path)
+    after_by_run = {record.run_id: record for record in memory.records}
+    added = [run_id for run_id in after_by_run if run_id not in before_by_run]
+    updated = [run_id for run_id in after_by_run if run_id in before_by_run and after_by_run[run_id] != before_by_run[run_id]]
+    return MemoryBackfillSummary(
+        before_count=len(before_by_run),
+        after_count=len(after_by_run),
+        added_count=len(added),
+        updated_count=len(updated),
+        imported_run_ids=tuple(record.run_id for record in imported),
+        missing_sources=tuple(missing_sources),
+    )
 
 
 def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> AlphaSchedulerReport:
@@ -453,6 +573,14 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     ranked = tuple(sorted(candidates, key=lambda item: (-item.priority_score, item.template_id)))
     selected = next((item for item in ranked if item.status == "RUNNABLE_SMOKE"), None)
     command = selected.recommended_command if selected else None
+    adapter_backlog = _build_adapter_backlog(
+        templates=templates,
+        families=family_by_id,
+        candidates=ranked,
+        memory=memory,
+        data=readiness,
+    )
+    top_adapter = next((item for item in adapter_backlog if item.priority_score > 0), None)
     return AlphaSchedulerReport(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -466,6 +594,8 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         trial_counts_by_template=template_counts,
         candidates=ranked,
         selected=selected,
+        adapter_backlog=adapter_backlog,
+        top_recommended_adapter=top_adapter,
         next_runner_command=command,
         safety_notes=(
             "Research-only scheduler.",
@@ -520,6 +650,30 @@ def render_alpha_hypothesis_scheduler_report(report: AlphaSchedulerReport) -> st
         lines.append(f"- Command: `{report.next_runner_command}`")
     else:
         lines.append("- No runnable smoke hypothesis. Build missing data/adapters first.")
+    lines.extend(["", "## Adapter Backlog", ""])
+    if report.adapter_backlog:
+        lines.append("| Rank | Adapter | Template | Family | Data ready | Priority | Reason |")
+        lines.append("|---:|---|---|---|---:|---:|---|")
+        for index, item in enumerate(report.adapter_backlog, start=1):
+            lines.append(
+                f"| {index} | `{item.adapter_id}` | `{item.template_id}` | `{item.alpha_family_id}` | "
+                f"`{item.data_ready}` | {item.priority_score:.2f} | {item.reason_for_priority} |"
+            )
+    else:
+        lines.append("- No missing adapters detected.")
+    lines.extend(["", "## Top Adapter Recommendation", ""])
+    if report.top_recommended_adapter:
+        item = report.top_recommended_adapter
+        lines.append(f"- Adapter: `{item.adapter_id}`")
+        lines.append(f"- Template: `{item.template_id}`")
+        lines.append(f"- Priority: `{item.priority_score:.2f}`")
+        lines.append(f"- Reason: {item.reason_for_priority}")
+    else:
+        lines.append("- No adapter is currently worth building before data/thesis changes.")
+    if report.memory_backfill:
+        lines.extend(["", "## Memory Backfill", ""])
+        for key, value in report.memory_backfill.to_dict().items():
+            lines.append(f"- `{key}`: `{value}`")
     lines.extend(["", "## Trial Counts", ""])
     lines.append(f"- By family: `{report.trial_counts_by_family}`")
     lines.append(f"- By template: `{report.trial_counts_by_template}`")
@@ -529,6 +683,411 @@ def render_alpha_hypothesis_scheduler_report(report: AlphaSchedulerReport) -> st
     lines.append(f"- live_allowed: `{report.live_allowed}`")
     lines.append(f"- promotable: `{report.promotable}`")
     return "\n".join(lines) + "\n"
+
+
+def _historical_backfill_records(repo_root: Path) -> tuple[ResearchMemoryRecord, ...]:
+    records: list[ResearchMemoryRecord] = []
+    records.append(_record_from_p17_high_conviction(repo_root))
+    records.append(_record_from_p18b_volatility(repo_root))
+    records.append(_record_from_runner_json(repo_root, "p18d_alpha_hypothesis_runner_walk_forward_20260709"))
+    records.append(_record_from_runner_json(repo_root, "p18e_alpha_runner_selected_smoke_20260709"))
+    records.extend(_records_from_strategy_edge(repo_root))
+    records.append(_record_from_relative_value(repo_root))
+    records.append(_record_from_grid_registry(repo_root))
+    return tuple(records)
+
+
+def _record_from_p17_high_conviction(repo_root: Path) -> ResearchMemoryRecord:
+    report_path = BACKFILL_SOURCE_REPORTS["p17_high_conviction_history_20260709"]
+    if not (repo_root / report_path).exists():
+        return _missing_source_record(
+            run_id="p17_high_conviction_history_20260709",
+            hypothesis_id="high_conviction_swing",
+            alpha_family_id="volatility_breakout",
+            template_id="breakout_after_compression",
+            source_report_path=report_path,
+        )
+    return ResearchMemoryRecord(
+        run_id="p17_high_conviction_history_20260709",
+        hypothesis_id="high_conviction_swing",
+        alpha_family_id="volatility_breakout",
+        template_id="breakout_after_compression",
+        created_at="2026-07-09T00:00:00+00:00",
+        data_snapshot={
+            "source": "historical_ohlcv_walk_forward",
+            "start_at": "2026-05-16T16:00:00Z",
+            "end_at": "2026-07-09T00:15:00Z",
+            "deduped_rows": 159782,
+            "folds": 13,
+        },
+        parameters_tested={
+            "min_expected_move_bps": 500,
+            "risk_reward_ratio": 2,
+            "max_hold_hours": 72,
+            "primary_exit_mode": "fixed_tp_sl",
+            "initial_capital_eur": 500,
+        },
+        variant_count=4,
+        symbols_tested=("AAVEEUR", "ADAEUR", "ATOMEUR", "AVAXEUR", "BCHEUR", "BTCZEUR", "DOTEUR", "ETHZEUR", "LINKEUR", "LTCZEUR", "SOLEUR", "TRXEUR", "XLMZEUR", "XRPZEUR"),
+        gate_results=(
+            {"gate": "WALK_FORWARD", "status": "REJECT", "passed": False},
+        ),
+        final_status="REJECTED",
+        rejection_reasons=(
+            "net_pnl_negative_after_costs",
+            "profit_factor_below_1",
+            "expectancy_negative",
+            "insufficient_positive_out_of_sample_folds",
+            "single_symbol_concentration",
+        ),
+        trial_count_for_family=4,
+        trial_count_for_template=4,
+        related_rejected_hypotheses=("high_conviction_swing",),
+        do_not_rerun_until=None,
+        requires_new_data_before_rerun=True,
+        metrics={
+            "trade_count": 82,
+            "profit_factor_net": 0.8772,
+            "net_pnl_eur": -16.53,
+            "expectancy_net": -0.2016,
+            "winrate_pct": 34.15,
+            "positive_folds": 4,
+            "fold_count": 13,
+            "max_drawdown_pct": 4.22,
+            "largest_positive_symbol_share": 0.4741,
+        },
+        fold_results=(
+            {"fold": 1, "net_pnl_eur": 0.0, "trade_count": 0},
+            {"fold": 2, "net_pnl_eur": 24.30, "profit_factor_net": 12.51, "trade_count": 5},
+            {"fold": 3, "net_pnl_eur": 18.70, "profit_factor_net": 3.93, "trade_count": 7},
+            {"fold": 4, "net_pnl_eur": -18.95, "profit_factor_net": 0.0, "trade_count": 6},
+            {"fold": 5, "net_pnl_eur": -2.89, "profit_factor_net": 0.61, "trade_count": 6},
+            {"fold": 6, "net_pnl_eur": -6.03, "profit_factor_net": 0.0, "trade_count": 3},
+            {"fold": 7, "net_pnl_eur": -4.69, "profit_factor_net": 0.67, "trade_count": 9},
+            {"fold": 8, "net_pnl_eur": -3.30, "profit_factor_net": 0.81, "trade_count": 9},
+            {"fold": 9, "net_pnl_eur": -14.00, "profit_factor_net": 0.0, "trade_count": 6},
+            {"fold": 10, "net_pnl_eur": -11.97, "profit_factor_net": 0.38, "trade_count": 10},
+            {"fold": 11, "net_pnl_eur": 5.02, "profit_factor_net": 1.44, "trade_count": 10},
+            {"fold": 12, "net_pnl_eur": 12.22, "profit_factor_net": 5.46, "trade_count": 5},
+            {"fold": 13, "net_pnl_eur": -14.92, "profit_factor_net": 0.0, "trade_count": 6},
+        ),
+        source_report_path=str(report_path),
+    )
+
+
+def _record_from_p18b_volatility(repo_root: Path) -> ResearchMemoryRecord:
+    source_path = BACKFILL_SOURCE_REPORTS["p18b_volatility_breakout_smoke_20260709"]
+    payload = _safe_load_json(repo_root / source_path)
+    if payload is None:
+        return _missing_source_record(
+            run_id="p18b_volatility_breakout_smoke_20260709",
+            hypothesis_id="volatility_breakout",
+            alpha_family_id="volatility_breakout",
+            template_id="breakout_after_compression",
+            source_report_path=source_path,
+        )
+    tested = next(
+        (item for item in payload.get("tested", ()) if item.get("hypothesis_id") == "volatility_breakout_high_conviction"),
+        {},
+    )
+    metrics = dict(tested.get("metrics") or {})
+    return ResearchMemoryRecord(
+        run_id="p18b_volatility_breakout_smoke_20260709",
+        hypothesis_id="volatility_breakout",
+        alpha_family_id="volatility_breakout",
+        template_id="breakout_after_compression",
+        created_at=str(payload.get("generated_at") or "2026-07-09T00:00:00+00:00"),
+        data_snapshot=_availability_for(payload, "volatility_breakout_high_conviction"),
+        parameters_tested={"best_variant": tested.get("best_variant"), "stage": "smoke"},
+        variant_count=max(1, int(tested.get("variant_count") or 1)),
+        symbols_tested=tuple((metrics.get("by_symbol") or {}).keys()),
+        gate_results=({"gate": "FAST_NET_EDGE_TEST", "status": tested.get("decision", "UNKNOWN"), "passed": tested.get("decision") == "KEEP_RESEARCH"},),
+        final_status=str(tested.get("decision") or "UNKNOWN"),
+        rejection_reasons=tuple(str(item) for item in tested.get("reasons", ())),
+        trial_count_for_family=max(1, int(tested.get("variant_count") or 1)),
+        trial_count_for_template=max(1, int(tested.get("variant_count") or 1)),
+        related_rejected_hypotheses=(),
+        do_not_rerun_until=None,
+        requires_new_data_before_rerun=False,
+        metrics={
+            "trade_count": metrics.get("trade_count"),
+            "profit_factor_net": metrics.get("profit_factor_net"),
+            "net_pnl_eur": metrics.get("net_pnl_eur"),
+            "expectancy_net": metrics.get("expectancy_net"),
+            "max_drawdown_eur": metrics.get("max_drawdown_eur"),
+            "winrate_pct": metrics.get("winrate_pct"),
+        },
+        source_report_path=str(source_path),
+    )
+
+
+def _record_from_runner_json(repo_root: Path, run_id: str) -> ResearchMemoryRecord:
+    source_path = BACKFILL_SOURCE_REPORTS.get(run_id, Path(f"reports/research/alpha_hypothesis_runner/{run_id}.json"))
+    payload = _safe_load_json(repo_root / source_path)
+    if payload is None:
+        return _missing_source_record(
+            run_id=run_id,
+            hypothesis_id="unknown",
+            alpha_family_id="unknown",
+            template_id="unknown",
+            source_report_path=source_path,
+        )
+    hypothesis_id = str(payload.get("hypothesis_id") or payload.get("requested_hypothesis_id") or "unknown")
+    alpha_family_id = "trend_momentum" if hypothesis_id == "long_trend" else hypothesis_id
+    template_id = "regime_filtered_trend" if hypothesis_id == "long_trend" else "breakout_after_compression"
+    gates = tuple(dict(item) for item in payload.get("gates", ()))
+    metrics = _metrics_from_gates(gates)
+    return ResearchMemoryRecord(
+        run_id=run_id,
+        hypothesis_id=hypothesis_id,
+        alpha_family_id=alpha_family_id,
+        template_id=template_id,
+        created_at=str(payload.get("generated_at") or "2026-07-09T00:00:00+00:00"),
+        data_snapshot={
+            "data_paths": list(payload.get("data_paths") or ()),
+            "state_db": payload.get("state_db"),
+        },
+        parameters_tested={
+            "mode": payload.get("mode"),
+            "max_stage_reached": gates[-1]["gate"] if gates else None,
+        },
+        variant_count=max(1, int(metrics.get("variant_count") or _variant_count_from_gate_dicts(gates))),
+        symbols_tested=tuple((metrics.get("by_symbol") or {}).keys()),
+        gate_results=tuple({"gate": item.get("gate"), "status": item.get("status"), "passed": item.get("passed")} for item in gates),
+        final_status=_memory_final_status(str(payload.get("final_status") or "UNKNOWN")),
+        rejection_reasons=tuple(str(item) for item in payload.get("reasons", ())),
+        trial_count_for_family=max(1, int(metrics.get("variant_count") or _variant_count_from_gate_dicts(gates))),
+        trial_count_for_template=max(1, int(metrics.get("variant_count") or _variant_count_from_gate_dicts(gates))),
+        related_rejected_hypotheses=(hypothesis_id,) if _is_rejected_status(str(payload.get("final_status") or "")) else (),
+        do_not_rerun_until="2026-07-16T00:00:00+00:00" if hypothesis_id == "volatility_breakout" else None,
+        requires_new_data_before_rerun=_is_rejected_status(str(payload.get("final_status") or "")),
+        metrics=metrics,
+        fold_results=tuple(_fold_results_from_gates(gates)),
+        source_report_path=str(source_path),
+    )
+
+
+def _records_from_strategy_edge(repo_root: Path) -> tuple[ResearchMemoryRecord, ...]:
+    source_path = BACKFILL_SOURCE_REPORTS["strategy_edge_review_20260629"]
+    payload = _safe_load_json(repo_root / source_path)
+    if payload is None:
+        return (
+            _missing_source_record(
+                run_id="strategy_edge_review_20260629",
+                hypothesis_id="strategy_edge_review",
+                alpha_family_id="strategy_edge",
+                template_id="strategy_edge_review",
+                source_report_path=source_path,
+            ),
+        )
+    records: list[ResearchMemoryRecord] = []
+    for item in payload.get("strategy_triage", ()):
+        strategy_name = str(item.get("strategy_name") or "unknown")
+        if strategy_name == "high_conviction_swing":
+            continue
+        final_status = _triage_status(strategy_name, item)
+        records.append(
+            ResearchMemoryRecord(
+                run_id=f"strategy_edge_review_20260629_{strategy_name}",
+                hypothesis_id=strategy_name,
+                alpha_family_id=_family_for_strategy(strategy_name),
+                template_id=_template_for_strategy(strategy_name),
+                created_at=str(payload.get("generated_at") or "2026-06-29T00:00:00+00:00"),
+                data_snapshot={"source": "strategy_edge_review"},
+                parameters_tested={"status_review": item.get("requested_status")},
+                variant_count=1,
+                symbols_tested=(),
+                gate_results=({"gate": "STRATEGY_TRIAGE", "status": final_status, "passed": False},),
+                final_status=final_status,
+                rejection_reasons=tuple(str(value) for value in item.get("blockers", ())),
+                trial_count_for_family=1,
+                trial_count_for_template=1,
+                related_rejected_hypotheses=(strategy_name,),
+                do_not_rerun_until=None,
+                requires_new_data_before_rerun=True,
+                metrics={
+                    "trade_count": item.get("trade_count"),
+                    "profit_factor_net": item.get("profit_factor"),
+                    "net_pnl_eur": item.get("net_pnl_eur"),
+                    "positive_folds": item.get("positive_folds"),
+                    "fold_count": item.get("total_folds"),
+                    "max_drawdown_pct": item.get("max_drawdown_pct"),
+                    "winrate_pct": item.get("winrate_pct"),
+                },
+                source_report_path=str(source_path),
+            )
+        )
+    return tuple(records)
+
+
+def _record_from_relative_value(repo_root: Path) -> ResearchMemoryRecord:
+    source_path = BACKFILL_SOURCE_REPORTS["relative_value_20260622"]
+    payload = _safe_load_json(repo_root / source_path)
+    if payload is None:
+        return _missing_source_record(
+            run_id="relative_value_20260622",
+            hypothesis_id="relative_value",
+            alpha_family_id="relative_value",
+            template_id="relative_value_pair_spread",
+            source_report_path=source_path,
+        )
+    base = next((item for item in payload.get("portfolio_results", ()) if item.get("cost_profile") == "paper_current_taker"), {})
+    stress = next((item for item in payload.get("portfolio_results", ()) if item.get("cost_profile") == "research_stress"), {})
+    blockers = tuple(str(item) for item in base.get("blockers", ()))
+    return ResearchMemoryRecord(
+        run_id="relative_value_20260622",
+        hypothesis_id="relative_value",
+        alpha_family_id="relative_value",
+        template_id="relative_value_pair_spread",
+        created_at=str(payload.get("generated_at") or "2026-06-22T00:00:00+00:00"),
+        data_snapshot={"data_paths": list(payload.get("data_paths") or ()), "timeframe": payload.get("timeframe")},
+        parameters_tested={"relationships": len(payload.get("relationships", ())), "cost_profiles": ("paper_current_taker", "research_stress")},
+        variant_count=2,
+        symbols_tested=tuple((base.get("pnl_by_symbol") or {}).keys()),
+        gate_results=({"gate": "PORTFOLIO_REPLAY", "status": "NO_GO", "passed": False},),
+        final_status="NO_GO",
+        rejection_reasons=blockers or ("relative_value_validation_failed",),
+        trial_count_for_family=2,
+        trial_count_for_template=2,
+        related_rejected_hypotheses=("relative_value",),
+        do_not_rerun_until=None,
+        requires_new_data_before_rerun=True,
+        metrics={
+            "trade_count": base.get("accepted_trade_count"),
+            "profit_factor_net": base.get("profit_factor"),
+            "net_pnl_eur": base.get("net_pnl_eur"),
+            "expectancy_net": base.get("expectancy_eur"),
+            "max_drawdown_pct": base.get("max_drawdown_pct"),
+            "winrate_pct": base.get("winrate_pct"),
+            "stress_profit_factor_net": stress.get("profit_factor"),
+            "stress_net_pnl_eur": stress.get("net_pnl_eur"),
+        },
+        source_report_path=str(source_path),
+    )
+
+
+def _record_from_grid_registry(repo_root: Path) -> ResearchMemoryRecord:
+    source_path = BACKFILL_SOURCE_REPORTS["strategy_hypotheses_registry"]
+    status = "RETIRED_FROM_EXECUTION" if (repo_root / source_path).exists() else "HISTORICAL_RESULT_MISSING"
+    reasons = ("grid_archived_no_go", "runtime_disabled", "not_part_of_alpha_runner")
+    return ResearchMemoryRecord(
+        run_id="strategy_hypotheses_grid_no_go",
+        hypothesis_id="grid",
+        alpha_family_id="grid",
+        template_id="dynamic_grid",
+        created_at="2026-07-09T00:00:00+00:00",
+        data_snapshot={"source": "strategy_hypotheses_registry"},
+        parameters_tested={},
+        variant_count=1,
+        symbols_tested=(),
+        gate_results=({"gate": "RUNTIME_POLICY", "status": status, "passed": False},),
+        final_status=status,
+        rejection_reasons=reasons,
+        trial_count_for_family=1,
+        trial_count_for_template=1,
+        related_rejected_hypotheses=("grid", "dynamic_grid"),
+        do_not_rerun_until=None,
+        requires_new_data_before_rerun=True,
+        source_report_path=str(source_path),
+        source_report_status="available" if (repo_root / source_path).exists() else "source_report_not_found",
+    )
+
+
+def _missing_source_record(
+    *,
+    run_id: str,
+    hypothesis_id: str,
+    alpha_family_id: str,
+    template_id: str,
+    source_report_path: Path,
+) -> ResearchMemoryRecord:
+    return ResearchMemoryRecord(
+        run_id=run_id,
+        hypothesis_id=hypothesis_id,
+        alpha_family_id=alpha_family_id,
+        template_id=template_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        data_snapshot={},
+        parameters_tested={},
+        variant_count=1,
+        symbols_tested=(),
+        gate_results=({"gate": "SOURCE_REPORT_CHECK", "status": "HISTORICAL_RESULT_MISSING", "passed": False},),
+        final_status="HISTORICAL_RESULT_MISSING",
+        rejection_reasons=("source_report_not_found",),
+        trial_count_for_family=1,
+        trial_count_for_template=1,
+        related_rejected_hypotheses=(hypothesis_id,),
+        do_not_rerun_until=None,
+        requires_new_data_before_rerun=True,
+        source_report_path=str(source_report_path),
+        source_report_status="source_report_not_found",
+    )
+
+
+def _build_adapter_backlog(
+    *,
+    templates: Mapping[str, Any],
+    families: Mapping[str, Mapping[str, Any]],
+    candidates: Sequence[ScheduledHypothesis],
+    memory: AlphaResearchMemory,
+    data: DataReadiness,
+) -> tuple[AdapterBacklogItem, ...]:
+    candidate_by_template = {item.template_id: item for item in candidates}
+    family_counts = memory.trial_count_by_family()
+    rejected = memory.rejected_hypotheses()
+    backlog: list[AdapterBacklogItem] = []
+    for template in templates.get("templates", ()):
+        required_adapter = str(template["required_adapter"])
+        if required_adapter in KNOWN_ADAPTERS:
+            continue
+        template_id = str(template["template_id"])
+        adapter_id = required_adapter if required_adapter != "missing" else f"{template_id}_adapter"
+        family_id = str(template["alpha_family_id"])
+        family = families.get(family_id, {})
+        candidate = candidate_by_template.get(template_id)
+        required_data = set(str(item) for item in template.get("signal_inputs", ())) | set(str(item) for item in family.get("required_data", ()))
+        missing = tuple(_missing_data_reasons(required_data, data, family))
+        hypotheses_blocked = tuple(sorted(_hypotheses_for_template(family_id, template_id)))
+        rejected_blockers = tuple(
+            f"rejected_current_config:{hypothesis}"
+            for hypothesis in hypotheses_blocked
+            if hypothesis in rejected
+        )
+        data_ready = not missing
+        complexity = _adapter_complexity(template, family, required_data)
+        cpu_cost = _adapter_cpu_cost(template)
+        reuse = _adapter_reuse_score(family_id, template_id, required_data)
+        priority = _adapter_priority_score(
+            data_ready=data_ready,
+            missing=missing,
+            complexity=complexity,
+            cpu_cost=cpu_cost,
+            reuse=reuse,
+            family_trial_count=family_counts.get(family_id, 0),
+            rejected_blockers=rejected_blockers,
+            current_vps_suitable=bool(family.get("suitable_for_current_vps", False)),
+            spot_only=not bool(family.get("requires_derivatives_data", False)),
+        )
+        blockers = tuple(dict.fromkeys((*missing, *rejected_blockers, *(candidate.blockers if candidate else ()))))
+        backlog.append(
+            AdapterBacklogItem(
+                adapter_id=adapter_id,
+                template_id=template_id,
+                alpha_family_id=family_id,
+                hypotheses_blocked=hypotheses_blocked,
+                data_ready=data_ready,
+                data_missing_reasons=missing,
+                estimated_implementation_complexity=complexity,
+                estimated_cpu_cost=cpu_cost,
+                expected_trade_frequency=str(family.get("expected_trade_frequency") or "unknown"),
+                current_vps_suitable=bool(family.get("suitable_for_current_vps", False)),
+                expected_reuse_score=reuse,
+                priority_score=priority,
+                reason_for_priority=_adapter_priority_reason(data_ready, missing, complexity, cpu_cost, reuse, rejected_blockers),
+                blockers=blockers,
+            )
+        )
+    return tuple(sorted(backlog, key=lambda item: (-item.priority_score, item.template_id)))
 
 
 def scan_data_readiness(data_paths: Sequence[Path]) -> DataReadiness:
@@ -641,6 +1200,189 @@ def _schedule_template(
         blockers=tuple(blockers),
         warnings=tuple(warnings),
     )
+
+
+def _safe_load_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _availability_for(payload: Mapping[str, Any], hypothesis_id: str) -> dict[str, Any]:
+    for item in payload.get("availability", ()):
+        if item.get("hypothesis_id") == hypothesis_id:
+            return dict(item)
+    return {}
+
+
+def _metrics_from_gates(gates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    for gate in gates:
+        candidate = gate.get("metrics")
+        if isinstance(candidate, Mapping):
+            metrics = dict(candidate)
+    return metrics
+
+
+def _fold_results_from_gates(gates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    metrics = _metrics_from_gates(gates)
+    by_period = metrics.get("by_period")
+    if not isinstance(by_period, Mapping):
+        return []
+    return [
+        {"period": str(period), **dict(values)}
+        for period, values in by_period.items()
+        if isinstance(values, Mapping)
+    ]
+
+
+def _variant_count_from_gate_dicts(gates: Sequence[Mapping[str, Any]]) -> int:
+    count = 1
+    for gate in gates:
+        metrics = gate.get("metrics")
+        if isinstance(metrics, Mapping) and metrics.get("variant_count") is not None:
+            try:
+                count = max(count, int(metrics["variant_count"]))
+            except (TypeError, ValueError):
+                pass
+    return count
+
+
+def _metrics_from_runner_report(report: AlphaHypothesisRunnerReport) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    for gate in report.gates:
+        metrics = dict(gate.metrics)
+    return metrics
+
+
+def _triage_status(strategy_name: str, item: Mapping[str, Any]) -> str:
+    observed = str(item.get("observed_status") or item.get("requested_status") or "").lower()
+    if strategy_name in {"grid", "relative_value"} or observed in {"archived", "no_go"}:
+        return "NO_GO" if strategy_name == "relative_value" else "RETIRED_FROM_EXECUTION"
+    if "redesign_required" in " ".join(str(value) for value in item.get("blockers", ())):
+        return "BENCHMARK_REJECTED"
+    if "profit_factor_below_candidate_threshold" in item.get("blockers", ()):
+        return "BENCHMARK_REJECTED"
+    return "RESEARCH_ONLY"
+
+
+def _family_for_strategy(strategy_name: str) -> str:
+    return {
+        "trend_momentum": "trend_momentum",
+        "mean_reversion": "mean_reversion",
+        "relative_value": "relative_value",
+        "grid": "grid",
+    }.get(strategy_name, strategy_name)
+
+
+def _template_for_strategy(strategy_name: str) -> str:
+    return {
+        "trend_momentum": "regime_filtered_trend",
+        "mean_reversion": "volatility_reversal_after_extension",
+        "relative_value": "relative_value_pair_spread",
+        "grid": "dynamic_grid",
+    }.get(strategy_name, strategy_name)
+
+
+def _hypotheses_for_template(family_id: str, template_id: str) -> tuple[str, ...]:
+    if family_id == "cross_sectional_momentum":
+        return ("cross_momentum", f"cross_momentum__{template_id}")
+    if family_id == "mean_reversion":
+        return ("mean_reversion", f"mean_reversion__{template_id}")
+    return (FAMILY_TO_HYPOTHESIS.get(family_id, family_id), f"{family_id}__{template_id}")
+
+
+def _adapter_complexity(
+    template: Mapping[str, Any],
+    family: Mapping[str, Any],
+    required_data: set[str],
+) -> str:
+    if required_data & DERIVATIVES_DATA or required_data & ORDERBOOK_DATA or required_data & NEWS_DATA:
+        return "high"
+    if int(template["max_runtime_seconds"]) > 180 or int(template["max_variants"]) > 3:
+        return "medium"
+    if bool(family.get("requires_derivatives_data")) or bool(family.get("requires_orderbook_data")):
+        return "high"
+    return "low"
+
+
+def _adapter_cpu_cost(template: Mapping[str, Any]) -> str:
+    seconds = int(template["max_runtime_seconds"])
+    variants = int(template["max_variants"])
+    if seconds >= 240 or variants > 4:
+        return "M"
+    return "L"
+
+
+def _adapter_reuse_score(family_id: str, template_id: str, required_data: set[str]) -> float:
+    score = 0.45
+    if "spot_ohlcv_multi_symbol" in required_data:
+        score += 0.25
+    if family_id == "cross_sectional_momentum":
+        score += 0.15
+    if "fees_slippage" in required_data:
+        score += 0.05
+    if template_id == "leader_laggard_momentum":
+        score += 0.05
+    if required_data & (DERIVATIVES_DATA | ORDERBOOK_DATA | NEWS_DATA):
+        score -= 0.2
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+def _adapter_priority_score(
+    *,
+    data_ready: bool,
+    missing: Sequence[str],
+    complexity: str,
+    cpu_cost: str,
+    reuse: float,
+    family_trial_count: int,
+    rejected_blockers: Sequence[str],
+    current_vps_suitable: bool,
+    spot_only: bool,
+) -> float:
+    if not data_ready:
+        return round(max(0.0, 20.0 - len(missing) * 5.0), 4)
+    score = 45.0 + reuse * 35.0
+    if complexity == "low":
+        score += 12.0
+    elif complexity == "medium":
+        score += 6.0
+    else:
+        score -= 20.0
+    if cpu_cost == "L":
+        score += 8.0
+    if current_vps_suitable:
+        score += 8.0
+    if spot_only:
+        score += 6.0
+    score -= min(25.0, family_trial_count * 3.0)
+    score -= len(rejected_blockers) * 18.0
+    return round(max(0.0, score), 4)
+
+
+def _adapter_priority_reason(
+    data_ready: bool,
+    missing: Sequence[str],
+    complexity: str,
+    cpu_cost: str,
+    reuse: float,
+    rejected_blockers: Sequence[str],
+) -> str:
+    if not data_ready:
+        return f"data missing: {', '.join(missing)}"
+    parts = [
+        "data-ready",
+        f"{complexity}-complexity",
+        f"cpu-{cpu_cost}",
+        f"reuse={reuse:.2f}",
+    ]
+    if rejected_blockers:
+        parts.append("penalized by rejected related config")
+    return ", ".join(parts)
 
 
 def _candidate_missing_family(template: Mapping[str, Any], data: DataReadiness) -> ScheduledHypothesis:

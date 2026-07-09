@@ -5,12 +5,173 @@
   "records": [
     {
       "alpha_family_id": "volatility_breakout",
-      "created_at": "2026-07-09T12:12:26+00:00",
+      "created_at": "2026-07-09T00:00:00+00:00",
       "data_snapshot": {
-        "data_paths": [
-          "/app/data/research/daily/ohlcv"
-        ],
-        "deduped_rows": 68478,
+        "deduped_rows": 159782,
+        "end_at": "2026-07-09T00:15:00Z",
+        "folds": 13,
+        "source": "historical_ohlcv_walk_forward",
+        "start_at": "2026-05-16T16:00:00Z"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "REJECTED",
+      "fold_results": [
+        {
+          "fold": 1,
+          "net_pnl_eur": 0.0,
+          "trade_count": 0
+        },
+        {
+          "fold": 2,
+          "net_pnl_eur": 24.3,
+          "profit_factor_net": 12.51,
+          "trade_count": 5
+        },
+        {
+          "fold": 3,
+          "net_pnl_eur": 18.7,
+          "profit_factor_net": 3.93,
+          "trade_count": 7
+        },
+        {
+          "fold": 4,
+          "net_pnl_eur": -18.95,
+          "profit_factor_net": 0.0,
+          "trade_count": 6
+        },
+        {
+          "fold": 5,
+          "net_pnl_eur": -2.89,
+          "profit_factor_net": 0.61,
+          "trade_count": 6
+        },
+        {
+          "fold": 6,
+          "net_pnl_eur": -6.03,
+          "profit_factor_net": 0.0,
+          "trade_count": 3
+        },
+        {
+          "fold": 7,
+          "net_pnl_eur": -4.69,
+          "profit_factor_net": 0.67,
+          "trade_count": 9
+        },
+        {
+          "fold": 8,
+          "net_pnl_eur": -3.3,
+          "profit_factor_net": 0.81,
+          "trade_count": 9
+        },
+        {
+          "fold": 9,
+          "net_pnl_eur": -14.0,
+          "profit_factor_net": 0.0,
+          "trade_count": 6
+        },
+        {
+          "fold": 10,
+          "net_pnl_eur": -11.97,
+          "profit_factor_net": 0.38,
+          "trade_count": 10
+        },
+        {
+          "fold": 11,
+          "net_pnl_eur": 5.02,
+          "profit_factor_net": 1.44,
+          "trade_count": 10
+        },
+        {
+          "fold": 12,
+          "net_pnl_eur": 12.22,
+          "profit_factor_net": 5.46,
+          "trade_count": 5
+        },
+        {
+          "fold": 13,
+          "net_pnl_eur": -14.92,
+          "profit_factor_net": 0.0,
+          "trade_count": 6
+        }
+      ],
+      "gate_results": [
+        {
+          "gate": "WALK_FORWARD",
+          "passed": false,
+          "status": "REJECT"
+        }
+      ],
+      "hypothesis_id": "high_conviction_swing",
+      "live_allowed": false,
+      "metrics": {
+        "expectancy_net": -0.2016,
+        "fold_count": 13,
+        "largest_positive_symbol_share": 0.4741,
+        "max_drawdown_pct": 4.22,
+        "net_pnl_eur": -16.53,
+        "positive_folds": 4,
+        "profit_factor_net": 0.8772,
+        "trade_count": 82,
+        "winrate_pct": 34.15
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "initial_capital_eur": 500,
+        "max_hold_hours": 72,
+        "min_expected_move_bps": 500,
+        "primary_exit_mode": "fixed_tp_sl",
+        "risk_reward_ratio": 2
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "net_pnl_negative_after_costs",
+        "profit_factor_below_1",
+        "expectancy_negative",
+        "insufficient_positive_out_of_sample_folds",
+        "single_symbol_concentration"
+      ],
+      "related_rejected_hypotheses": [
+        "high_conviction_swing"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "p17_high_conviction_history_20260709",
+      "source_report_path": "reports\\research\\p17_high_conviction_historical_validation_2026-07-09.md",
+      "source_report_status": "available",
+      "symbols_tested": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "template_id": "breakout_after_compression",
+      "trial_count_for_family": 4,
+      "trial_count_for_template": 4,
+      "variant_count": 4
+    },
+    {
+      "alpha_family_id": "volatility_breakout",
+      "created_at": "2026-07-09T10:09:56.414619+00:00",
+      "data_snapshot": {
+        "available": true,
+        "cost_estimate": "L/M bounded smoke",
+        "duplicate_count": 275439,
+        "end_at": "2026-07-09T00:15:00+00:00",
+        "gap_count": 0,
+        "hypothesis_id": "volatility_breakout_high_conviction",
+        "reason": null,
+        "row_count": 68478,
+        "start_at": "2026-05-16T16:00:00+00:00",
+        "status": "READY",
         "symbols": [
           "ADAEUR",
           "BCHEUR",
@@ -20,13 +181,70 @@
           "XRPZEUR"
         ],
         "timeframes": [
-          "5m",
           "15m",
-          "1h"
+          "1h",
+          "5m"
         ]
+      },
+      "do_not_rerun_until": null,
+      "final_status": "KEEP_RESEARCH",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "FAST_NET_EDGE_TEST",
+          "passed": true,
+          "status": "KEEP_RESEARCH"
+        }
+      ],
+      "hypothesis_id": "volatility_breakout",
+      "live_allowed": false,
+      "metrics": {
+        "expectancy_net": 0.05336255339805825,
+        "max_drawdown_eur": 119.800035,
+        "net_pnl_eur": 10.992686,
+        "profit_factor_net": 1.0247690793047701,
+        "trade_count": 206,
+        "winrate_pct": 36.89320388349515
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "best_variant": "fixed_tp_sl__min500bps__rr2__hold72h",
+        "stage": "smoke"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "positive_smoke_requires_walk_forward_before_shadow",
+        "no_shadow_or_paper_allowed"
+      ],
+      "related_rejected_hypotheses": [],
+      "requires_new_data_before_rerun": false,
+      "run_id": "p18b_volatility_breakout_smoke_20260709",
+      "source_report_path": "reports\\research\\alpha_smoke\\p18b_alpha_smoke_20260709.json",
+      "source_report_status": "available",
+      "symbols_tested": [
+        "ADAEUR",
+        "BCHEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
+      "template_id": "breakout_after_compression",
+      "trial_count_for_family": 7,
+      "trial_count_for_template": 7,
+      "variant_count": 3
+    },
+    {
+      "alpha_family_id": "volatility_breakout",
+      "created_at": "2026-07-09T12:12:26.022867+00:00",
+      "data_snapshot": {
+        "data_paths": [
+          "/app/data/research/daily/ohlcv"
+        ],
+        "state_db": "/app/data/autobot_state.db"
       },
       "do_not_rerun_until": "2026-07-16T00:00:00+00:00",
       "final_status": "REJECTED",
+      "fold_results": [],
       "gate_results": [
         {
           "gate": "DATA_CHECK",
@@ -46,11 +264,20 @@
       ],
       "hypothesis_id": "volatility_breakout",
       "live_allowed": false,
+      "metrics": {
+        "expectancy_net": 0.05336255339805835,
+        "fees_slippage_spread_bps": 20188.0,
+        "max_drawdown_eur": 253.566541,
+        "max_drawdown_pct": 253.566541,
+        "net_pnl_eur": 10.992686,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 1.0247690932606022,
+        "trade_count": 206,
+        "winrate_pct": 36.89320388349515
+      },
       "paper_capital_allowed": false,
       "parameters_tested": {
-        "max_runtime_seconds": 300,
-        "max_symbols": 6,
-        "max_variants": 5,
+        "max_stage_reached": "WALK_FORWARD",
         "mode": "walk_forward"
       },
       "promotable": false,
@@ -66,18 +293,13 @@
       ],
       "requires_new_data_before_rerun": true,
       "run_id": "p18d_alpha_hypothesis_runner_walk_forward_20260709",
-      "symbols_tested": [
-        "BTCZEUR",
-        "ETHZEUR",
-        "BCHEUR",
-        "ADAEUR",
-        "XRPZEUR",
-        "SOLEUR"
-      ],
+      "source_report_path": "reports\\research\\alpha_hypothesis_runner\\p18d_alpha_hypothesis_runner_walk_forward_20260709.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
       "template_id": "breakout_after_compression",
-      "trial_count_for_family": 5,
-      "trial_count_for_template": 5,
-      "variant_count": 5
+      "trial_count_for_family": 10,
+      "trial_count_for_template": 10,
+      "variant_count": 3
     },
     {
       "alpha_family_id": "trend_momentum",
@@ -90,6 +312,173 @@
       },
       "do_not_rerun_until": null,
       "final_status": "REJECT_FAST",
+      "fold_results": [
+        {
+          "net_pnl_eur": -7.44,
+          "period": "2026-05-21",
+          "trade_count": 3
+        },
+        {
+          "net_pnl_eur": -33.22,
+          "period": "2026-05-22",
+          "trade_count": 14
+        },
+        {
+          "net_pnl_eur": -29.883189,
+          "period": "2026-05-24",
+          "trade_count": 13
+        },
+        {
+          "net_pnl_eur": -7.44,
+          "period": "2026-05-26",
+          "trade_count": 3
+        },
+        {
+          "net_pnl_eur": -2.524571,
+          "period": "2026-05-29",
+          "trade_count": 1
+        },
+        {
+          "net_pnl_eur": -4.703262,
+          "period": "2026-05-30",
+          "trade_count": 2
+        },
+        {
+          "net_pnl_eur": -29.131388,
+          "period": "2026-05-31",
+          "trade_count": 12
+        },
+        {
+          "net_pnl_eur": -14.540495,
+          "period": "2026-06-07",
+          "trade_count": 14
+        },
+        {
+          "net_pnl_eur": -16.683468,
+          "period": "2026-06-08",
+          "trade_count": 15
+        },
+        {
+          "net_pnl_eur": -91.805922,
+          "period": "2026-06-09",
+          "trade_count": 28
+        },
+        {
+          "net_pnl_eur": -12.913706,
+          "period": "2026-06-10",
+          "trade_count": 4
+        },
+        {
+          "net_pnl_eur": -15.267474,
+          "period": "2026-06-12",
+          "trade_count": 8
+        },
+        {
+          "net_pnl_eur": 2.990244,
+          "period": "2026-06-13",
+          "trade_count": 3
+        },
+        {
+          "net_pnl_eur": -45.917374,
+          "period": "2026-06-14",
+          "trade_count": 44
+        },
+        {
+          "net_pnl_eur": 21.199108,
+          "period": "2026-06-15",
+          "trade_count": 20
+        },
+        {
+          "net_pnl_eur": 20.801241,
+          "period": "2026-06-16",
+          "trade_count": 13
+        },
+        {
+          "net_pnl_eur": -33.399439,
+          "period": "2026-06-17",
+          "trade_count": 12
+        },
+        {
+          "net_pnl_eur": 7.879917,
+          "period": "2026-06-20",
+          "trade_count": 3
+        },
+        {
+          "net_pnl_eur": -17.452139,
+          "period": "2026-06-21",
+          "trade_count": 7
+        },
+        {
+          "net_pnl_eur": -11.815082,
+          "period": "2026-06-22",
+          "trade_count": 15
+        },
+        {
+          "net_pnl_eur": 4.208332,
+          "period": "2026-06-26",
+          "trade_count": 1
+        },
+        {
+          "net_pnl_eur": -17.508354,
+          "period": "2026-06-27",
+          "trade_count": 7
+        },
+        {
+          "net_pnl_eur": -47.944331,
+          "period": "2026-06-28",
+          "trade_count": 15
+        },
+        {
+          "net_pnl_eur": 12.345109,
+          "period": "2026-06-29",
+          "trade_count": 3
+        },
+        {
+          "net_pnl_eur": -57.053961,
+          "period": "2026-06-30",
+          "trade_count": 19
+        },
+        {
+          "net_pnl_eur": 11.807354,
+          "period": "2026-07-01",
+          "trade_count": 10
+        },
+        {
+          "net_pnl_eur": 44.449014,
+          "period": "2026-07-02",
+          "trade_count": 17
+        },
+        {
+          "net_pnl_eur": 81.541517,
+          "period": "2026-07-03",
+          "trade_count": 24
+        },
+        {
+          "net_pnl_eur": 59.965864,
+          "period": "2026-07-04",
+          "trade_count": 33
+        },
+        {
+          "net_pnl_eur": -1.088526,
+          "period": "2026-07-05",
+          "trade_count": 17
+        },
+        {
+          "net_pnl_eur": -40.825737,
+          "period": "2026-07-06",
+          "trade_count": 16
+        },
+        {
+          "net_pnl_eur": -6.043853,
+          "period": "2026-07-07",
+          "trade_count": 2
+        },
+        {
+          "net_pnl_eur": -14.766857,
+          "period": "2026-07-08",
+          "trade_count": 6
+        }
+      ],
       "gate_results": [
         {
           "gate": "DATA_CHECK",
@@ -104,6 +493,179 @@
       ],
       "hypothesis_id": "long_trend",
       "live_allowed": false,
+      "metrics": {
+        "adapter_decision": "REJECT_FAST",
+        "best_variant": "1h_sma20_50_trend250_hold168_rr3",
+        "by_period": {
+          "2026-05-21": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-22": {
+            "net_pnl_eur": -33.22,
+            "trade_count": 14
+          },
+          "2026-05-24": {
+            "net_pnl_eur": -29.883189,
+            "trade_count": 13
+          },
+          "2026-05-26": {
+            "net_pnl_eur": -7.44,
+            "trade_count": 3
+          },
+          "2026-05-29": {
+            "net_pnl_eur": -2.524571,
+            "trade_count": 1
+          },
+          "2026-05-30": {
+            "net_pnl_eur": -4.703262,
+            "trade_count": 2
+          },
+          "2026-05-31": {
+            "net_pnl_eur": -29.131388,
+            "trade_count": 12
+          },
+          "2026-06-07": {
+            "net_pnl_eur": -14.540495,
+            "trade_count": 14
+          },
+          "2026-06-08": {
+            "net_pnl_eur": -16.683468,
+            "trade_count": 15
+          },
+          "2026-06-09": {
+            "net_pnl_eur": -91.805922,
+            "trade_count": 28
+          },
+          "2026-06-10": {
+            "net_pnl_eur": -12.913706,
+            "trade_count": 4
+          },
+          "2026-06-12": {
+            "net_pnl_eur": -15.267474,
+            "trade_count": 8
+          },
+          "2026-06-13": {
+            "net_pnl_eur": 2.990244,
+            "trade_count": 3
+          },
+          "2026-06-14": {
+            "net_pnl_eur": -45.917374,
+            "trade_count": 44
+          },
+          "2026-06-15": {
+            "net_pnl_eur": 21.199108,
+            "trade_count": 20
+          },
+          "2026-06-16": {
+            "net_pnl_eur": 20.801241,
+            "trade_count": 13
+          },
+          "2026-06-17": {
+            "net_pnl_eur": -33.399439,
+            "trade_count": 12
+          },
+          "2026-06-20": {
+            "net_pnl_eur": 7.879917,
+            "trade_count": 3
+          },
+          "2026-06-21": {
+            "net_pnl_eur": -17.452139,
+            "trade_count": 7
+          },
+          "2026-06-22": {
+            "net_pnl_eur": -11.815082,
+            "trade_count": 15
+          },
+          "2026-06-26": {
+            "net_pnl_eur": 4.208332,
+            "trade_count": 1
+          },
+          "2026-06-27": {
+            "net_pnl_eur": -17.508354,
+            "trade_count": 7
+          },
+          "2026-06-28": {
+            "net_pnl_eur": -47.944331,
+            "trade_count": 15
+          },
+          "2026-06-29": {
+            "net_pnl_eur": 12.345109,
+            "trade_count": 3
+          },
+          "2026-06-30": {
+            "net_pnl_eur": -57.053961,
+            "trade_count": 19
+          },
+          "2026-07-01": {
+            "net_pnl_eur": 11.807354,
+            "trade_count": 10
+          },
+          "2026-07-02": {
+            "net_pnl_eur": 44.449014,
+            "trade_count": 17
+          },
+          "2026-07-03": {
+            "net_pnl_eur": 81.541517,
+            "trade_count": 24
+          },
+          "2026-07-04": {
+            "net_pnl_eur": 59.965864,
+            "trade_count": 33
+          },
+          "2026-07-05": {
+            "net_pnl_eur": -1.088526,
+            "trade_count": 17
+          },
+          "2026-07-06": {
+            "net_pnl_eur": -40.825737,
+            "trade_count": 16
+          },
+          "2026-07-07": {
+            "net_pnl_eur": -6.043853,
+            "trade_count": 2
+          },
+          "2026-07-08": {
+            "net_pnl_eur": -14.766857,
+            "trade_count": 6
+          }
+        },
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": -68.806588,
+            "trade_count": 76
+          },
+          "BCHEUR": {
+            "net_pnl_eur": -33.387116,
+            "trade_count": 76
+          },
+          "BTCZEUR": {
+            "net_pnl_eur": -36.059423,
+            "trade_count": 47
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -39.553207,
+            "trade_count": 56
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -53.841125,
+            "trade_count": 82
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -60.533969,
+            "trade_count": 67
+          }
+        },
+        "expectancy_net": -0.723221356435643,
+        "max_drawdown_eur": 294.092956,
+        "net_pnl_eur": -292.181428,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 0.5992017913191805,
+        "total_cost_bps": 39592.0,
+        "trade_count": 404,
+        "variant_count": 3,
+        "winrate_pct": 34.4059405940594
+      },
       "paper_capital_allowed": false,
       "parameters_tested": {
         "max_stage_reached": "FAST_NET_EDGE_TEST",
@@ -120,14 +682,323 @@
       ],
       "requires_new_data_before_rerun": true,
       "run_id": "p18e_alpha_runner_selected_smoke_20260709",
-      "symbols_tested": [],
+      "source_report_path": "reports\\research\\alpha_hypothesis_runner\\p18e_alpha_runner_selected_smoke_20260709.json",
+      "source_report_status": "available",
+      "symbols_tested": [
+        "ADAEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "ETHZEUR",
+        "SOLEUR",
+        "XRPZEUR"
+      ],
       "template_id": "regime_filtered_trend",
       "trial_count_for_family": 3,
       "trial_count_for_template": 3,
       "variant_count": 3
+    },
+    {
+      "alpha_family_id": "trend_momentum",
+      "created_at": "2026-06-29T16:54:17.346280+00:00",
+      "data_snapshot": {
+        "source": "strategy_edge_review"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "BENCHMARK_REJECTED",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "STRATEGY_TRIAGE",
+          "passed": false,
+          "status": "BENCHMARK_REJECTED"
+        }
+      ],
+      "hypothesis_id": "trend_momentum",
+      "live_allowed": false,
+      "metrics": {
+        "fold_count": 0,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": null,
+        "positive_folds": 0,
+        "profit_factor_net": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "status_review": "research_signal_only"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "insufficient_trade_count_for_candidate_review",
+        "profit_factor_below_candidate_threshold",
+        "redesign_required_before_capital"
+      ],
+      "related_rejected_hypotheses": [
+        "trend_momentum"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "strategy_edge_review_20260629_trend_momentum",
+      "source_report_path": "reports\\research\\strategy_edge_improvement_2026_06_29.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "regime_filtered_trend",
+      "trial_count_for_family": 4,
+      "trial_count_for_template": 4,
+      "variant_count": 1
+    },
+    {
+      "alpha_family_id": "mean_reversion",
+      "created_at": "2026-06-29T16:54:17.346280+00:00",
+      "data_snapshot": {
+        "source": "strategy_edge_review"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "BENCHMARK_REJECTED",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "STRATEGY_TRIAGE",
+          "passed": false,
+          "status": "BENCHMARK_REJECTED"
+        }
+      ],
+      "hypothesis_id": "mean_reversion",
+      "live_allowed": false,
+      "metrics": {
+        "fold_count": 0,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": null,
+        "positive_folds": 0,
+        "profit_factor_net": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "status_review": "research_signal_only"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "insufficient_trade_count_for_candidate_review",
+        "profit_factor_below_candidate_threshold",
+        "cost_aware_review_required_before_capital"
+      ],
+      "related_rejected_hypotheses": [
+        "mean_reversion"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "strategy_edge_review_20260629_mean_reversion",
+      "source_report_path": "reports\\research\\strategy_edge_improvement_2026_06_29.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "volatility_reversal_after_extension",
+      "trial_count_for_family": 1,
+      "trial_count_for_template": 1,
+      "variant_count": 1
+    },
+    {
+      "alpha_family_id": "relative_value",
+      "created_at": "2026-06-29T16:54:17.346280+00:00",
+      "data_snapshot": {
+        "source": "strategy_edge_review"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "NO_GO",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "STRATEGY_TRIAGE",
+          "passed": false,
+          "status": "NO_GO"
+        }
+      ],
+      "hypothesis_id": "relative_value",
+      "live_allowed": false,
+      "metrics": {
+        "fold_count": 0,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": null,
+        "positive_folds": 0,
+        "profit_factor_net": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "status_review": "no_go"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "strategy_currently_no_go_or_archived"
+      ],
+      "related_rejected_hypotheses": [
+        "relative_value"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "strategy_edge_review_20260629_relative_value",
+      "source_report_path": "reports\\research\\strategy_edge_improvement_2026_06_29.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "relative_value_pair_spread",
+      "trial_count_for_family": 1,
+      "trial_count_for_template": 1,
+      "variant_count": 1
+    },
+    {
+      "alpha_family_id": "grid",
+      "created_at": "2026-06-29T16:54:17.346280+00:00",
+      "data_snapshot": {
+        "source": "strategy_edge_review"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "RETIRED_FROM_EXECUTION",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "STRATEGY_TRIAGE",
+          "passed": false,
+          "status": "RETIRED_FROM_EXECUTION"
+        }
+      ],
+      "hypothesis_id": "grid",
+      "live_allowed": false,
+      "metrics": {
+        "fold_count": 0,
+        "max_drawdown_pct": null,
+        "net_pnl_eur": null,
+        "positive_folds": 0,
+        "profit_factor_net": null,
+        "trade_count": 0,
+        "winrate_pct": null
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "status_review": "archived"
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "strategy_currently_no_go_or_archived"
+      ],
+      "related_rejected_hypotheses": [
+        "grid"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "strategy_edge_review_20260629_grid",
+      "source_report_path": "reports\\research\\strategy_edge_improvement_2026_06_29.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "dynamic_grid",
+      "trial_count_for_family": 1,
+      "trial_count_for_template": 1,
+      "variant_count": 1
+    },
+    {
+      "alpha_family_id": "relative_value",
+      "created_at": "2026-06-22T21:00:27.315660+00:00",
+      "data_snapshot": {
+        "data_paths": [
+          "data\\research\\daily\\ohlcv\\daily_2026_06_08"
+        ],
+        "timeframe": "15m"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "NO_GO",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "PORTFOLIO_REPLAY",
+          "passed": false,
+          "status": "NO_GO"
+        }
+      ],
+      "hypothesis_id": "relative_value",
+      "live_allowed": false,
+      "metrics": {
+        "expectancy_net": -1.0497675885531783,
+        "max_drawdown_pct": 4.330376,
+        "net_pnl_eur": -14.696746,
+        "profit_factor_net": 0.2835068849032677,
+        "stress_net_pnl_eur": -15.140569,
+        "stress_profit_factor_net": 0.2730469474511779,
+        "trade_count": 14,
+        "winrate_pct": 35.714285714285715
+      },
+      "paper_capital_allowed": false,
+      "parameters_tested": {
+        "cost_profiles": [
+          "paper_current_taker",
+          "research_stress"
+        ],
+        "relationships": 3
+      },
+      "promotable": false,
+      "rejection_reasons": [
+        "research_only_no_auto_promotion",
+        "sample_size_below_first_observation_minimum",
+        "net_pnl_not_positive_after_costs",
+        "profit_factor_not_above_base_threshold"
+      ],
+      "related_rejected_hypotheses": [
+        "relative_value"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "relative_value_20260622",
+      "source_report_path": "reports\\research\\relative_value_2026_06_22\\relative_value_2026_06_22.json",
+      "source_report_status": "available",
+      "symbols_tested": [
+        "ADAEUR",
+        "AVAXEUR",
+        "LINKEUR"
+      ],
+      "template_id": "relative_value_pair_spread",
+      "trial_count_for_family": 3,
+      "trial_count_for_template": 3,
+      "variant_count": 2
+    },
+    {
+      "alpha_family_id": "grid",
+      "created_at": "2026-07-09T00:00:00+00:00",
+      "data_snapshot": {
+        "source": "strategy_hypotheses_registry"
+      },
+      "do_not_rerun_until": null,
+      "final_status": "RETIRED_FROM_EXECUTION",
+      "fold_results": [],
+      "gate_results": [
+        {
+          "gate": "RUNTIME_POLICY",
+          "passed": false,
+          "status": "RETIRED_FROM_EXECUTION"
+        }
+      ],
+      "hypothesis_id": "grid",
+      "live_allowed": false,
+      "metrics": {},
+      "paper_capital_allowed": false,
+      "parameters_tested": {},
+      "promotable": false,
+      "rejection_reasons": [
+        "grid_archived_no_go",
+        "runtime_disabled",
+        "not_part_of_alpha_runner"
+      ],
+      "related_rejected_hypotheses": [
+        "grid",
+        "dynamic_grid"
+      ],
+      "requires_new_data_before_rerun": true,
+      "run_id": "strategy_hypotheses_grid_no_go",
+      "source_report_path": "docs\\research\\strategy_hypotheses.json",
+      "source_report_status": "available",
+      "symbols_tested": [],
+      "template_id": "dynamic_grid",
+      "trial_count_for_family": 2,
+      "trial_count_for_template": 2,
+      "variant_count": 1
     }
   ],
   "research_only": true,
   "schema_version": 1,
-  "updated_at": "2026-07-09T16:22:10.440894+00:00"
+  "updated_at": "2026-07-09T17:24:19.393594+00:00"
 }
