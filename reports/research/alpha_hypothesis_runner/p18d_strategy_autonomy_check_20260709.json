@@ -1,0 +1,226 @@
+{
+  "auto_kill_downgrade": {
+    "autonomy_level": "AUTO_ALLOWED",
+    "blockers": [],
+    "checks": {
+      "health": {
+        "consecutive_losses": 0,
+        "killed": false,
+        "ledger_errors": 0,
+        "paper_backtest_divergence": null,
+        "passed": true,
+        "rolling_expectancy": null,
+        "rolling_pf": null
+      }
+    },
+    "decision": "ALLOW",
+    "failed_checks": [],
+    "final_decision": "ALLOW",
+    "live_allowed": false,
+    "mandate_id": "research_volatility_breakout_default",
+    "paper_capital_allowed": false,
+    "passed_checks": [
+      "health"
+    ],
+    "promotable": false,
+    "reasons": [
+      "health_within_mandate"
+    ],
+    "requires_human_approval": false,
+    "risk_direction": "reduce",
+    "strategy_id": "volatility_breakout",
+    "warnings": []
+  },
+  "blockers": [
+    "edge_to_cost_ratio",
+    "order_type_allowed",
+    "orders_per_minute_within_limit",
+    "trades_per_day_within_limit",
+    "mode_is_research_only",
+    "capital_max_eur_is_zero",
+    "paper_capital_allowed_false",
+    "runtime_orders_not_allowed"
+  ],
+  "failed_checks": [
+    "edge_to_cost_ratio",
+    "order_type_allowed",
+    "orders_per_minute_within_limit",
+    "trades_per_day_within_limit"
+  ],
+  "final_decision": "BLOCK",
+  "human_review_required": false,
+  "live_allowed": false,
+  "mandate": {
+    "allowed_order_types": [],
+    "allowed_symbols": [
+      "ADAEUR",
+      "BCHEUR",
+      "BTCZEUR",
+      "ETHZEUR",
+      "SOLEUR",
+      "XRPZEUR"
+    ],
+    "allowed_timeframes": [
+      "5m",
+      "15m",
+      "1h"
+    ],
+    "capital_max_eur": 0.0,
+    "cooldown_after_losses": 3,
+    "data_freshness_max_seconds": 900,
+    "expires_at": "2026-12-31T23:59:59+00:00",
+    "human_approved_required_for_risk_increase": true,
+    "live_allowed": false,
+    "mandate_id": "research_volatility_breakout_default",
+    "max_daily_loss_eur": 0.0,
+    "max_drawdown_pct": 0.0,
+    "max_fees_per_day_eur": 0.0,
+    "max_orders_per_minute": 0,
+    "max_position_eur": 0.0,
+    "max_slippage_bps": 0.0,
+    "max_spread_bps": 0.0,
+    "max_symbol_exposure_eur": 0.0,
+    "max_total_exposure_eur": 0.0,
+    "max_trades_per_day": 0,
+    "min_edge_to_cost_ratio": 1.2,
+    "mode_allowed": "research",
+    "paper_capital_allowed": false,
+    "rolling_expectancy_min": 0.0,
+    "rolling_pf_min": 1.0,
+    "strategy_id": "volatility_breakout"
+  },
+  "mandate_active": true,
+  "paper_capital_allowed": false,
+  "passed_checks": [
+    "daily_loss_within_limit",
+    "data_fresh",
+    "drawdown_within_limit",
+    "fees_within_limit",
+    "notional_within_limit",
+    "slippage_within_limit",
+    "spread_within_limit",
+    "symbol_allowed",
+    "symbol_exposure_within_limit",
+    "timeframe_allowed",
+    "total_exposure_within_limit"
+  ],
+  "pre_trade_autonomy": {
+    "autonomy_level": "AUTO_ALLOWED",
+    "blockers": [
+      "edge_to_cost_ratio",
+      "order_type_allowed",
+      "orders_per_minute_within_limit",
+      "trades_per_day_within_limit",
+      "mode_is_research_only",
+      "capital_max_eur_is_zero",
+      "paper_capital_allowed_false",
+      "runtime_orders_not_allowed"
+    ],
+    "checks": {
+      "daily_loss_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "data_fresh": {
+        "passed": true,
+        "value": 0
+      },
+      "drawdown_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "edge_to_cost_ratio": {
+        "passed": false,
+        "value": 0.0
+      },
+      "fees_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "notional_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "order_type_allowed": {
+        "passed": false,
+        "value": "market"
+      },
+      "orders_per_minute_within_limit": {
+        "passed": false,
+        "value": 0
+      },
+      "slippage_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "spread_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "symbol_allowed": {
+        "passed": true,
+        "value": "BCHEUR"
+      },
+      "symbol_exposure_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "timeframe_allowed": {
+        "passed": true,
+        "value": "15m"
+      },
+      "total_exposure_within_limit": {
+        "passed": true,
+        "value": 0.0
+      },
+      "trades_per_day_within_limit": {
+        "passed": false,
+        "value": 0
+      }
+    },
+    "decision": "BLOCK",
+    "failed_checks": [
+      "edge_to_cost_ratio",
+      "order_type_allowed",
+      "orders_per_minute_within_limit",
+      "trades_per_day_within_limit"
+    ],
+    "final_decision": "BLOCK",
+    "live_allowed": false,
+    "mandate_id": "research_volatility_breakout_default",
+    "paper_capital_allowed": false,
+    "passed_checks": [
+      "daily_loss_within_limit",
+      "data_fresh",
+      "drawdown_within_limit",
+      "fees_within_limit",
+      "notional_within_limit",
+      "slippage_within_limit",
+      "spread_within_limit",
+      "symbol_allowed",
+      "symbol_exposure_within_limit",
+      "timeframe_allowed",
+      "total_exposure_within_limit"
+    ],
+    "promotable": false,
+    "reasons": [
+      "mode_is_research_only",
+      "capital_max_eur_is_zero",
+      "paper_capital_allowed_false",
+      "runtime_orders_not_allowed",
+      "order_type_allowed",
+      "trades_per_day_within_limit",
+      "orders_per_minute_within_limit",
+      "edge_to_cost_ratio"
+    ],
+    "requires_human_approval": false,
+    "risk_direction": "reduce",
+    "strategy_id": "volatility_breakout",
+    "warnings": []
+  },
+  "promotable": false,
+  "risk_direction": "reduce",
+  "state_db": "/app/data/autobot_state.db",
+  "strategy_id": "volatility_breakout",
+  "warnings": []
+}

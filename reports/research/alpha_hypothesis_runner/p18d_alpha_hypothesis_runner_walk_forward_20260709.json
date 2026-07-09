@@ -1,0 +1,225 @@
+{
+  "autonomy_policy_summary": {
+    "auto_allowed_gates": [
+      "DATA_CHECK",
+      "FAST_NET_EDGE_TEST",
+      "WALK_FORWARD",
+      "STRESS_MONTE_CARLO"
+    ],
+    "human_review_gates": [
+      "SHADOW_REVIEW_CANDIDATE"
+    ],
+    "principle": "AUTOBOT may automatically reduce risk, but may never automatically increase risk."
+  },
+  "commit": "2a2b77ace3964db0a52d0700c9059c4eb859c88a",
+  "data_paths": [
+    "/app/data/research/daily/ohlcv"
+  ],
+  "final_decision": "STOPPED",
+  "final_status": "REJECT",
+  "gates": [
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "DATA_CHECK",
+      "metrics": {
+        "available": true,
+        "cost_estimate": "L/M bounded smoke",
+        "duplicate_count": 275439,
+        "end_at": "2026-07-09T00:15:00+00:00",
+        "gap_count": 0,
+        "hypothesis_id": "volatility_breakout_high_conviction",
+        "reason": null,
+        "row_count": 68478,
+        "start_at": "2026-05-16T16:00:00+00:00",
+        "status": "READY",
+        "symbols": [
+          "ADAEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "ETHZEUR",
+          "SOLEUR",
+          "XRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "5m"
+        ]
+      },
+      "passed": true,
+      "reasons": [
+        "data_ready"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 26.619303,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    },
+    {
+      "artifacts": {},
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "FAST_NET_EDGE_TEST",
+      "metrics": {
+        "adapter_decision": "KEEP_RESEARCH",
+        "best_variant": "fixed_tp_sl__min500bps__rr2__hold72h",
+        "by_period": {},
+        "by_symbol": {
+          "ADAEUR": {
+            "net_pnl_eur": 16.86005,
+            "trade_count": 59
+          },
+          "BCHEUR": {
+            "net_pnl_eur": 93.768388,
+            "trade_count": 51
+          },
+          "ETHZEUR": {
+            "net_pnl_eur": -2.761545,
+            "trade_count": 23
+          },
+          "SOLEUR": {
+            "net_pnl_eur": -64.437705,
+            "trade_count": 43
+          },
+          "XRPZEUR": {
+            "net_pnl_eur": -32.436502,
+            "trade_count": 30
+          }
+        },
+        "expectancy_net": 0.05336255339805825,
+        "max_drawdown_eur": 119.800035,
+        "net_pnl_eur": 10.992686,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 1.0247690793047701,
+        "total_cost_bps": 20188.0,
+        "trade_count": 206,
+        "variant_count": 3,
+        "winrate_pct": 36.89320388349515
+      },
+      "passed": true,
+      "reasons": [
+        "positive_smoke_requires_walk_forward_before_shadow",
+        "no_shadow_or_paper_allowed"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 53.285675,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "KEEP_RESEARCH",
+      "stopped": false
+    },
+    {
+      "artifacts": {
+        "concentration": {
+          "adaeur_positive_share_pct": 34.460771738795536,
+          "bcheur_positive_share_pct": 42.088875464553055,
+          "diagnostic_only": true,
+          "only_bcheur_adaeur": {
+            "expectancy_net": 1.0057130727272738,
+            "fees_slippage_spread_bps": 10780.0,
+            "max_drawdown_eur": 108.426338,
+            "max_drawdown_pct": 108.426338,
+            "net_pnl_eur": 110.628438,
+            "no_trade_baseline_eur": 0.0,
+            "profit_factor_net": 1.4657671234734972,
+            "trade_count": 110,
+            "winrate_pct": 41.81818181818181
+          },
+          "overall_net_pnl_eur": 10.992686,
+          "top_positive_symbol": "BCHEUR",
+          "top_positive_symbol_share_pct": 84.75975047211641,
+          "without_bcheur": {
+            "expectancy_net": -0.534036787096774,
+            "fees_slippage_spread_bps": 15190.0,
+            "max_drawdown_eur": 193.896067,
+            "max_drawdown_pct": 193.896067,
+            "net_pnl_eur": -82.775702,
+            "no_trade_baseline_eur": 0.0,
+            "profit_factor_net": 0.7608710313861711,
+            "trade_count": 155,
+            "winrate_pct": 34.193548387096776
+          },
+          "without_bcheur_adaeur": {
+            "expectancy_net": -1.0378724166666666,
+            "fees_slippage_spread_bps": 9408.0,
+            "max_drawdown_eur": 154.807809,
+            "max_drawdown_pct": 154.807809,
+            "net_pnl_eur": -99.635752,
+            "no_trade_baseline_eur": 0.0,
+            "profit_factor_net": 0.5170060365039851,
+            "trade_count": 96,
+            "winrate_pct": 31.25
+          }
+        },
+        "verdict": "REJECT"
+      },
+      "autonomy_level": "AUTO_ALLOWED",
+      "gate": "WALK_FORWARD",
+      "metrics": {
+        "expectancy_net": 0.05336255339805835,
+        "fees_slippage_spread_bps": 20188.0,
+        "max_drawdown_eur": 253.566541,
+        "max_drawdown_pct": 253.566541,
+        "net_pnl_eur": 10.992686,
+        "no_trade_baseline_eur": 0.0,
+        "profit_factor_net": 1.0247690932606022,
+        "trade_count": 206,
+        "winrate_pct": 36.89320388349515
+      },
+      "passed": false,
+      "reasons": [
+        "drawdown_above_12_pct_proxy",
+        "majority_folds_not_positive",
+        "positive_pnl_concentrated_in_one_symbol",
+        "fails_without_bcheur",
+        "fails_without_bcheur_adaeur"
+      ],
+      "requires_human_approval": false,
+      "risk_direction": "neutral",
+      "runtime_seconds": 80.097337,
+      "safety": {
+        "live_allowed": false,
+        "paper_capital_allowed": false,
+        "promotable": false
+      },
+      "status": "REJECT",
+      "stopped": true
+    }
+  ],
+  "generated_at": "2026-07-09T12:12:26.022867+00:00",
+  "hypothesis_id": "volatility_breakout",
+  "json_report_path": null,
+  "live_allowed": false,
+  "markdown_report_path": null,
+  "mode": "walk_forward",
+  "next_allowed_stage": null,
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "reasons": [
+    "drawdown_above_12_pct_proxy",
+    "majority_folds_not_positive",
+    "positive_pnl_concentrated_in_one_symbol",
+    "fails_without_bcheur",
+    "fails_without_bcheur_adaeur"
+  ],
+  "requested_hypothesis_id": "volatility_breakout",
+  "run_id": "p18d_alpha_hypothesis_runner_walk_forward_20260709",
+  "runtime_seconds": 80.097604,
+  "safety_notes": [
+    "Research-only alpha hypothesis runner.",
+    "No runtime order path is imported or called.",
+    "No paper capital, live activation, promotion, sizing, leverage, or UI path is changed.",
+    "Risk-reducing actions may be automatic; risk-increasing actions require human review."
+  ],
+  "state_db": "/app/data/autobot_state.db"
+}
