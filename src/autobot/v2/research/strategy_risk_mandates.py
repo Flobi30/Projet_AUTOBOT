@@ -25,6 +25,12 @@ DECISION_KILL = "KILL"
 DECISION_HUMAN_REVIEW = "HUMAN_REVIEW_REQUIRED"
 VALID_MODES = {"research", "shadow", "paper_limited", "paper_full", "live_disabled"}
 RESEARCH_ONLY_FLAGS = {"paper_capital_allowed": False, "live_allowed": False, "promotable": False}
+RESEARCH_ONLY_BLOCKERS = (
+    "mode_is_research_only",
+    "capital_max_eur_is_zero",
+    "paper_capital_allowed_false",
+    "runtime_orders_not_allowed",
+)
 
 
 class StrategyRiskMandateError(ValueError):
@@ -209,9 +215,15 @@ class AutonomyDecision:
     promotable: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        classified = classify_autonomy_decision(self)
         return {
             "decision": self.decision,
+            "final_decision": self.decision,
             "reasons": list(self.reasons),
+            "passed_checks": classified["passed_checks"],
+            "failed_checks": classified["failed_checks"],
+            "blockers": classified["blockers"],
+            "warnings": classified["warnings"],
             "mandate_id": self.mandate_id,
             "strategy_id": self.strategy_id,
             "autonomy_level": self.autonomy_level,
@@ -237,6 +249,42 @@ def load_strategy_risk_mandates(path: str | Path) -> dict[str, StrategyRiskManda
             raise StrategyRiskMandateError(f"duplicate mandate for strategy_id: {mandate.strategy_id}")
         parsed[mandate.strategy_id] = mandate
     return parsed
+
+
+def classify_autonomy_decision(decision: AutonomyDecision) -> dict[str, list[str]]:
+    passed = sorted(name for name, check in decision.checks.items() if bool(check.get("passed")))
+    failed = sorted(name for name, check in decision.checks.items() if not bool(check.get("passed")))
+    blockers = list(failed)
+    warnings: list[str] = []
+    if decision.decision == DECISION_HUMAN_REVIEW:
+        blockers.append("human_review_required")
+    if decision.decision in {DECISION_BLOCK, DECISION_KILL}:
+        for reason in decision.reasons:
+            if reason not in blockers:
+                blockers.append(reason)
+    if decision.decision == DECISION_BLOCK and not blockers:
+        blockers.append("blocked_by_policy")
+    return {
+        "passed_checks": passed,
+        "failed_checks": failed,
+        "blockers": blockers,
+        "warnings": warnings,
+    }
+
+
+def mandate_static_blockers(mandate: StrategyRiskMandate | None) -> list[str]:
+    if mandate is None:
+        return ["mandate_missing"]
+    blockers: list[str] = []
+    if mandate.mode_allowed == "research":
+        blockers.append("mode_is_research_only")
+    if mandate.capital_max_eur <= 0.0:
+        blockers.append("capital_max_eur_is_zero")
+    if mandate.mode_allowed == "research" and not mandate.paper_capital_allowed:
+        blockers.append("paper_capital_allowed_false")
+    if not mandate.allowed_order_types or mandate.max_trades_per_day <= 0 or mandate.max_orders_per_minute <= 0:
+        blockers.append("runtime_orders_not_allowed")
+    return blockers
 
 
 class PreTradeAutonomyGate:
@@ -269,6 +317,7 @@ class PreTradeAutonomyGate:
                 checks,
                 risk_direction="increase",
             )
+        static_blockers = mandate_static_blockers(mandate)
         if request.strategy_id != mandate.strategy_id:
             reasons.append("strategy_not_authorized_by_mandate")
         if is_runtime_engine_retired(request.strategy_id):
@@ -321,8 +370,9 @@ class PreTradeAutonomyGate:
             return _decision(DECISION_KILL, ["rolling_expectancy_below_mandate"], mandate, request.strategy_id, checks)
         if health.ledger_errors > 0:
             return _decision(DECISION_KILL, ["ledger_errors_detected"], mandate, request.strategy_id, checks)
-        if reasons:
-            return _decision(DECISION_BLOCK, reasons, mandate, request.strategy_id, checks)
+        combined_reasons = [*static_blockers, *reasons]
+        if combined_reasons:
+            return _decision(DECISION_BLOCK, combined_reasons, mandate, request.strategy_id, checks)
         return _decision(DECISION_ALLOW, ["within_research_mandate"], mandate, request.strategy_id, checks)
 
 

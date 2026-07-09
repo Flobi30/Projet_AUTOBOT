@@ -17,6 +17,7 @@ from autobot.v2.research.strategy_risk_mandates import (
     PreTradeAutonomyRequest,
     StrategyHealthSnapshot,
     StrategyRiskMandateError,
+    mandate_static_blockers,
     load_strategy_risk_mandates,
 )
 
@@ -32,6 +33,12 @@ def test_strategy_risk_mandates_load_and_keep_capital_disabled():
     assert mandate.paper_capital_allowed is False
     assert mandate.live_allowed is False
     assert mandate.human_approved_required_for_risk_increase is True
+    assert mandate_static_blockers(mandate) == [
+        "mode_is_research_only",
+        "capital_max_eur_is_zero",
+        "paper_capital_allowed_false",
+        "runtime_orders_not_allowed",
+    ]
 
 
 def test_pre_trade_gate_allows_within_explicit_test_mandate(tmp_path):
@@ -54,6 +61,10 @@ def test_pre_trade_gate_blocks_outside_mandate(tmp_path):
     assert "symbol_allowed" in decision.reasons
     assert "timeframe_allowed" in decision.reasons
     assert "order_type_allowed" in decision.reasons
+    payload = decision.to_dict()
+    assert "symbol_allowed" in payload["failed_checks"]
+    assert "notional_within_limit" in payload["passed_checks"]
+    assert "notional_within_limit" not in payload["blockers"]
 
 
 def test_daily_loss_drawdown_spread_slippage_and_stale_data_block(tmp_path):
@@ -68,6 +79,20 @@ def test_daily_loss_drawdown_spread_slippage_and_stale_data_block(tmp_path):
     assert "spread_within_limit" in decision.reasons
     assert "slippage_within_limit" in decision.reasons
     assert "data_fresh" in decision.reasons
+
+
+def test_research_only_mandate_reports_clear_static_blockers():
+    mandate = load_strategy_risk_mandates("docs/research/strategy_risk_mandates.json")["volatility_breakout"]
+    decision = PreTradeAutonomyGate().evaluate(mandate, _request(notional_eur=0.0), StrategyHealthSnapshot())
+    payload = decision.to_dict()
+
+    assert decision.decision == DECISION_BLOCK
+    assert "mode_is_research_only" in payload["blockers"]
+    assert "capital_max_eur_is_zero" in payload["blockers"]
+    assert "paper_capital_allowed_false" in payload["blockers"]
+    assert "runtime_orders_not_allowed" in payload["blockers"]
+    assert "daily_loss_within_limit" in payload["passed_checks"]
+    assert "daily_loss_within_limit" not in payload["blockers"]
 
 
 def test_risk_increase_and_reactivation_require_human_review(tmp_path):

@@ -1900,6 +1900,7 @@ def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
     mandate = mandates.get(args.strategy_id)
     request = build_default_request(args.strategy_id)
     gate_decision = PreTradeAutonomyGate().evaluate(mandate, request, StrategyHealthSnapshot())
+    gate_payload = gate_decision.to_dict()
     kill_decision = (
         AutoKillDowngradeEngine().evaluate(mandate, StrategyHealthSnapshot()).to_dict()
         if mandate is not None
@@ -1910,8 +1911,15 @@ def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
         "state_db": args.state_db,
         "mandate_active": mandate is not None,
         "mandate": mandate.to_dict() if mandate else None,
-        "pre_trade_autonomy": gate_decision.to_dict(),
+        "pre_trade_autonomy": gate_payload,
         "auto_kill_downgrade": kill_decision,
+        "passed_checks": gate_payload["passed_checks"],
+        "failed_checks": gate_payload["failed_checks"],
+        "blockers": gate_payload["blockers"],
+        "warnings": gate_payload["warnings"],
+        "final_decision": gate_payload["final_decision"],
+        "risk_direction": gate_payload["risk_direction"],
+        "human_review_required": gate_payload["requires_human_approval"],
         "paper_capital_allowed": False,
         "live_allowed": False,
         "promotable": False,
