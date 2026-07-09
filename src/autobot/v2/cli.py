@@ -246,6 +246,22 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_relative_value_portfolio_args(relative_value)
     relative_value.set_defaults(handler=_cmd_relative_value_portfolio_replay)
 
+    alpha_smoke = subparsers.add_parser(
+        "alpha-smoke-runner",
+        help="Run bounded read-only Alpha Hypothesis Lab smoke tests",
+    )
+    alpha_smoke.add_argument("--run-id", required=True)
+    alpha_smoke.add_argument("--data-paths", required=True, help="Comma-separated OHLCV CSV/Parquet path(s) or directories")
+    alpha_smoke.add_argument("--hypotheses-path", default="docs/research/alpha_hypotheses.json")
+    alpha_smoke.add_argument("--output-dir", default="reports/research/alpha_smoke")
+    alpha_smoke.add_argument("--symbols", default="BTCZEUR,ETHZEUR,BCHEUR,ADAEUR,XRPZEUR,SOLEUR")
+    alpha_smoke.add_argument("--cost-profile", default="research_stress")
+    alpha_smoke.add_argument("--max-variants", type=int, default=5)
+    alpha_smoke.add_argument("--max-symbols", type=int, default=6)
+    alpha_smoke.add_argument("--max-cpu-seconds", type=float, default=60.0)
+    alpha_smoke.add_argument("--order-notional-eur", type=float, default=100.0)
+    alpha_smoke.set_defaults(handler=_cmd_alpha_smoke_runner)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -1717,6 +1733,34 @@ def _cmd_relative_value_portfolio_replay(args: argparse.Namespace) -> int:
                     if args.comparison_high_conviction_report
                     else None
                 ),
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_alpha_smoke_runner(args: argparse.Namespace) -> int:
+    from autobot.v2.research.alpha_smoke_runner import (
+        AlphaSmokeConfig,
+        build_alpha_smoke_report,
+        write_alpha_smoke_report,
+    )
+
+    result = write_alpha_smoke_report(
+        build_alpha_smoke_report(
+            AlphaSmokeConfig(
+                run_id=args.run_id,
+                data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+                hypotheses_path=Path(args.hypotheses_path),
+                output_dir=Path(args.output_dir),
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+                cost_profile=args.cost_profile,
+                max_variants=args.max_variants,
+                max_symbols=args.max_symbols,
+                max_cpu_seconds=args.max_cpu_seconds,
+                order_notional_eur=args.order_notional_eur,
             )
         ),
         Path(args.output_dir),
