@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-09",
+  "principle": "AUTOBOT may automatically reduce risk, but may never automatically increase risk.",
+  "levels": {
+    "AUTO_ALLOWED": {
+      "description": "Research, rejection, ranking, reporting, downgrade, stop, and kill actions that do not increase trading risk.",
+      "allowed_risk_directions": ["reduce", "neutral"],
+      "requires_human_approval": false
+    },
+    "HUMAN_REVIEW_REQUIRED": {
+      "description": "Any action that changes runtime trading, allocates capital, increases risk, disables protections, or touches live/order paths.",
+      "allowed_risk_directions": ["increase"],
+      "requires_human_approval": true
+    }
+  },
+  "gates": [
+    {
+      "name": "DATA_CHECK",
+      "autonomy_level": "AUTO_ALLOWED",
+      "risk_direction": "neutral",
+      "requires_human_approval": false,
+      "allowed_actions": ["validate_data", "report_missing_data", "stop_if_missing"],
+      "blocked_actions": ["paper_capital", "live", "promotion", "order_path_change"]
+    },
+    {
+      "name": "FAST_NET_EDGE_TEST",
+      "autonomy_level": "AUTO_ALLOWED",
+      "risk_direction": "neutral",
+      "requires_human_approval": false,
+      "allowed_actions": ["run_bounded_smoke", "reject_fast", "rank_hypothesis", "generate_report"],
+      "blocked_actions": ["paper_capital", "live", "promotion", "order_path_change"]
+    },
+    {
+      "name": "WALK_FORWARD",
+      "autonomy_level": "AUTO_ALLOWED",
+      "risk_direction": "neutral",
+      "requires_human_approval": false,
+      "allowed_actions": ["run_walk_forward", "reject_or_keep_research", "generate_report"],
+      "blocked_actions": ["paper_capital", "live", "promotion", "order_path_change"]
+    },
+    {
+      "name": "STRESS_MONTE_CARLO",
+      "autonomy_level": "AUTO_ALLOWED",
+      "risk_direction": "neutral",
+      "requires_human_approval": false,
+      "allowed_actions": ["run_stress_test", "run_monte_carlo", "reject_or_keep_research", "generate_report"],
+      "blocked_actions": ["paper_capital", "live", "promotion", "order_path_change"]
+    },
+    {
+      "name": "SHADOW_REVIEW_CANDIDATE",
+      "autonomy_level": "HUMAN_REVIEW_REQUIRED",
+      "risk_direction": "increase",
+      "requires_human_approval": true,
+      "allowed_actions": ["recommend_human_review"],
+      "blocked_actions": ["auto_shadow_activation", "paper_capital", "live", "promotion", "order_path_change"]
+    }
+  ],
+  "risk_reduction_actions": {
+    "autonomy_level": "AUTO_ALLOWED",
+    "risk_direction": "reduce",
+    "requires_human_approval": false,
+    "allowed_actions": ["reject_hypothesis", "stop_hypothesis", "downgrade_strategy", "kill_strategy", "block_new_orders", "generate_report"]
+  },
+  "risk_increase_actions": {
+    "autonomy_level": "HUMAN_REVIEW_REQUIRED",
+    "risk_direction": "increase",
+    "requires_human_approval": true,
+    "blocked_without_human_review": [
+      "initial_paper_capital",
+      "increase_capital_max_eur",
+      "increase_max_position_eur",
+      "add_symbols",
+      "disable_kill_rules",
+      "change_sizing",
+      "change_leverage",
+      "activate_live",
+      "reactivate_after_capital_kill"
+    ]
+  }
+}

@@ -280,6 +280,41 @@ def _build_parser() -> argparse.ArgumentParser:
     volatility_breakout_wf.add_argument("--commit", default=None, help="Optional commit SHA to stamp in the generated report")
     volatility_breakout_wf.set_defaults(handler=_cmd_volatility_breakout_walk_forward)
 
+    alpha_hypothesis_runner = subparsers.add_parser(
+        "alpha-hypothesis-runner",
+        help="Run the bounded research-only Alpha Hypothesis Runner gates",
+    )
+    alpha_hypothesis_runner.add_argument("--hypothesis-id", required=True)
+    alpha_hypothesis_runner.add_argument(
+        "--mode",
+        choices=["data_check", "smoke", "walk_forward", "full_research"],
+        default="smoke",
+    )
+    alpha_hypothesis_runner.add_argument("--state-db", default=None)
+    alpha_hypothesis_runner.add_argument("--data-paths", default="")
+    alpha_hypothesis_runner.add_argument("--hypotheses-path", default="docs/research/alpha_hypotheses.json")
+    alpha_hypothesis_runner.add_argument("--autonomy-policy", default="docs/research/alpha_autonomy_policy.json")
+    alpha_hypothesis_runner.add_argument("--output-dir", default="reports/research/alpha_hypothesis_runner")
+    alpha_hypothesis_runner.add_argument("--run-id", default=None)
+    alpha_hypothesis_runner.add_argument("--symbols", default="BTCZEUR,ETHZEUR,BCHEUR,ADAEUR,XRPZEUR,SOLEUR")
+    alpha_hypothesis_runner.add_argument("--cost-profile", default="research_stress")
+    alpha_hypothesis_runner.add_argument("--max-runtime-seconds", type=float, default=120.0)
+    alpha_hypothesis_runner.add_argument("--max-variants", type=int, default=5)
+    alpha_hypothesis_runner.add_argument("--max-symbols", type=int, default=6)
+    alpha_hypothesis_runner.add_argument("--max-data-rows", type=int, default=250000)
+    alpha_hypothesis_runner.add_argument("--commit", default=None)
+    alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
+
+    strategy_autonomy = subparsers.add_parser(
+        "strategy-autonomy-check",
+        help="Evaluate one strategy against its research-only risk mandate",
+    )
+    strategy_autonomy.add_argument("--strategy-id", required=True)
+    strategy_autonomy.add_argument("--state-db", default=None)
+    strategy_autonomy.add_argument("--mandates", default="docs/research/strategy_risk_mandates.json")
+    strategy_autonomy.add_argument("--output-dir", default=None)
+    strategy_autonomy.set_defaults(handler=_cmd_strategy_autonomy_check)
+
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
     paper.add_argument("--journal-path", default=None, help="TradeJournal JSON file to summarize")
     paper.add_argument("--state-db", default=None, help="Read-only AUTOBOT state DB containing trade_ledger")
@@ -1814,6 +1849,74 @@ def _cmd_volatility_breakout_walk_forward(args: argparse.Namespace) -> int:
         Path(args.output_dir),
     )
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
+    from autobot.v2.research.alpha_hypothesis_runner import (
+        AlphaHypothesisRunnerConfig,
+        build_alpha_hypothesis_runner_report,
+        write_alpha_hypothesis_runner_report,
+    )
+
+    run_id = args.run_id or f"alpha_hypothesis_runner_{args.hypothesis_id}_{args.mode}"
+    data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
+    result = write_alpha_hypothesis_runner_report(
+        build_alpha_hypothesis_runner_report(
+            AlphaHypothesisRunnerConfig(
+                run_id=run_id,
+                hypothesis_id=args.hypothesis_id,
+                mode=args.mode,
+                hypotheses_path=Path(args.hypotheses_path),
+                autonomy_policy_path=Path(args.autonomy_policy),
+                state_db=Path(args.state_db) if args.state_db else None,
+                data_paths=data_paths,
+                output_dir=Path(args.output_dir),
+                symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+                cost_profile=args.cost_profile,
+                max_runtime_seconds=args.max_runtime_seconds,
+                max_variants=args.max_variants,
+                max_symbols=args.max_symbols,
+                max_data_rows=args.max_data_rows,
+            ),
+            commit=args.commit,
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
+    from autobot.v2.research.strategy_risk_mandates import (
+        AutoKillDowngradeEngine,
+        PreTradeAutonomyGate,
+        StrategyHealthSnapshot,
+        build_default_request,
+        load_strategy_risk_mandates,
+    )
+
+    mandates = load_strategy_risk_mandates(args.mandates)
+    mandate = mandates.get(args.strategy_id)
+    request = build_default_request(args.strategy_id)
+    gate_decision = PreTradeAutonomyGate().evaluate(mandate, request, StrategyHealthSnapshot())
+    kill_decision = (
+        AutoKillDowngradeEngine().evaluate(mandate, StrategyHealthSnapshot()).to_dict()
+        if mandate is not None
+        else None
+    )
+    payload = {
+        "strategy_id": args.strategy_id,
+        "state_db": args.state_db,
+        "mandate_active": mandate is not None,
+        "mandate": mandate.to_dict() if mandate else None,
+        "pre_trade_autonomy": gate_decision.to_dict(),
+        "auto_kill_downgrade": kill_decision,
+        "paper_capital_allowed": False,
+        "live_allowed": False,
+        "promotable": False,
+    }
+    _print_json(payload)
     return 0
 
 
