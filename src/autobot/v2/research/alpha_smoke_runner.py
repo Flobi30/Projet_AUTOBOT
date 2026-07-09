@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
@@ -37,6 +38,21 @@ P18B_TESTED_HYPOTHESES: tuple[str, ...] = (
     "long_timeframe_adaptive_trend",
 )
 P18B_SKIPPED_HYPOTHESES: tuple[str, ...] = ("funding_basis", "liquidation_cascade")
+
+
+def _current_git_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = result.stdout.strip()
+    return commit or None
 
 
 @dataclass(frozen=True)
@@ -176,6 +192,7 @@ class _SmokeTrade:
 
 def build_alpha_smoke_report(config: AlphaSmokeConfig, *, commit: str | None = None) -> AlphaSmokeReport:
     started = time.perf_counter()
+    report_commit = commit or _current_git_commit()
     load_alpha_hypotheses(config.hypotheses_path)
     raw_bars = _load_bars(config)
     bars, duplicate_count = _deduplicate_bars(raw_bars)
@@ -203,7 +220,7 @@ def build_alpha_smoke_report(config: AlphaSmokeConfig, *, commit: str | None = N
     return AlphaSmokeReport(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
-        commit=commit,
+        commit=report_commit,
         data_paths=tuple(str(path) for path in config.data_paths),
         availability=availability,
         tested=tuple(tested),
