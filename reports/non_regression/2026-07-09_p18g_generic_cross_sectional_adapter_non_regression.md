@@ -60,6 +60,19 @@ Results:
 - Expectancy: `-2.783311`.
 - Walk-forward was not launched after fast rejection.
 
+## VPS Evidence
+
+- GitHub/local/VPS commit: `2df2c851b4b231ca70f6e9dd7a8fe8a089826f1b`.
+- VPS host used: `204.168.251.201`.
+- Previous tested host `91.99.232.7` timed out on SSH port 22; `204.168.251.201` was recovered from prior AUTOBOT reports and confirmed with hostname `AUTOBOT`.
+- Container `autobot-v2`: running and Docker health `healthy`.
+- `/health`: `healthy`, websocket `connected`, instances `14`.
+- Flags: `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false`, `COLONY_AUTO_LIVE_PROMOTION=false`.
+- Critical/order/live log scan over last 200 lines: `0`.
+- VPS scheduler selected `cross_momentum` / `relative_strength_rotation` after the template-specific `leader_laggard_momentum` rejection.
+- VPS `relative_strength_rotation` smoke: `REJECT_FAST`, trade_count `42`, PF net `0.482841`, net PnL EUR `-37.949597`, expectancy `-0.903562`.
+- Walk-forward was not launched after fast rejection.
+
 ## Safety Confirmation
 
 - `paper_capital_allowed=false`

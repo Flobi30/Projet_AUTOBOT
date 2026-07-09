@@ -89,6 +89,39 @@ Rejection reasons:
 - `profit_factor_net_not_above_1`
 - `expectancy_net_not_positive`
 
+## VPS Deployment And Auto-Selected Next Smoke
+
+Deployed commit:
+
+- `2df2c851b4b231ca70f6e9dd7a8fe8a089826f1b`
+
+VPS note:
+
+- SSH to the previously used `91.99.232.7` timed out on port 22.
+- The operational AUTOBOT host was recovered from prior reports as `204.168.251.201`.
+- Hostname confirmed: `AUTOBOT`.
+
+VPS scheduler result after deployment:
+
+- selected status: `RUNNABLE_SMOKE`
+- selected hypothesis: `cross_momentum`
+- selected template: `relative_strength_rotation`
+- reason: `leader_laggard_momentum` was already rejected template-specifically in memory.
+
+VPS smoke result for `relative_strength_rotation`:
+
+- final_status: `REJECT_FAST`
+- final_decision: `STOPPED`
+- adapter_id: `generic_cross_sectional_ohlcv_adapter`
+- mode_used: `relative_strength_rotation`
+- trade_count: `42`
+- PF net: `0.482841`
+- net PnL EUR: `-37.949597`
+- expectancy net: `-0.903562`
+- reasons: `edge_net_not_positive`, `profit_factor_net_not_above_1`, `expectancy_net_not_positive`
+
+No walk-forward was launched after the failed smoke gate.
+
 ## Memory
 
 - Recorded in `reports/research/alpha_research_memory.json`.
@@ -120,6 +153,12 @@ Results:
 - No paper/live activation.
 - No shadow activation.
 - No strategy promotion.
+- VPS `/health`: `healthy`.
+- WebSocket: `connected`.
+- Instances: `14`.
+- VPS flags: `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false`, `COLONY_AUTO_LIVE_PROMOTION=false`.
+- Container health: `healthy`.
+- Critical runtime log count checked over last 200 lines: `0`.
 
 ## Recommendation P18H
 
