@@ -20,6 +20,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS, load_alpha_hypotheses
 from .alpha_hypothesis_runner import AlphaHypothesisRunnerReport, canonical_hypothesis_id
+from .data_capability_scanner import build_data_capability_scan_report
 
 
 REQUIRED_FAMILY_FIELDS = (
@@ -375,6 +376,7 @@ class AlphaSchedulerReport:
     families: tuple[dict[str, Any], ...]
     templates: tuple[dict[str, Any], ...]
     data_readiness: dict[str, Any]
+    data_capabilities: dict[str, Any]
     adapter_readiness: dict[str, str]
     trial_counts_by_family: dict[str, int]
     trial_counts_by_template: dict[str, int]
@@ -400,6 +402,7 @@ class AlphaSchedulerReport:
             "families": [dict(item) for item in self.families],
             "templates": [dict(item) for item in self.templates],
             "data_readiness": dict(self.data_readiness),
+            "data_capabilities": dict(self.data_capabilities),
             "adapter_readiness": dict(self.adapter_readiness),
             "trial_counts_by_family": dict(self.trial_counts_by_family),
             "trial_counts_by_template": dict(self.trial_counts_by_template),
@@ -556,6 +559,12 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     hypotheses = load_alpha_hypotheses(config.hypotheses_path)
     memory = load_alpha_research_memory(config.memory_path)
     readiness = scan_data_readiness(config.data_paths)
+    capability_scan = build_data_capability_scan_report(
+        run_id=f"{config.run_id}_capabilities",
+        data_roots=config.data_paths,
+        state_db=config.state_db,
+        memory_path=config.memory_path,
+    )
     adapter_readiness = _adapter_readiness(templates)
     family_counts = memory.trial_count_by_family()
     template_counts = memory.trial_count_by_template()
@@ -603,6 +612,12 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         families=tuple(knowledge["families"]),
         templates=tuple(templates["templates"]),
         data_readiness=readiness.to_dict(),
+        data_capabilities={
+            "capabilities": [item.to_dict() for item in capability_scan.capabilities],
+            "alpha_family_status": capability_scan.alpha_family_status,
+            "rejected_family_status": capability_scan.rejected_family_status,
+            "scheduler_notes": list(capability_scan.scheduler_notes),
+        },
         adapter_readiness=adapter_readiness,
         trial_counts_by_family=family_counts,
         trial_counts_by_template=template_counts,
@@ -649,6 +664,19 @@ def render_alpha_hypothesis_scheduler_report(report: AlphaSchedulerReport) -> st
     ]
     for key, value in report.data_readiness.items():
         lines.append(f"- `{key}`: `{value}`")
+    lines.extend(["", "## Data Capability Scan", ""])
+    capability_rows = report.data_capabilities.get("capabilities", ())
+    if capability_rows:
+        lines.append("| Capability | Available | Rows | Quality | Blockers |")
+        lines.append("| --- | ---: | ---: | --- | --- |")
+        for item in capability_rows:
+            lines.append(
+                f"| `{item.get('capability_id')}` | `{item.get('available')}` | "
+                f"{item.get('row_count', 0)} | `{item.get('quality_status')}` | "
+                f"{', '.join(item.get('blockers', [])) or 'none'} |"
+            )
+    for note in report.data_capabilities.get("scheduler_notes", ()):
+        lines.append(f"- {note}")
     lines.extend(["", "## Candidates", ""])
     lines.append("| Rank | Hypothesis | Template | Status | Priority | Reason | Next action |")
     lines.append("|---:|---|---|---|---:|---|---|")

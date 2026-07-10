@@ -272,6 +272,31 @@ def test_data_readiness_detects_ohlcv_symbols_and_timeframes(tmp_path):
     assert set(readiness.symbols) == {"ADAEUR", "BCHEUR"}
 
 
+def test_scheduler_explains_capability_blockers_without_relaunching_rejected(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    memory_path = tmp_path / "memory.json"
+    AlphaResearchMemory(memory_path, ()).add_record(
+        _record("p18d", final_status="REJECTED", variant_count=5)
+    ).write(memory_path)
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_capability_scheduler",
+            state_db=None,
+            data_paths=(data_dir,),
+            memory_path=memory_path,
+        )
+    )
+
+    capability_ids = {item["capability_id"] for item in report.data_capabilities["capabilities"]}
+    assert "funding_rates" in capability_ids
+    assert report.data_capabilities["alpha_family_status"]["funding_basis"]["status"] == "DATA_MISSING"
+    assert "funding_rates_missing" in report.data_capabilities["alpha_family_status"]["funding_basis"]["blockers"]
+    assert report.data_capabilities["rejected_family_status"]["volatility_breakout"]["retest_allowed"] is False
+    by_template = {item.template_id: item for item in report.candidates}
+    assert by_template["breakout_after_compression"].status == "REJECTED_CURRENT_CONFIG"
+
+
 def _record(
     run_id: str,
     *,

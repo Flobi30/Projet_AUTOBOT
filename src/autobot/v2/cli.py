@@ -330,6 +330,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     alpha_hypothesis_scheduler.set_defaults(handler=_cmd_alpha_hypothesis_scheduler)
 
+    data_capability_scan = subparsers.add_parser(
+        "data-capability-scan",
+        help="Scan research data capabilities and explain which alpha families are unlocked or blocked",
+    )
+    data_capability_scan.add_argument("--run-id", default=None)
+    data_capability_scan.add_argument("--state-db", default=None)
+    data_capability_scan.add_argument("--data-roots", required=True, help="Comma-separated data/report roots to scan")
+    data_capability_scan.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
+    data_capability_scan.add_argument("--output-dir", default="reports/research")
+    data_capability_scan.set_defaults(handler=_cmd_data_capability_scan)
+
     strategy_autonomy = subparsers.add_parser(
         "strategy-autonomy-check",
         help="Evaluate one strategy against its research-only risk mandate",
@@ -1961,6 +1972,26 @@ def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
         built = replace(built, memory_backfill=backfill)
     report = write_alpha_hypothesis_scheduler_report(
         built,
+        Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_data_capability_scan(args: argparse.Namespace) -> int:
+    from autobot.v2.research.data_capability_scanner import (
+        build_data_capability_scan_report,
+        write_data_capability_scan_report,
+    )
+
+    run_id = args.run_id or f"p18h_data_capability_scan_{date.today().strftime('%Y%m%d')}"
+    report = write_data_capability_scan_report(
+        build_data_capability_scan_report(
+            run_id=run_id,
+            state_db=Path(args.state_db) if args.state_db else None,
+            data_roots=tuple(Path(path) for path in _csv_tuple(args.data_roots, "--data-roots")),
+            memory_path=Path(args.memory_path),
+        ),
         Path(args.output_dir),
     )
     _print_json(report.to_dict())
