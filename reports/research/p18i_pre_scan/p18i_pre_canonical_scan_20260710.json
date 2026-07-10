@@ -1,0 +1,1324 @@
+{
+  "alpha_family_status": {
+    "cross_sectional_momentum": {
+      "available_capabilities": [
+        "multi_symbol_ohlcv",
+        "exchange_fees"
+      ],
+      "blockers": [],
+      "notes": [],
+      "status": "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
+    },
+    "funding_basis": {
+      "available_capabilities": [
+        "spot_ohlcv"
+      ],
+      "blockers": [
+        "funding_rates_missing",
+        "spot_perp_basis_missing"
+      ],
+      "notes": [
+        "do_not_run_until_real_derivatives_or_event_data_exists"
+      ],
+      "status": "DATA_MISSING"
+    },
+    "liquidation_cascade": {
+      "available_capabilities": [
+        "spot_ohlcv",
+        "orderbook_depth_snapshots"
+      ],
+      "blockers": [
+        "liquidation_events_missing"
+      ],
+      "notes": [
+        "do_not_run_until_real_derivatives_or_event_data_exists"
+      ],
+      "status": "DATA_MISSING"
+    },
+    "long_trend": {
+      "available_capabilities": [
+        "spot_ohlcv",
+        "exchange_fees"
+      ],
+      "blockers": [],
+      "notes": [],
+      "status": "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
+    },
+    "news_event_filter": {
+      "available_capabilities": [],
+      "blockers": [
+        "news_sentiment_missing"
+      ],
+      "notes": [],
+      "status": "DATA_MISSING"
+    },
+    "order_flow_imbalance": {
+      "available_capabilities": [
+        "orderbook_depth_snapshots",
+        "spread_history"
+      ],
+      "blockers": [],
+      "notes": [
+        "top_of_book_samples_are_not_full_orderbook_replay"
+      ],
+      "status": "DATA_AVAILABLE_RESEARCH_ONLY"
+    },
+    "relative_value": {
+      "available_capabilities": [
+        "multi_symbol_ohlcv",
+        "exchange_fees"
+      ],
+      "blockers": [],
+      "notes": [],
+      "status": "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
+    },
+    "volatility_breakout": {
+      "available_capabilities": [
+        "spot_ohlcv",
+        "exchange_fees"
+      ],
+      "blockers": [],
+      "notes": [],
+      "status": "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
+    }
+  },
+  "capabilities": [
+    {
+      "alpha_families_unlocked": [
+        "volatility_breakout",
+        "long_trend",
+        "market_structure",
+        "volatility_regime"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "spot_ohlcv",
+      "duplicate_count": 126304,
+      "end_at": "2026-06-16T14:50:00+00:00",
+      "freshness_seconds": 2025899.1493394375,
+      "gap_count": 0,
+      "notes": [
+        "csv_ohlcv_scan"
+      ],
+      "provider": "kraken_public_ohlcv",
+      "proxy_status": "not_proxy",
+      "quality_status": "dedupe_required",
+      "row_count": 236407,
+      "source_paths": [
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_15m_ADAEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_1h_ADAEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_5m_ADAEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_15m_AVAXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_1h_AVAXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_5m_AVAXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_15m_DOTEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_1h_DOTEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_5m_DOTEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_15m_LINKEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_1h_LINKEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_5m_LINKEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_15m_SOLEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_1h_SOLEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_5m_SOLEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_15m_TRXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_1h_TRXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_5m_TRXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_15m_XRPZEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_1h_XRPZEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_5m_XRPZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AAVEEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ADAEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ATOMEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AVAXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BCHEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_DOTEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ETHZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LINKEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_SOLEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_TRXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XLMZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XRPZEUR_5m.csv",
+        "data\\research\\historical_long_foundation_smoke_2026_06_07\\2026_06_07_kraken_smoke_TRXEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_combined_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_5m.csv"
+      ],
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "storage_size_bytes": 120500846,
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XBTZEUR",
+        "XETHZEUR",
+        "XLMZEUR",
+        "XLTCZEUR",
+        "XRPZEUR",
+        "XXBTZEUR",
+        "XXLMZEUR",
+        "XXRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "1m",
+        "5m"
+      ]
+    },
+    {
+      "alpha_families_unlocked": [
+        "cross_sectional_momentum",
+        "relative_value"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "multi_symbol_ohlcv",
+      "duplicate_count": 126304,
+      "end_at": "2026-06-16T14:50:00+00:00",
+      "freshness_seconds": 2025899.1493394375,
+      "gap_count": 0,
+      "notes": [
+        "derived_from_spot_ohlcv"
+      ],
+      "provider": "kraken_public_ohlcv",
+      "proxy_status": "not_proxy",
+      "quality_status": "ready_for_cross_sectional_research",
+      "row_count": 236407,
+      "source_paths": [
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_15m_ADAEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_1h_ADAEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_5m_ADAEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_15m_AVAXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_1h_AVAXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_5m_AVAXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_15m_DOTEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_1h_DOTEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_5m_DOTEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_15m_LINKEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_1h_LINKEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_5m_LINKEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_15m_SOLEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_1h_SOLEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_5m_SOLEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_15m_TRXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_1h_TRXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_5m_TRXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_15m_XRPZEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_1h_XRPZEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_5m_XRPZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AAVEEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ADAEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ATOMEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AVAXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BCHEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_DOTEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ETHZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LINKEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_SOLEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_TRXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XLMZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XRPZEUR_5m.csv",
+        "data\\research\\historical_long_foundation_smoke_2026_06_07\\2026_06_07_kraken_smoke_TRXEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_combined_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_5m.csv"
+      ],
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "storage_size_bytes": 120500846,
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XBTZEUR",
+        "XETHZEUR",
+        "XLMZEUR",
+        "XLTCZEUR",
+        "XRPZEUR",
+        "XXBTZEUR",
+        "XXLMZEUR",
+        "XXRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "1m",
+        "5m"
+      ]
+    },
+    {
+      "alpha_families_unlocked": [
+        "order_flow_imbalance",
+        "liquidation_cascade",
+        "market_making"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "orderbook_depth_snapshots",
+      "duplicate_count": 0,
+      "end_at": "2026-06-16T14:53:57.757583+00:00",
+      "freshness_seconds": 2025817.322839737,
+      "gap_count": 0,
+      "notes": [
+        "top_of_book_depth_only_not_full_replay"
+      ],
+      "provider": "kraken_rest_public_depth",
+      "proxy_status": "not_proxy",
+      "quality_status": "sampled_top_of_book_depth",
+      "row_count": 434,
+      "source_paths": [
+        "data\\research\\daily\\microstructure\\daily_2026_06_08\\daily_2026_06_08_spread_depth_spread_depth.csv",
+        "data\\research\\microstructure\\kraken_active_pairs_depth_smoke_2026_06_16\\kraken_active_pairs_depth_smoke_2026_06_16_spread_depth.csv"
+      ],
+      "start_at": "2026-06-08T08:25:07.838741+00:00",
+      "storage_size_bytes": 81796,
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [
+        "cost_sensitive_intraday_filter",
+        "order_flow_imbalance"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "spread_history",
+      "duplicate_count": 0,
+      "end_at": "2026-06-16T14:53:57.757583+00:00",
+      "freshness_seconds": 2025817.322839737,
+      "gap_count": 0,
+      "notes": [
+        "public_depth_snapshot_history"
+      ],
+      "provider": "kraken_rest_public_depth",
+      "proxy_status": "not_proxy",
+      "quality_status": "sampled_public_top_of_book",
+      "row_count": 434,
+      "source_paths": [
+        "data\\research\\daily\\microstructure\\daily_2026_06_08\\daily_2026_06_08_spread_depth_spread_depth.csv",
+        "data\\research\\microstructure\\kraken_active_pairs_depth_smoke_2026_06_16\\kraken_active_pairs_depth_smoke_2026_06_16_spread_depth.csv"
+      ],
+      "start_at": "2026-06-08T08:25:07.838741+00:00",
+      "storage_size_bytes": 81796,
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XLMZEUR",
+        "XRPZEUR"
+      ],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "funding_rates_missing"
+      ],
+      "capability_id": "funding_rates",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "futures_perp_prices_missing"
+      ],
+      "capability_id": "futures_perp_prices",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "spot_perp_basis_missing"
+      ],
+      "capability_id": "spot_perp_basis",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "open_interest_missing"
+      ],
+      "capability_id": "open_interest",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "liquidation_events_missing"
+      ],
+      "capability_id": "liquidation_events",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [
+        "volatility_breakout",
+        "liquidity_sweep_fakeout"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "volume_anomalies",
+      "duplicate_count": 126304,
+      "end_at": "2026-06-16T14:50:00+00:00",
+      "freshness_seconds": 2025899.1493394375,
+      "gap_count": 0,
+      "notes": [
+        "derived_feature_not_separate_feed"
+      ],
+      "provider": "kraken_public_ohlcv",
+      "proxy_status": "not_proxy",
+      "quality_status": "derived_from_ohlcv_volume",
+      "row_count": 236407,
+      "source_paths": [
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_15m_ADAEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_1h_ADAEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_ADAEUR_5m_ADAEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_15m_AVAXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_1h_AVAXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_AVAXEUR_5m_AVAXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_15m_DOTEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_1h_DOTEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_DOTEUR_5m_DOTEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_15m_LINKEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_1h_LINKEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_LINKEUR_5m_LINKEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_15m_SOLEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_1h_SOLEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_SOLEUR_5m_SOLEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_15m_TRXEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_1h_TRXEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_TRXEUR_5m_TRXEUR_5m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_15m_XRPZEUR_15m.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_1h_XRPZEUR_1h.csv",
+        "data\\research\\daily\\ohlcv\\daily_2026_06_08\\daily_2026_06_08_XRPEUR_5m_XRPZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AAVEEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ADAEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ATOMEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_AVAXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BCHEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_BTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_DOTEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_ETHZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LINKEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_LTCZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_SOLEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_TRXEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XLMZEUR_5m.csv",
+        "data\\research\\historical\\kraken_active_pairs_smoke_2026_06_16\\kraken_active_pairs_smoke_2026_06_16_XRPZEUR_5m.csv",
+        "data\\research\\historical_long_foundation_smoke_2026_06_07\\2026_06_07_kraken_smoke_TRXEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_BTCZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_combined_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_ETHZEUR_5m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_15m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1h.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_1m.csv",
+        "data\\research\\kraken_ohlcv_foundation_2026_06\\kraken_ohlcv_foundation_2026_06_TRXEUR_5m.csv"
+      ],
+      "start_at": "2026-05-08T13:00:00+00:00",
+      "storage_size_bytes": 120500846,
+      "symbols": [
+        "AAVEEUR",
+        "ADAEUR",
+        "ATOMEUR",
+        "AVAXEUR",
+        "BCHEUR",
+        "BTCZEUR",
+        "DOTEUR",
+        "ETHZEUR",
+        "LINKEUR",
+        "LTCZEUR",
+        "SOLEUR",
+        "TRXEUR",
+        "XBTZEUR",
+        "XETHZEUR",
+        "XLMZEUR",
+        "XLTCZEUR",
+        "XRPZEUR",
+        "XXBTZEUR",
+        "XXLMZEUR",
+        "XXRPZEUR"
+      ],
+      "timeframes": [
+        "15m",
+        "1h",
+        "1m",
+        "5m"
+      ]
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "news_sentiment_missing"
+      ],
+      "capability_id": "news_sentiment",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": null,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "unknown",
+      "proxy_status": "not_proxy",
+      "quality_status": "missing",
+      "row_count": 0,
+      "source_paths": [],
+      "start_at": null,
+      "storage_size_bytes": 0,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [
+        "all_cost_sensitive_research"
+      ],
+      "available": true,
+      "blockers": [],
+      "capability_id": "exchange_fees",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": 2179568.8580191135,
+      "gap_count": 0,
+      "notes": [],
+      "provider": "autobot_cost_profiles",
+      "proxy_status": "not_proxy",
+      "quality_status": "available_metadata",
+      "row_count": 24013,
+      "source_paths": [
+        "data\\research\\autobot_state_cost_profile_replay_20260614.db",
+        "data\\research\\autobot_state_cost_profile_replay_20260614.db-shm",
+        "data\\research\\autobot_state_cost_profile_replay_20260614.db-wal",
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_5m.csv",
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_manifest.json",
+        "data\\research\\cost_profile_parity_20260614\\cost_profile_parity_20260614_quality.md",
+        "reports\\research\\cost_profile_parity_design_2026-06-14.md",
+        "reports\\research\\cost_profile_replay_after_parity_2026-06-14.md",
+        "reports\\research\\cost_profile_replay_comparison_2026-06-14.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\cost_profile_replay_after_paper_current_taker_20260614.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\cost_profile_replay_after_paper_current_taker_20260614.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cost_profile_replay_after_paper_current_taker_20260614_early.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cost_profile_replay_after_paper_current_taker_20260614_early.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_grid.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_grid.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_grid_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_mean_reversion.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_mean_reversion.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_mean_reversion_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_trend.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_trend.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AAVEEUR_trend_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_grid.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_grid.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_grid_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_mean_reversion.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_mean_reversion.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_mean_reversion_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_trend.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_trend.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ADAEUR_trend_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_grid.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_grid.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_grid_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_mean_reversion.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_mean_reversion.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_mean_reversion_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_trend.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_trend.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_ATOMEUR_trend_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_grid.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_grid.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_grid_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_mean_reversion.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_mean_reversion.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_mean_reversion_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_trend.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_trend.md",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_AVAXEUR_trend_journal.json",
+        "reports\\research\\cost_profile_replay_20260614_after_parity\\paper_current_taker\\matrices\\early\\cells\\backtests\\cost_profile_replay_after_paper_current_taker_20260614_early_BCHEUR_grid.json"
+      ],
+      "start_at": null,
+      "storage_size_bytes": 132765110,
+      "symbols": [],
+      "timeframes": []
+    },
+    {
+      "alpha_families_unlocked": [],
+      "available": false,
+      "blockers": [
+        "slippage_or_fee_history_missing"
+      ],
+      "capability_id": "slippage_fill_history",
+      "duplicate_count": 0,
+      "end_at": null,
+      "freshness_seconds": 651821.2821857929,
+      "gap_count": 0,
+      "notes": [
+        "execution_history_not_market_alpha_source"
+      ],
+      "provider": "autobot_trade_ledger",
+      "proxy_status": "not_proxy",
+      "quality_status": "ledger_without_cost_columns",
+      "row_count": 0,
+      "source_paths": [
+        "data\\autobot_state.db"
+      ],
+      "start_at": null,
+      "storage_size_bytes": 208896,
+      "symbols": [],
+      "timeframes": []
+    }
+  ],
+  "data_roots": [
+    "data\\research",
+    "reports\\research"
+  ],
+  "derivatives_data_plan": [
+    {
+      "complexity": "medium",
+      "current_status": "DATA_MISSING",
+      "data_type": "funding_rates",
+      "estimated_storage": "low",
+      "notes": [
+        "must be real funding feed, not inferred from spot OHLCV"
+      ],
+      "potential_sources": [
+        "kraken_futures_public_if_supported",
+        "ccxt_derivatives_public_if_supported",
+        "paid_derivatives_data_vendor"
+      ],
+      "priority": "high",
+      "recommended_frequency": "hourly_or_exchange_funding_interval",
+      "required_for": [
+        "funding_basis"
+      ]
+    },
+    {
+      "complexity": "medium",
+      "current_status": "DATA_MISSING",
+      "data_type": "perp_mark_index_basis",
+      "estimated_storage": "low_to_medium",
+      "notes": [
+        "basis proxy from another venue must be marked proxy_low_confidence"
+      ],
+      "potential_sources": [
+        "kraken_futures_public_if_supported",
+        "ccxt_derivatives_public_if_supported"
+      ],
+      "priority": "high",
+      "recommended_frequency": "5m_to_1h",
+      "required_for": [
+        "funding_basis",
+        "spot_perp_basis"
+      ]
+    },
+    {
+      "complexity": "medium",
+      "current_status": "DATA_MISSING",
+      "data_type": "open_interest",
+      "estimated_storage": "low",
+      "notes": [
+        "use as context, not direct alpha without event validation"
+      ],
+      "potential_sources": [
+        "kraken_futures_public_if_supported",
+        "ccxt_derivatives_public_if_supported",
+        "paid_derivatives_data_vendor"
+      ],
+      "priority": "medium",
+      "recommended_frequency": "15m_to_1h",
+      "required_for": [
+        "funding_basis",
+        "liquidation_cascade"
+      ]
+    },
+    {
+      "complexity": "high",
+      "current_status": "DATA_MISSING",
+      "data_type": "liquidation_events",
+      "estimated_storage": "medium",
+      "notes": [
+        "do not create weak OHLCV liquidation proxy except proxy_low_confidence"
+      ],
+      "potential_sources": [
+        "paid_liquidation_feed",
+        "exchange_public_if_available"
+      ],
+      "priority": "medium",
+      "recommended_frequency": "1m_to_5m_or_event_stream",
+      "required_for": [
+        "liquidation_cascade"
+      ]
+    }
+  ],
+  "generated_at": "2026-07-10T01:37:35.367424+00:00",
+  "json_report_path": null,
+  "live_allowed": false,
+  "markdown_report_path": null,
+  "ohlcv_backfill_plan": {
+    "bounded_commands": [
+      "python -m autobot.v2.cli collect-history --run-id ohlcv_6m_bounded --symbols AAVEEUR,ADAEUR,ATOMEUR,AVAXEUR,BCHEUR,BTCZEUR,DOTEUR,ETHZEUR,LINKEUR,LTCZEUR,SOLEUR,TRXEUR,XBTZEUR,XETHZEUR,XLMZEUR,XLTCZEUR,XRPZEUR,XXBTZEUR,XXLMZEUR,XXRPZEUR --timeframes 15m,1h,1m,5m --start-at <UTC_START_6M> --end-at <UTC_END> --max-pages <bounded_pages> --dedupe true --output-dir data/research/historical_long",
+      "python -m autobot.v2.cli data-quality --run-id ohlcv_6m_quality --paths <deduped_csv_files> --output-dir reports/research/data_foundation",
+      "python -m autobot.v2.cli data-capability-scan --state-db data/autobot_state.db --data-roots data/research,reports/research --output-dir reports/research"
+    ],
+    "current_end_at": "2026-06-16T14:50:00+00:00",
+    "current_row_count": 236407,
+    "current_start_at": "2026-05-08T13:00:00+00:00",
+    "current_symbols": [
+      "AAVEEUR",
+      "ADAEUR",
+      "ATOMEUR",
+      "AVAXEUR",
+      "BCHEUR",
+      "BTCZEUR",
+      "DOTEUR",
+      "ETHZEUR",
+      "LINKEUR",
+      "LTCZEUR",
+      "SOLEUR",
+      "TRXEUR",
+      "XBTZEUR",
+      "XETHZEUR",
+      "XLMZEUR",
+      "XLTCZEUR",
+      "XRPZEUR",
+      "XXBTZEUR",
+      "XXLMZEUR",
+      "XXRPZEUR"
+    ],
+    "current_timeframes": [
+      "15m",
+      "1h",
+      "1m",
+      "5m"
+    ],
+    "estimated_storage_multiplier_for_12m": 9.3407,
+    "recommended_provider_priority": [
+      "kraken_public_ohlcv",
+      "ccxt_kraken_public_ohlcv",
+      "external_public_csv_if_verified"
+    ],
+    "status": "plan_only",
+    "storage_policy_notes": [
+      "Run as bounded batch only, never on each tick.",
+      "Keep raw exports and write canonical deduped files with manifest.",
+      "Do not retest rejected OHLCV hypotheses unless history grows significantly or a new template is introduced."
+    ],
+    "target_intraday_months_minimum": 6,
+    "target_intraday_months_preferred": 12
+  },
+  "paper_capital_allowed": false,
+  "promotable": false,
+  "rejected_family_status": {
+    "cross_momentum": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "cross_momentum__leader_laggard_momentum": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "cross_sectional_momentum": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "dynamic_grid": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "grid": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "high_conviction_swing": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "long_trend": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "relative_value": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "trend_momentum": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    },
+    "volatility_breakout": {
+      "current_data_signature": {
+        "depth_available": true,
+        "funding_available": false,
+        "liquidations_available": false,
+        "ohlcv_end_at": "2026-06-16T14:50:00+00:00",
+        "ohlcv_row_count": 236407,
+        "ohlcv_start_at": "2026-05-08T13:00:00+00:00",
+        "symbols": [
+          "AAVEEUR",
+          "ADAEUR",
+          "ATOMEUR",
+          "AVAXEUR",
+          "BCHEUR",
+          "BTCZEUR",
+          "DOTEUR",
+          "ETHZEUR",
+          "LINKEUR",
+          "LTCZEUR",
+          "SOLEUR",
+          "TRXEUR",
+          "XBTZEUR",
+          "XETHZEUR",
+          "XLMZEUR",
+          "XLTCZEUR",
+          "XRPZEUR",
+          "XXBTZEUR",
+          "XXLMZEUR",
+          "XXRPZEUR"
+        ],
+        "timeframes": [
+          "15m",
+          "1h",
+          "1m",
+          "5m"
+        ]
+      },
+      "reason": "blocked_until_new_data_signature_or_new_template",
+      "retest_allowed": false,
+      "status": "REJECTED_CURRENT_CONFIG"
+    }
+  },
+  "research_storage_policy": {
+    "canonical_data": "Write normalized symbol/timeframe datasets under data/research/canonical/ with schema/version metadata.",
+    "compression": "Prefer Parquet or compressed CSV for long OHLCV/orderbook history when dependencies are available.",
+    "deduped_data": "Use symbol+timeframe+timestamp unique keys; deduped files are the only source for runner inputs.",
+    "manifests": "Each run writes row counts, duplicate counts, gaps, source provider, start/end and checksum where practical.",
+    "protected_paths": [
+      "data/autobot_state.db",
+      "data/paper_trades.db",
+      "reports/research",
+      "reports/non_regression",
+      "backups",
+      "trade ledgers"
+    ],
+    "raw_data": "Store provider-native exports under data/research/raw/<provider>/<capability>/ with immutable manifests.",
+    "retention": "Keep critical ledgers, reports and manifests indefinitely; rotate raw high-frequency snapshots only after canonical verification.",
+    "safe_cleanup": [
+      "__pycache__",
+      ".pytest_cache",
+      "temporary smoke configs",
+      "Docker build cache"
+    ]
+  },
+  "run_id": "p18i_pre_canonical_scan_20260710",
+  "safety_notes": [
+    "Research-only data capability scan.",
+    "No live trading, paper capital, promotion, shadow activation, sizing, leverage, UI, or runtime order path.",
+    "No orders are created.",
+    "Grid remains no-go."
+  ],
+  "scheduler_data_state": {
+    "basis_data_ready": false,
+    "canonical_ohlcv_ready": false,
+    "funding_data_ready": false,
+    "hypotheses_still_blocked": [
+      "funding_basis",
+      "liquidation_cascade",
+      "news_event_filter"
+    ],
+    "hypotheses_unlocked": [
+      "cross_sectional_momentum",
+      "long_trend",
+      "order_flow_imbalance",
+      "relative_value",
+      "volatility_breakout"
+    ],
+    "liquidation_data_ready": false,
+    "new_data_significance": "no_canonical_snapshot",
+    "open_interest_ready": false,
+    "snapshot_fingerprint": null,
+    "snapshot_id": null
+  },
+  "scheduler_notes": [
+    "Do not relaunch rejected OHLCV templates solely because this scanner exists.",
+    "Relaunch requires significant new data, a new historical period, a new thesis, or a genuinely different template.",
+    "canonical_ohlcv_ready is false until a deduped canonical snapshot exists.",
+    "funding_basis blocked until funding, basis/perp and validated provider data exist.",
+    "liquidation_cascade blocked until liquidation events and sufficient depth data exist."
+  ],
+  "state_db": "data\\autobot_state.db"
+}

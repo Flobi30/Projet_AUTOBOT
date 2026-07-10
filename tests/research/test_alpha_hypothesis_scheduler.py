@@ -290,6 +290,9 @@ def test_scheduler_explains_capability_blockers_without_relaunching_rejected(tmp
 
     capability_ids = {item["capability_id"] for item in report.data_capabilities["capabilities"]}
     assert "funding_rates" in capability_ids
+    assert "scheduler_data_state" in report.data_capabilities
+    assert report.data_capabilities["scheduler_data_state"]["funding_data_ready"] is False
+    assert report.data_capabilities["scheduler_data_state"]["liquidation_data_ready"] is False
     assert report.data_capabilities["alpha_family_status"]["funding_basis"]["status"] == "DATA_MISSING"
     assert "funding_rates_missing" in report.data_capabilities["alpha_family_status"]["funding_basis"]["blockers"]
     assert report.data_capabilities["rejected_family_status"]["volatility_breakout"]["retest_allowed"] is False

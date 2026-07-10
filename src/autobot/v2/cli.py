@@ -341,6 +341,22 @@ def _build_parser() -> argparse.ArgumentParser:
     data_capability_scan.add_argument("--output-dir", default="reports/research")
     data_capability_scan.set_defaults(handler=_cmd_data_capability_scan)
 
+    canonicalize_ohlcv = subparsers.add_parser(
+        "canonicalize-ohlcv",
+        help="Build a deterministic research-only canonical OHLCV snapshot from raw CSV exports",
+    )
+    canonicalize_ohlcv.add_argument("--run-id", default=None)
+    canonicalize_ohlcv.add_argument("--raw-paths", required=True, help="Comma-separated raw OHLCV files or directories")
+    canonicalize_ohlcv.add_argument("--output-dir", default="data/research/canonical/ohlcv")
+    canonicalize_ohlcv.add_argument("--manifest-dir", default="data/research/manifests")
+    canonicalize_ohlcv.add_argument("--quarantine-dir", default="data/research/quarantine")
+    canonicalize_ohlcv.add_argument("--report-dir", default="reports/research/canonical_ohlcv")
+    canonicalize_ohlcv.add_argument("--exchange", default="kraken")
+    canonicalize_ohlcv.add_argument("--market-type", default="spot")
+    canonicalize_ohlcv.add_argument("--max-files", type=int, default=None)
+    canonicalize_ohlcv.add_argument("--max-rows", type=int, default=None)
+    canonicalize_ohlcv.set_defaults(handler=_cmd_canonicalize_ohlcv)
+
     strategy_autonomy = subparsers.add_parser(
         "strategy-autonomy-check",
         help="Evaluate one strategy against its research-only risk mandate",
@@ -1995,6 +2011,37 @@ def _cmd_data_capability_scan(args: argparse.Namespace) -> int:
         Path(args.output_dir),
     )
     _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
+    from autobot.v2.research.canonical_ohlcv_store import (
+        CanonicalOHLCVConfig,
+        build_canonical_ohlcv_snapshot,
+        write_canonical_ohlcv_report,
+    )
+
+    run_id = args.run_id or f"p18i_canonical_ohlcv_{date.today().strftime('%Y%m%d')}"
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id=run_id,
+            raw_paths=tuple(Path(path) for path in _csv_tuple(args.raw_paths, "--raw-paths")),
+            output_dir=Path(args.output_dir),
+            manifest_dir=Path(args.manifest_dir),
+            quarantine_dir=Path(args.quarantine_dir),
+            exchange=args.exchange,
+            market_type=args.market_type,
+            max_files=args.max_files,
+            max_rows=args.max_rows,
+        )
+    )
+    json_path, markdown_path = write_canonical_ohlcv_report(snapshot, Path(args.report_dir))
+    payload = {
+        **snapshot.to_dict(),
+        "json_report_path": str(json_path),
+        "markdown_report_path": str(markdown_path),
+    }
+    _print_json(payload)
     return 0
 
 

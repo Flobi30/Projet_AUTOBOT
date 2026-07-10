@@ -56,6 +56,35 @@ def test_funding_and_liquidation_stay_data_missing_without_feeds(tmp_path):
     assert "liquidation_events_missing" in liquidation["blockers"]
 
 
+def test_scanner_exposes_canonical_snapshot_scheduler_state(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    manifest = {
+        "snapshot_id": "ohlcv_test",
+        "fingerprint": "abc123",
+        "canonical_row_count": 10,
+        "duplicate_count": 0,
+        "new_data_significance": "same_data",
+        "end_at": "2026-01-01T00:00:00+00:00",
+    }
+    (manifest_dir / "pytest_canonical_ohlcv.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_canonical_state",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+
+    state = report.scheduler_data_state
+    assert state["canonical_ohlcv_ready"] is True
+    assert state["snapshot_id"] == "ohlcv_test"
+    assert state["new_data_significance"] == "same_data"
+    assert state["funding_data_ready"] is False
+    assert state["liquidation_data_ready"] is False
+    assert "funding_basis" in state["hypotheses_still_blocked"]
+
+
 def test_rejected_hypotheses_are_not_retestable_without_new_data(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"

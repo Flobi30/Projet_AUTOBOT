@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import json
 import sqlite3
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -150,6 +150,7 @@ class DataCapabilityScanReport:
     ohlcv_backfill_plan: OHLCVBackfillPlan
     derivatives_data_plan: tuple[DerivativesDataPlan, ...]
     research_storage_policy: ResearchStoragePolicy
+    scheduler_data_state: dict[str, Any]
     scheduler_notes: tuple[str, ...]
     safety_notes: tuple[str, ...] = (
         "Research-only data capability scan.",
@@ -175,6 +176,7 @@ class DataCapabilityScanReport:
             "ohlcv_backfill_plan": self.ohlcv_backfill_plan.to_dict(),
             "derivatives_data_plan": [item.to_dict() for item in self.derivatives_data_plan],
             "research_storage_policy": self.research_storage_policy.to_dict(),
+            "scheduler_data_state": self.scheduler_data_state,
             "scheduler_notes": list(self.scheduler_notes),
             "safety_notes": list(self.safety_notes),
             "json_report_path": self.json_report_path,
@@ -195,11 +197,13 @@ def build_data_capability_scan_report(
     roots = tuple(Path(path) for path in data_roots)
     root_files = _files_under(roots)
     state_db_path = Path(state_db) if state_db else None
-    capabilities = _build_capabilities(root_files, state_db_path)
+    canonical_manifest = _latest_canonical_ohlcv_manifest(roots)
+    capabilities = _build_capabilities(root_files, state_db_path, canonical_manifest=canonical_manifest)
     capability_by_id = {item.capability_id: item for item in capabilities}
     alpha_status = _alpha_family_status(capability_by_id)
     rejected_status = _rejected_family_status(memory_path, capability_by_id)
     ohlcv = capability_by_id["spot_ohlcv"]
+    scheduler_data_state = _scheduler_data_state(roots, capability_by_id, alpha_status, canonical_manifest)
     report = DataCapabilityScanReport(
         run_id=run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -211,7 +215,8 @@ def build_data_capability_scan_report(
         ohlcv_backfill_plan=_build_ohlcv_backfill_plan(ohlcv),
         derivatives_data_plan=_build_derivatives_plan(capability_by_id),
         research_storage_policy=_storage_policy(),
-        scheduler_notes=_scheduler_notes(alpha_status, rejected_status),
+        scheduler_data_state=scheduler_data_state,
+        scheduler_notes=_scheduler_notes(alpha_status, rejected_status, scheduler_data_state),
     )
     return report
 
@@ -226,20 +231,7 @@ def write_data_capability_scan_report(
     markdown_path = output / f"{report.run_id}.md"
     json_path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     markdown_path.write_text(render_data_capability_scan_report(report), encoding="utf-8")
-    return DataCapabilityScanReport(
-        **{
-            **report.to_dict(),
-            "data_roots": report.data_roots,
-            "capabilities": report.capabilities,
-            "derivatives_data_plan": report.derivatives_data_plan,
-            "ohlcv_backfill_plan": report.ohlcv_backfill_plan,
-            "research_storage_policy": report.research_storage_policy,
-            "scheduler_notes": report.scheduler_notes,
-            "safety_notes": report.safety_notes,
-            "json_report_path": str(json_path),
-            "markdown_report_path": str(markdown_path),
-        }
-    )
+    return replace(report, json_report_path=str(json_path), markdown_report_path=str(markdown_path))
 
 
 def render_data_capability_scan_report(report: DataCapabilityScanReport) -> str:
@@ -278,6 +270,9 @@ def render_data_capability_scan_report(report: DataCapabilityScanReport) -> str:
     lines.extend(["", "## OHLCV Backfill Plan", ""])
     for key, value in report.ohlcv_backfill_plan.to_dict().items():
         lines.append(f"- `{key}`: `{value}`")
+    lines.extend(["", "## Scheduler Data State", ""])
+    for key, value in report.scheduler_data_state.items():
+        lines.append(f"- `{key}`: `{value}`")
     lines.extend(["", "## Derivatives / Event Data Plan", ""])
     lines.append("| Data | Status | Priority | Complexity | Sources | Unlocks | Notes |")
     lines.append("| --- | --- | --- | --- | --- | --- | --- |")
@@ -300,8 +295,13 @@ def render_data_capability_scan_report(report: DataCapabilityScanReport) -> str:
     return "\n".join(lines)
 
 
-def _build_capabilities(files: Sequence[Path], state_db: Path | None) -> tuple[DataCapability, ...]:
-    ohlcv = _scan_ohlcv(files)
+def _build_capabilities(
+    files: Sequence[Path],
+    state_db: Path | None,
+    *,
+    canonical_manifest: Mapping[str, Any] | None = None,
+) -> tuple[DataCapability, ...]:
+    ohlcv = _scan_ohlcv(files, canonical_manifest=canonical_manifest)
     spread_depth = _scan_spread_depth(files)
     exchange_fees = _scan_named_files(files, "exchange_fees", ("fee", "cost_profile"), provider="autobot_cost_profiles")
     volume_anomalies = _volume_anomaly_capability(ohlcv)
@@ -324,7 +324,39 @@ def _build_capabilities(files: Sequence[Path], state_db: Path | None) -> tuple[D
     return tuple(raw[item] for item in CAPABILITY_IDS)
 
 
-def _scan_ohlcv(files: Sequence[Path]) -> DataCapability:
+def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] | None = None) -> DataCapability:
+    if canonical_manifest:
+        final_duplicate_count = sum(
+            int(item.get("duplicate_count") or 0)
+            for item in canonical_manifest.get("files", ())
+            if isinstance(item, Mapping)
+        )
+        gap_count = int(canonical_manifest.get("gap_count") or 0)
+        quality = "canonical_ready" if final_duplicate_count == 0 and gap_count == 0 else "canonical_ready_with_gaps"
+        source_paths = tuple(
+            str(item.get("csv_path"))
+            for item in canonical_manifest.get("files", ())
+            if isinstance(item, Mapping) and item.get("csv_path")
+        )
+        return DataCapability(
+            capability_id="spot_ohlcv",
+            available=int(canonical_manifest.get("canonical_row_count") or 0) > 0,
+            source_paths=source_paths[:50],
+            provider=str(canonical_manifest.get("exchange") or "kraken") + "_public_ohlcv_canonical",
+            symbols=tuple(str(item) for item in canonical_manifest.get("symbols", ())),
+            timeframes=tuple(str(item) for item in canonical_manifest.get("timeframes", ())),
+            start_at=canonical_manifest.get("start_at"),
+            end_at=canonical_manifest.get("end_at"),
+            row_count=int(canonical_manifest.get("canonical_row_count") or 0),
+            duplicate_count=final_duplicate_count,
+            gap_count=gap_count,
+            freshness_seconds=_freshness_seconds(tuple(Path(item) for item in source_paths)),
+            storage_size_bytes=int(canonical_manifest.get("storage_size_bytes") or 0),
+            quality_status=quality,
+            alpha_families_unlocked=ALPHA_UNLOCKS["spot_ohlcv"],
+            blockers=() if final_duplicate_count == 0 else ("canonical_duplicate_bars_present",),
+            notes=("canonical_ohlcv_snapshot", f"snapshot_id={canonical_manifest.get('snapshot_id')}"),
+        )
     csv_files = [path for path in files if path.suffix.lower() == ".csv" and _looks_like_ohlcv(path)]
     symbols: set[str] = set()
     timeframes: set[str] = set()
@@ -681,6 +713,48 @@ def _build_derivatives_plan(capability_by_id: Mapping[str, DataCapability]) -> t
     )
 
 
+def _scheduler_data_state(
+    roots: Sequence[Path],
+    capability_by_id: Mapping[str, DataCapability],
+    alpha_status: Mapping[str, Mapping[str, Any]],
+    canonical_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    manifest = dict(canonical_manifest or _latest_canonical_ohlcv_manifest(roots) or {})
+    final_duplicate_count = sum(
+        int(item.get("duplicate_count") or 0)
+        for item in manifest.get("files", ())
+        if isinstance(item, Mapping)
+    )
+    canonical_ready = bool(
+        manifest
+        and int(manifest.get("canonical_row_count") or 0) > 0
+        and final_duplicate_count == 0
+    )
+    unlocked = [
+        family
+        for family, payload in alpha_status.items()
+        if not payload.get("blockers")
+        and payload.get("status") not in {"DATA_MISSING"}
+    ]
+    still_blocked = [
+        family
+        for family, payload in alpha_status.items()
+        if payload.get("blockers") or payload.get("status") == "DATA_MISSING"
+    ]
+    return {
+        "canonical_ohlcv_ready": canonical_ready,
+        "snapshot_id": manifest.get("snapshot_id") if manifest else None,
+        "snapshot_fingerprint": manifest.get("fingerprint") if manifest else None,
+        "new_data_significance": manifest.get("new_data_significance") if manifest else "no_canonical_snapshot",
+        "funding_data_ready": capability_by_id["funding_rates"].available,
+        "basis_data_ready": capability_by_id["spot_perp_basis"].available,
+        "open_interest_ready": capability_by_id["open_interest"].available,
+        "liquidation_data_ready": capability_by_id["liquidation_events"].available,
+        "hypotheses_unlocked": sorted(unlocked),
+        "hypotheses_still_blocked": sorted(still_blocked),
+    }
+
+
 def _storage_policy() -> ResearchStoragePolicy:
     return ResearchStoragePolicy(
         raw_data="Store provider-native exports under data/research/raw/<provider>/<capability>/ with immutable manifests.",
@@ -694,11 +768,19 @@ def _storage_policy() -> ResearchStoragePolicy:
     )
 
 
-def _scheduler_notes(alpha_status: Mapping[str, Mapping[str, Any]], rejected_status: Mapping[str, Mapping[str, Any]]) -> tuple[str, ...]:
+def _scheduler_notes(
+    alpha_status: Mapping[str, Mapping[str, Any]],
+    rejected_status: Mapping[str, Mapping[str, Any]],
+    scheduler_data_state: Mapping[str, Any],
+) -> tuple[str, ...]:
     notes = [
         "Do not relaunch rejected OHLCV templates solely because this scanner exists.",
         "Relaunch requires significant new data, a new historical period, a new thesis, or a genuinely different template.",
     ]
+    if not scheduler_data_state.get("canonical_ohlcv_ready"):
+        notes.append("canonical_ohlcv_ready is false until a deduped canonical snapshot exists.")
+    elif scheduler_data_state.get("new_data_significance") in {"same_data", "minor_addition"}:
+        notes.append("Existing rejections stay blocked because canonical data is unchanged or only a minor addition.")
     runnable = [
         family
         for family, payload in alpha_status.items()
@@ -713,6 +795,33 @@ def _scheduler_notes(alpha_status: Mapping[str, Mapping[str, Any]], rejected_sta
     if alpha_status.get("order_flow_imbalance", {}).get("blockers"):
         notes.append("order_flow_imbalance blocked until depth/spread history is sufficient for replay, not only sparse samples.")
     return tuple(notes)
+
+
+def _latest_canonical_ohlcv_manifest(roots: Sequence[Path]) -> dict[str, Any] | None:
+    candidates: list[Path] = []
+    for root in roots:
+        search_roots = [root]
+        if root.name != "manifests":
+            search_roots.extend(
+                candidate
+                for candidate in (root / "manifests", root.parent / "manifests")
+                if candidate.exists()
+            )
+        for search_root in search_roots:
+            if search_root.is_file() and "ohlcv" in search_root.name.lower() and search_root.suffix.lower() == ".json":
+                candidates.append(search_root)
+            elif search_root.exists():
+                candidates.extend(search_root.rglob("*canonical_ohlcv*.json"))
+                candidates.extend(search_root.rglob("*ohlcv*.json"))
+    unique = sorted(set(candidates), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True)
+    for path in unique:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("snapshot_id") and payload.get("fingerprint"):
+            return payload
+    return None
 
 
 def _files_under(roots: Iterable[Path]) -> tuple[Path, ...]:

@@ -616,6 +616,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
             "capabilities": [item.to_dict() for item in capability_scan.capabilities],
             "alpha_family_status": capability_scan.alpha_family_status,
             "rejected_family_status": capability_scan.rejected_family_status,
+            "scheduler_data_state": capability_scan.scheduler_data_state,
             "scheduler_notes": list(capability_scan.scheduler_notes),
         },
         adapter_readiness=adapter_readiness,
@@ -663,6 +664,9 @@ def render_alpha_hypothesis_scheduler_report(report: AlphaSchedulerReport) -> st
         "",
     ]
     for key, value in report.data_readiness.items():
+        lines.append(f"- `{key}`: `{value}`")
+    lines.extend(["", "## Scheduler Data State", ""])
+    for key, value in report.data_capabilities.get("scheduler_data_state", {}).items():
         lines.append(f"- `{key}`: `{value}`")
     lines.extend(["", "## Data Capability Scan", ""])
     capability_rows = report.data_capabilities.get("capabilities", ())
