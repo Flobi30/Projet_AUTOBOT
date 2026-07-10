@@ -173,7 +173,33 @@ Covered:
 
 ## VPS Deployment
 
-Pending at initial report creation. This section must be updated after GitHub/VPS/container synchronization and VPS smoke execution.
+GitHub was pushed successfully to `07fc750d126ad027e2c83c47f3855d5fb1b6b984`.
+
+VPS deployment is blocked by SSH authentication, not by host reachability:
+
+- Target recovered from prior AUTOBOT reports: `204.168.251.201`.
+- TCP port 22: reachable.
+- Public `/health`: healthy, websocket connected, 14 instances.
+- SSH attempts with local keys `id_deploy`, `id_ed25519`, and `id_rsa`: rejected with `Permission denied (publickey,password)`.
+- Explicit verbose SSH with `id_deploy` offered the key `SHA256:agSOYERpTGn9vE8bNKK8hFN7V0VvYABN1U22oBnJWpU`, but the server did not accept it.
+- Older candidate host `91.99.232.7`: SSH timed out and was not confirmed as the AUTOBOT runtime host.
+
+Because SSH is blocked, P18J has not been fast-forwarded/rebuilt on the VPS yet and no VPS smoke collector was run.
+
+Public runtime status observed during the blocked deployment attempt:
+
+```json
+{
+  "status": "healthy",
+  "components": {
+    "orchestrator": "running",
+    "websocket": "connected",
+    "instances": 14
+  }
+}
+```
+
+Required next operator action: restore or add a valid SSH public key for `root@204.168.251.201`, or provide the correct deploy user/host, then run the standard fast-forward/rebuild/smoke sequence.
 
 ## Safety
 
@@ -190,7 +216,8 @@ Pending at initial report creation. This section must be updated after GitHub/VP
 - no sizing/leverage change
 - no runtime order path
 - grid remains no-go
+- VPS runtime remained untouched because SSH auth blocked deployment.
 
 ## Recommendation P18K
 
-Do not test `funding_basis` yet. First accumulate a small but real forward history of ticker snapshots, open interest, predicted funding, premium, spread, and same-quote basis. P18K should be a bounded scheduler/service wrapper for this collector, disabled by default or explicitly research-only, with retention and disk limits.
+Do not test `funding_basis` yet. First deploy P18J, run the VPS smoke collector, and then accumulate a small but real forward history of ticker snapshots, open interest, predicted funding, premium, spread, and same-quote basis. P18K should be a bounded scheduler/service wrapper for this collector, disabled by default or explicitly research-only, with retention and disk limits.

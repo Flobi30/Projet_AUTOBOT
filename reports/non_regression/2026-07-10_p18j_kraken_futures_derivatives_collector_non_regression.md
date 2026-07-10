@@ -62,9 +62,23 @@ python -m autobot.v2.cli data-capability-scan --run-id p18j_local_post_derivativ
 - No runtime order path touched.
 - Grid remains no-go.
 
+## VPS Deployment Status
+
+GitHub HEAD is `07fc750d126ad027e2c83c47f3855d5fb1b6b984`.
+
+VPS deployment could not be completed because SSH authentication failed:
+
+- `204.168.251.201:22` is reachable.
+- `http://204.168.251.201:8080/health` is healthy, websocket connected, 14 instances.
+- `root@204.168.251.201` rejected local keys `id_deploy`, `id_ed25519`, and `id_rsa`.
+- Verbose SSH confirmed `id_deploy` was offered and rejected.
+- No VPS code, container, flags, data, or runtime services were changed.
+
+This is a deployment-access blocker, not a P18J code/test failure.
+
 ## Remaining Risks
 
 - Current open interest and current basis are snapshots, not history.
 - Funding-basis must remain blocked until basis history is accumulated and validated.
 - Liquidation-cascade remains unavailable without real liquidation event data.
-- VPS smoke/deployment status is pending and must be appended after deployment.
+- VPS smoke/deployment remains pending until SSH access is restored.
