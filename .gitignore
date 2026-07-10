@@ -29,3 +29,19 @@ scripts/repo_audit.py
 # Frontend build artifacts (generated in CI/CD only)
 dashboard/dist/
 dashboard/node_modules/
+
+# VPS runtime artifacts: keep compact decision reports, not volatile payloads.
+autobot_v2.db-shm
+autobot_v2.db-wal
+artifacts/server-backups/
+backups/
+cleanup_archives/
+reports/paper/db_integrity/snapshots/
+reports/research/canonical_ohlcv_vps/
+reports/research/daily_data_collection/
+reports/research/high_conviction_swing/
+reports/research/high_conviction_walk_forward/
+reports/research/p18i_post_scan_vps/
+reports/research/p18j_post_scan/
+reports/research/strategy_edge/
+reports/research/strategy_orchestrator/
