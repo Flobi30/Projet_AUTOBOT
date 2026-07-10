@@ -198,12 +198,18 @@ def build_data_capability_scan_report(
     root_files = _files_under(roots)
     state_db_path = Path(state_db) if state_db else None
     canonical_manifest = _latest_canonical_ohlcv_manifest(roots)
-    capabilities = _build_capabilities(root_files, state_db_path, canonical_manifest=canonical_manifest)
+    derivatives_manifest = _latest_kraken_futures_derivatives_manifest(roots)
+    capabilities = _build_capabilities(
+        root_files,
+        state_db_path,
+        canonical_manifest=canonical_manifest,
+        derivatives_manifest=derivatives_manifest,
+    )
     capability_by_id = {item.capability_id: item for item in capabilities}
     alpha_status = _alpha_family_status(capability_by_id)
     rejected_status = _rejected_family_status(memory_path, capability_by_id)
     ohlcv = capability_by_id["spot_ohlcv"]
-    scheduler_data_state = _scheduler_data_state(roots, capability_by_id, alpha_status, canonical_manifest)
+    scheduler_data_state = _scheduler_data_state(roots, capability_by_id, alpha_status, canonical_manifest, derivatives_manifest)
     report = DataCapabilityScanReport(
         run_id=run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -300,21 +306,23 @@ def _build_capabilities(
     state_db: Path | None,
     *,
     canonical_manifest: Mapping[str, Any] | None = None,
+    derivatives_manifest: Mapping[str, Any] | None = None,
 ) -> tuple[DataCapability, ...]:
     ohlcv = _scan_ohlcv(files, canonical_manifest=canonical_manifest)
     spread_depth = _scan_spread_depth(files)
     exchange_fees = _scan_named_files(files, "exchange_fees", ("fee", "cost_profile"), provider="autobot_cost_profiles")
     volume_anomalies = _volume_anomaly_capability(ohlcv)
     slippage = _scan_slippage_fill_history(state_db)
+    derivatives = _derivatives_capabilities_from_manifest(derivatives_manifest) if derivatives_manifest else {}
     raw = {
         "spot_ohlcv": ohlcv,
         "multi_symbol_ohlcv": _multi_symbol_ohlcv_capability(ohlcv),
         "orderbook_depth_snapshots": spread_depth["orderbook_depth_snapshots"],
         "spread_history": spread_depth["spread_history"],
-        "funding_rates": _scan_named_files(files, "funding_rates", ("funding",)),
-        "futures_perp_prices": _scan_named_files(files, "futures_perp_prices", ("perp", "futures", "mark_price", "index_price")),
-        "spot_perp_basis": _scan_named_files(files, "spot_perp_basis", ("basis",)),
-        "open_interest": _scan_named_files(files, "open_interest", ("open_interest", "oi")),
+        "funding_rates": derivatives.get("funding_rates") or _scan_named_files(files, "funding_rates", ("funding",)),
+        "futures_perp_prices": derivatives.get("futures_perp_prices") or _scan_named_files(files, "futures_perp_prices", ("perp", "futures", "mark_price", "index_price")),
+        "spot_perp_basis": derivatives.get("spot_perp_basis") or _scan_named_files(files, "spot_perp_basis", ("basis",)),
+        "open_interest": derivatives.get("open_interest") or _scan_named_files(files, "open_interest", ("open_interest", "oi")),
         "liquidation_events": _scan_named_files(files, "liquidation_events", ("liquidation",)),
         "volume_anomalies": volume_anomalies,
         "news_sentiment": _scan_named_files(files, "news_sentiment", ("news", "sentiment")),
@@ -508,6 +516,114 @@ def _scan_named_files(
     )
 
 
+def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict[str, DataCapability]:
+    datasets = {
+        str(item.get("dataset_id")): item
+        for item in manifest.get("datasets", ())
+        if isinstance(item, Mapping)
+    }
+    mapping_symbols = tuple(
+        str(item.get("futures_symbol"))
+        for item in manifest.get("mappings", ())
+        if isinstance(item, Mapping) and item.get("futures_symbol")
+    )
+    mapping_bases = tuple(
+        str(item.get("base_asset"))
+        for item in manifest.get("mappings", ())
+        if isinstance(item, Mapping) and item.get("base_asset")
+    )
+    source_paths = tuple(
+        str(item.get("csv_path"))
+        for item in datasets.values()
+        if item.get("csv_path")
+    )
+    funding = datasets.get("funding_rates", {})
+    tickers = datasets.get("ticker_snapshots", {})
+    candles = datasets.get("derivatives_candles", {})
+    basis = datasets.get("basis", {})
+    funding_available = bool(manifest.get("funding_history_ready"))
+    perp_available = bool(manifest.get("mark_candles_ready") or manifest.get("trade_candles_ready") or int(tickers.get("row_count") or 0) > 0)
+    basis_history_ready = bool(manifest.get("basis_history_ready"))
+    basis_current_ready = bool(manifest.get("basis_current_ready"))
+    oi_history_ready = bool(manifest.get("open_interest_history_ready"))
+    current_oi_ready = bool(manifest.get("current_open_interest_ready"))
+    return {
+        "funding_rates": DataCapability(
+            capability_id="funding_rates",
+            available=funding_available,
+            source_paths=tuple(path for path in (funding.get("csv_path"), manifest.get("manifest_path")) if path),
+            provider="kraken_futures_public",
+            symbols=mapping_symbols,
+            start_at=funding.get("start_at"),
+            end_at=funding.get("end_at"),
+            row_count=int(funding.get("row_count") or 0),
+            duplicate_count=int(funding.get("duplicate_count") or 0),
+            storage_size_bytes=int(funding.get("storage_size_bytes") or 0),
+            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            quality_status="historical_funding_ready" if funding_available else "missing",
+            alpha_families_unlocked=ALPHA_UNLOCKS["funding_rates"] if funding_available else (),
+            blockers=() if funding_available else ("funding_rates_missing",),
+            proxy_status="not_proxy",
+            notes=("kraken_futures_historical_funding_rates", f"snapshot_id={manifest.get('snapshot_id')}"),
+        ),
+        "futures_perp_prices": DataCapability(
+            capability_id="futures_perp_prices",
+            available=perp_available,
+            source_paths=tuple(path for path in (tickers.get("csv_path"), candles.get("csv_path"), manifest.get("manifest_path")) if path),
+            provider="kraken_futures_public",
+            symbols=mapping_symbols,
+            timeframes=("current", "1m") if perp_available else (),
+            start_at=min(item for item in (tickers.get("start_at"), candles.get("start_at")) if item) if any((tickers.get("start_at"), candles.get("start_at"))) else None,
+            end_at=max(item for item in (tickers.get("end_at"), candles.get("end_at")) if item) if any((tickers.get("end_at"), candles.get("end_at"))) else None,
+            row_count=int(tickers.get("row_count") or 0) + int(candles.get("row_count") or 0),
+            duplicate_count=int(tickers.get("duplicate_count") or 0) + int(candles.get("duplicate_count") or 0),
+            storage_size_bytes=int(tickers.get("storage_size_bytes") or 0) + int(candles.get("storage_size_bytes") or 0),
+            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            quality_status="kraken_futures_perp_prices_ready" if perp_available else "missing",
+            alpha_families_unlocked=ALPHA_UNLOCKS["futures_perp_prices"] if perp_available else (),
+            blockers=() if perp_available else ("futures_perp_prices_missing",),
+            proxy_status="not_proxy",
+            notes=("mark_trade_spot_candles_or_ticker_snapshot", f"snapshot_id={manifest.get('snapshot_id')}"),
+        ),
+        "spot_perp_basis": DataCapability(
+            capability_id="spot_perp_basis",
+            available=basis_history_ready,
+            source_paths=tuple(path for path in (basis.get("csv_path"), manifest.get("manifest_path")) if path),
+            provider="kraken_futures_public",
+            symbols=mapping_symbols,
+            start_at=basis.get("start_at"),
+            end_at=basis.get("end_at"),
+            row_count=int(basis.get("row_count") or 0),
+            duplicate_count=int(basis.get("duplicate_count") or 0),
+            storage_size_bytes=int(basis.get("storage_size_bytes") or 0),
+            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            quality_status="basis_history_ready" if basis_history_ready else ("current_basis_only_waiting_for_history" if basis_current_ready else "missing"),
+            alpha_families_unlocked=ALPHA_UNLOCKS["spot_perp_basis"] if basis_history_ready else (),
+            blockers=() if basis_history_ready else (("basis_history_too_short",) if basis_current_ready else ("spot_perp_basis_missing",)),
+            proxy_status="not_proxy",
+            notes=(f"basis_confidence={manifest.get('basis_confidence_status')}", f"snapshot_id={manifest.get('snapshot_id')}"),
+        ),
+        "open_interest": DataCapability(
+            capability_id="open_interest",
+            available=oi_history_ready,
+            source_paths=tuple(path for path in (tickers.get("csv_path"), manifest.get("manifest_path")) if path),
+            provider="kraken_futures_public",
+            symbols=mapping_symbols,
+            start_at=tickers.get("start_at"),
+            end_at=tickers.get("end_at"),
+            row_count=int(tickers.get("row_count") or 0),
+            duplicate_count=int(tickers.get("duplicate_count") or 0),
+            storage_size_bytes=int(tickers.get("storage_size_bytes") or 0),
+            freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
+            quality_status="open_interest_history_ready" if oi_history_ready else ("current_open_interest_only" if current_oi_ready else "missing"),
+            alpha_families_unlocked=ALPHA_UNLOCKS["open_interest"] if oi_history_ready else (),
+            blockers=() if oi_history_ready else (("open_interest_history_missing",) if current_oi_ready else ("open_interest_missing",)),
+            proxy_status="not_proxy",
+            notes=("current_open_interest_does_not_equal_history", f"base_assets={','.join(mapping_bases)}"),
+        ),
+    }
+
+
 def _volume_anomaly_capability(ohlcv: DataCapability) -> DataCapability:
     available = ohlcv.available
     return DataCapability(
@@ -590,7 +706,9 @@ def _alpha_family_status(capability_by_id: Mapping[str, DataCapability]) -> dict
     for family, required in requirements.items():
         missing = [cap for cap in required if not capability_by_id[cap].available]
         available = [cap for cap in required if capability_by_id[cap].available]
-        if missing:
+        if family == "funding_basis" and "spot_perp_basis" in missing and capability_by_id["funding_rates"].available:
+            status = "WAITING_FOR_MORE_DATA"
+        elif missing:
             status = "DATA_MISSING"
         elif family in {"volatility_breakout", "long_trend", "cross_sectional_momentum", "relative_value"}:
             status = "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
@@ -601,10 +719,14 @@ def _alpha_family_status(capability_by_id: Mapping[str, DataCapability]) -> dict
             notes.append("do_not_run_until_real_derivatives_or_event_data_exists")
         if family == "order_flow_imbalance" and "orderbook_depth_snapshots" in available:
             notes.append("top_of_book_samples_are_not_full_orderbook_replay")
+        blockers: list[str] = []
+        for item in missing:
+            capability_blockers = tuple(capability_by_id[item].blockers)
+            blockers.extend(capability_blockers or (f"{item}_missing",))
         statuses[family] = {
             "status": status,
             "available_capabilities": available,
-            "blockers": [f"{item}_missing" for item in missing],
+            "blockers": list(dict.fromkeys(blockers)),
             "notes": notes,
         }
     return statuses
@@ -718,6 +840,7 @@ def _scheduler_data_state(
     capability_by_id: Mapping[str, DataCapability],
     alpha_status: Mapping[str, Mapping[str, Any]],
     canonical_manifest: Mapping[str, Any] | None = None,
+    derivatives_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     manifest = dict(canonical_manifest or _latest_canonical_ohlcv_manifest(roots) or {})
     final_duplicate_count = sum(
@@ -741,14 +864,27 @@ def _scheduler_data_state(
         for family, payload in alpha_status.items()
         if payload.get("blockers") or payload.get("status") == "DATA_MISSING"
     ]
+    derivatives = dict(derivatives_manifest or _latest_kraken_futures_derivatives_manifest(roots) or {})
     return {
         "canonical_ohlcv_ready": canonical_ready,
         "snapshot_id": manifest.get("snapshot_id") if manifest else None,
         "snapshot_fingerprint": manifest.get("fingerprint") if manifest else None,
         "new_data_significance": manifest.get("new_data_significance") if manifest else "no_canonical_snapshot",
         "funding_data_ready": capability_by_id["funding_rates"].available,
+        "funding_history_ready": bool(derivatives.get("funding_history_ready")),
+        "funding_history_start": derivatives.get("funding_history_start"),
+        "funding_history_end": derivatives.get("funding_history_end"),
+        "mark_candles_ready": bool(derivatives.get("mark_candles_ready")),
+        "trade_candles_ready": bool(derivatives.get("trade_candles_ready")),
         "basis_data_ready": capability_by_id["spot_perp_basis"].available,
+        "basis_history_ready": bool(derivatives.get("basis_history_ready")),
+        "current_open_interest_ready": bool(derivatives.get("current_open_interest_ready")),
         "open_interest_ready": capability_by_id["open_interest"].available,
+        "open_interest_history_ready": bool(derivatives.get("open_interest_history_ready")),
+        "predicted_funding_ready": bool(derivatives.get("predicted_funding_ready")),
+        "derivatives_symbols_ready": bool(derivatives.get("mappings")),
+        "derivatives_snapshot_id": derivatives.get("snapshot_id"),
+        "derivatives_data_quality": derivatives.get("derivatives_data_quality") if derivatives else "missing",
         "liquidation_data_ready": capability_by_id["liquidation_events"].available,
         "hypotheses_unlocked": sorted(unlocked),
         "hypotheses_still_blocked": sorted(still_blocked),
@@ -820,6 +956,32 @@ def _latest_canonical_ohlcv_manifest(roots: Sequence[Path]) -> dict[str, Any] | 
         except (OSError, json.JSONDecodeError):
             continue
         if payload.get("snapshot_id") and payload.get("fingerprint"):
+            return payload
+    return None
+
+
+def _latest_kraken_futures_derivatives_manifest(roots: Sequence[Path]) -> dict[str, Any] | None:
+    candidates: list[Path] = []
+    for root in roots:
+        search_roots = [root]
+        if root.name != "manifests":
+            search_roots.extend(
+                candidate
+                for candidate in (root / "manifests", root.parent / "manifests")
+                if candidate.exists()
+            )
+        for search_root in search_roots:
+            if search_root.is_file() and "kraken_futures_derivatives" in search_root.name.lower() and search_root.suffix.lower() == ".json":
+                candidates.append(search_root)
+            elif search_root.exists():
+                candidates.extend(search_root.rglob("*kraken_futures_derivatives*.json"))
+    unique = sorted(set(candidates), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True)
+    for path in unique:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("snapshot_id") and payload.get("fingerprint") and payload.get("mappings") is not None:
             return payload
     return None
 

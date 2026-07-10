@@ -85,6 +85,61 @@ def test_scanner_exposes_canonical_snapshot_scheduler_state(tmp_path):
     assert "funding_basis" in state["hypotheses_still_blocked"]
 
 
+def test_scanner_keeps_liquidation_missing_when_derivatives_manifest_lacks_events(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    derivatives_manifest = {
+        "snapshot_id": "kraken_futures_test",
+        "fingerprint": "abc123",
+        "mappings": [{"futures_symbol": "PF_XBTUSD", "base_asset": "BTC"}],
+        "funding_history_ready": True,
+        "basis_current_ready": True,
+        "basis_history_ready": False,
+        "current_open_interest_ready": True,
+        "open_interest_history_ready": False,
+        "predicted_funding_ready": True,
+        "mark_candles_ready": True,
+        "trade_candles_ready": True,
+        "derivatives_data_quality": "smoke_ready_current_basis_only",
+        "datasets": [
+            {
+                "dataset_id": "funding_rates",
+                "row_count": 2,
+                "start_at": "2026-01-01T00:00:00+00:00",
+                "end_at": "2026-01-01T01:00:00+00:00",
+                "csv_path": str(tmp_path / "funding.csv"),
+            },
+            {
+                "dataset_id": "basis",
+                "row_count": 1,
+                "csv_path": str(tmp_path / "basis.csv"),
+            },
+            {
+                "dataset_id": "ticker_snapshots",
+                "row_count": 1,
+                "csv_path": str(tmp_path / "tickers.csv"),
+            },
+        ],
+    }
+    (manifest_dir / "pytest_kraken_futures_derivatives.json").write_text(json.dumps(derivatives_manifest), encoding="utf-8")
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_derivatives_manifest",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+
+    state = report.scheduler_data_state
+    assert state["funding_history_ready"] is True
+    assert state["basis_history_ready"] is False
+    assert state["current_open_interest_ready"] is True
+    assert state["open_interest_history_ready"] is False
+    assert state["liquidation_data_ready"] is False
+    assert report.alpha_family_status["funding_basis"]["status"] == "WAITING_FOR_MORE_DATA"
+    assert report.alpha_family_status["liquidation_cascade"]["status"] == "DATA_MISSING"
+
+
 def test_rejected_hypotheses_are_not_retestable_without_new_data(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"

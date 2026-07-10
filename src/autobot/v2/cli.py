@@ -357,6 +357,28 @@ def _build_parser() -> argparse.ArgumentParser:
     canonicalize_ohlcv.add_argument("--max-rows", type=int, default=None)
     canonicalize_ohlcv.set_defaults(handler=_cmd_canonicalize_ohlcv)
 
+    futures_derivatives = subparsers.add_parser(
+        "collect-kraken-futures-derivatives",
+        help="Collect bounded public Kraken Futures derivatives data for research only",
+    )
+    futures_derivatives.add_argument("--run-id", default=None)
+    futures_derivatives.add_argument("--assets", default="BTC,ETH", help="Comma-separated base assets, e.g. BTC,ETH,SOL")
+    futures_derivatives.add_argument("--max-symbols", type=int, default=2)
+    futures_derivatives.add_argument("--tick-types", default="trade,mark,spot")
+    futures_derivatives.add_argument("--resolution", default="1m")
+    futures_derivatives.add_argument("--max-candles", type=int, default=25)
+    futures_derivatives.add_argument("--raw-dir", default="data/research/raw/kraken_futures")
+    futures_derivatives.add_argument("--canonical-dir", default="data/research/canonical/derivatives")
+    futures_derivatives.add_argument("--manifest-dir", default="data/research/manifests")
+    futures_derivatives.add_argument("--report-dir", default="reports/research/kraken_futures_derivatives")
+    futures_derivatives.add_argument("--sleep-seconds", type=float, default=0.0)
+    futures_derivatives.add_argument("--timeout-seconds", type=float, default=20.0)
+    futures_derivatives.add_argument("--skip-funding", action="store_true")
+    futures_derivatives.add_argument("--skip-tickers", action="store_true")
+    futures_derivatives.add_argument("--skip-candles", action="store_true")
+    futures_derivatives.add_argument("--continue-on-error", action="store_true")
+    futures_derivatives.set_defaults(handler=_cmd_collect_kraken_futures_derivatives)
+
     strategy_autonomy = subparsers.add_parser(
         "strategy-autonomy-check",
         help="Evaluate one strategy against its research-only risk mandate",
@@ -2042,6 +2064,37 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
         "markdown_report_path": str(markdown_path),
     }
     _print_json(payload)
+    return 0
+
+
+def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
+    from autobot.v2.research.kraken_futures_derivatives_collector import (
+        KrakenFuturesCollectorConfig,
+        collect_kraken_futures_derivatives,
+    )
+
+    run_id = args.run_id or f"p18j_kraken_futures_derivatives_{date.today().strftime('%Y%m%d')}"
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id=run_id,
+            priority_assets=tuple(item.strip().upper() for item in _csv_tuple(args.assets, "--assets")),
+            max_symbols=args.max_symbols,
+            tick_types=tuple(item.strip().lower() for item in _csv_tuple(args.tick_types, "--tick-types")),
+            resolution=args.resolution,
+            max_candles=args.max_candles,
+            raw_dir=Path(args.raw_dir),
+            canonical_dir=Path(args.canonical_dir),
+            manifest_dir=Path(args.manifest_dir),
+            report_dir=Path(args.report_dir),
+            collect_funding=not args.skip_funding,
+            collect_tickers=not args.skip_tickers,
+            collect_candles=not args.skip_candles,
+            sleep_seconds=args.sleep_seconds,
+            timeout_seconds=args.timeout_seconds,
+            continue_on_error=args.continue_on_error,
+        )
+    )
+    _print_json(result.to_dict())
     return 0
 
 
