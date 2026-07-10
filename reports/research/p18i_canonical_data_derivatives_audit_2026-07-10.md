@@ -262,6 +262,58 @@ Coverage added:
 - scheduler exposes canonical/snapshot readiness;
 - CLI registration for canonicalization.
 
+## VPS Deployment Check
+
+Code deployment commit:
+
+- `01d581ebdb17fc1790ab135fb12954e63c6ecd51`
+
+VPS/container checks after rebuild:
+
+- container: `autobot-v2`
+- status: `healthy`
+- `/health`: `healthy`
+- websocket: `connected`
+- instances: `14`
+- container compileall: `OK`
+- recent critical log scan: no critical error, traceback, live order, or Kraken order line detected.
+
+Flags:
+
+- `PAPER_TRADING=true`
+- `LIVE_TRADING_CONFIRMATION=false`
+- `STRATEGY_ROUTER_LIVE_ENABLED=false`
+- `COLONY_AUTO_LIVE_PROMOTION=false`
+- `ENABLE_INSTANCE_SPLIT_EXECUTOR=unset`
+
+VPS canonical snapshot from existing daily OHLCV:
+
+- snapshot_id: `ohlcv_fc3636d545006ce8`
+- fingerprint: `fc3636d545006ce8de8a0a78a77408e2536223397f2d7912b0e12133914c619c`
+- raw files: `1141`
+- raw rows: `822661`
+- canonical rows: `165494`
+- duplicates removed: `657167`
+- final duplicate count: `0`
+- gaps detected: `0`
+- quarantine: `0`
+- storage size: `38169111` bytes
+- period: `2026-05-16T16:00:00+00:00` -> `2026-07-10T00:15:00+00:00`
+- symbols: `AAVEEUR, ADAEUR, ATOMEUR, AVAXEUR, BCHEUR, BTCZEUR, DOTEUR, ETHZEUR, LINKEUR, LTCZEUR, SOLEUR, TRXEUR, XLMZEUR, XRPZEUR`
+- timeframes: `15m, 1h, 5m`
+
+VPS post-scan:
+
+- `canonical_ohlcv_ready=True`
+- `snapshot_id=ohlcv_fc3636d545006ce8`
+- `new_data_significance=same_data`
+- `funding_data_ready=False`
+- `basis_data_ready=False`
+- `open_interest_ready=False`
+- `liquidation_data_ready=False`
+- still blocked: `funding_basis, liquidation_cascade, news_event_filter`
+- unlocked by data availability only: `cross_sectional_momentum, long_trend, order_flow_imbalance, relative_value, volatility_breakout`
+
 ## Safety
 
 - `paper_capital_allowed=false`

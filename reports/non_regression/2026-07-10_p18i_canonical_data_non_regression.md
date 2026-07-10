@@ -89,6 +89,27 @@ Result:
 - No strategy was promoted.
 - No order path was imported or called by the new research module.
 - No Kraken order was created.
+- VPS `/health`: `healthy`.
+- VPS websocket: `connected`.
+- VPS instances: `14`.
+- `PAPER_TRADING=true`.
+- `LIVE_TRADING_CONFIRMATION=false`.
+- `STRATEGY_ROUTER_LIVE_ENABLED=false`.
+- `COLONY_AUTO_LIVE_PROMOTION=false`.
+- `ENABLE_INSTANCE_SPLIT_EXECUTOR=unset`.
+
+## VPS Data Result
+
+The VPS was fast-forwarded to the P18I code commit and the container was rebuilt/recreated. The canonicalization was then run against VPS daily OHLCV data.
+
+- snapshot_id: `ohlcv_fc3636d545006ce8`
+- canonical rows: `165494`
+- duplicates removed: `657167`
+- final duplicate count: `0`
+- gaps: `0`
+- period: `2026-05-16T16:00:00+00:00` -> `2026-07-10T00:15:00+00:00`
+- scheduler canonical_ohlcv_ready: `True`
+- funding/basis/open-interest/liquidation: all `False`
 
 ## Recommendation
 
