@@ -1,0 +1,499 @@
+"""Research/shadow artifact governance, parity checks and drift safety.
+
+This module is deliberately side-effect free.  It cannot send an order, enable
+paper capital or promote a strategy.  Its only automatic outcomes are risk
+reductions: observation, throttling, disabled new entries or quarantine.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
+import math
+from pathlib import Path
+import sqlite3
+from typing import Any, Mapping
+
+from autobot.v2.contracts import TargetPortfolio, contract_fingerprint
+
+
+ARTIFACT_STATUSES = frozenset(
+    {
+        "RESEARCH",
+        "REJECTED",
+        "SHADOW_ELIGIBLE",
+        "SHADOW",
+        "THROTTLED",
+        "QUARANTINED",
+        "RETIRED",
+    }
+)
+SHADOW_ACTIONS = ("NORMAL", "WATCH", "REDUCE", "DISABLE_NEW_ENTRIES", "QUARANTINE")
+GRID_ALIASES = frozenset({"grid", "grid_async", "grid_core", "dynamic_grid"})
+DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH = Path("data/research/strategy_artifacts.sqlite3")
+
+
+class ShadowGovernanceError(ValueError):
+    """Raised when shadow governance would weaken a safety invariant."""
+
+
+@dataclass(frozen=True)
+class StrategyArtifact:
+    strategy_id: str
+    strategy_version: str
+    code_commit: str
+    data_snapshot_id: str
+    feature_versions: Mapping[str, str]
+    parameters: Mapping[str, Any]
+    risk_mandate_fingerprint: str
+    validation_manifest_fingerprint: str
+    status: str = "RESEARCH"
+    rollback_artifact_id: str | None = None
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    automatic_promotion_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "strategy_id",
+            "strategy_version",
+            "code_commit",
+            "data_snapshot_id",
+            "risk_mandate_fingerprint",
+            "validation_manifest_fingerprint",
+        ):
+            if not str(getattr(self, field_name) or "").strip():
+                raise ShadowGovernanceError(f"{field_name} is required")
+        normalized_status = str(self.status).upper()
+        if normalized_status not in ARTIFACT_STATUSES:
+            raise ShadowGovernanceError(f"unsupported artifact status: {self.status}")
+        if self.strategy_id.lower() in GRID_ALIASES and normalized_status != "RETIRED":
+            raise ShadowGovernanceError("grid aliases must remain RETIRED")
+        if self.paper_capital_allowed or self.live_allowed or self.automatic_promotion_allowed:
+            raise ShadowGovernanceError("shadow artifact cannot permit paper, live or automatic promotion")
+        object.__setattr__(self, "strategy_id", self.strategy_id.lower())
+        object.__setattr__(self, "strategy_version", self.strategy_version.strip())
+        object.__setattr__(self, "code_commit", self.code_commit.strip())
+        object.__setattr__(self, "data_snapshot_id", self.data_snapshot_id.strip())
+        object.__setattr__(self, "feature_versions", {str(key): str(value) for key, value in self.feature_versions.items()})
+        object.__setattr__(self, "parameters", dict(self.parameters))
+        object.__setattr__(self, "status", normalized_status)
+
+    @property
+    def artifact_id(self) -> str:
+        return f"strategy_artifact_{self.fingerprint[:20]}"
+
+    @property
+    def fingerprint(self) -> str:
+        return _fingerprint(asdict(self))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["artifact_id"] = self.artifact_id
+        payload["fingerprint"] = self.fingerprint
+        payload["paper_capital_allowed"] = False
+        payload["live_allowed"] = False
+        payload["automatic_promotion_allowed"] = False
+        return payload
+
+
+@dataclass(frozen=True)
+class ShadowObservation:
+    artifact_id: str
+    observed_at: datetime
+    data_available_at: datetime
+    source_snapshot_id: str
+    feature_fingerprint: str
+    target_portfolio: TargetPortfolio
+
+    def __post_init__(self) -> None:
+        for field_name in ("artifact_id", "source_snapshot_id", "feature_fingerprint"):
+            if not str(getattr(self, field_name) or "").strip():
+                raise ShadowGovernanceError(f"{field_name} is required")
+        for field_name in ("observed_at", "data_available_at"):
+            value = getattr(self, field_name)
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ShadowGovernanceError(f"{field_name} must be timezone-aware")
+            object.__setattr__(self, field_name, value.astimezone(timezone.utc))
+        if self.observed_at < self.data_available_at:
+            raise ShadowGovernanceError("shadow observation cannot precede data availability")
+
+
+@dataclass(frozen=True)
+class ShadowParityResult:
+    status: str
+    reasons: tuple[str, ...]
+    batch_target_fingerprint: str
+    shadow_target_fingerprint: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class ShadowPerformanceWindow:
+    trade_count: int
+    rolling_profit_factor: float | None
+    rolling_expectancy_eur: float | None
+    max_drawdown_pct: float | None
+    feature_drift_score: float | None
+    cost_drift_bps: float | None
+    data_age: timedelta
+
+    def __post_init__(self) -> None:
+        if self.trade_count < 0:
+            raise ShadowGovernanceError("trade_count cannot be negative")
+        if self.data_age < timedelta(0):
+            raise ShadowGovernanceError("data_age cannot be negative")
+        for field_name in (
+            "rolling_profit_factor",
+            "rolling_expectancy_eur",
+            "max_drawdown_pct",
+            "feature_drift_score",
+            "cost_drift_bps",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not math.isfinite(float(value)):
+                raise ShadowGovernanceError(f"{field_name} must be finite when supplied")
+        if self.feature_drift_score is not None and not 0.0 <= self.feature_drift_score <= 1.0:
+            raise ShadowGovernanceError("feature_drift_score must be in [0, 1]")
+
+
+@dataclass(frozen=True)
+class ShadowSafetyPolicy:
+    max_data_age: timedelta = timedelta(minutes=5)
+    min_trade_count_for_performance: int = 50
+    watch_profit_factor: float = 1.10
+    reduce_profit_factor: float = 1.00
+    disable_profit_factor: float = 0.90
+    quarantine_profit_factor: float = 0.80
+    reduce_drawdown_pct: float = 10.0
+    disable_drawdown_pct: float = 15.0
+    quarantine_drawdown_pct: float = 25.0
+    reduce_feature_drift: float = 0.30
+    disable_feature_drift: float = 0.55
+    quarantine_feature_drift: float = 0.80
+
+    def __post_init__(self) -> None:
+        if self.max_data_age <= timedelta(0) or self.min_trade_count_for_performance < 1:
+            raise ShadowGovernanceError("shadow safety policy thresholds must be positive")
+        if not (
+            self.quarantine_profit_factor <= self.disable_profit_factor <= self.reduce_profit_factor <= self.watch_profit_factor
+        ):
+            raise ShadowGovernanceError("profit-factor thresholds must become stricter monotonically")
+        if not (
+            self.reduce_drawdown_pct <= self.disable_drawdown_pct <= self.quarantine_drawdown_pct
+            and self.reduce_feature_drift <= self.disable_feature_drift <= self.quarantine_feature_drift
+        ):
+            raise ShadowGovernanceError("drawdown and drift thresholds must become stricter monotonically")
+
+
+@dataclass(frozen=True)
+class ShadowSafetyDecision:
+    action: str
+    reasons: tuple[str, ...]
+    next_artifact_status: str
+    risk_increase_allowed: bool = False
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    automatic_promotion_allowed: bool = False
+
+
+class StrategyArtifactRegistry:
+    """Append-only source of truth for versioned research/shadow artifacts."""
+
+    def __init__(self, path: str | Path = DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH) -> None:
+        self.path = Path(path)
+
+    def register(self, artifact: StrategyArtifact) -> str:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            self._initialize(connection)
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO strategy_artifacts
+                    (artifact_id, fingerprint, strategy_id, status, artifact_json, recorded_at,
+                     paper_capital_allowed, live_allowed, automatic_promotion_allowed)
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)
+                """,
+                (
+                    artifact.artifact_id,
+                    artifact.fingerprint,
+                    artifact.strategy_id,
+                    artifact.status,
+                    _canonical_json(artifact.to_dict()),
+                    _utc_now().isoformat(),
+                ),
+            )
+            return artifact.artifact_id
+
+    def record_safety_decision(self, artifact: StrategyArtifact, decision: ShadowSafetyDecision) -> bool:
+        """Append one non-increasing-risk decision, rejecting action relaxation."""
+
+        artifact_id = self.register(artifact)
+        with self._connect() as connection:
+            self._initialize(connection)
+            previous = connection.execute(
+                "SELECT action FROM strategy_safety_events WHERE artifact_id = ? ORDER BY recorded_at DESC, event_id DESC LIMIT 1",
+                (artifact_id,),
+            ).fetchone()
+            if previous and SHADOW_ACTIONS.index(decision.action) < SHADOW_ACTIONS.index(str(previous[0])):
+                raise ShadowGovernanceError("automatic shadow safety action cannot relax risk")
+            payload = {
+                "artifact_id": artifact_id,
+                "action": decision.action,
+                "reasons": list(decision.reasons),
+                "next_artifact_status": decision.next_artifact_status,
+            }
+            fingerprint = _fingerprint(payload)
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO strategy_safety_events
+                    (event_id, artifact_id, action, reasons_json, next_status, fingerprint, recorded_at,
+                     paper_capital_allowed, live_allowed, automatic_promotion_allowed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0)
+                """,
+                (
+                    f"shadow_safety_{fingerprint[:20]}",
+                    artifact_id,
+                    decision.action,
+                    _canonical_json(list(decision.reasons)),
+                    decision.next_artifact_status,
+                    fingerprint,
+                    _utc_now().isoformat(),
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def latest_action(self, artifact_id: str) -> str:
+        if not self.path.exists():
+            return "NORMAL"
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                "SELECT action FROM strategy_safety_events WHERE artifact_id = ? ORDER BY recorded_at DESC, event_id DESC LIMIT 1",
+                (artifact_id,),
+            ).fetchone()
+        return str(row[0]) if row else "NORMAL"
+
+    def export_manifest(self, artifact_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            self._initialize(connection)
+            artifact = connection.execute(
+                "SELECT artifact_json FROM strategy_artifacts WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+            if not artifact:
+                raise ShadowGovernanceError(f"unknown strategy artifact: {artifact_id}")
+            events = connection.execute(
+                "SELECT action, reasons_json, next_status, recorded_at FROM strategy_safety_events WHERE artifact_id = ? ORDER BY recorded_at, event_id",
+                (artifact_id,),
+            ).fetchall()
+        return {
+            "artifact": json.loads(str(artifact[0])),
+            "safety_events": [
+                {"action": row[0], "reasons": json.loads(row[1]), "next_status": row[2], "recorded_at": row[3]}
+                for row in events
+            ],
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "automatic_promotion_allowed": False,
+        }
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=30.0)
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA journal_mode = WAL")
+        return connection
+
+    @staticmethod
+    def _initialize(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL UNIQUE,
+                strategy_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                artifact_json TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                paper_capital_allowed INTEGER NOT NULL CHECK (paper_capital_allowed = 0),
+                live_allowed INTEGER NOT NULL CHECK (live_allowed = 0),
+                automatic_promotion_allowed INTEGER NOT NULL CHECK (automatic_promotion_allowed = 0)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_safety_events (
+                event_id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL REFERENCES strategy_artifacts(artifact_id),
+                action TEXT NOT NULL,
+                reasons_json TEXT NOT NULL,
+                next_status TEXT NOT NULL,
+                fingerprint TEXT NOT NULL UNIQUE,
+                recorded_at TEXT NOT NULL,
+                paper_capital_allowed INTEGER NOT NULL CHECK (paper_capital_allowed = 0),
+                live_allowed INTEGER NOT NULL CHECK (live_allowed = 0),
+                automatic_promotion_allowed INTEGER NOT NULL CHECK (automatic_promotion_allowed = 0)
+            )
+            """
+        )
+        for table in ("strategy_artifacts", "strategy_safety_events"):
+            for operation in ("UPDATE", "DELETE"):
+                connection.execute(
+                    f"""
+                    CREATE TRIGGER IF NOT EXISTS {table}_append_only_{operation.lower()}
+                    BEFORE {operation} ON {table}
+                    BEGIN
+                        SELECT RAISE(ABORT, '{table} is append-only');
+                    END
+                    """
+                )
+
+
+def evaluate_shadow_parity(
+    *,
+    artifact: StrategyArtifact,
+    batch_observation: ShadowObservation,
+    shadow_observation: ShadowObservation,
+    max_observation_lag: timedelta = timedelta(minutes=5),
+) -> ShadowParityResult:
+    """Compare two point-in-time decisions without routing either one."""
+
+    reasons: list[str] = []
+    if artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED"}:
+        reasons.append("artifact_not_shadow_eligible")
+    if batch_observation.artifact_id != artifact.artifact_id or shadow_observation.artifact_id != artifact.artifact_id:
+        reasons.append("artifact_fingerprint_mismatch")
+    if batch_observation.source_snapshot_id != artifact.data_snapshot_id or shadow_observation.source_snapshot_id != artifact.data_snapshot_id:
+        reasons.append("data_snapshot_mismatch")
+    if batch_observation.feature_fingerprint != shadow_observation.feature_fingerprint:
+        reasons.append("feature_fingerprint_mismatch")
+    if abs(batch_observation.observed_at - shadow_observation.observed_at) > max_observation_lag:
+        reasons.append("observation_lag_exceeds_limit")
+    if shadow_observation.observed_at - shadow_observation.data_available_at > max_observation_lag:
+        reasons.append("shadow_data_stale")
+    batch_target = contract_fingerprint(batch_observation.target_portfolio)
+    shadow_target = contract_fingerprint(shadow_observation.target_portfolio)
+    if batch_target != shadow_target:
+        reasons.append("target_portfolio_mismatch")
+    return ShadowParityResult(
+        status="PARITY_OK" if not reasons else "PARITY_BLOCKED",
+        reasons=tuple(reasons),
+        batch_target_fingerprint=batch_target,
+        shadow_target_fingerprint=shadow_target,
+    )
+
+
+def decide_shadow_safety(
+    performance: ShadowPerformanceWindow,
+    *,
+    policy: ShadowSafetyPolicy = ShadowSafetyPolicy(),
+    previous_action: str = "NORMAL",
+) -> ShadowSafetyDecision:
+    """Return the most conservative action; automatic risk increases are impossible."""
+
+    previous = _validate_action(previous_action)
+    reasons: list[str] = []
+    calculated = "NORMAL"
+    if performance.data_age > policy.max_data_age:
+        calculated = "DISABLE_NEW_ENTRIES"
+        reasons.append("market_data_stale")
+    if performance.trade_count < policy.min_trade_count_for_performance:
+        calculated = _more_severe(calculated, "WATCH")
+        reasons.append("insufficient_shadow_sample")
+    if performance.rolling_profit_factor is not None:
+        pf = performance.rolling_profit_factor
+        if pf <= policy.quarantine_profit_factor:
+            calculated = _more_severe(calculated, "QUARANTINE")
+            reasons.append("rolling_profit_factor_quarantine")
+        elif pf <= policy.disable_profit_factor:
+            calculated = _more_severe(calculated, "DISABLE_NEW_ENTRIES")
+            reasons.append("rolling_profit_factor_disabled")
+        elif pf <= policy.reduce_profit_factor:
+            calculated = _more_severe(calculated, "REDUCE")
+            reasons.append("rolling_profit_factor_reduced")
+        elif pf <= policy.watch_profit_factor:
+            calculated = _more_severe(calculated, "WATCH")
+            reasons.append("rolling_profit_factor_watch")
+    if performance.rolling_expectancy_eur is not None and performance.rolling_expectancy_eur < 0.0:
+        calculated = _more_severe(calculated, "REDUCE")
+        reasons.append("rolling_expectancy_negative")
+    if performance.max_drawdown_pct is not None:
+        drawdown = performance.max_drawdown_pct
+        if drawdown >= policy.quarantine_drawdown_pct:
+            calculated = _more_severe(calculated, "QUARANTINE")
+            reasons.append("drawdown_quarantine")
+        elif drawdown >= policy.disable_drawdown_pct:
+            calculated = _more_severe(calculated, "DISABLE_NEW_ENTRIES")
+            reasons.append("drawdown_disabled")
+        elif drawdown >= policy.reduce_drawdown_pct:
+            calculated = _more_severe(calculated, "REDUCE")
+            reasons.append("drawdown_reduced")
+    if performance.feature_drift_score is not None:
+        drift = performance.feature_drift_score
+        if drift >= policy.quarantine_feature_drift:
+            calculated = _more_severe(calculated, "QUARANTINE")
+            reasons.append("feature_drift_quarantine")
+        elif drift >= policy.disable_feature_drift:
+            calculated = _more_severe(calculated, "DISABLE_NEW_ENTRIES")
+            reasons.append("feature_drift_disabled")
+        elif drift >= policy.reduce_feature_drift:
+            calculated = _more_severe(calculated, "REDUCE")
+            reasons.append("feature_drift_reduced")
+    action = _more_severe(previous, calculated)
+    return ShadowSafetyDecision(
+        action=action,
+        reasons=tuple(sorted(set(reasons))) or ("shadow_metrics_within_observation_policy",),
+        next_artifact_status=_status_for_action(action),
+    )
+
+
+def apply_shadow_safety(artifact: StrategyArtifact, decision: ShadowSafetyDecision) -> StrategyArtifact:
+    """Apply a non-increasing-risk status transition to an immutable artifact."""
+
+    # Observation cannot start shadow or relax a throttle.  The only automatic
+    # changes allowed here are reductions from an already shadow-capable state.
+    if decision.action in {"NORMAL", "WATCH"}:
+        return artifact
+    if artifact.status in {"REJECTED", "RETIRED", "QUARANTINED"}:
+        return artifact
+    if artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED"}:
+        return artifact
+    return replace(artifact, status=decision.next_artifact_status)
+
+
+def _status_for_action(action: str) -> str:
+    action = _validate_action(action)
+    if action == "QUARANTINE":
+        return "QUARANTINED"
+    if action in {"REDUCE", "DISABLE_NEW_ENTRIES"}:
+        return "THROTTLED"
+    return "SHADOW"
+
+
+def _more_severe(first: str, second: str) -> str:
+    return first if SHADOW_ACTIONS.index(first) >= SHADOW_ACTIONS.index(second) else second
+
+
+def _validate_action(action: str) -> str:
+    normalized = str(action).upper()
+    if normalized not in SHADOW_ACTIONS:
+        raise ShadowGovernanceError(f"unsupported shadow action: {action}")
+    return normalized
+
+
+def _fingerprint(value: Any) -> str:
+    return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
