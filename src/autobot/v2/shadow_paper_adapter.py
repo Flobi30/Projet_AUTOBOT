@@ -1,8 +1,8 @@
-"""Controlled paper-only execution adapter for non-grid shadow engines.
+"""Disabled-by-default bridge from shadow candidates to legacy paper signals.
 
-This adapter never enables live trading. It can mirror a validated trend or
-mean-reversion shadow candidate into the official paper execution pipeline,
-while leaving the live path untouched.
+The bridge is retained for future migration work, but it must be explicitly
+enabled and still cannot report an entry as handled unless the runtime actually
+created one. It never enables live trading.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def _parse_ts(value: Any) -> float:
 
 @dataclass(frozen=True)
 class ShadowPaperAdapterConfig:
-    enabled: bool = True
+    enabled: bool = False
     max_event_age_seconds: float = 180.0
     dedupe_ttl_seconds: float = 3600.0
     trend_enabled: bool = True
@@ -72,7 +72,7 @@ class ShadowPaperAdapterConfig:
     @classmethod
     def from_env(cls) -> "ShadowPaperAdapterConfig":
         return cls(
-            enabled=_env_bool("PAPER_EXECUTION_ADAPTER_ENABLED", True),
+            enabled=_env_bool("PAPER_EXECUTION_ADAPTER_ENABLED", False),
             max_event_age_seconds=_env_float("PAPER_EXECUTION_ADAPTER_MAX_EVENT_AGE_SECONDS", 180.0, 5.0, 86_400.0),
             dedupe_ttl_seconds=_env_float("PAPER_EXECUTION_ADAPTER_DEDUPE_TTL_SECONDS", 3600.0, 30.0, 604_800.0),
             trend_enabled=_env_bool("PAPER_EXECUTION_ADAPTER_TREND_ENABLED", True),
@@ -200,6 +200,31 @@ class ShadowPaperExecutionAdapter:
             if str(pos.get("status") or "").lower() == "open"
         ])
         self._seen_events[event_key] = time.monotonic()
+        handler_event = getattr(handler, "_last_decision_event", None)
+        handler_reason = handler_event.get("reason") if isinstance(handler_event, Mapping) else None
+        if status == "opened" and after_open <= before_open:
+            return {
+                "handled": False,
+                "reason": str(handler_reason or "official_entry_not_created"),
+                "engine": engine,
+                "variant": variant,
+                "status": status,
+                "signal": signal.to_dict(),
+                "open_positions_before": before_open,
+                "open_positions_after": after_open,
+                "shadow_contract_preview": handler_event.get("shadow_contract_preview") if isinstance(handler_event, Mapping) else None,
+            }
+        if status == "closed" and after_open >= before_open:
+            return {
+                "handled": False,
+                "reason": str(handler_reason or "official_exit_not_created"),
+                "engine": engine,
+                "variant": variant,
+                "status": status,
+                "signal": signal.to_dict(),
+                "open_positions_before": before_open,
+                "open_positions_after": after_open,
+            }
         return {
             "handled": True,
             "engine": engine,
