@@ -19,22 +19,15 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
     # via pydantic
 anyio==4.13.0
-    # via
-    #   httpx
-    #   starlette
+    # via starlette
 async-timeout==5.0.1
     # via aiohttp
 attrs==26.1.0
     # via aiohttp
 backports-asyncio-runner==1.2.0 ; python_version < "3.11"
-    # via
-    #   -r requirements/tests.in
-    #   pytest-asyncio
+    # via pytest-asyncio
 certifi==2026.4.22
-    # via
-    #   httpcore
-    #   httpx
-    #   requests
+    # via requests
 charset-normalizer==3.4.7
     # via requests
 click==8.3.3
@@ -83,6 +76,8 @@ propcache==0.4.1
     #   yarl
 psutil==7.2.2
     # via -r requirements/runtime.in
+pyyaml==6.0.2
+    # via -r requirements/runtime.in
 pydantic==2.13.3
     # via
     #   -r requirements/api.in
@@ -100,8 +95,6 @@ pytest-asyncio==1.3.0
 python-dateutil==2.9.0.post0
     # via -r requirements/runtime.in
 python-dotenv==1.2.2
-    # via -r requirements/runtime.in
-pyyaml==6.0.2
     # via -r requirements/runtime.in
 requests==2.33.1
     # via krakenex

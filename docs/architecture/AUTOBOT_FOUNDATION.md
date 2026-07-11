@@ -2,7 +2,7 @@
 
 ## Official pipeline
 
-`MarketData -> Signal -> OpportunityScore -> PortfolioAllocation -> OrderIntent -> RiskCheck -> ExecutionCommand -> Fill -> Position -> PnL -> Ledger -> Dashboard`
+`MarketData -> Signal -> OpportunityScore -> PortfolioAllocation -> RiskCheck -> ExecutionCommand -> Fill -> Position -> PnL -> Ledger -> Dashboard`
 
 The dashboard is read-only with respect to trading truth. A strategy may create
 signals, but it may not create fills, modify capital, or bypass risk checks.
@@ -18,16 +18,13 @@ cross-layer work:
 - `TargetPortfolio`
 - `OrderIntent`
 - `RiskDecision`
-- `ExecutionCommand`
 - `OrderEvent`
 - `FillEvent`
 - `PositionSnapshot`
 - `LedgerEntry`
 
-`OrderIntent` is deliberately non-executable. Only a distinct `RiskDecision`
-can produce an `ExecutionCommand`; a fast cache never carries a prior risk
-approval. Existing runtime classes remain compatible. New integrations must
-either use a contract directly or add an explicit adapter with a contract test.
+Existing runtime classes remain compatible. New integrations must either use a
+contract directly or add an explicit adapter with a contract test.
 
 ## Source-of-truth rules
 
@@ -47,10 +44,19 @@ time. These facts must be explicit in the relevant contract.
 
 ## 24-layer coverage baseline
 
-The machine-readable matrix is `docs/architecture/layer_coverage.json`.
-Every row identifies an owner, boundary contract, test and evidence path.
-`VERIFIED` means an integration test and runtime evidence, not merely a file
-with a similar name. The initial status is deliberately conservative.
+| Layers | Current status | Block target |
+| --- | --- | --- |
+| 1-4 Data, quality, temporal semantics, lineage | PARTIAL | Block 1 |
+| 5-6 Feature registry and regime analysis | PARTIAL | Block 1 |
+| 7-10 Hypotheses, adapters, memory, experiments | PARTIAL | Block 2 |
+| 11-12 Statistical validation and multiple testing | PARTIAL | Block 2 |
+| 13-17 Portfolio, sizing, costs, capacity, simulation | PARTIAL | Block 3 |
+| 18-21 Governance, shadow, paper, independent risk | PARTIAL | Block 4 |
+| 22-23 OMS/EMS, ledger, reconciliation and TCA | PARTIAL | Block 5 |
+| 24 Monitoring, drift, security and resilience | PARTIAL | Block 6 |
+
+`COMPLETE` means verified by integration tests and runtime evidence, not merely
+that a file with a similar name exists.
 
 ## Runtime artifact policy
 

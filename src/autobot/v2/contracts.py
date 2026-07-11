@@ -7,11 +7,9 @@ layers; they do not submit orders or change runtime state.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from hashlib import sha256
-import json
 from typing import Any, Mapping
 
 CONTRACT_VERSION = 1
@@ -161,7 +159,6 @@ class TargetPortfolio:
 
 @dataclass(frozen=True)
 class OrderIntent:
-    """Non-executable request that must pass independent risk review."""
     decision_id: str
     strategy_id: str
     market: MarketIdentity
@@ -194,31 +191,6 @@ class OrderIntent:
         object.__setattr__(self, "created_at", created_at)
         object.__setattr__(self, "data_available_at", data_available_at)
         object.__setattr__(self, "metadata", dict(self.metadata))
-
-
-@dataclass(frozen=True)
-class ExecutionCommand:
-    """Executable command emitted only after a risk decision approves an intent."""
-
-    command_id: str
-    decision_id: str
-    client_order_id: str
-    risk_decision_id: str
-    issued_at: datetime
-    execution_mode: str
-    approved_notional: Decimal | float
-    contract_version: int = CONTRACT_VERSION
-
-    def __post_init__(self) -> None:
-        mode = _required(self.execution_mode, "execution_mode").lower()
-        if mode not in {"paper", "live"}:
-            raise ValueError("execution command mode must be paper or live")
-        if float(self.approved_notional) <= 0:
-            raise ValueError("approved_notional must be positive")
-        for field_name in ("command_id", "decision_id", "client_order_id", "risk_decision_id"):
-            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
-        object.__setattr__(self, "issued_at", _utc(self.issued_at, "issued_at"))
-        object.__setattr__(self, "execution_mode", mode)
 
 
 @dataclass(frozen=True)
@@ -314,28 +286,3 @@ class LedgerEntry:
             object.__setattr__(self, "strategy_id", _required(self.strategy_id, "strategy_id"))
         object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))
         object.__setattr__(self, "payload", dict(self.payload))
-
-
-def contract_to_dict(value: Any) -> dict[str, Any]:
-    """Return a canonical JSON-safe representation of a boundary contract."""
-    if not is_dataclass(value):
-        raise TypeError("value must be a dataclass contract")
-    return _primitive(asdict(value))
-
-
-def contract_fingerprint(value: Any) -> str:
-    """Stable fingerprint used by contract tests and reproducibility manifests."""
-    payload = json.dumps(contract_to_dict(value), sort_keys=True, separators=(",", ":"))
-    return sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _primitive(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return _utc(value, "timestamp").isoformat()
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    if isinstance(value, Mapping):
-        return {str(key): _primitive(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_primitive(item) for item in value]
-    return value

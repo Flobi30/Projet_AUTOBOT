@@ -2,6 +2,3 @@
 httpx
 pytest
 pytest-asyncio
-# Keep this marker explicit so a lock generated on Python 3.10 remains
-# installable in the Python 3.11 production/test image.
-backports-asyncio-runner==1.2.0 ; python_version < "3.11"

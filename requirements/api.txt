@@ -69,8 +69,6 @@ python-dateutil==2.9.0.post0
     # via -r requirements/runtime.in
 python-dotenv==1.2.2
     # via -r requirements/runtime.in
-pyyaml==6.0.3
-    # via -r requirements/runtime.in
 requests==2.33.1
     # via krakenex
 six==1.17.0

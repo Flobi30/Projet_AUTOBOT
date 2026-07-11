@@ -201,7 +201,7 @@ def test_data_capability_cli_is_registered():
     )
 
     assert args.command == "data-capability-scan"
-    assert args.memory_path == "data/research/alpha_research_memory.sqlite3"
+    assert args.memory_path == "reports/research/alpha_research_memory.json"
 
 
 def _write_ohlcv(tmp_path: Path) -> Path:

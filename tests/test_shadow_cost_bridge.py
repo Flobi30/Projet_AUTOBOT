@@ -41,12 +41,11 @@ def test_shadow_lab_env_defaults_use_research_cost_bridge(monkeypatch):
     trend = TrendShadowLabConfig.from_env()
     mean_reversion = MeanReversionShadowConfig.from_env()
     setup = SetupShadowLabConfig.from_env()
-    defaults = conservative_shadow_cost_defaults()
 
     for config in (trend, mean_reversion, setup):
-        assert config.fee_bps_per_side == pytest.approx(defaults.fee_bps_per_side)
-        assert config.slippage_bps_per_side == pytest.approx(defaults.slippage_bps_per_side)
-        assert config.to_dict()["effective_cost_bps_per_side"] == pytest.approx(defaults.effective_cost_bps_per_side)
+        assert config.fee_bps_per_side == pytest.approx(16.0)
+        assert config.slippage_bps_per_side == pytest.approx(9.0)
+        assert config.to_dict()["effective_cost_bps_per_side"] == pytest.approx(25.0)
         assert config.to_dict()["cost_model_source"] == "research_execution_cost_model_legacy_shadow_bridge"
 
 
@@ -69,9 +68,8 @@ def test_shadow_paper_adapter_metadata_uses_research_cost_bridge():
         last_decision={"reason": "candidate"},
     )
 
-    defaults = conservative_shadow_cost_defaults()
-    assert metadata["fee_bps"] == pytest.approx(defaults.fee_bps_per_side)
-    assert metadata["exit_fee_bps"] == pytest.approx(defaults.fee_bps_per_side)
-    assert metadata["slippage_bps"] == pytest.approx(defaults.slippage_bps_per_side)
-    assert metadata["effective_cost_bps_per_side"] == pytest.approx(defaults.effective_cost_bps_per_side)
+    assert metadata["fee_bps"] == pytest.approx(16.0)
+    assert metadata["exit_fee_bps"] == pytest.approx(16.0)
+    assert metadata["slippage_bps"] == pytest.approx(9.0)
+    assert metadata["effective_cost_bps_per_side"] == pytest.approx(25.0)
     assert metadata["cost_model_source"] == "research_execution_cost_model_legacy_shadow_bridge"

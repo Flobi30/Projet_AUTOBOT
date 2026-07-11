@@ -290,10 +290,7 @@ def _insert_trade_family(
 def _engine() -> PnlCausalityAuditEngine:
     return PnlCausalityAuditEngine(
         PnlCausalityConfig(
-            # Fixtures are deliberately historical.  Keep the audit horizon
-            # independent from the wall clock so this remains a deterministic
-            # read-only integration test.
-            window_hours=24 * 365,
+            window_hours=720,
             limit=100,
             fee_drag_bps=70.0,
             edge_miss_bps=25.0,
@@ -432,7 +429,6 @@ class _PnlCausalityOrchestrator:
 
 def test_pnl_causality_endpoint_returns_audit(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
-    monkeypatch.setenv("PNL_CAUSALITY_WINDOW_HOURS", str(24 * 365))
     state_db = tmp_path / "state.db"
     _create_state_db(state_db)
 

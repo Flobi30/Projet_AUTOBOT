@@ -45,6 +45,14 @@ if _src_path.exists() and _src_path.is_dir():
 # Setup logging  # noqa: E402
 from autobot.v2.utils import setup_structured_logging  # noqa: E402
 
+setup_structured_logging(
+    level=logging.INFO,
+    log_file="autobot_async.log",
+    max_bytes=10 * 1024 * 1024,
+    backup_count=5,
+    use_json=True,
+)
+
 from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.orchestrator import InstanceConfig
 from autobot.v2.os_tuning import OSTuner
@@ -151,7 +159,6 @@ class AutoBotV2Async:
         dashboard_port: int = 8080,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
-        startup_kill_switch: Optional[KillSwitch] = None,
     ) -> None:
         self.orchestrator: Optional[OrchestratorAsync] = None
         self.dashboard = None
@@ -160,9 +167,7 @@ class AutoBotV2Async:
         self.dashboard_port = dashboard_port
         self.api_key = api_key or os.getenv("KRAKEN_API_KEY")
         self.api_secret = api_secret or os.getenv("KRAKEN_API_SECRET")
-        # Persisted state is created only when the process is actually started.
-        # This keeps configuration inspection and unit tests side-effect free.
-        self.startup_kill_switch = startup_kill_switch
+        self.startup_kill_switch = KillSwitch()
 
     def _create_all_instance_configs(self) -> list:
         """Create instance configs for all TRADING_PAIRS (multi-pair support).
@@ -228,8 +233,6 @@ class AutoBotV2Async:
         try:
             # 0. Startup attestation hard-block gate
             preflight_only = os.getenv("PREFLIGHT_ONLY", "false").lower() == "true"
-            if self.startup_kill_switch is None:
-                self.startup_kill_switch = KillSwitch()
             attestation_executor = OrderExecutorAsync(self.api_key, self.api_secret)
             try:
                 attestation = StartupAttestation(
@@ -334,15 +337,6 @@ class AutoBotV2Async:
 
 def main() -> None:
     """Entry point."""
-    # Logging is configured only for an actual process start. Importing this
-    # module must remain side-effect free for tests, CLI inspection and tools.
-    setup_structured_logging(
-        level=logging.INFO,
-        log_file=os.getenv("AUTOBOT_LOG_FILE", "autobot_async.log"),
-        max_bytes=10 * 1024 * 1024,
-        backup_count=5,
-        use_json=True,
-    )
     # P5: Apply OS-level tuning before starting the event loop
     _apply_os_tuning()
 

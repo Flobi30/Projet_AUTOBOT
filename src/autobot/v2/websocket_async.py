@@ -603,36 +603,30 @@ class KrakenWebSocketAsync:
             return getattr(self._ws, "close_code", None) is None
 
     def get_health_snapshot(self) -> Dict[str, Any]:
-        # Some unit-level consumers construct a minimal websocket object with
-        # ``__new__`` to avoid opening a connection.  Health reporting must
-        # remain observational in that case: a missing counter is equivalent
-        # to its safe default, never an exception from the health endpoint.
-        last_message_time = float(getattr(self, "_last_message_time", 0.0) or 0.0)
-        last_ticker_time = float(getattr(self, "_last_ticker_time", 0.0) or 0.0)
-        stale_seconds = max(0.0, time.monotonic() - last_message_time) if last_message_time else 0.0
-        last_tick_age = max(0.0, time.monotonic() - last_ticker_time) if last_ticker_time else None
+        stale_seconds = max(0.0, time.monotonic() - self._last_message_time) if self._last_message_time else 0.0
+        last_tick_age = max(0.0, time.monotonic() - self._last_ticker_time) if self._last_ticker_time else None
         return {
-            "running": bool(getattr(self, "_running", False)),
+            "running": self._running,
             "connected": self.is_connected(),
             "stale_seconds": round(stale_seconds, 3),
-            "stale_threshold_seconds": round(float(getattr(self, "_stale_threshold", 30.0)), 3),
-            "ticker_pairs_subscribed": len(getattr(self, "_subscribed_pairs", set())),
-            "book_pairs_subscribed": len(getattr(self, "_book_subscribed_pairs", set())),
-            "book_callback_count": sum(len(callbacks) for callbacks in getattr(self, "_book_callbacks", {}).values()),
-            "msg_rate_per_sec": round(float(getattr(self, "_last_msg_rate", 0.0)), 3),
-            "messages_per_second": round(float(getattr(self, "_last_msg_rate", 0.0)), 3),
-            "rate_window_seconds": round(float(getattr(self, "_msg_rate_window", 0.0)), 3),
-            "backpressure_active": bool(getattr(self, "_backpressure_active", False)),
-            "high_message_rate_active": bool(getattr(self, "_backpressure_active", False)),
-            "backpressure_warn_threshold": round(float(getattr(self, "_backpressure_warn_threshold", 100.0)), 3),
-            "consecutive_backpressure_windows": int(getattr(self, "_backpressure_consecutive_windows", 0)),
-            "high_message_rate_windows": int(getattr(self, "_high_message_rate_windows", 0)),
-            "callback_count": int(getattr(self, "_last_callback_count", 0)),
-            "last_dispatch_duration_ms": round(float(getattr(self, "_last_dispatch_duration_ms", 0.0)), 3),
-            "dispatch_ewma_ms": round(float(getattr(self, "_dispatch_ewma_ms", 0.0)), 3),
+            "stale_threshold_seconds": round(self._stale_threshold, 3),
+            "ticker_pairs_subscribed": len(self._subscribed_pairs),
+            "book_pairs_subscribed": len(self._book_subscribed_pairs),
+            "book_callback_count": sum(len(callbacks) for callbacks in self._book_callbacks.values()),
+            "msg_rate_per_sec": round(self._last_msg_rate, 3),
+            "messages_per_second": round(self._last_msg_rate, 3),
+            "rate_window_seconds": round(self._msg_rate_window, 3),
+            "backpressure_active": self._backpressure_active,
+            "high_message_rate_active": self._backpressure_active,
+            "backpressure_warn_threshold": round(self._backpressure_warn_threshold, 3),
+            "consecutive_backpressure_windows": self._backpressure_consecutive_windows,
+            "high_message_rate_windows": self._high_message_rate_windows,
+            "callback_count": self._last_callback_count,
+            "last_dispatch_duration_ms": round(self._last_dispatch_duration_ms, 3),
+            "dispatch_ewma_ms": round(self._dispatch_ewma_ms, 3),
             "last_tick_age_seconds": round(last_tick_age, 3) if last_tick_age is not None else None,
-            "exchange_local_lag_ms": getattr(self, "_exchange_local_lag_ms", None),
-            "explicit_drop_count": int(getattr(self, "_explicit_drop_count", 0)),
+            "exchange_local_lag_ms": self._exchange_local_lag_ms,
+            "explicit_drop_count": self._explicit_drop_count,
             "drop_tracking_supported": True,
             "invalid_book_count": None,
             "recovery_count": None,
