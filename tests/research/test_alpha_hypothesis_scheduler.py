@@ -23,6 +23,7 @@ from autobot.v2.research.alpha_hypothesis_scheduler import (
     scan_data_readiness,
 )
 from autobot.v2.research.alpha_hypothesis_runner import AlphaHypothesisRunnerConfig, build_alpha_hypothesis_runner_report
+from autobot.v2.research.research_memory_store import ResearchMemoryStore
 from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
 
@@ -86,6 +87,29 @@ def test_memory_rejects_paper_or_live_enabled_record(tmp_path):
 
     with pytest.raises(AlphaSchedulerError, match="paper/live/promotion"):
         load_alpha_research_memory(path)
+
+
+def test_sqlite_memory_is_append_only_idempotent_and_keeps_latest_record(tmp_path):
+    path = tmp_path / "memory.sqlite3"
+    store = ResearchMemoryStore(path)
+    first = _record("sqlite-run", variant_count=1).to_dict()
+    changed = {**first, "metrics": {"net_pnl_eur": 3.0}}
+
+    assert store.append(first) is True
+    assert store.append(first) is False
+    assert store.append(changed) is True
+    assert store.event_count() == 2
+    loaded = load_alpha_research_memory(path)
+
+    assert len(loaded.records) == 1
+    assert loaded.records[0].metrics["net_pnl_eur"] == 3.0
+    assert loaded.records[0].paper_capital_allowed is False
+
+    export_path = store.export_latest(tmp_path / "review" / "memory.json")
+    exported = json.loads(export_path.read_text(encoding="utf-8"))
+    assert exported["source_event_count"] == 2
+    assert exported["paper_capital_allowed"] is False
+    assert len(exported["records"]) == 1
 
 
 def test_scheduler_refuses_rejected_current_config_and_selects_next_runnable(tmp_path):

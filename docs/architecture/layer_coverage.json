@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "verification_rule": "VERIFIED requires linked code, reproducible test, and runtime evidence.",
+  "layers": [
+    {"id": 1, "block": "B01", "name": "market_data", "owner": "canonical data", "contract": "CanonicalMarketEvent", "status": "PARTIAL", "test": "tests/research/test_canonical_ohlcv_store.py", "evidence": "data/research/manifests/"},
+    {"id": 2, "block": "B01", "name": "data_quality", "owner": "canonical data", "contract": "DataQualityReport", "status": "PARTIAL", "test": "tests/research/test_data_quality_report.py", "evidence": "reports/research/canonical_ohlcv/"},
+    {"id": 3, "block": "B01", "name": "temporal_semantics", "owner": "canonical data", "contract": "TemporalContext", "status": "PARTIAL", "test": "tests/test_contracts.py", "evidence": "docs/architecture/AUTOBOT_FOUNDATION.md"},
+    {"id": 4, "block": "B01", "name": "lineage", "owner": "canonical data", "contract": "DatasetManifest", "status": "PARTIAL", "test": "tests/research/test_canonical_ohlcv_store.py", "evidence": "data/research/manifests/"},
+    {"id": 5, "block": "B01", "name": "feature_registry", "owner": "feature layer", "contract": "FeatureValue", "status": "MISSING", "test": null, "evidence": null},
+    {"id": 6, "block": "B01", "name": "regime_analysis", "owner": "research", "contract": "RegimeSnapshot", "status": "PARTIAL", "test": "tests/research/test_regime_context.py", "evidence": "reports/research/"},
+    {"id": 7, "block": "B02", "name": "hypothesis_specification", "owner": "research", "contract": "HypothesisSpec", "status": "PARTIAL", "test": "tests/research/test_alpha_hypothesis_lab.py", "evidence": "docs/research/alpha_hypotheses.json"},
+    {"id": 8, "block": "B02", "name": "strategy_adapters", "owner": "strategy layer", "contract": "AlphaSignal", "status": "PARTIAL", "test": "tests/research/test_strategy_adapters.py", "evidence": "reports/research/alpha_hypothesis_runner/"},
+    {"id": 9, "block": "B02", "name": "research_memory", "owner": "research", "contract": "ResearchObservation", "status": "PARTIAL", "test": "tests/research/test_alpha_hypothesis_scheduler.py", "evidence": "data/research/"},
+    {"id": 10, "block": "B02", "name": "experiment_registry", "owner": "research", "contract": "ExperimentManifest", "status": "MISSING", "test": null, "evidence": null},
+    {"id": 11, "block": "B02", "name": "statistical_validation", "owner": "validation", "contract": "ValidationResult", "status": "PARTIAL", "test": "tests/research/test_statistical_validation.py", "evidence": "reports/research/"},
+    {"id": 12, "block": "B02", "name": "multiple_testing", "owner": "validation", "contract": "MultipleTestingReport", "status": "MISSING", "test": null, "evidence": null},
+    {"id": 13, "block": "B03", "name": "portfolio", "owner": "portfolio allocator", "contract": "TargetPortfolio", "status": "PARTIAL", "test": "src/autobot/v2/tests/test_portfolio_allocator.py", "evidence": "reports/paper/"},
+    {"id": 14, "block": "B03", "name": "sizing", "owner": "risk", "contract": "SizingDecision", "status": "PARTIAL", "test": "tests/test_position_exit_and_allocation.py", "evidence": "docs/research/strategy_risk_mandates.json"},
+    {"id": 15, "block": "B03", "name": "cost_model", "owner": "research", "contract": "CostModel", "status": "PARTIAL", "test": "tests/research/test_execution_cost_model.py", "evidence": "reports/research/cost_parity_2026-06-06/"},
+    {"id": 16, "block": "B03", "name": "capacity", "owner": "portfolio allocator", "contract": "CapacityEstimate", "status": "MISSING", "test": null, "evidence": null},
+    {"id": 17, "block": "B03", "name": "execution_simulation", "owner": "research", "contract": "SimulatedOrderEvent", "status": "PARTIAL", "test": "tests/paper/test_paper_trading_engine.py", "evidence": "reports/paper/"},
+    {"id": 18, "block": "B04", "name": "governance", "owner": "strategy governance", "contract": "PromotionDecision", "status": "PARTIAL", "test": "tests/test_strategy_governance.py", "evidence": "docs/research/strategy_hypotheses.json"},
+    {"id": 19, "block": "B04", "name": "shadow", "owner": "shadow lab", "contract": "ShadowDecision", "status": "PARTIAL", "test": "tests/test_shadow_trading.py", "evidence": "reports/paper/"},
+    {"id": 20, "block": "B04", "name": "official_paper", "owner": "paper engine", "contract": "ExecutionCommand", "status": "PARTIAL", "test": "tests/paper/test_paper_trading_engine.py", "evidence": "reports/paper/official_performance/"},
+    {"id": 21, "block": "B04", "name": "independent_risk", "owner": "risk manager", "contract": "RiskDecision", "status": "PARTIAL", "test": "tests/risk/test_risk_manager_v2.py", "evidence": "docs/research/strategy_risk_mandates.json"},
+    {"id": 22, "block": "B05", "name": "oms_ems", "owner": "order router", "contract": "OrderIntent,ExecutionCommand,OrderEvent", "status": "PARTIAL", "test": "src/autobot/v2/tests/test_order_router.py", "evidence": "reports/non_regression/"},
+    {"id": 23, "block": "B05", "name": "ledger_reconciliation_tca", "owner": "persistence", "contract": "LedgerEntry,FillEvent,PositionSnapshot", "status": "PARTIAL", "test": "tests/test_strategy_reconciliation.py", "evidence": "reports/paper/"},
+    {"id": 24, "block": "B06", "name": "monitoring_security_resilience", "owner": "operations", "contract": "HealthSnapshot", "status": "PARTIAL", "test": "tests/test_runtime_sanity.py", "evidence": "reports/non_regression/"}
+  ]
+}

@@ -2,23 +2,15 @@ import pytest
 
 import json
 
-import autobot.v2.persistence as persistence_mod
 from autobot.v2.autonomous_review import build_autonomous_review
 from autobot.v2.decision_journal import DecisionJournal
 from autobot.v2.persistence import StatePersistence
 
 
-pytestmark = pytest.mark.integration
-
-def _reset_thread_local_conn():
-    conn = getattr(persistence_mod._local, "conn", None)
-    if conn is not None:
-        conn.close()
-        delattr(persistence_mod._local, "conn")
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-def test_autonomous_review_sparse_data_behavior(tmp_path):
-    _reset_thread_local_conn()
+async def test_autonomous_review_sparse_data_behavior(tmp_path):
     db = tmp_path / "state.db"
     journal = tmp_path / "missing_journal.jsonl"
 
@@ -34,13 +26,12 @@ def test_autonomous_review_sparse_data_behavior(tmp_path):
     assert isinstance(report["recommended_focus_points"], list)
 
 
-def test_autonomous_review_schema_validity(tmp_path):
-    _reset_thread_local_conn()
+async def test_autonomous_review_schema_validity(tmp_path):
     db = tmp_path / "state.db"
     journal = tmp_path / "journal.jsonl"
 
     p = StatePersistence(db_path=str(db))
-    p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -75,15 +66,15 @@ def test_autonomous_review_schema_validity(tmp_path):
         "source_snapshot",
     }
     assert required.issubset(set(report.keys()))
+    await p.close()
 
 
-def test_autonomous_review_recommendation_output_correctness(tmp_path):
-    _reset_thread_local_conn()
+async def test_autonomous_review_recommendation_output_correctness(tmp_path):
     db = tmp_path / "state.db"
     journal = tmp_path / "journal.jsonl"
 
     p = StatePersistence(db_path=str(db))
-    p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="neg-1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -103,10 +94,10 @@ def test_autonomous_review_recommendation_output_correctness(tmp_path):
     report = build_autonomous_review(db_path=str(db), journal_path=str(journal))
     assert report["recommended_action"] in {"reduce", "inspect"}
     assert report["global_system_health"] in {"degraded", "critical"}
+    await p.close()
 
 
-def test_autonomous_review_no_crash_when_sources_missing(tmp_path):
-    _reset_thread_local_conn()
+async def test_autonomous_review_no_crash_when_sources_missing(tmp_path):
     report = build_autonomous_review(
         db_path=str(tmp_path / "missing.db"),
         journal_path=str(tmp_path / "missing.jsonl"),

@@ -33,6 +33,9 @@ dashboard/node_modules/
 # VPS runtime artifacts: keep compact decision reports, not volatile payloads.
 autobot_v2.db-shm
 autobot_v2.db-wal
+data/research/*.sqlite3
+data/research/*.sqlite3-shm
+data/research/*.sqlite3-wal
 artifacts/server-backups/
 backups/
 cleanup_archives/

@@ -1,4 +1,9 @@
-# AUTOBOT Audit Report
+# HISTORICAL / NON-NORMATIVE — AUTOBOT Audit Report
+
+This is a dated May 2026 snapshot.  It must not be used to re-enable Grid,
+paper capital, speculative execution or live trading.  Current policy and
+contracts live in `docs/architecture/AUTOBOT_FOUNDATION.md`, `AGENTS.md`, the
+versioned strategy registry and the tested runtime code.
 
 Date: 2026-05-31
 Scope: AUTOBOT V2 repository at commit `96fce31`, current paper-first architecture, research validation stack, official paper ledger, shadow labs and strategy governance.

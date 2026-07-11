@@ -2,6 +2,7 @@ import pytest
 
 import asyncio
 import multiprocessing as mp
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 from autobot.v2.order_executor_async import OrderExecutorAsync
@@ -46,6 +47,24 @@ def test_nonce_generator_monotonic_under_multi_process(tmp_path):
     assert len(values) == len(set(values))
     sorted_values = sorted(values)
     assert all(sorted_values[i] < sorted_values[i + 1] for i in range(len(sorted_values) - 1))
+
+
+def test_nonce_reservation_retries_only_transient_sqlite_lock(tmp_path, monkeypatch):
+    manager = NonceManager(str(tmp_path / "nonce-retry.db"))
+    original = manager._reserve_range_once
+    attempts = {"count": 0}
+
+    def temporarily_locked(api_key_id: str, block_size: int):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise sqlite3.OperationalError("database is locked")
+        return original(api_key_id, block_size)
+
+    monkeypatch.setattr(manager, "_reserve_range_once", temporarily_locked)
+    low, high = manager.reserve_range("api-key-1", block_size=2)
+
+    assert attempts["count"] == 3
+    assert high == low + 1
 
 
 def test_order_executor_uses_reserved_local_nonce_range():

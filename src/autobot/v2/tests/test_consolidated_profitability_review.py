@@ -2,23 +2,15 @@ import pytest
 
 import json
 
-import autobot.v2.persistence as persistence_mod
 from autobot.v2.consolidated_review import build_consolidated_profitability_review
 from autobot.v2.decision_journal import DecisionJournal
 from autobot.v2.persistence import StatePersistence
 
 
-pytestmark = pytest.mark.unit
-
-def _reset_thread_local_conn():
-    conn = getattr(persistence_mod._local, "conn", None)
-    if conn is not None:
-        conn.close()
-        delattr(persistence_mod._local, "conn")
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
 
-def test_consolidated_review_generation_with_sparse_data(tmp_path):
-    _reset_thread_local_conn()
+async def test_consolidated_review_generation_with_sparse_data(tmp_path):
     db = tmp_path / "state.db"
     journal = tmp_path / "journal.jsonl"
 
@@ -35,13 +27,12 @@ def test_consolidated_review_generation_with_sparse_data(tmp_path):
     assert len(report["recommended_next_inspection_points"]) >= 1
 
 
-def test_consolidated_review_schema_validity(tmp_path):
-    _reset_thread_local_conn()
+async def test_consolidated_review_schema_validity(tmp_path):
     db = tmp_path / "state.db"
     journal_path = tmp_path / "journal.jsonl"
 
     p = StatePersistence(db_path=str(db))
-    p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -77,13 +68,13 @@ def test_consolidated_review_schema_validity(tmp_path):
     assert report["decision_journal_insights"]["total_records"] >= 2
     assert report["pair_performance_attribution"]["pair_count"] >= 1
     assert isinstance(report["recommended_next_inspection_points"], list)
+    await p.close()
 
 
-def test_consolidated_review_safe_when_one_source_absent(tmp_path):
-    _reset_thread_local_conn()
+async def test_consolidated_review_safe_when_one_source_absent(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(db_path=str(db))
-    p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -106,3 +97,4 @@ def test_consolidated_review_safe_when_one_source_absent(tmp_path):
 
     # quick JSON serializability safety check
     json.dumps(report)
+    await p.close()
