@@ -5,6 +5,7 @@ import pytest
 from autobot.v2.regime_features import RegimeFeatureConfig, RegimeFeatureEngine
 from autobot.v2.research.market_data_repository import MarketBar
 from autobot.v2.research.regime_context import enrich_bars_with_regime_context
+from autobot.v2.research.regime_context import BoundedRegimeSegmentation, record_regime_segmentation_trial
 
 
 pytestmark = pytest.mark.integration
@@ -60,4 +61,21 @@ def test_regime_context_preserves_explicit_non_unknown_regime_label():
 
     assert enriched[-1].metadata["regime"] == "manual_range"
     assert enriched[-1].metadata["regime_context"]["regime"] == "trend"
+
+
+def test_regime_segmentations_are_bounded_and_recorded_as_idempotent_trials(tmp_path):
+    segmentation = BoundedRegimeSegmentation(
+        segmentation_id="default_market_regimes",
+        version="1.0.0",
+        labels=("trend", "range", "high_vol", "chaos"),
+    )
+    path = tmp_path / "regime_trials.jsonl"
+
+    first = record_regime_segmentation_trial(path=path, segmentation=segmentation, snapshot_id="snapshot-1")
+    second = record_regime_segmentation_trial(path=path, segmentation=segmentation, snapshot_id="snapshot-1")
+
+    assert first["trial_id"] == second["trial_id"]
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+    with pytest.raises(ValueError, match="max_segments"):
+        BoundedRegimeSegmentation("too_many", "1", tuple(str(index) for index in range(7)))
 

@@ -10,11 +10,12 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -35,6 +36,8 @@ AUTOBOT_SPOT_SYMBOLS = {
     "ADA": "ADAEUR",
     "LINK": "LINKEUR",
 }
+TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3_600, "4h": 14_400, "1d": 86_400}
+DERIVATIVES_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,7 @@ class KrakenFuturesCollectorConfig:
     sleep_seconds: float = 0.0
     timeout_seconds: float = 20.0
     continue_on_error: bool = False
+    observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -82,6 +86,8 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("sleep_seconds cannot be negative")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.observed_at is not None and (self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None):
+            raise ValueError("observed_at must be timezone-aware when provided")
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
         if unknown_ticks:
             raise ValueError(f"unsupported Kraken Futures tick types: {', '.join(unknown_ticks)}")
@@ -109,6 +115,7 @@ class KrakenFuturesCollectionResult:
     generated_at: str
     snapshot_id: str
     fingerprint: str
+    provenance_fingerprint: str
     mappings: tuple[KrakenFuturesInstrumentMapping, ...]
     datasets: tuple[KrakenFuturesDatasetSummary, ...]
     errors: tuple[dict[str, Any], ...]
@@ -131,6 +138,7 @@ class KrakenFuturesCollectionResult:
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     promotable: bool = False
+    schema_version: int = DERIVATIVES_SCHEMA_VERSION
     safety_notes: tuple[str, ...] = (
         "Research-only Kraken Futures public market-data collection.",
         "No private endpoint, order endpoint, API key, paper capital, live trading, promotion, shadow activation, sizing, leverage, UI, or runtime order path.",
@@ -140,9 +148,11 @@ class KrakenFuturesCollectionResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
+            "schema_version": self.schema_version,
             "generated_at": self.generated_at,
             "snapshot_id": self.snapshot_id,
             "fingerprint": self.fingerprint,
+            "provenance_fingerprint": self.provenance_fingerprint,
             "mappings": [item.to_dict() for item in self.mappings],
             "datasets": [item.to_dict() for item in self.datasets],
             "errors": list(self.errors),
@@ -214,6 +224,7 @@ def collect_kraken_futures_derivatives(
     """Collect a bounded Kraken Futures derivatives research snapshot."""
 
     api = client or KrakenFuturesPublicClient(timeout_seconds=config.timeout_seconds)
+    collection_time = _collection_time(config)
     raw_run_dir = config.raw_dir / config.run_id
     raw_run_dir.mkdir(parents=True, exist_ok=True)
     config.canonical_dir.mkdir(parents=True, exist_ok=True)
@@ -236,7 +247,14 @@ def collect_kraken_futures_derivatives(
     invalid_rows: list[dict[str, Any]] = []
 
     if config.collect_tickers and ticker_payload:
-        ticker_rows.extend(_ticker_rows_from_payload(ticker_payload, mappings, invalid_rows=invalid_rows))
+        ticker_rows.extend(
+            _ticker_rows_from_payload(
+                ticker_payload,
+                mappings,
+                invalid_rows=invalid_rows,
+                ingestion_time=collection_time,
+            )
+        )
         basis_rows.extend(_basis_rows_from_tickers(ticker_rows, invalid_rows=invalid_rows))
 
     for mapping in mappings:
@@ -251,7 +269,14 @@ def collect_kraken_futures_derivatives(
             )
             raw_response_count += 1 if payload is not None else 0
             if payload:
-                funding_rows.extend(_funding_rows_from_payload(payload, mapping, invalid_rows=invalid_rows))
+                funding_rows.extend(
+                    _funding_rows_from_payload(
+                        payload,
+                        mapping,
+                        invalid_rows=invalid_rows,
+                        ingestion_time=collection_time,
+                    )
+                )
             _sleep(config.sleep_seconds)
         if config.collect_candles:
             for tick_type in config.tick_types:
@@ -273,6 +298,7 @@ def collect_kraken_futures_derivatives(
                             timeframe=config.resolution,
                             max_candles=config.max_candles,
                             invalid_rows=invalid_rows,
+                            ingestion_time=collection_time,
                         )
                     )
                 _sleep(config.sleep_seconds)
@@ -285,13 +311,16 @@ def collect_kraken_futures_derivatives(
     funding_path = _write_csv(
         funding_rows,
         config.canonical_dir / "funding" / f"{config.run_id}_funding_rates.csv",
-        ("exchange", "futures_symbol", "base_asset", "timestamp", "funding_rate_absolute", "funding_rate_relative", "source"),
+        (
+            "schema_version", "exchange", "futures_symbol", "base_asset", "timestamp", "event_time", "available_time",
+            "ingestion_time", "temporal_status", "funding_rate_absolute", "funding_rate_relative", "source", "source_endpoint",
+        ),
     )
     ticker_path = _write_csv(
         ticker_rows,
         config.canonical_dir / "tickers" / f"{config.run_id}_ticker_snapshots.csv",
         (
-            "timestamp",
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status", "timestamp_source",
             "exchange",
             "futures_symbol",
             "base_asset",
@@ -308,14 +337,14 @@ def collect_kraken_futures_derivatives(
             "volume",
             "suspended",
             "post_only",
-            "source",
+            "source", "source_endpoint",
         ),
     )
     candle_path = _write_csv(
         candle_rows,
         config.canonical_dir / "candles" / f"{config.run_id}_derivatives_candles.csv",
         (
-            "timestamp",
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "bar_close_time", "temporal_status",
             "exchange",
             "futures_symbol",
             "base_asset",
@@ -327,14 +356,14 @@ def collect_kraken_futures_derivatives(
             "low",
             "close",
             "volume",
-            "source",
+            "source", "source_endpoint",
         ),
     )
     basis_path = _write_csv(
         basis_rows,
         config.canonical_dir / "basis" / f"{config.run_id}_basis.csv",
         (
-            "timestamp",
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status",
             "exchange",
             "futures_symbol",
             "base_asset",
@@ -344,7 +373,7 @@ def collect_kraken_futures_derivatives(
             "index_or_reference_price",
             "calculation_method",
             "confidence_status",
-            "source",
+            "source", "source_endpoint",
         ),
     )
 
@@ -354,19 +383,20 @@ def collect_kraken_futures_derivatives(
         _dataset_summary("derivatives_candles", candle_rows, candle_dupes, _invalid_count(invalid_rows, "derivatives_candles"), candle_path, "bounded_candle_sample_ready" if candle_rows else "missing"),
         _dataset_summary("basis", basis_rows, basis_dupes, _invalid_count(invalid_rows, "basis"), basis_path, _basis_quality(basis_rows)),
     )
-    fingerprint = fingerprint_derivatives_rows(
-        {
-            "funding_rates": funding_rows,
-            "ticker_snapshots": ticker_rows,
-            "derivatives_candles": candle_rows,
-            "basis": basis_rows,
-        }
-    )
+    all_datasets = {
+        "funding_rates": funding_rows,
+        "ticker_snapshots": ticker_rows,
+        "derivatives_candles": candle_rows,
+        "basis": basis_rows,
+    }
+    fingerprint = fingerprint_derivatives_rows(all_datasets)
+    provenance_fingerprint = fingerprint_derivatives_rows(all_datasets, include_provenance=True)
     result = KrakenFuturesCollectionResult(
         run_id=config.run_id,
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=collection_time.isoformat(),
         snapshot_id=f"kraken_futures_{fingerprint[:16]}",
         fingerprint=fingerprint,
+        provenance_fingerprint=provenance_fingerprint,
         mappings=tuple(mappings),
         datasets=datasets,
         errors=tuple([*errors, *invalid_rows]),
@@ -437,15 +467,34 @@ def calculate_basis_bps(
     return ((mark_price / reference_price) - 1.0) * 10_000.0, "MARK_INDEX_SAME_QUOTE"
 
 
-def fingerprint_derivatives_rows(datasets: Mapping[str, Sequence[Mapping[str, Any]]]) -> str:
+def fingerprint_derivatives_rows(
+    datasets: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    include_provenance: bool = False,
+) -> str:
     digest = hashlib.sha256()
     for dataset_id in sorted(datasets):
-        for row in sorted(datasets[dataset_id], key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))):
+        canonical_rows = [_economic_row(row, include_provenance=include_provenance) for row in datasets[dataset_id]]
+        for row in sorted(canonical_rows, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"))):
             digest.update(dataset_id.encode("utf-8"))
             digest.update(b":")
             digest.update(json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8"))
             digest.update(b"\n")
     return digest.hexdigest()
+
+
+def _economic_row(row: Mapping[str, Any], *, include_provenance: bool) -> dict[str, Any]:
+    ignored = set()
+    if not include_provenance:
+        ignored = {
+            "schema_version",
+            "ingestion_time",
+            "temporal_status",
+            "source_endpoint",
+            "timestamp_source",
+            "source_request_params",
+        }
+    return {str(key): value for key, value in row.items() if str(key) not in ignored}
 
 
 def write_kraken_futures_derivatives_report(
@@ -456,9 +505,7 @@ def write_kraken_futures_derivatives_report(
     config.report_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = config.manifest_dir / f"{result.run_id}_kraken_futures_derivatives.json"
     markdown_path = config.report_dir / f"{result.run_id}.md"
-    manifest_path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
-    markdown_path.write_text(render_kraken_futures_derivatives_report(result), encoding="utf-8")
-    return KrakenFuturesCollectionResult(
+    with_paths = KrakenFuturesCollectionResult(
         **{
             **result.to_dict(),
             "mappings": result.mappings,
@@ -469,6 +516,9 @@ def write_kraken_futures_derivatives_report(
             "markdown_report_path": str(markdown_path),
         }
     )
+    manifest_path.write_text(json.dumps(with_paths.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    markdown_path.write_text(render_kraken_futures_derivatives_report(with_paths), encoding="utf-8")
+    return with_paths
 
 
 def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResult) -> str:
@@ -478,6 +528,7 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
         f"Generated at: `{result.generated_at}`",
         f"Snapshot: `{result.snapshot_id}`",
         f"Fingerprint: `{result.fingerprint}`",
+        f"Provenance fingerprint: `{result.provenance_fingerprint}`",
         "",
         "## Mappings",
         "",
@@ -559,6 +610,7 @@ def _funding_rows_from_payload(
     mapping: KrakenFuturesInstrumentMapping,
     *,
     invalid_rows: list[dict[str, Any]],
+    ingestion_time: datetime,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     previous: datetime | None = None
@@ -576,13 +628,19 @@ def _funding_rows_from_payload(
         previous = timestamp
         rows.append(
             {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,
                 "timestamp": timestamp.isoformat(),
+                "event_time": timestamp.isoformat(),
+                "available_time": ingestion_time.isoformat(),
+                "ingestion_time": ingestion_time.isoformat(),
+                "temporal_status": "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
                 "funding_rate_absolute": _stable_number(absolute),
                 "funding_rate_relative": _stable_number(relative),
                 "source": HISTORICAL_FUNDING_ENDPOINT,
+                "source_endpoint": HISTORICAL_FUNDING_ENDPOINT,
             }
         )
     return rows
@@ -593,9 +651,12 @@ def _ticker_rows_from_payload(
     mappings: Sequence[KrakenFuturesInstrumentMapping],
     *,
     invalid_rows: list[dict[str, Any]],
+    ingestion_time: datetime,
 ) -> list[dict[str, Any]]:
     by_symbol = {str(item.get("symbol") or "").upper(): item for item in payload.get("tickers") or () if isinstance(item, Mapping)}
-    server_time = _parse_timestamp(payload.get("serverTime")) or datetime.now(timezone.utc)
+    server_time = _parse_timestamp(payload.get("serverTime"))
+    timestamp_source = "exchange_server_time" if server_time is not None else "collector_received_at_fallback"
+    server_time = server_time or ingestion_time
     rows: list[dict[str, Any]] = []
     for mapping in mappings:
         item = by_symbol.get(mapping.futures_symbol)
@@ -610,16 +671,22 @@ def _ticker_rows_from_payload(
         if mark is None or mark <= 0.0 or index is None or index <= 0.0:
             invalid_rows.append({"dataset": "ticker_snapshots", "futures_symbol": mapping.futures_symbol, "reason": "invalid_mark_or_index"})
             continue
-        if open_interest is not None and open_interest < 0.0:
+        if item.get("openInterest") not in (None, "") and (open_interest is None or open_interest < 0.0):
             invalid_rows.append({"dataset": "ticker_snapshots", "futures_symbol": mapping.futures_symbol, "reason": "negative_open_interest"})
-            continue
+            open_interest = None
         if bid is not None and ask is not None and bid > ask:
             invalid_rows.append({"dataset": "ticker_snapshots", "futures_symbol": mapping.futures_symbol, "reason": "bid_above_ask"})
             continue
         premium = ((mark / index) - 1.0) if index > 0 else None
         rows.append(
             {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
                 "timestamp": server_time.isoformat(),
+                "event_time": server_time.isoformat(),
+                "available_time": server_time.isoformat(),
+                "ingestion_time": ingestion_time.isoformat(),
+                "temporal_status": "EXCHANGE_SNAPSHOT_TIME",
+                "timestamp_source": timestamp_source,
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,
@@ -637,6 +704,7 @@ def _ticker_rows_from_payload(
                 "suspended": str(bool(item.get("suspended", False))).lower(),
                 "post_only": str(bool(item.get("postOnly", False))).lower(),
                 "source": TICKERS_ENDPOINT,
+                "source_endpoint": TICKERS_ENDPOINT,
             }
         )
     return rows
@@ -663,7 +731,12 @@ def _basis_rows_from_tickers(rows: Sequence[Mapping[str, Any]], *, invalid_rows:
             continue
         basis_rows.append(
             {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
                 "timestamp": row["timestamp"],
+                "event_time": row["event_time"],
+                "available_time": row["available_time"],
+                "ingestion_time": row["ingestion_time"],
+                "temporal_status": row["temporal_status"],
                 "exchange": "kraken_futures",
                 "futures_symbol": row["futures_symbol"],
                 "base_asset": row["base_asset"],
@@ -674,6 +747,7 @@ def _basis_rows_from_tickers(rows: Sequence[Mapping[str, Any]], *, invalid_rows:
                 "calculation_method": "mark_over_index",
                 "confidence_status": status,
                 "source": TICKERS_ENDPOINT,
+                "source_endpoint": TICKERS_ENDPOINT,
             }
         )
     return basis_rows
@@ -687,6 +761,7 @@ def _candle_rows_from_payload(
     timeframe: str,
     max_candles: int,
     invalid_rows: list[dict[str, Any]],
+    ingestion_time: datetime,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     candles = list(payload.get("candles") or ())[-max_candles:]
@@ -706,9 +781,23 @@ def _candle_rows_from_payload(
         if volume is None or volume < 0.0:
             invalid_rows.append({"dataset": "derivatives_candles", "futures_symbol": mapping.futures_symbol, "tick_type": tick_type, "reason": "invalid_candle_volume"})
             continue
+        seconds = TIMEFRAME_SECONDS.get(timeframe)
+        if seconds is None:
+            invalid_rows.append({"dataset": "derivatives_candles", "futures_symbol": mapping.futures_symbol, "tick_type": tick_type, "reason": "unsupported_timeframe"})
+            continue
+        bar_close_time = timestamp + timedelta(seconds=seconds)
+        if bar_close_time > ingestion_time:
+            invalid_rows.append({"dataset": "derivatives_candles", "futures_symbol": mapping.futures_symbol, "tick_type": tick_type, "reason": "unclosed_candle"})
+            continue
         rows.append(
             {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
                 "timestamp": timestamp.isoformat(),
+                "event_time": timestamp.isoformat(),
+                "available_time": bar_close_time.isoformat(),
+                "ingestion_time": ingestion_time.isoformat(),
+                "bar_close_time": bar_close_time.isoformat(),
+                "temporal_status": "AVAILABLE_AFTER_BAR_CLOSE",
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,
@@ -721,6 +810,7 @@ def _candle_rows_from_payload(
                 "close": _stable_number(close),
                 "volume": _stable_number(volume),
                 "source": f"{CHARTS_ENDPOINT_PREFIX}/{tick_type}/{{symbol}}/{{resolution}}",
+                "source_endpoint": f"{CHARTS_ENDPOINT_PREFIX}/{tick_type}/{{symbol}}/{{resolution}}",
             }
         )
     return rows
@@ -843,9 +933,10 @@ def _safe_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     try:
-        return float(value)
+        numeric = float(value)
     except (TypeError, ValueError):
         return None
+    return numeric if math.isfinite(numeric) else None
 
 
 def _stable_number(value: Any) -> str:
@@ -873,3 +964,8 @@ def _normalize_base_asset(value: str) -> str:
 def _sleep(seconds: float) -> None:
     if seconds > 0.0:
         time.sleep(seconds)
+
+
+def _collection_time(config: KrakenFuturesCollectorConfig) -> datetime:
+    value = config.observed_at or datetime.now(timezone.utc)
+    return value.astimezone(timezone.utc).replace(microsecond=0)

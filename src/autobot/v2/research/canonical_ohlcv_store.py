@@ -11,7 +11,7 @@ import csv
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -28,11 +28,25 @@ TIMEFRAME_SECONDS = {
     "1d": 86_400,
 }
 
+CANONICAL_OHLCV_SCHEMA_VERSION = 2
+
+
 CANONICAL_FIELDNAMES = (
+    "schema_version",
     "exchange",
     "market_type",
     "symbol",
+    "base_asset",
+    "quote_asset",
+    "market_mapping_status",
     "timeframe",
+    "event_time",
+    "available_time",
+    "ingestion_time",
+    "bar_close_time",
+    "source_timestamp_role",
+    "availability_basis",
+    "temporal_status",
     "open_timestamp",
     "timestamp",
     "open",
@@ -54,6 +68,7 @@ class CanonicalOHLCVConfig:
     quarantine_dir: Path = Path("data/research/quarantine")
     exchange: str = "kraken"
     market_type: str = "spot"
+    market_mappings: Mapping[str, Mapping[str, str]] | None = None
     max_files: int | None = None
     max_rows: int | None = None
 
@@ -98,6 +113,9 @@ class CanonicalOHLCVSnapshot:
     symbols: tuple[str, ...]
     timeframes: tuple[str, ...]
     files: tuple[CanonicalOHLCVFile, ...]
+    schema_version: int = CANONICAL_OHLCV_SCHEMA_VERSION
+    available_start_at: str | None = None
+    available_end_at: str | None = None
     manifest_path: str | None = None
     quarantine_manifest_path: str | None = None
     backfill_status: str = "snapshot_from_existing_raw"
@@ -117,6 +135,7 @@ class CanonicalOHLCVSnapshot:
             "generated_at": self.generated_at,
             "snapshot_id": self.snapshot_id,
             "fingerprint": self.fingerprint,
+            "schema_version": self.schema_version,
             "exchange": self.exchange,
             "market_type": self.market_type,
             "raw_file_count": self.raw_file_count,
@@ -128,6 +147,8 @@ class CanonicalOHLCVSnapshot:
             "storage_size_bytes": self.storage_size_bytes,
             "start_at": self.start_at,
             "end_at": self.end_at,
+            "available_start_at": self.available_start_at,
+            "available_end_at": self.available_end_at,
             "symbols": list(self.symbols),
             "timeframes": list(self.timeframes),
             "files": [item.to_dict() for item in self.files],
@@ -166,6 +187,7 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
                     row_number=row_number,
                     exchange=config.exchange,
                     market_type=config.market_type,
+                    market_mappings=config.market_mappings or {},
                 )
             except ValueError as exc:
                 quarantine.append(
@@ -194,7 +216,7 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
 
     rows = sorted(by_key.values(), key=lambda item: _sort_key(item))
     fingerprint = fingerprint_canonical_rows(rows)
-    snapshot_id = f"ohlcv_{fingerprint[:16]}"
+    snapshot_id = f"ohlcv_v{CANONICAL_OHLCV_SCHEMA_VERSION}_{fingerprint[:16]}"
     snapshot_dir = config.output_dir / snapshot_id
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -233,6 +255,8 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
     latest_previous = load_latest_canonical_snapshot_manifest(config.manifest_dir)
     start_at = min((item["open_timestamp"] for item in rows), default=None)
     end_at = max((item["open_timestamp"] for item in rows), default=None)
+    available_start_at = min((item["available_time"] for item in rows), default=None)
+    available_end_at = max((item["available_time"] for item in rows), default=None)
     snapshot = CanonicalOHLCVSnapshot(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -252,6 +276,8 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
         symbols=tuple(sorted({item["symbol"] for item in rows})),
         timeframes=tuple(sorted({item["timeframe"] for item in rows})),
         files=tuple(sorted(files, key=lambda item: (item.symbol, item.timeframe))),
+        available_start_at=available_start_at,
+        available_end_at=available_end_at,
         quarantine_manifest_path=quarantine_manifest_path,
         new_data_significance=classify_snapshot_significance(latest_previous, None),
     )
@@ -262,14 +288,53 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
     return snapshot
 
 
+def adapt_legacy_canonical_row(
+    row: Mapping[str, Any],
+    *,
+    market_mappings: Mapping[str, Mapping[str, str]] | None = None,
+    recorded_ingestion_time: datetime | None = None,
+) -> dict[str, Any]:
+    """Adapt one v1 canonical row to v2 without mutating its source file.
+
+    Legacy files did not record actual row ingestion time.  The adapter keeps
+    that fact explicit unless a separately persisted ingestion time is supplied.
+    """
+
+    if int(str(row.get("schema_version") or "1")) >= CANONICAL_OHLCV_SCHEMA_VERSION and row.get("event_time"):
+        return dict(row)
+    path = Path(str(row.get("source_path") or f"{row.get('symbol') or 'UNKNOWN'}_{row.get('timeframe') or 'unknown'}.csv"))
+    adapted = _canonical_row(
+        row,
+        path=path,
+        row_number=int(row.get("source_row_number") or 0),
+        exchange=str(row.get("exchange") or "kraken"),
+        market_type=str(row.get("market_type") or "spot"),
+        market_mappings=market_mappings or {},
+    )
+    if recorded_ingestion_time is not None:
+        if recorded_ingestion_time.tzinfo is None or recorded_ingestion_time.utcoffset() is None:
+            raise ValueError("recorded_ingestion_time must be timezone-aware")
+        known_ingestion = max(_parse_iso(adapted["available_time"]) or recorded_ingestion_time, recorded_ingestion_time.astimezone(timezone.utc))
+        adapted["ingestion_time"] = known_ingestion.isoformat()
+        adapted["temporal_status"] = "MIGRATED_LEGACY_WITH_RECORDED_INGESTION"
+    return adapted
+
+
 def fingerprint_canonical_rows(rows: Sequence[Mapping[str, Any]]) -> str:
     digest = hashlib.sha256()
     for row in sorted(rows, key=lambda item: _sort_key(item)):
         stable = {
+            "schema_version": str(row.get("schema_version") or CANONICAL_OHLCV_SCHEMA_VERSION),
             "exchange": str(row["exchange"]),
             "market_type": str(row["market_type"]),
             "symbol": str(row["symbol"]),
+            "base_asset": str(row.get("base_asset") or ""),
+            "quote_asset": str(row.get("quote_asset") or ""),
+            "market_mapping_status": str(row.get("market_mapping_status") or "MAPPING_UNVERIFIED"),
             "timeframe": str(row["timeframe"]),
+            "event_time": str(row.get("event_time") or row["open_timestamp"]),
+            "available_time": str(row.get("available_time") or row["open_timestamp"]),
+            "bar_close_time": str(row.get("bar_close_time") or row["open_timestamp"]),
             "open_timestamp": str(row["open_timestamp"]),
             "open": _stable_number(row["open"]),
             "high": _stable_number(row["high"]),
@@ -328,6 +393,7 @@ def render_canonical_ohlcv_report(snapshot: CanonicalOHLCVSnapshot) -> str:
         "",
         f"Generated at: `{snapshot.generated_at}`",
         f"Snapshot: `{snapshot.snapshot_id}`",
+        f"Schema version: `{snapshot.schema_version}`",
         f"Fingerprint: `{snapshot.fingerprint}`",
         "",
         "## Summary",
@@ -339,6 +405,7 @@ def render_canonical_ohlcv_report(snapshot: CanonicalOHLCVSnapshot) -> str:
         f"- Gaps detected: `{snapshot.gap_count}`",
         f"- Quarantined rows: `{snapshot.quarantine_count}`",
         f"- Period: `{snapshot.start_at}` -> `{snapshot.end_at}`",
+        f"- Availability: `{snapshot.available_start_at}` -> `{snapshot.available_end_at}`",
         f"- Symbols: `{', '.join(snapshot.symbols)}`",
         f"- Timeframes: `{', '.join(snapshot.timeframes)}`",
         f"- Storage bytes: `{snapshot.storage_size_bytes}`",
@@ -417,13 +484,22 @@ def _canonical_row(
     row_number: int,
     exchange: str,
     market_type: str,
+    market_mappings: Mapping[str, Mapping[str, str]],
 ) -> dict[str, Any]:
     source_symbol = str(row.get("symbol") or _symbol_from_filename(path))
     source_timeframe = str(row.get("timeframe") or _timeframe_from_filename(path))
+    source_timestamp = row.get("open_timestamp") or row.get("timestamp") or row.get("datetime") or row.get("time")
+    if _timestamp_is_naive(source_timestamp):
+        raise ValueError("naive_timestamp")
+    if row.get("timestamp") and row.get("open_timestamp"):
+        legacy_timestamp = _parse_iso(row.get("timestamp"))
+        open_timestamp = _parse_iso(row.get("open_timestamp"))
+        if legacy_timestamp and open_timestamp and legacy_timestamp != open_timestamp:
+            raise ValueError("conflicting_timestamp_and_open_timestamp")
     bar = MarketBar.from_mapping(
         {
             **row,
-            "timestamp": row.get("timestamp") or row.get("open_timestamp") or row.get("datetime") or row.get("time"),
+            "timestamp": source_timestamp,
             "symbol": source_symbol,
             "timeframe": source_timeframe,
         },
@@ -437,13 +513,49 @@ def _canonical_row(
         raise ValueError("missing_symbol")
     if timeframe == "unknown":
         raise ValueError("missing_timeframe")
+    timeframe_seconds = TIMEFRAME_SECONDS.get(timeframe)
+    if timeframe_seconds is None:
+        raise ValueError(f"unsupported_timeframe:{timeframe}")
+    source_timestamp_role = str(row.get("source_timestamp_role") or "legacy_assumed_open").strip().lower()
+    if source_timestamp_role in {"legacy_assumed_open", "bar_open", "open"}:
+        open_time = timestamp
+        bar_close_time = open_time + timedelta(seconds=timeframe_seconds)
+    elif source_timestamp_role in {"bar_close", "close"}:
+        bar_close_time = timestamp
+        open_time = bar_close_time - timedelta(seconds=timeframe_seconds)
+        source_timestamp_role = "bar_close"
+    else:
+        raise ValueError(f"unsupported_source_timestamp_role:{source_timestamp_role}")
+    event_time = bar_close_time
+    explicit_available = _parse_iso(row.get("available_time") or row.get("bar_close_time"))
+    available_time = max(bar_close_time, explicit_available) if explicit_available else bar_close_time
+    explicit_ingestion = _parse_iso(
+        row.get("ingestion_time") or row.get("ingested_at") or row.get("collected_at") or row.get("fetched_at")
+    )
+    ingestion_time = max(available_time, explicit_ingestion) if explicit_ingestion else None
+    mapping = _explicit_market_mapping(
+        symbol,
+        row=row,
+        configured=market_mappings,
+    )
     return {
+        "schema_version": str(CANONICAL_OHLCV_SCHEMA_VERSION),
         "exchange": exchange.lower(),
         "market_type": market_type.lower(),
         "symbol": symbol,
+        "base_asset": mapping["base_asset"],
+        "quote_asset": mapping["quote_asset"],
+        "market_mapping_status": mapping["status"],
         "timeframe": timeframe,
-        "open_timestamp": timestamp.isoformat(),
-        "timestamp": timestamp.isoformat(),
+        "event_time": event_time.isoformat(),
+        "available_time": available_time.isoformat(),
+        "ingestion_time": ingestion_time.isoformat() if ingestion_time else "",
+        "bar_close_time": bar_close_time.isoformat(),
+        "source_timestamp_role": source_timestamp_role,
+        "availability_basis": "EXPLICIT_SOURCE" if explicit_available else "DERIVED_BAR_CLOSE",
+        "temporal_status": "EXPLICIT_SOURCE_TIMES" if explicit_ingestion or explicit_available else "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN",
+        "open_timestamp": open_time.isoformat(),
+        "timestamp": open_time.isoformat(),
         "open": _stable_number(bar.open),
         "high": _stable_number(bar.high),
         "low": _stable_number(bar.low),
@@ -452,6 +564,22 @@ def _canonical_row(
         "source_path": str(path),
         "source_row_number": row_number,
     }
+
+
+def _explicit_market_mapping(
+    symbol: str,
+    *,
+    row: Mapping[str, Any],
+    configured: Mapping[str, Mapping[str, str]],
+) -> dict[str, str]:
+    """Return only an explicit base/quote mapping; never guess a conversion."""
+
+    candidate = configured.get(symbol) or configured.get(str(row.get("symbol") or "")) or {}
+    base = str(candidate.get("base_asset") or row.get("base_asset") or "").strip().upper()
+    quote = str(candidate.get("quote_asset") or row.get("quote_asset") or "").strip().upper()
+    if base and quote:
+        return {"base_asset": base, "quote_asset": quote, "status": "EXPLICIT"}
+    return {"base_asset": "", "quote_asset": "", "status": "MAPPING_UNVERIFIED"}
 
 
 def _write_canonical_csv(rows: Sequence[Mapping[str, Any]], output_path: Path) -> None:
@@ -555,6 +683,18 @@ def _parse_iso(value: Any) -> datetime | None:
         return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _timestamp_is_naive(value: Any) -> bool:
+    if value in (None, "") or isinstance(value, (int, float)):
+        return False
+    if isinstance(value, datetime):
+        return value.tzinfo is None or value.utcoffset() is None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is None or parsed.utcoffset() is None
 
 
 def _normalize_timeframe(value: str) -> str:

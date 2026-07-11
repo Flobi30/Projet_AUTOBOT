@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import csv
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -53,6 +55,7 @@ def test_collect_kraken_futures_derivatives_writes_canonical_datasets(tmp_path):
             canonical_dir=tmp_path / "canonical" / "derivatives",
             manifest_dir=tmp_path / "manifests",
             report_dir=tmp_path / "reports",
+            observed_at=datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc),
         ),
         client=client,
     )
@@ -75,6 +78,64 @@ def test_collect_kraken_futures_derivatives_writes_canonical_datasets(tmp_path):
     for dataset in result.datasets:
         assert Path(str(dataset.csv_path)).exists()
         assert dataset.duplicate_count == 0
+    funding = next(item for item in result.datasets if item.dataset_id == "funding_rates")
+    with Path(str(funding.csv_path)).open("r", encoding="utf-8", newline="") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["schema_version"] == "2"
+    assert row["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+    assert row["available_time"] == "2026-07-10T01:00:00+00:00"
+
+
+def test_derivatives_collector_rejects_unclosed_candles(tmp_path):
+    client = _FakeKrakenFuturesClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_unclosed",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            max_candles=2,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            observed_at=datetime(2026, 7, 8, 17, 26, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    candles = next(item for item in result.datasets if item.dataset_id == "derivatives_candles")
+    assert candles.row_count == 0
+    assert any(item.get("reason") == "unclosed_candle" for item in result.errors)
+
+
+def test_invalid_open_interest_does_not_discard_valid_mark_index_or_basis(tmp_path):
+    class _InvalidOIClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            payload = super().get_json(endpoint, params)
+            if endpoint == TICKERS_ENDPOINT:
+                payload["tickers"][0]["openInterest"] = "nan"
+            return payload
+
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_invalid_oi",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            observed_at=datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc),
+        ),
+        client=_InvalidOIClient(),
+    )
+
+    ticker = next(item for item in result.datasets if item.dataset_id == "ticker_snapshots")
+    basis = next(item for item in result.datasets if item.dataset_id == "basis")
+    assert ticker.row_count == 1
+    assert basis.row_count == 1
+    assert result.current_open_interest_ready is False
+    assert any(item.get("reason") == "negative_open_interest" for item in result.errors)
 
 
 def test_basis_same_quote_and_usd_eur_rejection():
