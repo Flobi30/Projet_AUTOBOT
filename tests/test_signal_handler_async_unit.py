@@ -347,6 +347,52 @@ async def test_execute_buy_fails_closed_when_legacy_direct_execution_is_not_expl
     assert executor.market_calls == 0
     assert executor.limit_calls == 0
     assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
+    assert handler._last_decision_event["shadow_contract_preview"]["status"] == "SHADOW_PREVIEW_REJECTED"
+    assert handler._last_decision_event["shadow_contract_preview"]["execution_command_created"] is False
+
+
+@pytest.mark.asyncio
+async def test_execute_buy_records_ready_shadow_contract_preview_without_submitting_order(monkeypatch):
+    monkeypatch.delenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", raising=False)
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = _OSM()
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=100.0,
+        volume=0.2,
+        reason="unit shadow preview",
+        timestamp=datetime(2026, 7, 12, 10, tzinfo=timezone.utc),
+        metadata={
+            "strategy_id": "trend_momentum",
+            "strategy_version": "trend-v3",
+            "data_snapshot_id": "ohlcv_snapshot_1",
+            "data_available_at": "2026-07-12T10:01:00+00:00",
+            "net_expected_edge_bps": 24.0,
+            "shadow_notional_eur": 20.0,
+            "feature_versions": {"momentum": "v1"},
+            "market_identity": {
+                "exchange": "kraken",
+                "market_type": "spot",
+                "symbol": "BTCEUR",
+                "base_asset": "BTC",
+                "quote_asset": "EUR",
+            },
+        },
+    )
+
+    await handler._execute_buy(signal)
+
+    preview = handler._last_decision_event["shadow_contract_preview"]
+    assert preview["status"] == "SHADOW_PREVIEW_READY"
+    assert preview["order_intent"]["execution_mode"] == "shadow"
+    assert preview["execution_command_created"] is False
+    assert executor.market_calls == 0
+    assert executor.limit_calls == 0
+    assert handler.instance.opened == []
 
 
 def test_cost_guard_counts_exit_fee_for_round_trip():
