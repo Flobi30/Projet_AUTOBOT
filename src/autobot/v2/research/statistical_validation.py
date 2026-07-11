@@ -80,6 +80,50 @@ class DeflatedSharpeResult:
 
 
 @dataclass(frozen=True)
+class ProbabilisticSharpeConfig:
+    """Deterministic per-trade PSR proxy settings for research evaluation."""
+
+    initial_capital_eur: float = 500.0
+    benchmark_sharpe: float = 0.0
+    min_trade_count: int = 50
+    acceptable_probability: float = 0.65
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.initial_capital_eur) or self.initial_capital_eur <= 0.0:
+            raise ValueError("initial_capital_eur must be positive and finite")
+        if not math.isfinite(self.benchmark_sharpe):
+            raise ValueError("benchmark_sharpe must be finite")
+        if self.min_trade_count < 2:
+            raise ValueError("min_trade_count must be at least two")
+        if not 0.0 < self.acceptable_probability < 1.0:
+            raise ValueError("acceptable_probability must be in (0, 1)")
+
+
+@dataclass(frozen=True)
+class ProbabilisticSharpeResult:
+    sample_count: int
+    sharpe_like: float | None
+    benchmark_sharpe: float
+    probability: float | None
+    standard_error: float | None
+    skewness: float | None
+    kurtosis: float | None
+    status: str
+    acceptable: bool
+    method: str = "probabilistic_sharpe_per_trade_proxy"
+    research_only: bool = True
+    paper_candidate_allowed: bool = False
+    live_promotion_allowed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["research_only"] = True
+        payload["paper_candidate_allowed"] = False
+        payload["live_promotion_allowed"] = False
+        return payload
+
+
+@dataclass(frozen=True)
 class PFQualityAssessment:
     strategy_name: str
     decision: str
@@ -190,6 +234,69 @@ def assess_deflated_sharpe(
         assumed_trial_count=config.assumed_trial_count,
         status=status,
         overfitting_risk_score=round(_clamp(risk, 0.0, 100.0), 6),
+        acceptable=acceptable,
+    )
+
+
+def assess_probabilistic_sharpe(
+    trades: Sequence[TradeRecord],
+    config: ProbabilisticSharpeConfig = ProbabilisticSharpeConfig(),
+) -> ProbabilisticSharpeResult:
+    """Estimate probability that per-trade Sharpe exceeds a fixed benchmark.
+
+    This is deliberately a per-trade research proxy, not an annualized live
+    performance claim.  Its value is reproducible and it cannot promote a
+    strategy by itself.
+    """
+
+    returns = _trade_returns(trades, initial_capital_eur=config.initial_capital_eur)
+    if len(returns) < 2:
+        return ProbabilisticSharpeResult(
+            sample_count=len(returns),
+            sharpe_like=None,
+            benchmark_sharpe=config.benchmark_sharpe,
+            probability=None,
+            standard_error=None,
+            skewness=None,
+            kurtosis=None,
+            status="insufficient_sample",
+            acceptable=False,
+        )
+    deviation = pstdev(returns)
+    if deviation <= 0.0:
+        return ProbabilisticSharpeResult(
+            sample_count=len(returns),
+            sharpe_like=None,
+            benchmark_sharpe=config.benchmark_sharpe,
+            probability=None,
+            standard_error=None,
+            skewness=None,
+            kurtosis=None,
+            status="zero_return_variance",
+            acceptable=False,
+        )
+    # PSR uses the Sharpe per observed trade.  Do not reuse the DSR proxy's
+    # sqrt(n)-scaled ranking statistic here.
+    sharpe = mean(returns) / deviation
+    skew = _skewness(returns)
+    kurt = _kurtosis(returns)
+    standard_error = _sharpe_standard_error(
+        sharpe=sharpe,
+        skewness=skew,
+        kurtosis=kurt,
+        sample_count=len(returns),
+    )
+    probability = _clamp(NormalDist().cdf((sharpe - config.benchmark_sharpe) / standard_error), 0.0, 1.0)
+    acceptable = len(returns) >= config.min_trade_count and probability >= config.acceptable_probability
+    return ProbabilisticSharpeResult(
+        sample_count=len(returns),
+        sharpe_like=sharpe,
+        benchmark_sharpe=config.benchmark_sharpe,
+        probability=probability,
+        standard_error=standard_error,
+        skewness=skew,
+        kurtosis=kurt,
+        status="acceptable_proxy" if acceptable else ("insufficient_sample" if len(returns) < config.min_trade_count else "below_benchmark_probability"),
         acceptable=acceptable,
     )
 
@@ -532,6 +639,14 @@ def _expected_max_sharpe(assumed_trial_count: int) -> float:
     left = distribution.inv_cdf(max(1e-9, min(1.0 - 1e-9, 1.0 - 1.0 / count)))
     right = distribution.inv_cdf(max(1e-9, min(1.0 - 1e-9, 1.0 - 1.0 / (count * math.e))))
     return ((1.0 - euler_gamma) * left) + (euler_gamma * right)
+
+
+def _trade_returns(trades: Sequence[TradeRecord], *, initial_capital_eur: float) -> list[float]:
+    return [
+        float(trade.net_pnl_eur) / initial_capital_eur
+        for trade in trades
+        if math.isfinite(float(trade.net_pnl_eur))
+    ]
 
 
 def _sharpe_standard_error(

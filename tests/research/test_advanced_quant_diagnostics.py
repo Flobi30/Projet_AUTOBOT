@@ -60,9 +60,26 @@ def test_bootstrap_is_deterministic_and_never_promotes():
 
     assert first == second
     assert first.status == "observation_ready"
+    assert first.mean_trade_return_lower is not None
+    assert first.mean_trade_return_p50 is not None
+    assert first.mean_trade_return_upper is not None
+    assert first.mean_trade_return_lower <= first.mean_trade_return_p50 <= first.mean_trade_return_upper
+    assert first.mean_trade_return_unit == "fraction_of_initial_capital"
     assert report.research_only is True
     assert report.paper_candidate_allowed is False
     assert report.live_promotion_allowed is False
+
+
+def test_bootstrap_return_interval_scales_with_initial_capital_without_changing_pnl_quantiles():
+    trades = _trades()
+    config = MonteCarloConfig(iterations=200, seed=7, min_trade_count=50, confidence_level=0.90)
+    base = bootstrap_trade_sequence(trades, initial_capital_eur=500.0, config=config)
+    doubled = bootstrap_trade_sequence(trades, initial_capital_eur=1000.0, config=config)
+
+    assert doubled.net_pnl_p05_eur == pytest.approx(base.net_pnl_p05_eur)
+    assert doubled.net_pnl_p50_eur == pytest.approx(base.net_pnl_p50_eur)
+    assert doubled.mean_trade_return_lower == pytest.approx(base.mean_trade_return_lower / 2.0)
+    assert doubled.mean_trade_return_upper == pytest.approx(base.mean_trade_return_upper / 2.0)
 
 
 def test_stress_is_never_more_permissive_than_base_case():

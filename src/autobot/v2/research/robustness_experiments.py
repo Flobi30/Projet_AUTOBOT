@@ -31,12 +31,15 @@ class MonteCarloConfig:
     iterations: int = 2_000
     seed: int = 260624
     min_trade_count: int = 50
+    confidence_level: float = 0.95
 
     def __post_init__(self) -> None:
         if self.iterations < 100:
             raise ValueError("Monte Carlo iterations must be at least 100")
         if self.min_trade_count < 1:
             raise ValueError("min_trade_count must be positive")
+        if not 0.0 < self.confidence_level < 1.0:
+            raise ValueError("confidence_level must be in (0, 1)")
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,8 @@ DEFAULT_COST_STRESS_SCENARIOS: tuple[CostStressScenario, ...] = (
 class MonteCarloSummary:
     sample_count: int
     iterations: int
+    seed: int
+    confidence_level: float
     probability_positive_net_pnl: float | None
     net_pnl_p05_eur: float | None
     net_pnl_p50_eur: float | None
@@ -97,7 +102,11 @@ class MonteCarloSummary:
     profit_factor_p50: float | None
     max_drawdown_p50_pct: float | None
     max_drawdown_p95_pct: float | None
+    mean_trade_return_lower: float | None
+    mean_trade_return_p50: float | None
+    mean_trade_return_upper: float | None
     status: str
+    mean_trade_return_unit: str = "fraction_of_initial_capital"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -182,6 +191,8 @@ def bootstrap_trade_sequence(
         return MonteCarloSummary(
             sample_count=0,
             iterations=config.iterations,
+            seed=config.seed,
+            confidence_level=config.confidence_level,
             probability_positive_net_pnl=None,
             net_pnl_p05_eur=None,
             net_pnl_p50_eur=None,
@@ -190,6 +201,9 @@ def bootstrap_trade_sequence(
             profit_factor_p50=None,
             max_drawdown_p50_pct=None,
             max_drawdown_p95_pct=None,
+            mean_trade_return_lower=None,
+            mean_trade_return_p50=None,
+            mean_trade_return_upper=None,
             status="no_closed_trades",
         )
 
@@ -197,17 +211,22 @@ def bootstrap_trade_sequence(
     pnls: list[float] = []
     profit_factors: list[float] = []
     drawdowns: list[float] = []
+    mean_trade_returns: list[float] = []
     for _ in range(config.iterations):
         sample = [values[rng.randrange(len(values))] for _ in range(len(values))]
         pnls.append(sum(sample))
+        mean_trade_returns.append((sum(sample) / len(sample)) / initial_capital_eur)
         factor = _profit_factor(sample)
         if factor is not None:
             profit_factors.append(factor)
         drawdowns.append(_max_drawdown_pct(sample, initial_capital_eur))
 
+    tail = (1.0 - config.confidence_level) / 2.0
     return MonteCarloSummary(
         sample_count=len(values),
         iterations=config.iterations,
+        seed=config.seed,
+        confidence_level=config.confidence_level,
         probability_positive_net_pnl=sum(value > 0.0 for value in pnls) / len(pnls),
         net_pnl_p05_eur=_quantile(pnls, 0.05),
         net_pnl_p50_eur=_quantile(pnls, 0.50),
@@ -216,6 +235,9 @@ def bootstrap_trade_sequence(
         profit_factor_p50=_quantile(profit_factors, 0.50),
         max_drawdown_p50_pct=_quantile(drawdowns, 0.50),
         max_drawdown_p95_pct=_quantile(drawdowns, 0.95),
+        mean_trade_return_lower=_quantile(mean_trade_returns, tail),
+        mean_trade_return_p50=_quantile(mean_trade_returns, 0.50),
+        mean_trade_return_upper=_quantile(mean_trade_returns, 1.0 - tail),
         status=("insufficient_sample" if len(values) < config.min_trade_count else "observation_ready"),
     )
 
@@ -330,10 +352,13 @@ def render_robustness_experiment_report(report: RobustnessExperimentReport) -> s
         "## Bootstrap Trade Sequence",
         "",
         f"- Status: `{monte.status}`; iterations: `{monte.iterations}`; sample: `{monte.sample_count}`.",
+        f"- Seed / confidence: `{monte.seed}` / `{monte.confidence_level:.2%}`.",
         f"- Probability positive net PnL: `{_fmt_pct(monte.probability_positive_net_pnl)}`.",
         f"- Net PnL P05 / P50 / P95: `{_fmt(monte.net_pnl_p05_eur)}` / `{_fmt(monte.net_pnl_p50_eur)}` / `{_fmt(monte.net_pnl_p95_eur)}` EUR.",
         f"- PF P05 / P50: `{_fmt(monte.profit_factor_p05)}` / `{_fmt(monte.profit_factor_p50)}`.",
         f"- Max DD P50 / P95: `{_fmt(monte.max_drawdown_p50_pct)}` / `{_fmt(monte.max_drawdown_p95_pct)}` %.",
+        f"- Mean trade return CI ({monte.mean_trade_return_unit}) lower / P50 / upper: "
+        f"`{_fmt(monte.mean_trade_return_lower)}` / `{_fmt(monte.mean_trade_return_p50)}` / `{_fmt(monte.mean_trade_return_upper)}`.",
         "",
         "## Cost and Fat-tail Stress",
         "",

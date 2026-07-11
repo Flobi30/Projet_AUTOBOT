@@ -32,6 +32,31 @@ RESEARCH_ONLY_CAPITAL_FLAGS = {
     "live_allowed": False,
 }
 
+# The canonical experiment progression is intentionally independent from the
+# historical report labels used by older runners.  The registry/scheduler may
+# normalize aliases, but no later stage may be recorded before its predecessor.
+CANONICAL_RESEARCH_STAGES = (
+    "DATA_CHECK",
+    "NET_SMOKE",
+    "WALK_FORWARD",
+    "STRESS_MONTE_CARLO",
+    "SHADOW_REVIEW",
+)
+RESEARCH_STAGE_ALIASES = {
+    "DATA_CHECK": "DATA_CHECK",
+    "data_check": "DATA_CHECK",
+    "NET_SMOKE": "NET_SMOKE",
+    "quick_net_test": "NET_SMOKE",
+    "FAST_NET_EDGE_TEST": "NET_SMOKE",
+    "WALK_FORWARD": "WALK_FORWARD",
+    "walk_forward": "WALK_FORWARD",
+    "STRESS_MONTE_CARLO": "STRESS_MONTE_CARLO",
+    "monte_carlo_stress": "STRESS_MONTE_CARLO",
+    "SHADOW_REVIEW": "SHADOW_REVIEW",
+    "shadow_observation": "SHADOW_REVIEW",
+    "SHADOW_REVIEW_CANDIDATE": "SHADOW_REVIEW",
+}
+
 
 REQUIRED_HYPOTHESIS_FIELDS = (
     "id",
@@ -164,6 +189,27 @@ def validate_alpha_hypotheses(payload: Mapping[str, Any]) -> None:
 
 def default_pipeline_payload() -> list[dict[str, Any]]:
     return [step.to_dict() for step in DEFAULT_PIPELINE]
+
+
+def normalize_research_stage(value: str) -> str:
+    """Normalize one legacy/current gate label to the canonical pipeline."""
+
+    try:
+        return RESEARCH_STAGE_ALIASES[str(value)]
+    except KeyError as exc:
+        raise AlphaHypothesisError(f"unsupported research stage: {value}") from exc
+
+
+def next_research_stage(stage: str | None) -> str:
+    """Return the sole stage allowed after ``stage`` in the research pipeline."""
+
+    if stage is None:
+        return CANONICAL_RESEARCH_STAGES[0]
+    normalized = normalize_research_stage(stage)
+    index = CANONICAL_RESEARCH_STAGES.index(normalized)
+    if index + 1 >= len(CANONICAL_RESEARCH_STAGES):
+        raise AlphaHypothesisError("research pipeline is complete; new material fingerprint is required")
+    return CANONICAL_RESEARCH_STAGES[index + 1]
 
 
 def evaluate_research_gate(

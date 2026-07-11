@@ -308,6 +308,14 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
+    experiment_registry_migrate = subparsers.add_parser(
+        "experiment-registry-migrate-memory",
+        help="Import legacy AUTOBOT research memory into the append-only experiment registry",
+    )
+    experiment_registry_migrate.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
+    experiment_registry_migrate.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
+    experiment_registry_migrate.set_defaults(handler=_cmd_experiment_registry_migrate_memory)
+
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
         help="Rank bounded alpha hypotheses from the knowledge base, templates, data readiness and research memory",
@@ -1973,6 +1981,30 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             alpha_family_id=str(template["alpha_family_id"]),
         )
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_experiment_registry_migrate_memory(args: argparse.Namespace) -> int:
+    """Migrate historical research observations without treating them as gate proof."""
+
+    from autobot.v2.research.alpha_hypothesis_scheduler import load_alpha_research_memory
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+
+    memory = load_alpha_research_memory(Path(args.memory_path))
+    registry = ExperimentRegistry(Path(args.registry_path))
+    inserted = registry.migrate_legacy_memory(record.to_dict() for record in memory.records)
+    _print_json(
+        {
+            "registry_path": str(Path(args.registry_path)),
+            "memory_path": str(Path(args.memory_path)),
+            "legacy_records_seen": len(memory.records),
+            "legacy_records_inserted": inserted,
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
     return 0
 
 

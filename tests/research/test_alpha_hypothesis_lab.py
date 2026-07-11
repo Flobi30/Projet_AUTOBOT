@@ -4,9 +4,12 @@ import pytest
 
 from autobot.v2.research.alpha_hypothesis_lab import (
     AlphaHypothesisError,
+    CANONICAL_RESEARCH_STAGES,
     default_pipeline_payload,
     evaluate_research_gate,
     load_alpha_hypotheses,
+    next_research_stage,
+    normalize_research_stage,
     validate_alpha_hypotheses,
 )
 
@@ -66,6 +69,22 @@ def test_default_pipeline_is_non_promotable():
     assert all(step["promotable"] is False for step in pipeline)
     assert all(step["paper_capital_allowed"] is False for step in pipeline)
     assert all(step["live_allowed"] is False for step in pipeline)
+
+
+def test_canonical_research_stages_normalize_legacy_aliases_and_enforce_order():
+    assert CANONICAL_RESEARCH_STAGES == (
+        "DATA_CHECK",
+        "NET_SMOKE",
+        "WALK_FORWARD",
+        "STRESS_MONTE_CARLO",
+        "SHADOW_REVIEW",
+    )
+    assert normalize_research_stage("quick_net_test") == "NET_SMOKE"
+    assert normalize_research_stage("FAST_NET_EDGE_TEST") == "NET_SMOKE"
+    assert next_research_stage(None) == "DATA_CHECK"
+    assert next_research_stage("NET_SMOKE") == "WALK_FORWARD"
+    with pytest.raises(AlphaHypothesisError, match="pipeline is complete"):
+        next_research_stage("SHADOW_REVIEW")
 
 
 def test_research_gate_blocks_missing_costs_and_weak_metrics():

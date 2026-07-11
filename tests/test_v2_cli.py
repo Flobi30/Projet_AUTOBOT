@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from autobot.v2 import cli
+from autobot.v2.research.research_memory_store import ResearchMemoryStore
 from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
 
 
@@ -1621,3 +1622,50 @@ def test_cli_leaderboard_scores_matrix_without_registry_mutation(tmp_path, capsy
     assert output["results"][0]["decision"] == "reject"
     assert "No live trading permission is granted." in output["safety_notes"]
     assert (tmp_path / "scorecards" / "pytest_matrix_strategy_scorecard.md").exists()
+
+
+def test_cli_migrates_research_memory_to_append_only_experiment_registry(tmp_path, capsys):
+    memory_path = tmp_path / "memory.sqlite3"
+    registry_path = tmp_path / "experiment_registry.sqlite3"
+    ResearchMemoryStore(memory_path).append(
+        {
+            "run_id": "pytest_legacy_memory",
+            "hypothesis_id": "trend_momentum",
+            "alpha_family_id": "trend_momentum",
+            "template_id": "regime_filtered_trend",
+            "created_at": "2026-07-11T00:00:00+00:00",
+            "data_snapshot": {"snapshot_id": "pytest"},
+            "parameters_tested": {"lookback": 24},
+            "variant_count": 1,
+            "symbols_tested": ["BTCZEUR"],
+            "gate_results": [],
+            "final_status": "INSUFFICIENT_DATA",
+            "rejection_reasons": [],
+            "trial_count_for_family": 1,
+            "trial_count_for_template": 1,
+            "related_rejected_hypotheses": [],
+            "do_not_rerun_until": None,
+            "requires_new_data_before_rerun": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
+
+    exit_code = cli.main(
+        [
+            "experiment-registry-migrate-memory",
+            "--memory-path",
+            str(memory_path),
+            "--registry-path",
+            str(registry_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["legacy_records_seen"] == 1
+    assert output["legacy_records_inserted"] == 1
+    assert output["research_only"] is True
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False

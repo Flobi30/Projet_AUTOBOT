@@ -4,7 +4,9 @@ import pytest
 
 from autobot.v2.research.statistical_validation import (
     DeflatedSharpeConfig,
+    ProbabilisticSharpeConfig,
     assess_deflated_sharpe,
+    assess_probabilistic_sharpe,
     evaluate_progressive_pf_quality,
 )
 from autobot.v2.research.trade_journal import TradeRecord
@@ -64,6 +66,24 @@ def test_deflated_sharpe_requires_enough_closed_trades():
     assert result.status == "insufficient_sample"
     assert result.acceptable is False
     assert result.overfitting_risk_score >= 70.0
+
+
+def test_probabilistic_sharpe_is_research_only_and_requires_track_record():
+    accepted = assess_probabilistic_sharpe(
+        _trades(),
+        ProbabilisticSharpeConfig(initial_capital_eur=500.0, min_trade_count=50),
+    )
+    thin = assess_probabilistic_sharpe(
+        _trades(10),
+        ProbabilisticSharpeConfig(initial_capital_eur=500.0, min_trade_count=50),
+    )
+
+    assert accepted.probability is not None
+    assert 0.0 <= accepted.probability <= 1.0
+    assert accepted.research_only is True
+    assert accepted.paper_candidate_allowed is False
+    assert thin.status == "insufficient_sample"
+    assert thin.acceptable is False
 
 
 def test_progressive_pf_gate_reaches_candidate_review_without_promotion():
