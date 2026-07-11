@@ -43,9 +43,12 @@ levier et ne permet aucune promotion automatique.
 - Suite complète `tests/test_v2_cli.py` : `28 passed`.
 - `git diff --check` : succès.
 
-## Déploiement et migration attendus
+## Déploiement et migration vérifiés
 
-Après fast-forward du VPS, exécuter une fois :
+Déployé au commit `aa8ddfed289709ff7dea043ac0a9706c008ded05` sur GitHub,
+le VPS et le code reconstruit dans `autobot-v2`.
+
+Commande exécutée une fois sur le conteneur :
 
 ```text
 python -m autobot.v2.cli experiment-registry-migrate-memory \
@@ -53,9 +56,13 @@ python -m autobot.v2.cli experiment-registry-migrate-memory \
   --registry-path data/research/experiment_registry.sqlite3
 ```
 
-Le fichier SQLite généré reste hors Git conformément à `.gitignore`. Le
-déploiement doit confirmer container healthy, WebSocket connecté, 14 instances,
-flags de sécurité inchangés et absence d'ordre live.
+Résultat : `12` archives legacy importées, de manière idempotente, dans
+`data/research/experiment_registry.sqlite3`. Le fichier SQLite généré reste
+hors Git conformément à `.gitignore`.
+
+Le conteneur était healthy, le WebSocket connecté, 14 instances présentes et
+les flags `LIVE_TRADING_CONFIRMATION`, router live et auto-promotion à `false`.
+Aucun ordre live n'a été observé.
 
 ## Risques résiduels et suite
 

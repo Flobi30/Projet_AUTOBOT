@@ -59,6 +59,18 @@ ou contourné par ce bloc.
 - `python -m compileall -q src` : succès.
 - `git diff --check` : succès.
 
+## Déploiement vérifié
+
+Déployé au commit `a28e49b199659ac0746dca853e75b1e861f79f60` sur GitHub,
+le VPS et le code reconstruit dans `autobot-v2`.
+
+- Conteneur healthy ; `/health` healthy ; orchestrateur actif ; WebSocket
+  connecté ; 14 instances.
+- `PAPER_TRADING=true` inchangé ; `LIVE_TRADING_CONFIRMATION=false` ; router
+  live et auto-promotion à `false`.
+- Aucun traceback, erreur critique, ordre live ou activation live dans les logs
+  de démarrage. Le warning existant `WS high_message_rate` a des drops à zéro.
+
 ## Risques résiduels et suite
 
 - Les anciennes stratégies produisent encore `TradingSignal` et fixent parfois
