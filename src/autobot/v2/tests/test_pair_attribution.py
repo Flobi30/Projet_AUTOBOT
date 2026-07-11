@@ -1,29 +1,21 @@
 import pytest
 
-import autobot.v2.persistence as persistence_mod
 from autobot.v2.persistence import StatePersistence
 
 
-pytestmark = pytest.mark.unit
-
-def _reset_thread_local_conn():
-    conn = getattr(persistence_mod._local, "conn", None)
-    if conn is not None:
-        conn.close()
-        delattr(persistence_mod._local, "conn")
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
 
 def _pair_map(report):
     return {row["symbol"]: row for row in report["pairs"]}
 
 
-def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
-    _reset_thread_local_conn()
+async def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(db_path=str(db))
 
     # BTC: +100, -40 => PF=2.5, trades=2, win_rate=0.5, expectancy=30
-    assert p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -35,7 +27,7 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         is_closing_leg=True,
         strategy_id="trend_momentum",
     )
-    assert p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t2",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -48,7 +40,7 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         strategy_id="trend_momentum",
     )
     # ETH: +20 only => PF=999 fallback
-    assert p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t3",
         instance_id="i2",
         symbol="XETHZEUR",
@@ -83,13 +75,13 @@ def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
     assert eth["profit_factor"] == 999.0
     assert round(eth["win_rate"], 6) == 1.0
     assert round(eth["expectancy"], 6) == 20.0
+    await p.close()
 
 
-def test_pair_attribution_report_schema_validity(tmp_path):
-    _reset_thread_local_conn()
+async def test_pair_attribution_report_schema_validity(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(db_path=str(db))
-    p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="t1",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -122,10 +114,10 @@ def test_pair_attribution_report_schema_validity(tmp_path):
         "last_trade_at",
     }
     assert required_pair_keys.issubset(set(row.keys()))
+    await p.close()
 
 
-def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
-    _reset_thread_local_conn()
+async def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
     db = tmp_path / "state.db"
     p = StatePersistence(db_path=str(db))
 
@@ -136,7 +128,7 @@ def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
     assert empty["totals"]["total_trades"] == 0
 
     # Opening leg only should not be counted
-    assert p.append_trade_ledger(
+    assert await p.append_trade_ledger(
         trade_id="open-only",
         instance_id="i1",
         symbol="XXBTZEUR",
@@ -151,3 +143,4 @@ def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
     still_empty = p.get_pair_attribution_report()
     assert still_empty["pair_count"] == 0
     assert still_empty["pairs"] == []
+    await p.close()

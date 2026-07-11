@@ -1,3 +1,9 @@
+# LEGACY / NON-NORMATIVE — superseded by docs/architecture/AUTOBOT_FOUNDATION.md
+
+This historical implementation diary must not be used to activate Grid,
+speculative execution, paper capital or live trading. Its checkboxes describe
+an earlier architecture and are not current governance evidence.
+
 # AUTOBOT V2 — Refonte Architecture Asyncio Haute Performance
 
 ## Objectif

@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS, load_alpha_hypotheses
 from .alpha_hypothesis_runner import AlphaHypothesisRunnerReport, canonical_hypothesis_id
 from .data_capability_scanner import build_data_capability_scan_report
+from .research_memory_store import ResearchMemoryStore
 
 
 REQUIRED_FAMILY_FIELDS = (
@@ -121,6 +122,9 @@ BACKFILL_SOURCE_REPORTS = {
     "relative_value_20260622": Path("reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json"),
     "strategy_hypotheses_registry": Path("docs/research/strategy_hypotheses.json"),
 }
+
+DEFAULT_RESEARCH_MEMORY_PATH = Path("data/research/alpha_research_memory.sqlite3")
+LEGACY_RESEARCH_MEMORY_PATH = Path("reports/research/alpha_research_memory.json")
 
 
 class AlphaSchedulerError(ValueError):
@@ -247,6 +251,9 @@ class AlphaResearchMemory:
         target = Path(path) if path else self.path
         if target is None:
             raise AlphaSchedulerError("memory path is required")
+        if target.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+            ResearchMemoryStore(target).append_many(record.to_dict() for record in self.records)
+            return
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
 
@@ -351,7 +358,7 @@ class AlphaSchedulerConfig:
     knowledge_base_path: Path = Path("docs/research/alpha_knowledge_base.json")
     templates_path: Path = Path("docs/research/strategy_templates.json")
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
-    memory_path: Path = Path("reports/research/alpha_research_memory.json")
+    memory_path: Path = DEFAULT_RESEARCH_MEMORY_PATH
     output_dir: Path = Path("reports/research/alpha_hypothesis_runner")
     run_id: str = "alpha_hypothesis_scheduler"
     max_variants: int = 5
@@ -459,6 +466,13 @@ def load_strategy_templates(path: str | Path) -> dict[str, Any]:
 
 def load_alpha_research_memory(path: str | Path) -> AlphaResearchMemory:
     memory_path = Path(path)
+    if memory_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+        store = ResearchMemoryStore(memory_path)
+        if memory_path == DEFAULT_RESEARCH_MEMORY_PATH and not memory_path.exists() and LEGACY_RESEARCH_MEMORY_PATH.exists():
+            legacy = load_alpha_research_memory(LEGACY_RESEARCH_MEMORY_PATH)
+            store.append_many(record.to_dict() for record in legacy.records)
+        records = tuple(ResearchMemoryRecord.from_mapping(item) for item in store.latest_records())
+        return AlphaResearchMemory(memory_path, tuple(_with_running_counts(records)))
     if not memory_path.exists():
         return AlphaResearchMemory(memory_path, ())
     payload = _load_json(memory_path)

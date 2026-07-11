@@ -8,9 +8,12 @@ from autobot.v2.contracts import (
     FeatureValue,
     LedgerEntry,
     MarketIdentity,
+    ExecutionCommand,
     OrderIntent,
     RiskDecision,
     TargetPortfolio,
+    contract_fingerprint,
+    contract_to_dict,
 )
 
 pytestmark = pytest.mark.unit
@@ -125,3 +128,32 @@ def test_risk_and_ledger_contracts_require_auditable_rejections():
         payload={"reasons": list(decision.reasons)},
     )
     assert entry.payload["reasons"] == ["spread_too_wide"]
+
+
+def test_execution_command_requires_a_risk_boundary_and_contracts_are_stable():
+    now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="risk_decision_id is required"):
+        ExecutionCommand(
+            command_id="command-1",
+            decision_id="decision-1",
+            client_order_id="client-1",
+            risk_decision_id="",
+            issued_at=now,
+            execution_mode="paper",
+            approved_notional=25,
+        )
+
+    signal = AlphaSignal(
+        strategy_id="research_strategy",
+        strategy_version="1",
+        signal_id="signal-1",
+        market=_market(),
+        direction="long",
+        generated_at=now,
+        available_at=now,
+        feature_versions={"atr": "1"},
+        data_snapshot_id="snapshot-1",
+    )
+    payload = contract_to_dict(signal)
+    assert payload["generated_at"] == "2026-07-10T12:00:00+00:00"
+    assert contract_fingerprint(signal) == contract_fingerprint(signal)

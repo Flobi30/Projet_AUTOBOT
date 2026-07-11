@@ -1523,9 +1523,108 @@ class StatePersistence:
             logger.exception(f"❌ Erreur get_trade_ledger_metrics_by_strategy: {e}")
             return {}
 
-    async def get_pair_attribution_report(self, **kwargs) -> Dict[str, Any]:
-        # Minimal implementation for now to keep the code concise
-        return {"pairs": []}
+    def get_pair_attribution_report(
+        self,
+        *,
+        window_hours: Optional[int] = None,
+        limit: Optional[int] = 20,
+    ) -> Dict[str, Any]:
+        """Return an offline, read-only attribution report by trading pair.
+
+        Operator reports run outside the async execution loop.  They must not
+        initialise repositories or mutate the runtime database merely to read
+        a summary.  This small synchronous reader intentionally uses a
+        read-only SQLite connection and ignores legacy/unattributed rows.
+        """
+        generated_at = datetime.now(timezone.utc)
+        empty = {
+            "generated_at": generated_at.isoformat(),
+            "window_hours": int(window_hours) if window_hours is not None else None,
+            "pair_count": 0,
+            "totals": {
+                "total_trades": 0,
+                "total_realized_pnl": 0.0,
+                "total_fees": 0.0,
+                "net_pnl": 0.0,
+            },
+            "pairs": [],
+        }
+        if not self.db_path.exists():
+            return empty
+
+        clauses = [
+            "is_closing_leg = 1",
+            "strategy_id IS NOT NULL",
+            "TRIM(strategy_id) != ''",
+        ]
+        params: List[Any] = []
+        if window_hours is not None and int(window_hours) > 0:
+            cutoff = generated_at - timedelta(hours=int(window_hours))
+            clauses.append("created_at >= ?")
+            params.append(cutoff.isoformat())
+        where = " AND ".join(clauses)
+        safe_limit = max(1, int(limit or 20))
+
+        query = f"""
+            SELECT
+                symbol,
+                COUNT(*) AS total_trades,
+                SUM(CASE WHEN COALESCE(net_pnl, realized_pnl, 0.0) > 0 THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN COALESCE(net_pnl, realized_pnl, 0.0) < 0 THEN 1 ELSE 0 END) AS losses,
+                SUM(COALESCE(realized_pnl, 0.0)) AS total_realized_pnl,
+                SUM(COALESCE(net_pnl, realized_pnl, 0.0)) AS net_pnl,
+                SUM(COALESCE(fees, 0.0)) AS total_fees,
+                SUM(CASE WHEN COALESCE(net_pnl, realized_pnl, 0.0) > 0 THEN COALESCE(net_pnl, realized_pnl, 0.0) ELSE 0.0 END) AS gross_profit,
+                SUM(CASE WHEN COALESCE(net_pnl, realized_pnl, 0.0) < 0 THEN -COALESCE(net_pnl, realized_pnl, 0.0) ELSE 0.0 END) AS gross_loss,
+                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS recent_trades_24h,
+                MAX(created_at) AS last_trade_at
+            FROM trade_ledger
+            WHERE {where}
+            GROUP BY symbol
+            ORDER BY net_pnl DESC, symbol ASC
+            LIMIT ?
+        """
+        recent_cutoff = (generated_at - timedelta(hours=24)).isoformat()
+        try:
+            uri = f"file:{self.db_path.resolve()}?mode=ro"
+            with sqlite3.connect(uri, uri=True) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(query, [recent_cutoff, *params, safe_limit]).fetchall()
+        except sqlite3.Error as exc:
+            logger.warning("Pair attribution unavailable for %s: %s", self.db_path, exc)
+            return empty
+
+        pairs: List[Dict[str, Any]] = []
+        for row in rows:
+            total_trades = int(row["total_trades"] or 0)
+            wins = int(row["wins"] or 0)
+            losses = int(row["losses"] or 0)
+            gross_profit = float(row["gross_profit"] or 0.0)
+            gross_loss = float(row["gross_loss"] or 0.0)
+            pairs.append({
+                "symbol": str(row["symbol"]),
+                "total_trades": total_trades,
+                "wins": wins,
+                "losses": losses,
+                "total_realized_pnl": float(row["total_realized_pnl"] or 0.0),
+                "net_pnl": float(row["net_pnl"] or 0.0),
+                "total_fees": float(row["total_fees"] or 0.0),
+                "profit_factor": gross_profit / gross_loss if gross_loss > 0.0 else (999.0 if gross_profit > 0.0 else 0.0),
+                "win_rate": wins / total_trades if total_trades else 0.0,
+                "expectancy": float(row["net_pnl"] or 0.0) / total_trades if total_trades else 0.0,
+                "recent_trades_24h": int(row["recent_trades_24h"] or 0),
+                "last_trade_at": row["last_trade_at"],
+            })
+
+        empty["pair_count"] = len(pairs)
+        empty["pairs"] = pairs
+        empty["totals"] = {
+            "total_trades": sum(pair["total_trades"] for pair in pairs),
+            "total_realized_pnl": sum(pair["total_realized_pnl"] for pair in pairs),
+            "total_fees": sum(pair["total_fees"] for pair in pairs),
+            "net_pnl": sum(pair["net_pnl"] for pair in pairs),
+        }
+        return empty
 
     async def get_order_by_userref(self, userref: int) -> Optional[Dict[str, Any]]:
         await self.initialize()

@@ -6,7 +6,8 @@ Cible : < 3ms de bout en bout.
 import asyncio
 import time
 import logging
-import numpy as np
+import random
+import statistics
 from datetime import datetime, timezone
 
 from autobot.v2.websocket_async import TickerData
@@ -27,7 +28,7 @@ async def run_latency_test(orchestrator, pair="BTC/USD", iterations=1000):
     price = 60000.0
     
     for i in range(iterations):
-        price += np.random.normal(0, 10)
+        price += random.gauss(0, 10)
         ticker = TickerData(
             symbol=pair,
             price=price,
@@ -52,9 +53,10 @@ async def run_latency_test(orchestrator, pair="BTC/USD", iterations=1000):
         if i % 100 == 0:
             logger.info(f"Progress: {i}/{iterations}")
 
-    avg_lat = np.mean(latencies)
-    p95_lat = np.percentile(latencies, 95)
-    p99_lat = np.percentile(latencies, 99)
+    avg_lat = statistics.fmean(latencies)
+    ordered_latencies = sorted(latencies)
+    p95_lat = _percentile(ordered_latencies, 0.95)
+    p99_lat = _percentile(ordered_latencies, 0.99)
     
     logger.info(f"📊 Résultats du Benchmark (ms):")
     logger.info(f"   Moyenne : {avg_lat:.3f} ms")
@@ -71,6 +73,17 @@ async def run_latency_test(orchestrator, pair="BTC/USD", iterations=1000):
         "p95": p95_lat,
         "p99": p99_lat
     }
+
+
+def _percentile(sorted_values, quantile):
+    """Linear percentile without adding a runtime dependency for a benchmark."""
+    if not sorted_values:
+        raise ValueError("latencies must not be empty")
+    index = (len(sorted_values) - 1) * quantile
+    lower = int(index)
+    upper = min(lower + 1, len(sorted_values) - 1)
+    fraction = index - lower
+    return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * fraction
 
 if __name__ == "__main__":
     # Test autonome minimal (nécessite l'environnement AutoBot complet)

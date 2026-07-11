@@ -305,7 +305,7 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--commit", default=None)
     alpha_hypothesis_runner.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_runner.add_argument("--template-id", default=None)
-    alpha_hypothesis_runner.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
+    alpha_hypothesis_runner.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
     alpha_hypothesis_scheduler = subparsers.add_parser(
@@ -317,7 +317,7 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_scheduler.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
     alpha_hypothesis_scheduler.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_scheduler.add_argument("--hypotheses", default="docs/research/alpha_hypotheses.json")
-    alpha_hypothesis_scheduler.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
+    alpha_hypothesis_scheduler.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
     alpha_hypothesis_scheduler.add_argument("--output-dir", default="reports/research/alpha_hypothesis_runner")
     alpha_hypothesis_scheduler.add_argument("--run-id", default=None)
     alpha_hypothesis_scheduler.add_argument("--max-variants", type=int, default=5)
@@ -337,7 +337,7 @@ def _build_parser() -> argparse.ArgumentParser:
     data_capability_scan.add_argument("--run-id", default=None)
     data_capability_scan.add_argument("--state-db", default=None)
     data_capability_scan.add_argument("--data-roots", required=True, help="Comma-separated data/report roots to scan")
-    data_capability_scan.add_argument("--memory-path", default="reports/research/alpha_research_memory.json")
+    data_capability_scan.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
     data_capability_scan.add_argument("--output-dir", default="reports/research")
     data_capability_scan.set_defaults(handler=_cmd_data_capability_scan)
 

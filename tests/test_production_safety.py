@@ -27,15 +27,24 @@ def test_duplicate_order_idempotency(monkeypatch):
 
         monkeypatch.setattr(router, "_execute_request", fake_execute)
 
-        order = {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01, "client_order_id": "cid-1"}
-        r1, r2 = await asyncio.gather(
-            router.submit(order, OrderPriority.ORDER),
-            router.submit(order, OrderPriority.ORDER),
-        )
+        order = {
+            "type": "market",
+            "symbol": "XXBTZEUR",
+            "side": "buy",
+            "volume": 0.01,
+            "client_order_id": "cid-1",
+            "strategy_id": "trend_momentum",
+        }
+        try:
+            r1, r2 = await asyncio.gather(
+                router.submit(order, OrderPriority.ORDER),
+                router.submit(order, OrderPriority.ORDER),
+            )
 
-        assert r1.success and r2.success
-        assert calls["n"] == 1
-        await router.stop()
+            assert r1.success and r2.success
+            assert calls["n"] == 1
+        finally:
+            await router.stop()
 
     asyncio.run(_run())
 
@@ -68,16 +77,22 @@ def test_partial_fill_stuck_triggers_kill_switch():
 
 
 def test_restart_recovery_non_terminal_orders(tmp_path):
-    db = tmp_path / "state.db"
-    p = StatePersistence(str(db))
-    osm = PersistedOrderStateMachine(p)
+    async def _run():
+        db = tmp_path / "state.db"
+        p = StatePersistence(str(db))
+        osm = PersistedOrderStateMachine(p)
 
-    rec = osm.new_order("inst-1", "XXBTZEUR", "buy", "market", 0.1)
-    osm.transition(rec.client_order_id, "SENT", "send")
+        try:
+            rec = await osm.new_order("inst-1", "XXBTZEUR", "buy", "market", 0.1)
+            assert await osm.transition(rec.client_order_id, "SENT", "send")
 
-    recovered = osm.recover_non_terminal()
-    ids = {o["client_order_id"] for o in recovered}
-    assert rec.client_order_id in ids
+            recovered = await osm.recover_non_terminal()
+            ids = {o["client_order_id"] for o in recovered}
+            assert rec.client_order_id in ids
+        finally:
+            await p.close()
+
+    asyncio.run(_run())
 
 
 def test_reconciliation_mismatch_detection():
