@@ -16,6 +16,12 @@ from autobot.v2.validator import ValidationStatus
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _enable_legacy_direct_execution_for_isolated_handler_tests(monkeypatch):
+    """Keep legacy-path unit fixtures explicit; production defaults fail closed."""
+    monkeypatch.setenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", "true")
+
+
 @dataclass
 class _Config:
     max_positions: int = 5
@@ -317,6 +323,32 @@ async def test_execute_buy_and_cost_guard_without_external_injection():
     assert handler.instance.opened[0]["buy_txid"] == "buy-1"
 
 
+@pytest.mark.asyncio
+async def test_execute_buy_fails_closed_when_legacy_direct_execution_is_not_explicitly_enabled(monkeypatch):
+    monkeypatch.delenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", raising=False)
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = _OSM()
+
+    signal = TradingSignal(
+        type=SignalType.BUY,
+        symbol="BTC/EUR",
+        price=100.0,
+        volume=0.2,
+        reason="unit fail closed",
+        timestamp=datetime.now(timezone.utc),
+        metadata={"strategy": "trend_momentum"},
+    )
+
+    await handler._execute_buy(signal)
+
+    assert handler.instance.opened == []
+    assert executor.market_calls == 0
+    assert executor.limit_calls == 0
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
+
+
 def test_cost_guard_counts_exit_fee_for_round_trip():
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=_Executor())
     signal = TradingSignal(
@@ -604,7 +636,8 @@ async def test_execute_sell_records_duplicate_idempotency_rejection():
 
 
 @pytest.mark.asyncio
-async def test_execute_sell_records_realized_pnl_from_close_result():
+async def test_execute_sell_records_realized_pnl_from_close_result(monkeypatch):
+    monkeypatch.delenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", raising=False)
     instance = _SuccessfulSellInstance()
     executor = _SellExecutor()
     handler = SignalHandlerAsync(instance=instance, order_executor=executor)

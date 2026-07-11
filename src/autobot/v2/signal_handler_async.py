@@ -660,6 +660,20 @@ class SignalHandlerAsync:
             return candidate
         return str(candidate).strip().lower() in {"1", "true", "yes", "on"}
 
+    def _legacy_direct_execution_enabled(self) -> bool:
+        """Return whether the unintegrated direct-entry path was explicitly enabled.
+
+        The default is deliberately ``False``. This switch is temporary until
+        every runtime entry has crossed the canonical portfolio, independent
+        risk, and OMS boundaries. It is intentionally checked only for BUY
+        entries so that protective exits stay available during remediation.
+        """
+        return self._load_bool(
+            "legacy_direct_execution_enabled",
+            "AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED",
+            False,
+        )
+
     def _load_positive_float(self, config_key: str, env_key: str, default: float) -> float:
         """Read config then env value and fallback to default on invalid input."""
         candidate = getattr(getattr(self.instance, "config", None), config_key, default)
@@ -1004,6 +1018,29 @@ class SignalHandlerAsync:
         decision_id = str(signal_metadata.get("decision_id") or f"dec_{uuid.uuid4().hex}")
         signal_metadata["decision_id"] = decision_id
         logger.info(f"🛒 Exécution ACHAT {signal.symbol}")
+
+        # The historical handler is not yet wired through the contract-based
+        # TargetPortfolio -> RiskDecision -> OrderIntent boundary. New entries
+        # must therefore fail closed until that integration is complete. This
+        # does not affect exits, stop-loss handling, or isolated shadow replay.
+        if not self._legacy_direct_execution_enabled():
+            self._record_runtime_event(
+                "_last_decision_event",
+                event="buy_rejected",
+                reason="legacy_direct_execution_disabled",
+                symbol=signal.symbol,
+                side="buy",
+                decision_id=decision_id,
+                signal_id=signal_id,
+                execution_engine=signal_engine,
+                source=signal_source,
+            )
+            logger.warning(
+                "New direct entry blocked for %s: the official portfolio/risk/OMS path is not integrated",
+                signal.symbol,
+            )
+            return
+
         if await self._maybe_await(self._osm.is_duplicate_active(self._convert_symbol(signal.symbol), "buy")):
             self._record_runtime_event(
                 "_last_decision_event",
