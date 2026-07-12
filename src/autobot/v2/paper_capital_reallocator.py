@@ -44,7 +44,7 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 @dataclass(frozen=True)
 class PaperCapitalRebalanceConfig:
-    enabled: bool = True
+    enabled: bool = False
     interval_seconds: int = 1800
     min_instance_eur: float = 25.0
     min_transfer_eur: float = 5.0
@@ -61,7 +61,7 @@ class PaperCapitalRebalanceConfig:
     @classmethod
     def from_env(cls) -> "PaperCapitalRebalanceConfig":
         return cls(
-            enabled=_env_bool("PAPER_DYNAMIC_CAPITAL_REBALANCE_ENABLED", True),
+            enabled=_env_bool("PAPER_DYNAMIC_CAPITAL_REBALANCE_ENABLED", False),
             interval_seconds=_env_int("PAPER_DYNAMIC_REBALANCE_INTERVAL_SECONDS", 1800, 60, 86_400),
             min_instance_eur=_env_float("PAPER_DYNAMIC_REBALANCE_MIN_INSTANCE_EUR", 25.0, 0.0, 1_000_000.0),
             min_transfer_eur=_env_float("PAPER_DYNAMIC_REBALANCE_MIN_TRANSFER_EUR", 5.0, 0.0, 1_000_000.0),

@@ -455,6 +455,17 @@ class OrchestratorAsync:
             "STRATEGY_GOVERNANCE_ALLOW_LEGACY_DIRECT_ENTRY_LIVE",
             False,
         )
+        # Direct position additions and automatic leverage changes have not yet
+        # crossed the v1 portfolio/risk/OMS boundary. Keep both fail-closed
+        # until their contract migration is complete.
+        self._legacy_position_add_enabled = _env_bool(
+            "AUTOBOT_LEGACY_POSITION_ADD_ENABLED",
+            False,
+        )
+        self._legacy_leverage_activation_enabled = _env_bool(
+            "AUTOBOT_LEGACY_LEVERAGE_ACTIVATION_ENABLED",
+            False,
+        )
 
         # Validator
         self.validator = ValidatorEngine()
@@ -1309,6 +1320,8 @@ class OrchestratorAsync:
         logger.info("🧩 MultiGrid activé pour child=%s symbol=%s", instance.id, symbol)
 
     def check_leverage_activation(self, instance: TradingInstanceAsync) -> bool:
+        if not self._legacy_leverage_activation_enabled:
+            return False
         capital = instance.get_current_capital()
         if capital < self.config["leverage_threshold"]:
             return False
@@ -3656,6 +3669,8 @@ class OrchestratorAsync:
         """
         Évalue les ajouts pyramiding sur positions gagnantes.
         """
+        if not self._legacy_position_add_enabled:
+            return 0
         try:
             adds_done = 0
             manager = self.pyramiding.get(instance.id)

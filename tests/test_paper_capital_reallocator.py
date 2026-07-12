@@ -68,6 +68,7 @@ class _BudgetInstance:
 def test_reallocator_moves_budget_toward_best_scored_engine():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=50.0,
@@ -94,6 +95,7 @@ def test_reallocator_moves_budget_toward_best_scored_engine():
 def test_reallocator_realized_health_overrides_stale_profit_factor():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=50.0,
@@ -148,6 +150,7 @@ def test_reallocator_realized_health_overrides_stale_profit_factor():
 def test_reallocator_penalizes_early_weak_learning_before_full_sample():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=50.0,
@@ -200,6 +203,7 @@ def test_reallocator_penalizes_early_weak_learning_before_full_sample():
 def test_reallocator_penalizes_underperforming_confirmed_health():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=50.0,
@@ -252,6 +256,7 @@ def test_reallocator_penalizes_underperforming_confirmed_health():
 def test_reallocator_does_not_take_allocated_or_minimum_budget():
     reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=40.0,
             min_transfer_eur=5.0,
             max_move_pct=100.0,
@@ -305,6 +310,7 @@ def test_orchestrator_paper_signal_top_up_moves_only_free_budget():
     orch._capital_ops_lock = asyncio.Lock()
     orch.paper_capital_reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=50.0,
@@ -337,6 +343,7 @@ def test_orchestrator_paper_signal_top_up_does_not_take_allocated_budget():
     orch._capital_ops_lock = asyncio.Lock()
     orch.paper_capital_reallocator = PaperCapitalReallocator(
         PaperCapitalRebalanceConfig(
+            enabled=True,
             min_instance_eur=25.0,
             min_transfer_eur=5.0,
             max_move_pct=100.0,
@@ -356,3 +363,7 @@ def test_orchestrator_paper_signal_top_up_does_not_take_allocated_budget():
     assert result["reason"] == "no_free_donor_budget"
     assert donor.get_current_capital() == pytest.approx(100.0)
     assert receiver.get_current_capital() == pytest.approx(50.0)
+def test_paper_capital_rebalance_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("PAPER_DYNAMIC_CAPITAL_REBALANCE_ENABLED", raising=False)
+
+    assert PaperCapitalRebalanceConfig.from_env().enabled is False
