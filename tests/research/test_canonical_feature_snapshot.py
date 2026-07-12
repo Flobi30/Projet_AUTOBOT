@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from autobot.v2.cli import _build_parser
 from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
+    upgrade_feature_snapshot_manifest,
 )
 from autobot.v2.research.canonical_ohlcv_store import CanonicalOHLCVConfig, build_canonical_ohlcv_snapshot
 
@@ -71,6 +73,12 @@ def test_materialized_feature_snapshot_is_deterministic_and_has_feature_parity(t
     assert first.status == "READY"
     assert first.parity_ok is True
     assert first.feature_count == 25 * 4
+    assert first.feature_versions == {
+        "return_1_bps": "1.0.0",
+        "momentum_3_bps": "1.0.0",
+        "volatility_20_bps": "1.0.0",
+        "atr_14_bps": "1.0.0",
+    }
     assert first.ready_count > 0
     assert first.fingerprint == second.fingerprint
     assert first.feature_snapshot_id == second.feature_snapshot_id
@@ -97,6 +105,28 @@ def test_materialized_feature_snapshot_excludes_unverified_market_mappings(tmp_p
     assert "UNVERIFIED_MARKET_MAPPING_ROWS_EXCLUDED" in snapshot.blockers
 
 
+def test_legacy_feature_manifest_upgrade_requires_matching_registry_fingerprint(tmp_path):
+    manifest = _canonical_manifest(tmp_path, explicit_mapping=True)
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="features_upgrade",
+            canonical_manifest_path=manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+    payload = json.loads(Path(str(snapshot.manifest_path)).read_text(encoding="utf-8"))
+    payload.pop("feature_versions")
+    legacy = tmp_path / "legacy_features.json"
+    legacy.write_text(json.dumps(payload), encoding="utf-8")
+
+    upgraded = upgrade_feature_snapshot_manifest(legacy, tmp_path / "upgraded_features.json")
+
+    upgraded_payload = json.loads(upgraded.read_text(encoding="utf-8"))
+    assert upgraded_payload["feature_versions"] == snapshot.feature_versions
+    assert upgraded_payload["manifest_upgrade"]["bundle_values_recomputed"] is False
+
+
 def test_materialize_feature_snapshot_cli_is_registered():
     parser = _build_parser()
     args = parser.parse_args(
@@ -110,3 +140,34 @@ def test_materialize_feature_snapshot_cli_is_registered():
     assert args.command == "materialize-feature-snapshot"
     assert args.feature_ids == "return_1_bps,momentum_3_bps,volatility_20_bps,atr_14_bps"
     assert args.report_dir == "data/research/reports/canonical_features"
+
+
+def test_alpha_runner_accepts_explicit_feature_manifest_for_registry_evidence():
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "alpha-hypothesis-runner",
+            "--hypothesis-id",
+            "long_trend",
+            "--feature-snapshot-manifest",
+            "data/research/manifests/features.json",
+        ]
+    )
+
+    assert args.feature_snapshot_manifest.endswith("features.json")
+    assert args.experiment_registry == "data/research/experiment_registry.sqlite3"
+
+
+def test_upgrade_feature_snapshot_manifest_cli_is_registered():
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "upgrade-feature-snapshot-manifest",
+            "--source-manifest",
+            "data/research/manifests/legacy.json",
+            "--output-manifest",
+            "data/research/manifests/upgraded.json",
+        ]
+    )
+
+    assert args.command == "upgrade-feature-snapshot-manifest"

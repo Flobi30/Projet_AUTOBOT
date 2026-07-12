@@ -80,6 +80,7 @@ class CanonicalFeatureSnapshot:
     feature_registry_fingerprint: str
     schema_version: int
     feature_ids: tuple[str, ...]
+    feature_versions: Mapping[str, str]
     canonical_row_count: int
     eligible_row_count: int
     rejected_unverified_mapping_count: int
@@ -108,6 +109,7 @@ class CanonicalFeatureSnapshot:
             "feature_registry_fingerprint": self.feature_registry_fingerprint,
             "schema_version": self.schema_version,
             "feature_ids": list(self.feature_ids),
+            "feature_versions": dict(self.feature_versions),
             "canonical_row_count": self.canonical_row_count,
             "eligible_row_count": self.eligible_row_count,
             "rejected_unverified_mapping_count": self.rejected_unverified_mapping_count,
@@ -259,6 +261,7 @@ def build_canonical_feature_snapshot(
         feature_registry_fingerprint=active_registry.fingerprint,
         schema_version=CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION,
         feature_ids=feature_ids,
+        feature_versions={feature_id: active_registry.get(feature_id).version for feature_id in feature_ids},
         canonical_row_count=len(canonical_rows),
         eligible_row_count=sum(len(rows) for rows in eligible_groups.values()),
         rejected_unverified_mapping_count=rejected_unverified_mapping_count,
@@ -311,6 +314,48 @@ def write_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot, 
     json_path.write_text(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     markdown_path.write_text(render_canonical_feature_snapshot_report(snapshot), encoding="utf-8")
     return json_path, markdown_path
+
+
+def upgrade_feature_snapshot_manifest(
+    source_path: str | Path,
+    output_path: str | Path,
+    *,
+    registry: FeatureRegistry | None = None,
+) -> Path:
+    """Add explicit feature versions to a legacy bundle manifest without re-running it.
+
+    The upgrade is permitted only when the recorded registry fingerprint equals
+    the active deterministic registry. The source manifest is left untouched.
+    """
+
+    source = Path(source_path)
+    output = Path(output_path)
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid feature snapshot manifest: {source}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("feature snapshot manifest must be an object")
+    active_registry = registry or default_feature_registry()
+    if str(payload.get("feature_registry_fingerprint") or "") != active_registry.fingerprint:
+        raise ValueError("legacy feature manifest registry fingerprint does not match the active registry")
+    feature_ids = tuple(str(item).strip() for item in payload.get("feature_ids") or () if str(item).strip())
+    if not feature_ids:
+        raise ValueError("legacy feature manifest feature_ids are required")
+    versions = {feature_id: active_registry.get(feature_id).version for feature_id in feature_ids}
+    existing = payload.get("feature_versions")
+    if isinstance(existing, Mapping) and dict(existing) != versions:
+        raise ValueError("existing feature_versions conflict with the active registry")
+    payload["feature_versions"] = versions
+    payload["manifest_upgrade"] = {
+        "kind": "feature_versions_backfill",
+        "source_manifest": str(source),
+        "registry_fingerprint_verified": active_registry.fingerprint,
+        "bundle_values_recomputed": False,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return output
 
 
 def _load_manifest(path: Path) -> Mapping[str, Any]:

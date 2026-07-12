@@ -306,6 +306,13 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_runner.add_argument("--template-id", default=None)
     alpha_hypothesis_runner.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
+    alpha_hypothesis_runner.add_argument(
+        "--feature-snapshot-manifest",
+        default=None,
+        help="Optional verified feature snapshot manifest. When supplied, runner evidence is appended to the experiment registry.",
+    )
+    alpha_hypothesis_runner.add_argument("--experiment-registry", default="data/research/experiment_registry.sqlite3")
+    alpha_hypothesis_runner.add_argument("--experiment-seed", type=int, default=0)
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
     experiment_registry_migrate = subparsers.add_parser(
@@ -394,6 +401,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated registered feature IDs. Defaults to the canonical OHLCV library.",
     )
     materialize_features.set_defaults(handler=_cmd_materialize_feature_snapshot)
+
+    upgrade_feature_manifest = subparsers.add_parser(
+        "upgrade-feature-snapshot-manifest",
+        help="Backfill explicit versions into a legacy feature manifest only when its registry fingerprint verifies",
+    )
+    upgrade_feature_manifest.add_argument("--source-manifest", required=True)
+    upgrade_feature_manifest.add_argument("--output-manifest", required=True)
+    upgrade_feature_manifest.set_defaults(handler=_cmd_upgrade_feature_snapshot_manifest)
 
     futures_derivatives = subparsers.add_parser(
         "collect-kraken-futures-derivatives",
@@ -2010,7 +2025,58 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             template_id=str(template["template_id"]),
             alpha_family_id=str(template["alpha_family_id"]),
         )
-    _print_json(result.to_dict())
+    payload = result.to_dict()
+    if args.feature_snapshot_manifest:
+        if template is None:
+            raise ValueError("a registered strategy template is required for manifested experiment evidence")
+        from autobot.v2.research.alpha_hypothesis_lab import load_alpha_hypotheses
+        from autobot.v2.research.experiment_registry import ExperimentRegistry
+        from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
+
+        hypotheses = load_alpha_hypotheses(args.hypotheses_path)
+        hypothesis = next(
+            (item for item in hypotheses.get("hypotheses", ()) if str(item.get("id") or "") == result.hypothesis_id),
+            None,
+        )
+        if not isinstance(hypothesis, dict):
+            raise ValueError(f"hypothesis metadata missing for {result.hypothesis_id}")
+        code_commit = str(result.commit or args.commit or "").strip()
+        if not code_commit:
+            raise ValueError("a code commit is required for manifested experiment evidence")
+        spec, provenance = build_manifested_experiment_spec(
+            hypothesis_id=result.hypothesis_id,
+            template_id=str(template["template_id"]),
+            thesis=str(hypothesis["thesis"]),
+            code_commit=code_commit,
+            feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
+            parameters={
+                "runner_mode": args.mode,
+                "run_id": run_id,
+                "max_variants": args.max_variants,
+                "max_symbols": args.max_symbols,
+                "max_data_rows": args.max_data_rows,
+                "symbols": list(_csv_tuple(args.symbols, "--symbols", uppercase=True)),
+            },
+            seed=args.experiment_seed,
+            cost_model={"profile": args.cost_profile},
+            environment={"data_paths": [str(path) for path in data_paths]},
+        )
+        state = ExperimentRegistry(Path(args.experiment_registry)).record_runner_evidence(
+            spec=spec,
+            report=result,
+            variant_count=args.max_variants,
+            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+        )
+        payload["experiment_registry"] = {
+            "path": str(Path(args.experiment_registry)),
+            "state": state.to_dict(),
+            "feature_snapshot": provenance.to_dict(),
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    _print_json(payload)
     return 0
 
 
@@ -2156,6 +2222,23 @@ def _cmd_materialize_feature_snapshot(args: argparse.Namespace) -> int:
     )
     json_path, markdown_path = write_canonical_feature_snapshot_report(snapshot, Path(args.report_dir))
     _print_json({**snapshot.to_dict(), "json_report_path": str(json_path), "markdown_report_path": str(markdown_path)})
+    return 0
+
+
+def _cmd_upgrade_feature_snapshot_manifest(args: argparse.Namespace) -> int:
+    from autobot.v2.research.canonical_feature_snapshot import upgrade_feature_snapshot_manifest
+
+    output = upgrade_feature_snapshot_manifest(args.source_manifest, args.output_manifest)
+    _print_json(
+        {
+            "source_manifest": str(Path(args.source_manifest)),
+            "upgraded_manifest": str(output),
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
     return 0
 
 
