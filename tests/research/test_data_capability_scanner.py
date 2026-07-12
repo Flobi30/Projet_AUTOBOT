@@ -34,6 +34,9 @@ def test_data_capability_scanner_detects_existing_ohlcv(tmp_path):
     assert set(by_id["spot_ohlcv"].symbols) == {"ADAEUR", "BCHEUR"}
     assert {"5m", "15m", "1h"}.issubset(set(by_id["spot_ohlcv"].timeframes))
     assert "volatility_breakout" in by_id["spot_ohlcv"].alpha_families_unlocked
+    assert by_id["exchange_fees"].available is True
+    assert by_id["exchange_fees"].quality_status == "configured_conservative_research_costs"
+    assert "not_account_tier_or_realized_fill_history" in by_id["exchange_fees"].notes
     assert report.paper_capital_allowed is False
     assert report.live_allowed is False
     assert report.promotable is False

@@ -310,7 +310,7 @@ def _build_capabilities(
 ) -> tuple[DataCapability, ...]:
     ohlcv = _scan_ohlcv(files, canonical_manifest=canonical_manifest)
     spread_depth = _scan_spread_depth(files)
-    exchange_fees = _scan_named_files(files, "exchange_fees", ("fee", "cost_profile"), provider="autobot_cost_profiles")
+    exchange_fees = _configured_cost_profile_capability(files)
     volume_anomalies = _volume_anomaly_capability(ohlcv)
     slippage = _scan_slippage_fill_history(state_db)
     derivatives = _derivatives_capabilities_from_manifest(derivatives_manifest) if derivatives_manifest else {}
@@ -513,6 +513,40 @@ def _scan_named_files(
         alpha_families_unlocked=ALPHA_UNLOCKS[capability_id] if available else (),
         blockers=() if available else (f"{capability_id}_missing",),
         proxy_status="proxy_low_confidence" if capability_id in DERIVATIVES_CAPABILITIES and available else "not_proxy",
+    )
+
+
+def _configured_cost_profile_capability(files: Sequence[Path]) -> DataCapability:
+    """Expose the versioned research cost model without calling it market data.
+
+    A bounded research test can use the conservative profile, but this does not
+    claim account-tier or realised-fill calibration. Those remain separate
+    requirements for paper/live readiness.
+    """
+
+    configured = _scan_named_files(files, "exchange_fees", ("fee", "cost_profile"), provider="autobot_cost_profiles")
+    if configured.available:
+        return configured
+    try:
+        from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE, get_cost_profile
+
+        profile = get_cost_profile(DEFAULT_RESEARCH_COST_PROFILE)
+    except (ImportError, ValueError):
+        return configured
+    return DataCapability(
+        capability_id="exchange_fees",
+        available=True,
+        source_paths=("src/autobot/v2/cost_profiles.py",),
+        provider="autobot_configured_cost_profile",
+        row_count=len(COST_PROFILE_NAMES),
+        quality_status="configured_conservative_research_costs",
+        alpha_families_unlocked=ALPHA_UNLOCKS["exchange_fees"],
+        blockers=(),
+        notes=(
+            f"default_profile={DEFAULT_RESEARCH_COST_PROFILE}",
+            f"round_trip_estimate_bps={profile.round_trip_cost_estimate_bps}",
+            "not_account_tier_or_realized_fill_history",
+        ),
     )
 
 
