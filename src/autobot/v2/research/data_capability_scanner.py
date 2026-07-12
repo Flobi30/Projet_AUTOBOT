@@ -1116,6 +1116,17 @@ def _load_memory(memory_path: str | Path) -> dict[str, Any]:
     path = Path(memory_path)
     if not path.exists():
         return {"records": []}
+    if path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+        # The scheduler migrated its durable memory to SQLite.  Keep the
+        # capability scanner on the same source of truth instead of silently
+        # treating binary SQLite bytes as an empty JSON history.
+        try:
+            from .alpha_hypothesis_scheduler import load_alpha_research_memory
+
+            memory = load_alpha_research_memory(path)
+            return {"records": [record.to_dict() for record in memory.records]}
+        except (OSError, ValueError, sqlite3.Error):
+            return {"records": []}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

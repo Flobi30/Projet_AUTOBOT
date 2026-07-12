@@ -12,6 +12,7 @@ from autobot.v2.research.data_capability_scanner import (
     build_data_capability_scan_report,
     write_data_capability_scan_report,
 )
+from autobot.v2.research.research_memory_store import ResearchMemoryStore
 
 
 pytestmark = pytest.mark.unit
@@ -169,6 +170,31 @@ def test_rejected_hypotheses_are_not_retestable_without_new_data(tmp_path):
     assert rejected["status"] == "REJECTED_CURRENT_CONFIG"
     assert rejected["retest_allowed"] is False
     assert rejected["reason"] == "blocked_until_new_data_signature_or_new_template"
+
+
+def test_scanner_reads_rejected_history_from_sqlite_memory_store(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    memory_path = tmp_path / "memory.sqlite3"
+    ResearchMemoryStore(memory_path).append_many(
+        (
+            {
+                "run_id": "sqlite-rejected",
+                "hypothesis_id": "long_trend",
+                "alpha_family_id": "long_trend",
+                "template_id": "regime_filtered_trend",
+                "created_at": "2026-07-12T00:00:00+00:00",
+                "final_status": "REJECTED",
+            },
+        )
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_sqlite_rejected",
+        data_roots=(data_dir,),
+        memory_path=memory_path,
+    )
+
+    assert report.rejected_family_status["long_trend"]["status"] == "REJECTED_CURRENT_CONFIG"
 
 
 def test_scanner_writes_json_and_markdown_with_storage_policy(tmp_path):
