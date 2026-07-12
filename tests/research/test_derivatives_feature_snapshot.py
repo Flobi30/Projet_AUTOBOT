@@ -86,6 +86,30 @@ def test_derivatives_snapshot_rejects_unverified_basis_rows(tmp_path):
     assert "FEATURE_DATA_MISSING" in snapshot.blockers
 
 
+def test_derivatives_snapshot_does_not_claim_runtime_parity_for_missing_temporal_status(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    funding_path = tmp_path / "funding.csv"
+    with funding_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        row["temporal_status"] = ""
+    _write_rows(funding_path, rows)
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_unknown_temporal",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+        )
+    )
+
+    assert snapshot.status == "READY"
+    assert snapshot.runtime_parity_proven is False
+    assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" in snapshot.blockers
+
+
 def test_manifested_experiment_binds_derivatives_materially_without_local_paths(tmp_path):
     derivatives_manifest = _derivatives_manifest(tmp_path / "derivatives", basis_ready=True, oi_ready=True)
     derivatives_snapshot = build_derivatives_feature_snapshot(

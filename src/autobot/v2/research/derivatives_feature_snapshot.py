@@ -557,7 +557,10 @@ def _runtime_parity_proven(source_rows: Mapping[str, Sequence[Mapping[str, Any]]
         for row in rows:
             if not str(row.get("ingestion_time") or "").strip():
                 return False
-            if str(row.get("temporal_status") or "") == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION":
+            if str(row.get("temporal_status") or "") not in {
+                "AVAILABLE_AT_EVENT",
+                "AVAILABLE_AFTER_BAR_CLOSE",
+            }:
                 return False
     return True
 
