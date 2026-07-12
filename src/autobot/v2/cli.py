@@ -452,6 +452,12 @@ def _build_parser() -> argparse.ArgumentParser:
     futures_derivatives.add_argument("--skip-tickers", action="store_true")
     futures_derivatives.add_argument("--skip-candles", action="store_true")
     futures_derivatives.add_argument("--continue-on-error", action="store_true")
+    futures_derivatives.add_argument(
+        "--raw-retention-days",
+        type=int,
+        default=None,
+        help="Optional retention for successfully canonicalized raw run directories; manifests and canonical data are retained.",
+    )
     futures_derivatives.set_defaults(handler=_cmd_collect_kraken_futures_derivatives)
 
     strategy_autonomy = subparsers.add_parser(
@@ -2320,6 +2326,7 @@ def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
             sleep_seconds=args.sleep_seconds,
             timeout_seconds=args.timeout_seconds,
             continue_on_error=args.continue_on_error,
+            raw_retention_days=args.raw_retention_days,
         )
     )
     _print_json(result.to_dict())

@@ -4,6 +4,7 @@ import json
 import csv
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -213,12 +214,46 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
             "2",
             "--max-candles",
             "5",
+            "--raw-retention-days",
+            "7",
         ]
     )
 
     assert args.command == "collect-kraken-futures-derivatives"
     assert args.max_symbols == 2
     assert args.max_candles == 5
+    assert args.raw_retention_days == 7
+
+
+def test_raw_retention_prunes_only_old_completed_raw_runs_after_canonical_write(tmp_path):
+    raw_dir = tmp_path / "raw" / "kraken_futures"
+    old_run = raw_dir / "old_completed_run"
+    old_run.mkdir(parents=True)
+    old_payload = old_run / "tickers.json"
+    old_payload.write_text("{}", encoding="utf-8")
+    old_time = datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()
+    os.utime(old_run, (old_time, old_time))
+
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="retention_current_run",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            max_candles=2,
+            raw_dir=raw_dir,
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            raw_retention_days=7,
+            observed_at=datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc),
+        ),
+        client=_FakeKrakenFuturesClient(),
+    )
+
+    assert not old_run.exists()
+    assert (raw_dir / "retention_current_run").exists()
+    assert result.raw_retention_deleted_run_count == 1
+    assert result.raw_retention_reclaimed_bytes >= 2
 
 
 def test_ticker_only_run_preserves_backfilled_funding_and_candle_capabilities(tmp_path):

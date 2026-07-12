@@ -60,4 +60,5 @@ exec docker run --rm \
     --canonical-dir /app/data/research/canonical/derivatives \
     --manifest-dir /app/data/research/manifests \
     --report-dir /app/data/research/reports/kraken_futures_derivatives \
+    --raw-retention-days 7 \
     --timeout-seconds 20

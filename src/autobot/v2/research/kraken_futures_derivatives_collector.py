@@ -11,6 +11,7 @@ import csv
 import hashlib
 import json
 import math
+import shutil
 import time
 import urllib.parse
 import urllib.request
@@ -78,6 +79,7 @@ class KrakenFuturesCollectorConfig:
     timeout_seconds: float = 20.0
     continue_on_error: bool = False
     observed_at: datetime | None = None
+    raw_retention_days: int | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -92,6 +94,8 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("sleep_seconds cannot be negative")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.raw_retention_days is not None and self.raw_retention_days < 0:
+            raise ValueError("raw_retention_days must be non-negative when provided")
         if self.observed_at is not None and (self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None):
             raise ValueError("observed_at must be timezone-aware when provided")
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
@@ -151,6 +155,8 @@ class KrakenFuturesCollectionResult:
     open_interest_history_start: str | None = None
     open_interest_history_end: str | None = None
     open_interest_history_path: str | None = None
+    raw_retention_deleted_run_count: int = 0
+    raw_retention_reclaimed_bytes: int = 0
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     paper_capital_allowed: bool = False
@@ -200,6 +206,8 @@ class KrakenFuturesCollectionResult:
             "open_interest_history_start": self.open_interest_history_start,
             "open_interest_history_end": self.open_interest_history_end,
             "open_interest_history_path": self.open_interest_history_path,
+            "raw_retention_deleted_run_count": self.raw_retention_deleted_run_count,
+            "raw_retention_reclaimed_bytes": self.raw_retention_reclaimed_bytes,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "paper_capital_allowed": self.paper_capital_allowed,
@@ -515,7 +523,25 @@ def collect_kraken_futures_derivatives(
         open_interest_history_end=_max_timestamp(open_interest_history_rows),
         open_interest_history_path=str(ticker_history_path),
     )
-    return write_kraken_futures_derivatives_report(result, config)
+    persisted = write_kraken_futures_derivatives_report(result, config)
+    if config.raw_retention_days is None or persisted.errors:
+        return persisted
+    deleted_count, reclaimed_bytes = _prune_raw_runs(
+        raw_dir=config.raw_dir,
+        current_run_id=config.run_id,
+        retention_days=config.raw_retention_days,
+        now=collection_time,
+    )
+    if not deleted_count:
+        return persisted
+    return write_kraken_futures_derivatives_report(
+        replace(
+            persisted,
+            raw_retention_deleted_run_count=deleted_count,
+            raw_retention_reclaimed_bytes=reclaimed_bytes,
+        ),
+        config,
+    )
 
 
 def discover_priority_perpetuals(
@@ -679,6 +705,8 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
             f"- derivatives_data_quality: `{result.derivatives_data_quality}`",
             f"- errors: `{len(result.errors)}`",
             f"- raw_response_count: `{result.raw_response_count}`",
+            f"- raw_retention_deleted_run_count: `{result.raw_retention_deleted_run_count}`",
+            f"- raw_retention_reclaimed_bytes: `{result.raw_retention_reclaimed_bytes}`",
             "",
             "## Safety",
             "",
@@ -690,6 +718,53 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
     lines.append(f"- promotable: `{result.promotable}`")
     lines.append("")
     return "\n".join(lines)
+
+
+def _prune_raw_runs(
+    *,
+    raw_dir: Path,
+    current_run_id: str,
+    retention_days: int,
+    now: datetime,
+) -> tuple[int, int]:
+    """Delete only verified old immediate raw-run directories after success.
+
+    Canonical histories and manifests are written before this function is
+    called.  The resolver and direct-parent checks make a malformed path or a
+    symlink fail closed rather than expanding deletion scope.
+    """
+
+    root = raw_dir.resolve()
+    if not root.exists() or not root.is_dir():
+        return 0, 0
+    cutoff = now.timestamp() - (retention_days * 24 * 60 * 60)
+    deleted_count = 0
+    reclaimed_bytes = 0
+    for candidate in root.iterdir():
+        if candidate.name == current_run_id or candidate.is_symlink() or not candidate.is_dir():
+            continue
+        try:
+            resolved = candidate.resolve()
+            if resolved.parent != root or candidate.stat().st_mtime >= cutoff:
+                continue
+            size = _directory_size(resolved)
+            shutil.rmtree(resolved)
+        except OSError:
+            continue
+        deleted_count += 1
+        reclaimed_bytes += size
+    return deleted_count, reclaimed_bytes
+
+
+def _directory_size(path: Path) -> int:
+    total = 0
+    for child in path.rglob("*"):
+        if child.is_file() and not child.is_symlink():
+            try:
+                total += child.stat().st_size
+            except OSError:
+                continue
+    return total
 
 
 def _safe_fetch(
