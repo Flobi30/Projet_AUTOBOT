@@ -196,7 +196,7 @@ def test_scheduler_reports_derivatives_waiting_instead_of_generic_data_missing(t
     assert "derivatives_waiting_for_more_data" in candidate.blockers
     assert candidate.next_action == "wait_for_more_data"
     assert candidate.recommended_command is None
-    assert candidate.adapter_ready is False
+    assert candidate.adapter_ready is True
 
 
 def test_cross_sectional_template_rejection_is_recorded_without_blocking_family(tmp_path):

@@ -200,6 +200,7 @@ class DerivativesFeatureSnapshot:
     schema_version: int
     feature_ids: tuple[str, ...]
     feature_versions: Mapping[str, str]
+    market_mappings: tuple[Mapping[str, str], ...]
     feature_count: int
     ready_count: int
     waiting_count: int
@@ -234,6 +235,7 @@ class DerivativesFeatureSnapshot:
             "schema_version": self.schema_version,
             "feature_ids": list(self.feature_ids),
             "feature_versions": dict(self.feature_versions),
+            "market_mappings": [dict(item) for item in self.market_mappings],
             "feature_count": self.feature_count,
             "ready_count": self.ready_count,
             "waiting_count": self.waiting_count,
@@ -395,6 +397,7 @@ def build_derivatives_feature_snapshot(
         schema_version=DERIVATIVES_FEATURE_SNAPSHOT_SCHEMA_VERSION,
         feature_ids=feature_ids,
         feature_versions={feature_id: active_registry.get(feature_id).version for feature_id in feature_ids},
+        market_mappings=tuple(dict(item) for item in mappings),
         feature_count=len(output_rows),
         ready_count=sum(item["status"] == "READY" for item in output_rows),
         waiting_count=sum(item["status"] == "WAITING_FOR_MORE_DATA" for item in output_rows),

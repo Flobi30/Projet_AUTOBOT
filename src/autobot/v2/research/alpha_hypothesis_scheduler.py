@@ -66,6 +66,7 @@ KNOWN_ADAPTERS = {
     "volatility_breakout": "alpha-hypothesis-runner",
     "long_trend": "alpha-hypothesis-runner",
     "generic_cross_sectional_ohlcv_adapter": "alpha-hypothesis-runner",
+    "funding_basis_research_adapter": "alpha-hypothesis-runner",
 }
 FAMILY_TO_HYPOTHESIS = {
     "volatility_breakout": "volatility_breakout",

@@ -102,7 +102,7 @@
       "entry_logic_description": "Spot-only long candidate after extreme negative funding or basis pressure.",
       "exit_logic_description": "Exit on funding normalization or bounded hold.",
       "risk_logic_description": "Reject if derivatives data is unavailable or unverified.",
-      "required_adapter": "missing",
+      "required_adapter": "funding_basis_research_adapter",
       "max_variants": 2,
       "max_symbols": 4,
       "max_runtime_seconds": 120,

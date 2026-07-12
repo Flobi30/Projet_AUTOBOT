@@ -61,6 +61,7 @@ def test_funding_basis_data_check_reports_waiting_derivatives_snapshot_without_r
             run_id="pytest_funding_waiting",
             hypothesis_id="funding_basis",
             mode="data_check",
+            data_paths=(_write_ohlcv(tmp_path),),
             feature_snapshot_manifest=spot_manifest,
             derivatives_feature_snapshot_manifest=derivatives_manifest,
         ),
@@ -77,7 +78,7 @@ def test_funding_basis_data_check_reports_waiting_derivatives_snapshot_without_r
     assert report.promotable is False
 
 
-def test_funding_basis_ready_inputs_reach_data_gate_but_stop_before_missing_adapter(tmp_path):
+def test_funding_basis_ready_inputs_reach_the_research_data_gate(tmp_path):
     spot_manifest = _feature_manifest(tmp_path / "spot.json")
     derivatives_manifest = _feature_manifest(
         tmp_path / "derivatives.json",
@@ -96,30 +97,17 @@ def test_funding_basis_ready_inputs_reach_data_gate_but_stop_before_missing_adap
             run_id="pytest_funding_ready_data_check",
             hypothesis_id="funding_basis",
             mode="data_check",
+            data_paths=(_write_ohlcv(tmp_path),),
             feature_snapshot_manifest=spot_manifest,
             derivatives_feature_snapshot_manifest=derivatives_manifest,
         ),
         commit="test",
     )
-    smoke = build_alpha_hypothesis_runner_report(
-        AlphaHypothesisRunnerConfig(
-            run_id="pytest_funding_ready_smoke",
-            hypothesis_id="funding_basis",
-            mode="smoke",
-            feature_snapshot_manifest=spot_manifest,
-            derivatives_feature_snapshot_manifest=derivatives_manifest,
-        ),
-        commit="test",
-    )
-
     assert data_check.gates[0].passed is True
     assert data_check.final_decision == "NEXT_STAGE_AVAILABLE"
-    assert [gate.gate for gate in smoke.gates] == ["DATA_CHECK", "FAST_NET_EDGE_TEST"]
-    assert smoke.final_status == "INSUFFICIENT_DATA"
-    assert "funding_basis_adapter_not_implemented" in smoke.gates[-1].reasons
-    assert smoke.paper_capital_allowed is False
-    assert smoke.live_allowed is False
-    assert smoke.promotable is False
+    assert data_check.paper_capital_allowed is False
+    assert data_check.live_allowed is False
+    assert data_check.promotable is False
 
 
 def test_alpha_runner_smoke_alias_advances_auto_allowed_without_walk_forward(tmp_path):

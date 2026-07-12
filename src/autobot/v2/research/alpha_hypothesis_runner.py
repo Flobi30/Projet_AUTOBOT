@@ -25,6 +25,11 @@ from .generic_cross_sectional_ohlcv_adapter import (
     load_cross_sectional_bars,
     run_generic_cross_sectional_ohlcv_smoke,
 )
+from .funding_basis_research_adapter import (
+    ADAPTER_ID as FUNDING_BASIS_ADAPTER_ID,
+    FundingBasisResearchConfig,
+    run_funding_basis_research_smoke,
+)
 from .volatility_breakout_walk_forward import (
     VolatilityBreakoutWalkForwardConfig,
     build_volatility_breakout_walk_forward_report,
@@ -448,9 +453,19 @@ def _funding_basis_data_check(
 
     This validates only research input readiness.  It deliberately does not
     create a signal, trade, shadow write, paper order, or promotion path; the
-    alpha adapter remains a separate future deliverable.
+    alpha adapter is evaluated separately by the bounded smoke gate.
     """
 
+    if not config.data_paths:
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            ["spot_ohlcv_data_paths_missing"],
+            policy,
+            started,
+        )
     if config.feature_snapshot_manifest is None:
         return _gate(
             "DATA_CHECK",
@@ -564,7 +579,7 @@ def _funding_basis_data_check(
         "KEEP_RESEARCH",
         True,
         False,
-        ["funding_basis_research_inputs_ready", "adapter_still_required_before_smoke"],
+        ["funding_basis_research_inputs_ready"],
         policy,
         started,
         metrics=metrics,
@@ -579,14 +594,58 @@ def _fast_net_edge_test(
     commit: str | None,
 ) -> AlphaGateResult:
     if hypothesis_id == "funding_basis":
+        template = _funding_basis_template(config)
+        if config.derivatives_feature_snapshot_manifest is None:
+            return _gate(
+                "FAST_NET_EDGE_TEST",
+                "INSUFFICIENT_DATA",
+                False,
+                True,
+                ["derivatives_feature_snapshot_manifest_missing"],
+                policy,
+                started,
+            )
+        result = run_funding_basis_research_smoke(
+            FundingBasisResearchConfig(
+                run_id=f"{config.run_id}_{template['template_id']}",
+                spot_data_paths=config.data_paths,
+                derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
+                template=template,
+                symbols=config.symbols,
+                cost_profile=config.cost_profile,
+                max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+                max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+                max_runtime_seconds=min(config.max_runtime_seconds, float(template.get("max_runtime_seconds", config.max_runtime_seconds))),
+                max_data_rows=config.max_data_rows,
+            )
+        )
+        metrics = result.metrics.to_dict()
+        metrics.update(
+            {
+                "adapter_id": result.adapter_id,
+                "mode_used": result.mode,
+                "template_id": result.template_id,
+                "adapter_decision": result.decision,
+                "variant_count": result.variant_count,
+                "primary_variant": result.primary_variant,
+                "availability": result.availability.to_dict(),
+            }
+        )
+        passed = result.decision in {"WALK_FORWARD_AVAILABLE"}
+        status = "KEEP_RESEARCH" if passed else result.decision
         return _gate(
             "FAST_NET_EDGE_TEST",
-            "INSUFFICIENT_DATA",
-            False,
-            True,
-            ["funding_basis_adapter_not_implemented"],
+            status,
+            passed,
+            not passed,
+            result.reasons,
             policy,
             started,
+            metrics=metrics,
+            artifacts={
+                "variants": [dict(item) for item in result.variants],
+                "primary_trades": [item.to_dict() for item in result.primary_trades],
+            },
         )
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     if not adapter_id:
@@ -715,6 +774,24 @@ def _cross_sectional_template(config: AlphaHypothesisRunnerConfig) -> dict[str, 
             if template.get("template_id") == config.template_id:
                 return template
         raise ValueError(f"unknown cross-sectional template: {config.template_id}")
+    return templates[0]
+
+
+def _funding_basis_template(config: AlphaHypothesisRunnerConfig) -> dict[str, Any]:
+    payload = json.loads(config.templates_path.read_text(encoding="utf-8"))
+    templates = [
+        dict(item)
+        for item in payload.get("templates", [])
+        if item.get("alpha_family_id") == "funding_basis"
+        and item.get("required_adapter") == FUNDING_BASIS_ADAPTER_ID
+    ]
+    if not templates:
+        raise ValueError("funding/basis research template is missing")
+    if config.template_id:
+        for template in templates:
+            if template.get("template_id") == config.template_id:
+                return template
+        raise ValueError(f"unknown funding/basis template: {config.template_id}")
     return templates[0]
 
 
