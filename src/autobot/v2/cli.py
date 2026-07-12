@@ -358,7 +358,11 @@ def _build_parser() -> argparse.ArgumentParser:
     canonicalize_ohlcv.add_argument("--output-dir", default="data/research/canonical/ohlcv")
     canonicalize_ohlcv.add_argument("--manifest-dir", default="data/research/manifests")
     canonicalize_ohlcv.add_argument("--quarantine-dir", default="data/research/quarantine")
-    canonicalize_ohlcv.add_argument("--report-dir", default="reports/research/canonical_ohlcv")
+    canonicalize_ohlcv.add_argument(
+        "--report-dir",
+        default="data/research/reports/canonical_ohlcv",
+        help="Runtime-writable report directory; compact decision reports may be copied into reports/ separately.",
+    )
     canonicalize_ohlcv.add_argument("--exchange", default="kraken")
     canonicalize_ohlcv.add_argument("--market-type", default="spot")
     canonicalize_ohlcv.add_argument(
@@ -379,7 +383,11 @@ def _build_parser() -> argparse.ArgumentParser:
     materialize_features.add_argument("--canonical-manifest", required=True)
     materialize_features.add_argument("--output-dir", default="data/research/canonical/features")
     materialize_features.add_argument("--manifest-dir", default="data/research/manifests")
-    materialize_features.add_argument("--report-dir", default="reports/research/canonical_features")
+    materialize_features.add_argument(
+        "--report-dir",
+        default="data/research/reports/canonical_features",
+        help="Runtime-writable report directory; compact decision reports may be copied into reports/ separately.",
+    )
     materialize_features.add_argument(
         "--feature-ids",
         default="return_1_bps,momentum_3_bps,volatility_20_bps,atr_14_bps",

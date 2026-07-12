@@ -19,6 +19,9 @@ to rely on canonical features. It remains batch-only and research-only.
   registry fingerprint, explicit-mapping exclusions and feature parity result.
 - Unknown source ingestion time remains visible as
   `INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN`; it is never fabricated.
+- Batch CLI reports default to `data/research/reports/`, which is writable by
+  the locked-down container. Versioned project reports stay separate under
+  `reports/program/`.
 
 ## Safety invariants
 

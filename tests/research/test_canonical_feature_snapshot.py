@@ -109,3 +109,4 @@ def test_materialize_feature_snapshot_cli_is_registered():
 
     assert args.command == "materialize-feature-snapshot"
     assert args.feature_ids == "return_1_bps,momentum_3_bps,volatility_20_bps,atr_14_bps"
+    assert args.report_dir == "data/research/reports/canonical_features"

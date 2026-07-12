@@ -227,6 +227,7 @@ def test_canonicalize_ohlcv_cli_is_registered():
     assert args.command == "canonicalize-ohlcv"
     assert args.max_files == 2
     assert args.market_mapping_source == "kraken_public"
+    assert args.report_dir == "data/research/reports/canonical_ohlcv"
 
 
 def _write_rows(path: Path, symbol: str, timeframe: str, timestamps: list[datetime]) -> None:
