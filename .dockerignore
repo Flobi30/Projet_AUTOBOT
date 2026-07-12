@@ -1,0 +1,29 @@
+# Runtime state is mounted into AUTOBOT; it must never become part of an image
+# build context or a deployable image layer.
+data/
+.git/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# The runtime report tree can grow quickly. Dockerfile.test re-includes only
+# the compact, versioned evidence required by scheduler-memory tests.
+reports/*
+!reports/research/
+reports/research/*
+!reports/research/p17_high_conviction_historical_validation_2026-07-09.md
+!reports/research/alpha_smoke/
+reports/research/alpha_smoke/*
+!reports/research/alpha_smoke/p18b_alpha_smoke_20260709.json
+!reports/research/alpha_hypothesis_runner/
+reports/research/alpha_hypothesis_runner/*
+!reports/research/alpha_hypothesis_runner/p18d_alpha_hypothesis_runner_walk_forward_20260709.json
+!reports/research/alpha_hypothesis_runner/p18e_alpha_runner_selected_smoke_20260709.json
+!reports/research/strategy_edge_improvement_2026_06_29.json
+!reports/research/relative_value_2026_06_22/
+reports/research/relative_value_2026_06_22/*
+!reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json
+
+# Local assets and historical archives are not application source.
+*.zip
+*.tar.gz
