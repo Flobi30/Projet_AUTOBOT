@@ -215,6 +215,8 @@ def _derivatives_manifest(
         _row(start + timedelta(minutes=index * 15), open_interest=str(100 + index))
         for index in range(25)
     ]
+    for row in funding_rows:
+        row.pop("quote_asset", None)
     _write_rows(funding_path, funding_rows)
     _write_rows(basis_path, basis_rows)
     _write_rows(ticker_path, ticker_rows)

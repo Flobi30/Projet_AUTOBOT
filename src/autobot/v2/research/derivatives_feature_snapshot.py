@@ -448,10 +448,26 @@ def _filter_rows_by_mapping(
         for row in rows:
             symbol = str(row.get("futures_symbol") or "")
             base_quote = expected.get(symbol)
-            if base_quote is None or (str(row.get("base_asset") or ""), str(row.get("quote_asset") or "")) != base_quote:
+            if base_quote is None:
                 excluded += 1
                 continue
-            accepted_rows.append(dict(row))
+            expected_base, expected_quote = base_quote
+            recorded_base = str(row.get("base_asset") or "")
+            recorded_quote = str(row.get("quote_asset") or "")
+            if (recorded_base and recorded_base != expected_base) or (recorded_quote and recorded_quote != expected_quote):
+                excluded += 1
+                continue
+            # Historical funding exports from the first collector schema did
+            # not persist quote_asset.  The source manifest's explicit
+            # contract mapping may safely complete that missing metadata; it
+            # never converts a price or guesses a different market.
+            accepted_rows.append(
+                {
+                    **dict(row),
+                    "base_asset": recorded_base or expected_base,
+                    "quote_asset": recorded_quote or expected_quote,
+                }
+            )
         accepted[dataset] = accepted_rows
     return accepted, excluded
 
