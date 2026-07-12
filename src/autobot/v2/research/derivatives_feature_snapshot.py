@@ -525,7 +525,7 @@ def _point_in_time_rows(
     for dataset, rows in datasets.items():
         accepted_rows: list[dict[str, Any]] = []
         for row in rows:
-            event_time = _row_time(row, "event_time")
+            event_time = _row_time(row, "event_time", fallback_to_timestamp=True)
             available_time = _row_time(row, "available_time")
             ingestion_time = _row_time(row, "ingestion_time")
             if ingestion_time is None:
@@ -650,8 +650,15 @@ def _timeframe_for_dataset(dataset: str) -> str:
     return "funding_interval" if dataset == "funding" else "snapshot"
 
 
-def _row_time(row: Mapping[str, Any], key: str) -> datetime | None:
-    value = row.get(key) or row.get("timestamp")
+def _row_time(
+    row: Mapping[str, Any],
+    key: str,
+    *,
+    fallback_to_timestamp: bool = False,
+) -> datetime | None:
+    value = row.get(key)
+    if not value and fallback_to_timestamp:
+        value = row.get("timestamp")
     if not value:
         return None
     try:
