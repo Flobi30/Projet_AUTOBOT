@@ -20,6 +20,35 @@ from .symbol_normalization import expand_research_symbol_aliases, normalize_rese
 
 KRAKEN_PUBLIC_ASSET_PAIRS_URL = "https://api.kraken.com/0/public/AssetPairs"
 
+# These are explicit Kraken asset identifiers, not string heuristics.  Kraken's
+# public AssetPairs response identifies both legs of a market, but uses a small
+# set of venue-specific aliases (for example XBT and ZEUR).  Unknown values are
+# deliberately left unmapped rather than stripped or guessed.
+KRAKEN_EXPLICIT_ASSET_ALIASES = {
+    "XBT": "BTC",
+    "XXBT": "BTC",
+    "BTC": "BTC",
+    "XETH": "ETH",
+    "ETH": "ETH",
+    "XLTC": "LTC",
+    "LTC": "LTC",
+    "XXLM": "XLM",
+    "XLM": "XLM",
+    "XXRP": "XRP",
+    "XRP": "XRP",
+    "SOL": "SOL",
+    "TRX": "TRX",
+    "ADA": "ADA",
+    "LINK": "LINK",
+    "DOT": "DOT",
+    "BCH": "BCH",
+    "ATOM": "ATOM",
+    "AVAX": "AVAX",
+    "AAVE": "AAVE",
+    "ZEUR": "EUR",
+    "EUR": "EUR",
+}
+
 # Central AUTOBOT research universe fallback. Runtime-configured TRADING_PAIRS
 # still takes precedence when present.
 AUTOBOT_DEFAULT_ACTIVE_SYMBOLS = (
@@ -51,6 +80,16 @@ class KrakenPublicPairMapping:
     aliases: tuple[str, ...]
     altname: str | None = None
     wsname: str | None = None
+    base_asset: str | None = None
+    quote_asset: str | None = None
+    market_mapping_status: str = "MAPPING_UNVERIFIED"
+
+    def explicit_market_mapping(self) -> dict[str, str] | None:
+        """Return the exchange-declared base/quote mapping, never a guess."""
+
+        if self.market_mapping_status != "EXPLICIT" or not self.base_asset or not self.quote_asset:
+            return None
+        return {"base_asset": self.base_asset, "quote_asset": self.quote_asset}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +99,9 @@ class KrakenPublicPairMapping:
             "aliases": list(self.aliases),
             "altname": self.altname,
             "wsname": self.wsname,
+            "base_asset": self.base_asset,
+            "quote_asset": self.quote_asset,
+            "market_mapping_status": self.market_mapping_status,
         }
 
 
@@ -75,6 +117,21 @@ class KrakenPublicSymbolRegistry:
             if canonical:
                 return self.mappings.get(canonical)
         return None
+
+    def explicit_market_mappings(self) -> dict[str, dict[str, str]]:
+        """Build canonical mappings suitable for point-in-time OHLCV storage.
+
+        Only mappings declared by Kraken's public AssetPairs response are
+        returned.  A missing asset alias is a data-quality condition, not an
+        invitation to infer a quote currency from a compact symbol.
+        """
+
+        result: dict[str, dict[str, str]] = {}
+        for symbol, mapping in self.mappings.items():
+            explicit = mapping.explicit_market_mapping()
+            if explicit is not None:
+                result[symbol] = explicit
+        return result
 
 
 @dataclass(frozen=True)
@@ -158,6 +215,9 @@ def build_kraken_public_symbol_registry(
         if not canonical:
             continue
         aliases = _pair_aliases(canonical, pair_name=pair_name, altname=altname, wsname=wsname)
+        base_asset = _canonical_kraken_asset(metadata.get("base"))
+        quote_asset = _canonical_kraken_asset(metadata.get("quote"))
+        mapping_status = "EXPLICIT" if base_asset and quote_asset else "MAPPING_UNVERIFIED"
         mapping = KrakenPublicPairMapping(
             autobot_symbol=canonical,
             kraken_ohlcv_symbol=pair_name,
@@ -165,6 +225,9 @@ def build_kraken_public_symbol_registry(
             aliases=aliases,
             altname=altname,
             wsname=wsname,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            market_mapping_status=mapping_status,
         )
         rank = _pair_rank(pair_name, altname=altname, wsname=wsname)
         current_rank = ranks.get(canonical)
@@ -280,3 +343,12 @@ def _dedupe_preserve_order(values: Sequence[str] | Any) -> tuple[str, ...]:
 def _optional_text(value: Any) -> str | None:
     text = str(value).strip() if value is not None else ""
     return text or None
+
+
+def _canonical_kraken_asset(value: Any) -> str | None:
+    """Normalize only documented Kraken asset aliases from AssetPairs."""
+
+    raw = _optional_text(value)
+    if raw is None:
+        return None
+    return KRAKEN_EXPLICIT_ASSET_ALIASES.get(raw.upper())

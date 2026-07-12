@@ -361,9 +361,31 @@ def _build_parser() -> argparse.ArgumentParser:
     canonicalize_ohlcv.add_argument("--report-dir", default="reports/research/canonical_ohlcv")
     canonicalize_ohlcv.add_argument("--exchange", default="kraken")
     canonicalize_ohlcv.add_argument("--market-type", default="spot")
+    canonicalize_ohlcv.add_argument(
+        "--market-mapping-source",
+        choices=("kraken_public", "none"),
+        default="kraken_public",
+        help="Use explicit public Kraken AssetPairs base/quote mappings; 'none' retains unverified mappings.",
+    )
     canonicalize_ohlcv.add_argument("--max-files", type=int, default=None)
     canonicalize_ohlcv.add_argument("--max-rows", type=int, default=None)
     canonicalize_ohlcv.set_defaults(handler=_cmd_canonicalize_ohlcv)
+
+    materialize_features = subparsers.add_parser(
+        "materialize-feature-snapshot",
+        help="Materialize a deterministic research-only feature bundle from a canonical OHLCV v2 manifest",
+    )
+    materialize_features.add_argument("--run-id", default=None)
+    materialize_features.add_argument("--canonical-manifest", required=True)
+    materialize_features.add_argument("--output-dir", default="data/research/canonical/features")
+    materialize_features.add_argument("--manifest-dir", default="data/research/manifests")
+    materialize_features.add_argument("--report-dir", default="reports/research/canonical_features")
+    materialize_features.add_argument(
+        "--feature-ids",
+        default="return_1_bps,momentum_3_bps,volatility_20_bps,atr_14_bps",
+        help="Comma-separated registered feature IDs. Defaults to the canonical OHLCV library.",
+    )
+    materialize_features.set_defaults(handler=_cmd_materialize_feature_snapshot)
 
     futures_derivatives = subparsers.add_parser(
         "collect-kraken-futures-derivatives",
@@ -2076,6 +2098,11 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
     )
 
     run_id = args.run_id or f"p18i_canonical_ohlcv_{date.today().strftime('%Y%m%d')}"
+    market_mappings = None
+    if args.market_mapping_source == "kraken_public":
+        from autobot.v2.research.kraken_symbol_mapping import build_kraken_public_symbol_registry
+
+        market_mappings = build_kraken_public_symbol_registry().explicit_market_mappings()
     snapshot = build_canonical_ohlcv_snapshot(
         CanonicalOHLCVConfig(
             run_id=run_id,
@@ -2085,6 +2112,7 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
             quarantine_dir=Path(args.quarantine_dir),
             exchange=args.exchange,
             market_type=args.market_type,
+            market_mappings=market_mappings,
             max_files=args.max_files,
             max_rows=args.max_rows,
         )
@@ -2092,10 +2120,34 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
     json_path, markdown_path = write_canonical_ohlcv_report(snapshot, Path(args.report_dir))
     payload = {
         **snapshot.to_dict(),
+        "market_mapping_source": args.market_mapping_source,
+        "explicit_market_mapping_count": len(market_mappings or {}),
         "json_report_path": str(json_path),
         "markdown_report_path": str(markdown_path),
     }
     _print_json(payload)
+    return 0
+
+
+def _cmd_materialize_feature_snapshot(args: argparse.Namespace) -> int:
+    from autobot.v2.research.canonical_feature_snapshot import (
+        CanonicalFeatureSnapshotConfig,
+        build_canonical_feature_snapshot,
+        write_canonical_feature_snapshot_report,
+    )
+
+    run_id = args.run_id or f"canonical_features_{date.today().strftime('%Y%m%d')}"
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id=run_id,
+            canonical_manifest_path=Path(args.canonical_manifest),
+            output_dir=Path(args.output_dir),
+            manifest_dir=Path(args.manifest_dir),
+            feature_ids=_csv_tuple(args.feature_ids, "--feature-ids"),
+        )
+    )
+    json_path, markdown_path = write_canonical_feature_snapshot_report(snapshot, Path(args.report_dir))
+    _print_json({**snapshot.to_dict(), "json_report_path": str(json_path), "markdown_report_path": str(markdown_path)})
     return 0
 
 
