@@ -9,6 +9,16 @@ COPY src/ /app/src/
 COPY tests/ /app/tests/
 COPY conftest.py pytest.ini /app/
 COPY docs/research/ /app/docs/research/
+COPY deploy/systemd/ /app/deploy/systemd/
+# The scheduler's test backfill has a deliberately small, versioned evidence
+# set.  Copy only those source reports rather than the mutable runtime report
+# tree so the isolated image reproduces its research-memory decisions.
+COPY reports/research/p17_high_conviction_historical_validation_2026-07-09.md /app/reports/research/p17_high_conviction_historical_validation_2026-07-09.md
+COPY reports/research/alpha_smoke/p18b_alpha_smoke_20260709.json /app/reports/research/alpha_smoke/p18b_alpha_smoke_20260709.json
+COPY reports/research/alpha_hypothesis_runner/p18d_alpha_hypothesis_runner_walk_forward_20260709.json /app/reports/research/alpha_hypothesis_runner/p18d_alpha_hypothesis_runner_walk_forward_20260709.json
+COPY reports/research/alpha_hypothesis_runner/p18e_alpha_runner_selected_smoke_20260709.json /app/reports/research/alpha_hypothesis_runner/p18e_alpha_runner_selected_smoke_20260709.json
+COPY reports/research/strategy_edge_improvement_2026_06_29.json /app/reports/research/strategy_edge_improvement_2026_06_29.json
+COPY reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json /app/reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONDONTWRITEBYTECODE=1
