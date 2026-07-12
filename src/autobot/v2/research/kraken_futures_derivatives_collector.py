@@ -45,6 +45,7 @@ DERIVATIVES_SCHEMA_VERSION = 2
 # funding/basis research blocked while the public ticker archive is young.
 FORWARD_HISTORY_MIN_COVERAGE_SECONDS = 7 * 24 * 60 * 60
 FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL = 96
+CURRENT_DERIVATIVES_SNAPSHOT_MAX_AGE_SECONDS = 60 * 60
 
 
 @dataclass(frozen=True)
@@ -472,6 +473,8 @@ def collect_kraken_futures_derivatives(
     ]
     open_interest_history_ready = _forward_history_ready(open_interest_history_rows, mappings)
     basis_history_ready = _forward_history_ready(valid_basis_history_rows, mappings)
+    ticker_history_is_fresh = _history_is_fresh(ticker_history_rows, collection_time)
+    basis_history_is_fresh = _history_is_fresh(valid_basis_history_rows, collection_time)
 
     datasets = (
         _dataset_summary("funding_rates", funding_rows, funding_dupes, _invalid_count(invalid_rows, "funding_rates"), funding_path, "historical_funding_ready" if funding_rows else "missing"),
@@ -503,13 +506,27 @@ def collect_kraken_futures_derivatives(
         mark_candles_ready=any(row.get("tick_type") == "mark" for row in candle_history_rows),
         trade_candles_ready=any(row.get("tick_type") == "trade" for row in candle_history_rows),
         spot_reference_candles_ready=any(row.get("tick_type") == "spot" for row in candle_history_rows),
-        current_open_interest_ready=any(_safe_float(row.get("open_interest")) is not None for row in ticker_rows),
+        current_open_interest_ready=(
+            any(_safe_float(row.get("open_interest")) is not None for row in ticker_rows)
+            or (ticker_history_is_fresh and bool(open_interest_history_rows))
+        ),
         open_interest_history_ready=open_interest_history_ready,
-        predicted_funding_ready=any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_rows),
-        basis_current_ready=bool(basis_rows),
+        predicted_funding_ready=(
+            any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_rows)
+            or (
+                ticker_history_is_fresh
+                and any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_history_rows)
+            )
+        ),
+        basis_current_ready=bool(basis_rows) or (basis_history_is_fresh and bool(valid_basis_history_rows)),
         basis_history_ready=basis_history_ready,
-        basis_confidence_status=_aggregate_basis_confidence(basis_rows),
-        derivatives_data_quality=_quality_label(funding_history_rows, ticker_rows, candle_history_rows, basis_rows),
+        basis_confidence_status=_aggregate_basis_confidence(basis_rows or valid_basis_history_rows),
+        derivatives_data_quality=_quality_label(
+            funding_history_rows,
+            ticker_rows or ticker_history_rows,
+            candle_history_rows,
+            basis_rows or valid_basis_history_rows,
+        ),
         funding_history_row_count=len(funding_history_rows),
         funding_history_path=str(funding_history_path),
         derivatives_candle_history_row_count=len(candle_history_rows),
@@ -1184,6 +1201,14 @@ def _time_coverage_seconds(rows: Sequence[Mapping[str, Any]]) -> float:
     if start is None or end is None:
         return 0.0
     return max(0.0, (end - start).total_seconds())
+
+
+def _history_is_fresh(rows: Sequence[Mapping[str, Any]], now: datetime) -> bool:
+    latest = _parse_timestamp(_max_timestamp(rows))
+    if latest is None:
+        return False
+    age_seconds = (now - latest).total_seconds()
+    return 0.0 <= age_seconds <= CURRENT_DERIVATIVES_SNAPSHOT_MAX_AGE_SECONDS
 
 
 def _parse_timestamp(value: Any) -> datetime | None:

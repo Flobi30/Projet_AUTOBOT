@@ -13,11 +13,15 @@ def test_derivatives_timer_is_bounded_public_research_only():
     script = (ROOT / "deploy/systemd/run-autobot-research-derivatives-collection.sh").read_text(encoding="utf-8")
     service = (ROOT / "deploy/systemd/autobot-research-derivatives.service").read_text(encoding="utf-8")
     timer = (ROOT / "deploy/systemd/autobot-research-derivatives.timer").read_text(encoding="utf-8")
+    funding_service = (ROOT / "deploy/systemd/autobot-research-derivatives-funding.service").read_text(encoding="utf-8")
+    funding_timer = (ROOT / "deploy/systemd/autobot-research-derivatives-funding.timer").read_text(encoding="utf-8")
 
     assert "collect-kraken-futures-derivatives" in script
     assert "--skip-funding" in script
     assert "--skip-candles" in script
     assert "--raw-retention-days 7" in script
+    assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE" in script
+    assert "funding_refresh" in script
     assert "--assets \"BTC,ETH,SOL,XRP,ADA,LINK\"" in script
     assert "--volume \"${REPO_DIR}/data:/app/data\"" in script
     assert "--env-file" not in script
@@ -31,3 +35,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "NoNewPrivileges=true" in service
     assert "*:00,15,30,45:00" in timer
     assert "Persistent=true" in timer
+    assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE=funding_refresh" in funding_service
+    assert "ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-collection.sh" in funding_service
+    assert "NoNewPrivileges=true" in funding_service
+    assert "00:05:00" in funding_timer
+    assert "Persistent=true" in funding_timer

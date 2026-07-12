@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh AUTOBOT public derivatives funding research daily
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+Persistent=true
+RandomizedDelaySec=60s
+AccuracySec=1min
+Unit=autobot-research-derivatives-funding.service
+
+[Install]
+WantedBy=timers.target

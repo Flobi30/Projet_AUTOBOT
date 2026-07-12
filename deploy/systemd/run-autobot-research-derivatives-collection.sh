@@ -5,7 +5,8 @@ set -euo pipefail
 # .env, secrets, the runtime logs, or any order-routing surface.
 REPO_DIR="${AUTOBOT_REPO_DIR:-/opt/Projet_AUTOBOT}"
 IMAGE="${AUTOBOT_RESEARCH_IMAGE:-projet_autobot-autobot}"
-RUN_ID="${AUTOBOT_DERIVATIVES_RUN_ID:-derivatives_ticker_$(date -u +%Y_%m_%dT%H_%M_%SZ)}"
+COLLECTION_MODE="${AUTOBOT_DERIVATIVES_COLLECTION_MODE:-ticker}"
+RUN_ID="${AUTOBOT_DERIVATIVES_RUN_ID:-derivatives_${COLLECTION_MODE}_$(date -u +%Y_%m_%dT%H_%M_%SZ)}"
 LOCK_PATH="${AUTOBOT_DERIVATIVES_LOCK_PATH:-/run/lock/autobot-research-derivatives.lock}"
 MEMORY_LIMIT="${AUTOBOT_DERIVATIVES_MEMORY_LIMIT:-512m}"
 CPU_LIMIT="${AUTOBOT_DERIVATIVES_CPU_LIMIT:-0.25}"
@@ -32,6 +33,19 @@ install -d -o 999 -g 999 -m 0775 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR
 chown 999:999 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR}" "${REPORT_DIR}"
 chmod 0775 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR}" "${REPORT_DIR}"
 
+case "${COLLECTION_MODE}" in
+  ticker)
+    COLLECTION_FLAGS=(--skip-funding --skip-candles)
+    ;;
+  funding_refresh)
+    COLLECTION_FLAGS=(--skip-tickers --skip-candles)
+    ;;
+  *)
+    echo "Unsupported derivatives collection mode: ${COLLECTION_MODE}" >&2
+    exit 1
+    ;;
+esac
+
 exec docker run --rm \
   --name "autobot-research-derivatives-${RUN_ID}" \
   --label "autobot.component=research-derivatives-collection" \
@@ -54,8 +68,7 @@ exec docker run --rm \
     --run-id "${RUN_ID}" \
     --assets "BTC,ETH,SOL,XRP,ADA,LINK" \
     --max-symbols 6 \
-    --skip-funding \
-    --skip-candles \
+    "${COLLECTION_FLAGS[@]}" \
     --raw-dir /app/data/research/raw/kraken_futures \
     --canonical-dir /app/data/research/canonical/derivatives \
     --manifest-dir /app/data/research/manifests \

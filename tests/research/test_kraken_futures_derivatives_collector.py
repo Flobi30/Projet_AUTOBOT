@@ -293,6 +293,62 @@ def test_ticker_only_run_preserves_backfilled_funding_and_candle_capabilities(tm
     assert funding.row_count == full.funding_history_row_count
 
 
+def test_funding_refresh_reuses_fresh_ticker_basis_state_without_writing_ticker_rows(tmp_path):
+    initial = KrakenFuturesCollectorConfig(
+        run_id="initial_ticker_state",
+        priority_assets=("BTC", "ETH"),
+        max_symbols=2,
+        collect_candles=False,
+        raw_dir=tmp_path / "raw",
+        canonical_dir=tmp_path / "canonical",
+        manifest_dir=tmp_path / "manifests",
+        report_dir=tmp_path / "reports",
+        observed_at=datetime(2026, 7, 10, 0, 30, tzinfo=timezone.utc),
+    )
+    collect_kraken_futures_derivatives(initial, client=_FakeKrakenFuturesClient())
+    refresh = collect_kraken_futures_derivatives(
+        replace(initial, run_id="funding_refresh", collect_tickers=False, collect_candles=False, observed_at=datetime(2026, 7, 10, 0, 45, tzinfo=timezone.utc)),
+        client=_FakeKrakenFuturesClient(),
+    )
+
+    ticker_dataset = next(item for item in refresh.datasets if item.dataset_id == "ticker_snapshots")
+    assert ticker_dataset.row_count == 0
+    assert refresh.funding_history_ready is True
+    assert refresh.current_open_interest_ready is True
+    assert refresh.predicted_funding_ready is True
+    assert refresh.basis_current_ready is True
+
+
+def test_funding_refresh_does_not_present_stale_ticker_basis_history_as_current(tmp_path):
+    initial = KrakenFuturesCollectorConfig(
+        run_id="initial_ticker_state",
+        priority_assets=("BTC",),
+        max_symbols=1,
+        collect_candles=False,
+        raw_dir=tmp_path / "raw",
+        canonical_dir=tmp_path / "canonical",
+        manifest_dir=tmp_path / "manifests",
+        report_dir=tmp_path / "reports",
+        observed_at=datetime(2026, 7, 10, 0, 0, tzinfo=timezone.utc),
+    )
+    collect_kraken_futures_derivatives(initial, client=_FakeKrakenFuturesClient())
+    refresh = collect_kraken_futures_derivatives(
+        replace(
+            initial,
+            run_id="stale_funding_refresh",
+            collect_tickers=False,
+            collect_candles=False,
+            observed_at=datetime(2026, 7, 10, 2, 0, tzinfo=timezone.utc),
+        ),
+        client=_FakeKrakenFuturesClient(),
+    )
+
+    assert refresh.funding_history_ready is True
+    assert refresh.current_open_interest_ready is False
+    assert refresh.predicted_funding_ready is False
+    assert refresh.basis_current_ready is False
+
+
 def test_ticker_only_forward_collection_compacts_history_atomically_and_requires_meaningful_coverage(tmp_path):
     canonical_dir = tmp_path / "canonical" / "derivatives"
     _seed_forward_history(canonical_dir)
