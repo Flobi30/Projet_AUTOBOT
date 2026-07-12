@@ -29,6 +29,8 @@ def test_derivatives_snapshot_is_point_in_time_and_keeps_perpetual_usd_identity(
             run_id="derivatives_ready",
             derivatives_manifest_path=manifest,
             as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
         )
     )
 
@@ -53,6 +55,8 @@ def test_derivatives_snapshot_waits_for_basis_and_open_interest_history(tmp_path
             run_id="derivatives_waiting",
             derivatives_manifest_path=manifest,
             as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
         )
     )
 
@@ -72,6 +76,8 @@ def test_derivatives_snapshot_rejects_unverified_basis_rows(tmp_path):
             run_id="derivatives_bad_basis",
             derivatives_manifest_path=manifest,
             as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
         )
     )
 
@@ -87,6 +93,8 @@ def test_manifested_experiment_binds_derivatives_materially_without_local_paths(
             run_id="derivatives_for_experiment",
             derivatives_manifest_path=derivatives_manifest,
             as_of_time=AS_OF,
+            output_dir=tmp_path / "derivatives_output",
+            manifest_dir=tmp_path / "derivatives_manifests",
         )
     )
     spot_manifest = tmp_path / "spot_features.json"
