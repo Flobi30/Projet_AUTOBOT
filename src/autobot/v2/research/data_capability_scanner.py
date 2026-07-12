@@ -570,6 +570,10 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
         str(item.get("csv_path"))
         for item in datasets.values()
         if item.get("csv_path")
+    ) + tuple(
+        str(path)
+        for path in (manifest.get("basis_history_path"), manifest.get("open_interest_history_path"))
+        if path
     )
     funding = datasets.get("funding_rates", {})
     tickers = datasets.get("ticker_snapshots", {})
@@ -622,7 +626,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
         "spot_perp_basis": DataCapability(
             capability_id="spot_perp_basis",
             available=basis_history_ready,
-            source_paths=tuple(path for path in (basis.get("csv_path"), manifest.get("manifest_path")) if path),
+            source_paths=tuple(path for path in (manifest.get("basis_history_path"), basis.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
             start_at=basis.get("start_at"),
@@ -635,12 +639,18 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             alpha_families_unlocked=ALPHA_UNLOCKS["spot_perp_basis"] if basis_history_ready else (),
             blockers=() if basis_history_ready else (("basis_history_too_short",) if basis_current_ready else ("spot_perp_basis_missing",)),
             proxy_status="not_proxy",
-            notes=(f"basis_confidence={manifest.get('basis_confidence_status')}", f"snapshot_id={manifest.get('snapshot_id')}"),
+            notes=(
+                f"basis_confidence={manifest.get('basis_confidence_status')}",
+                f"history_rows={manifest.get('basis_history_row_count') or 0}",
+                f"history_start={manifest.get('basis_history_start') or '-'}",
+                f"history_end={manifest.get('basis_history_end') or '-'}",
+                f"snapshot_id={manifest.get('snapshot_id')}",
+            ),
         ),
         "open_interest": DataCapability(
             capability_id="open_interest",
             available=oi_history_ready,
-            source_paths=tuple(path for path in (tickers.get("csv_path"), manifest.get("manifest_path")) if path),
+            source_paths=tuple(path for path in (manifest.get("open_interest_history_path"), tickers.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
             start_at=tickers.get("start_at"),
@@ -653,7 +663,13 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             alpha_families_unlocked=ALPHA_UNLOCKS["open_interest"] if oi_history_ready else (),
             blockers=() if oi_history_ready else (("open_interest_history_missing",) if current_oi_ready else ("open_interest_missing",)),
             proxy_status="not_proxy",
-            notes=("current_open_interest_does_not_equal_history", f"base_assets={','.join(mapping_bases)}"),
+            notes=(
+                "current_open_interest_does_not_equal_history",
+                f"history_rows={manifest.get('open_interest_history_row_count') or 0}",
+                f"history_start={manifest.get('open_interest_history_start') or '-'}",
+                f"history_end={manifest.get('open_interest_history_end') or '-'}",
+                f"base_assets={','.join(mapping_bases)}",
+            ),
         ),
     }
 

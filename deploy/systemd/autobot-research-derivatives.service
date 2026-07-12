@@ -1,0 +1,21 @@
+[Unit]
+Description=AUTOBOT public derivatives ticker research collection
+Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/kraken_futures_derivatives_collector.py
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-collection.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-collection.sh
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

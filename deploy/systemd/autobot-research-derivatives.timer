@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AUTOBOT public derivatives ticker research collection every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,15,30,45:00 UTC
+Persistent=true
+RandomizedDelaySec=60s
+AccuracySec=1min
+Unit=autobot-research-derivatives.service
+
+[Install]
+WantedBy=timers.target

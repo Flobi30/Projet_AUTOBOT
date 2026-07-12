@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import csv
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -218,6 +219,79 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.command == "collect-kraken-futures-derivatives"
     assert args.max_symbols == 2
     assert args.max_candles == 5
+
+
+def test_ticker_only_forward_collection_compacts_history_atomically_and_requires_meaningful_coverage(tmp_path):
+    canonical_dir = tmp_path / "canonical" / "derivatives"
+    _seed_forward_history(canonical_dir)
+
+    client = _FakeKrakenFuturesClient()
+    config = KrakenFuturesCollectorConfig(
+        run_id="ticker_only_first",
+        priority_assets=("BTC", "ETH"),
+        max_symbols=2,
+        raw_dir=tmp_path / "raw",
+        canonical_dir=canonical_dir,
+        manifest_dir=tmp_path / "manifests",
+        report_dir=tmp_path / "reports",
+        collect_funding=False,
+        collect_candles=False,
+        observed_at=datetime(2026, 7, 20, 1, 0, tzinfo=timezone.utc),
+    )
+    first = collect_kraken_futures_derivatives(config, client=client)
+
+    called_endpoints = [endpoint for endpoint, _params in client.calls]
+    assert HISTORICAL_FUNDING_ENDPOINT not in called_endpoints
+    assert not any(endpoint.startswith("/api/charts/v1/") for endpoint in called_endpoints)
+    assert first.open_interest_history_ready is True
+    assert first.basis_history_ready is True
+    assert first.open_interest_history_row_count >= 192
+    assert first.basis_history_row_count >= 192
+    assert Path(str(first.open_interest_history_path)).exists()
+    assert Path(str(first.basis_history_path)).exists()
+    assert not list(canonical_dir.rglob("*.tmp"))
+
+    second = collect_kraken_futures_derivatives(
+        replace(config, run_id="ticker_only_retry"),
+        client=_FakeKrakenFuturesClient(),
+    )
+    assert second.open_interest_history_row_count == first.open_interest_history_row_count
+    assert second.basis_history_row_count == first.basis_history_row_count
+
+
+def _seed_forward_history(canonical_dir: Path) -> None:
+    ticker_path = canonical_dir / "tickers" / "seed_history.csv"
+    basis_path = canonical_dir / "basis" / "seed_history.csv"
+    ticker_path.parent.mkdir(parents=True, exist_ok=True)
+    basis_path.parent.mkdir(parents=True, exist_ok=True)
+    start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    ticker_fields = ("exchange", "futures_symbol", "timestamp", "open_interest")
+    basis_fields = ("exchange", "futures_symbol", "timestamp", "calculation_method", "confidence_status")
+    with ticker_path.open("w", encoding="utf-8", newline="") as ticker_handle, basis_path.open("w", encoding="utf-8", newline="") as basis_handle:
+        ticker_writer = csv.DictWriter(ticker_handle, fieldnames=ticker_fields)
+        basis_writer = csv.DictWriter(basis_handle, fieldnames=basis_fields)
+        ticker_writer.writeheader()
+        basis_writer.writeheader()
+        for index in range(96):
+            timestamp = (start + timedelta(hours=index * 2)).isoformat()
+            for symbol in ("PF_XBTUSD", "PF_ETHUSD"):
+                ticker_writer.writerow(
+                    {
+                        "exchange": "kraken_futures",
+                        "futures_symbol": symbol,
+                        "timestamp": timestamp,
+                        "open_interest": "10",
+                    }
+                )
+                basis_writer.writerow(
+                    {
+                        "exchange": "kraken_futures",
+                        "futures_symbol": symbol,
+                        "timestamp": timestamp,
+                        "calculation_method": "mark_over_index_same_quote",
+                        "confidence_status": "MARK_INDEX_SAME_QUOTE",
+                    }
+                )
 
 
 def _ticker_payload() -> dict[str, Any]:

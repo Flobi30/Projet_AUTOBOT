@@ -14,6 +14,7 @@ import math
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,6 +39,11 @@ AUTOBOT_SPOT_SYMBOLS = {
 }
 TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3_600, "4h": 14_400, "1d": 86_400}
 DERIVATIVES_SCHEMA_VERSION = 2
+# A single current ticker is useful for monitoring, but it is not a history.
+# These conservative forward-collection requirements intentionally keep
+# funding/basis research blocked while the public ticker archive is young.
+FORWARD_HISTORY_MIN_COVERAGE_SECONDS = 7 * 24 * 60 * 60
+FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL = 96
 
 
 @dataclass(frozen=True)
@@ -133,6 +139,14 @@ class KrakenFuturesCollectionResult:
     basis_history_ready: bool
     basis_confidence_status: str
     derivatives_data_quality: str
+    basis_history_row_count: int = 0
+    basis_history_start: str | None = None
+    basis_history_end: str | None = None
+    basis_history_path: str | None = None
+    open_interest_history_row_count: int = 0
+    open_interest_history_start: str | None = None
+    open_interest_history_end: str | None = None
+    open_interest_history_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     paper_capital_allowed: bool = False
@@ -170,6 +184,14 @@ class KrakenFuturesCollectionResult:
             "basis_history_ready": self.basis_history_ready,
             "basis_confidence_status": self.basis_confidence_status,
             "derivatives_data_quality": self.derivatives_data_quality,
+            "basis_history_row_count": self.basis_history_row_count,
+            "basis_history_start": self.basis_history_start,
+            "basis_history_end": self.basis_history_end,
+            "basis_history_path": self.basis_history_path,
+            "open_interest_history_row_count": self.open_interest_history_row_count,
+            "open_interest_history_start": self.open_interest_history_start,
+            "open_interest_history_end": self.open_interest_history_end,
+            "open_interest_history_path": self.open_interest_history_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "paper_capital_allowed": self.paper_capital_allowed,
@@ -377,6 +399,43 @@ def collect_kraken_futures_derivatives(
         ),
     )
 
+    # The collector writes one immutable file per run.  Read the canonical
+    # archive after the current rows have been persisted so readiness reflects
+    # the accumulated forward history, never just the latest snapshot.
+    ticker_history_rows, ticker_history_path, _ticker_history_duplicates = _compact_canonical_history(
+        config.canonical_dir / "tickers",
+        history_filename="ticker_history.csv",
+        key_fields=("exchange", "futures_symbol", "timestamp"),
+        fieldnames=(
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status", "timestamp_source",
+            "exchange", "futures_symbol", "base_asset", "quote_asset", "mark_price", "index_price", "bid", "ask", "premium",
+            "current_funding_rate", "predicted_funding_rate", "next_funding_timestamp", "open_interest", "volume", "suspended", "post_only",
+            "source", "source_endpoint",
+        ),
+    )
+    basis_history_rows, basis_history_path, _basis_history_duplicates = _compact_canonical_history(
+        config.canonical_dir / "basis",
+        history_filename="basis_history.csv",
+        key_fields=("exchange", "futures_symbol", "timestamp", "calculation_method"),
+        fieldnames=(
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status", "exchange",
+            "futures_symbol", "base_asset", "quote_asset", "basis_bps", "mark_price", "index_or_reference_price",
+            "calculation_method", "confidence_status", "source", "source_endpoint",
+        ),
+    )
+    open_interest_history_rows = [
+        row
+        for row in ticker_history_rows
+        if _safe_float(row.get("open_interest")) is not None and _safe_float(row.get("open_interest")) >= 0.0
+    ]
+    valid_basis_history_rows = [
+        row
+        for row in basis_history_rows
+        if row.get("confidence_status") == "MARK_INDEX_SAME_QUOTE"
+    ]
+    open_interest_history_ready = _forward_history_ready(open_interest_history_rows, mappings)
+    basis_history_ready = _forward_history_ready(valid_basis_history_rows, mappings)
+
     datasets = (
         _dataset_summary("funding_rates", funding_rows, funding_dupes, _invalid_count(invalid_rows, "funding_rates"), funding_path, "historical_funding_ready" if funding_rows else "missing"),
         _dataset_summary("ticker_snapshots", ticker_rows, ticker_dupes, _invalid_count(invalid_rows, "ticker_snapshots"), ticker_path, "current_snapshot_ready" if ticker_rows else "missing"),
@@ -408,12 +467,20 @@ def collect_kraken_futures_derivatives(
         trade_candles_ready=any(row.get("tick_type") == "trade" for row in candle_rows),
         spot_reference_candles_ready=any(row.get("tick_type") == "spot" for row in candle_rows),
         current_open_interest_ready=any(_safe_float(row.get("open_interest")) is not None for row in ticker_rows),
-        open_interest_history_ready=_time_coverage_seconds(ticker_rows) >= 3600.0 and len(ticker_rows) >= 24,
+        open_interest_history_ready=open_interest_history_ready,
         predicted_funding_ready=any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_rows),
         basis_current_ready=bool(basis_rows),
-        basis_history_ready=_time_coverage_seconds(basis_rows) >= 3600.0 and len(basis_rows) >= 24,
+        basis_history_ready=basis_history_ready,
         basis_confidence_status=_aggregate_basis_confidence(basis_rows),
         derivatives_data_quality=_quality_label(funding_rows, ticker_rows, candle_rows, basis_rows),
+        basis_history_row_count=len(valid_basis_history_rows),
+        basis_history_start=_min_timestamp(valid_basis_history_rows),
+        basis_history_end=_max_timestamp(valid_basis_history_rows),
+        basis_history_path=str(basis_history_path),
+        open_interest_history_row_count=len(open_interest_history_rows),
+        open_interest_history_start=_min_timestamp(open_interest_history_rows),
+        open_interest_history_end=_max_timestamp(open_interest_history_rows),
+        open_interest_history_path=str(ticker_history_path),
     )
     return write_kraken_futures_derivatives_report(result, config)
 
@@ -564,7 +631,14 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
             f"- predicted_funding_ready: `{result.predicted_funding_ready}`",
             f"- basis_current_ready: `{result.basis_current_ready}`",
             f"- basis_history_ready: `{result.basis_history_ready}`",
+            f"- basis_history_rows: `{result.basis_history_row_count}`",
+            f"- basis_history_period: `{result.basis_history_start or '-'} -> {result.basis_history_end or '-'}`",
+            f"- basis_history_path: `{result.basis_history_path or '-'}`",
             f"- basis_confidence_status: `{result.basis_confidence_status}`",
+            f"- open_interest_history_rows: `{result.open_interest_history_row_count}`",
+            f"- open_interest_history_period: `{result.open_interest_history_start or '-'} -> {result.open_interest_history_end or '-'}`",
+            f"- open_interest_history_path: `{result.open_interest_history_path or '-'}`",
+            f"- forward_history_policy: `{FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL} observations per symbol across at least {FORWARD_HISTORY_MIN_COVERAGE_SECONDS // 86400} days`",
             f"- derivatives_data_quality: `{result.derivatives_data_quality}`",
             f"- errors: `{len(result.errors)}`",
             f"- raw_response_count: `{result.raw_response_count}`",
@@ -830,13 +904,68 @@ def _dedupe_rows(rows: Sequence[dict[str, Any]], key_fields: Sequence[str]) -> t
     return sorted(seen.values(), key=lambda item: tuple(str(item.get(field, "")) for field in key_fields)), duplicate_count
 
 
+def _compact_canonical_history(
+    dataset_dir: Path,
+    *,
+    history_filename: str,
+    key_fields: Sequence[str],
+    fieldnames: Sequence[str],
+) -> tuple[list[dict[str, Any]], Path, int]:
+    """Build one atomically-published, deduplicated forward-history dataset.
+
+    Per-run CSVs remain immutable audit artifacts.  The compacted history is
+    the only input used for readiness; it excludes itself to prevent a retry
+    or a previous compaction from multiplying observations.
+    """
+
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    run_paths = sorted(path for path in dataset_dir.glob("*.csv") if path.name != history_filename)
+    rows: list[dict[str, Any]] = []
+    for path in run_paths:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            rows.extend(dict(row) for row in csv.DictReader(handle) if row.get("timestamp"))
+    deduped_rows, duplicate_count = _dedupe_rows(rows, key_fields)
+    history_path = dataset_dir / history_filename
+    _write_csv(deduped_rows, history_path, fieldnames)
+    return deduped_rows, history_path, duplicate_count
+
+
+def _forward_history_ready(
+    rows: Sequence[Mapping[str, Any]],
+    mappings: Sequence[KrakenFuturesInstrumentMapping],
+) -> bool:
+    """Require meaningful coverage for every current mapping before unlocks.
+
+    This is a data-availability gate, deliberately not a strategy-validation
+    gate.  A later experiment still needs its own out-of-sample and cost
+    validation before it can become shadow eligible.
+    """
+
+    if not mappings:
+        return False
+    by_symbol: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        symbol = str(row.get("futures_symbol") or "")
+        if symbol:
+            by_symbol.setdefault(symbol, []).append(row)
+    for mapping in mappings:
+        symbol_rows = by_symbol.get(mapping.futures_symbol, [])
+        if len(symbol_rows) < FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL:
+            return False
+        if _time_coverage_seconds(symbol_rows) < FORWARD_HISTORY_MIN_COVERAGE_SECONDS:
+            return False
+    return True
+
+
 def _write_csv(rows: Sequence[Mapping[str, Any]], path: Path, fieldnames: Sequence[str]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
+    temporary_path = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    with temporary_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
+    temporary_path.replace(path)
     return path
 
 
