@@ -76,3 +76,21 @@ def test_manifested_experiment_cannot_relax_research_only_safety(tmp_path):
             cost_model={},
             environment={"live_allowed": True},
         )
+
+
+def test_manifested_experiment_fingerprint_changes_for_material_inputs_not_runner_identity(tmp_path):
+    common = {
+        "hypothesis_id": "long_trend",
+        "template_id": "regime_filtered_trend",
+        "thesis": "test thesis",
+        "code_commit": "abc123",
+        "feature_snapshot_manifest": _manifest(tmp_path),
+        "parameters": {"max_variants": 3, "symbols": ["BTCZEUR"]},
+        "seed": 7,
+        "cost_model": {"profile": "research_stress"},
+    }
+
+    first, _ = build_manifested_experiment_spec(**common, environment={"data_paths": ["canonical"]})
+    second, _ = build_manifested_experiment_spec(**common, environment={"data_paths": ["canonical"]})
+
+    assert first.experiment_id == second.experiment_id

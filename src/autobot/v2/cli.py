@@ -2050,8 +2050,6 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             code_commit=code_commit,
             feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
             parameters={
-                "runner_mode": args.mode,
-                "run_id": run_id,
                 "max_variants": args.max_variants,
                 "max_symbols": args.max_symbols,
                 "max_data_rows": args.max_data_rows,
