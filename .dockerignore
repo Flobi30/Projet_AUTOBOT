@@ -27,3 +27,18 @@ reports/research/relative_value_2026_06_22/*
 # Local assets and historical archives are not application source.
 *.zip
 *.tar.gz
+
+# Operational archives, backups and local tooling are mounted or managed
+# outside the application image. They can be large on the VPS and are never
+# copied by either Dockerfile.
+artifacts/
+backups/
+cleanup_archives/
+certs/
+logs/
+plans/
+skills/
+test-env/
+adaptive_grid_files/
+*.db
+*.log
