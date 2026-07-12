@@ -47,3 +47,34 @@ records it at ingestion; that prevents any false claim of full runtime parity.
 
 `GO` for a bounded VPS rebuild and feature-materialization smoke. The result
 is expected to remain research-only and non-promotable.
+
+## VPS evidence
+
+Validated on the VPS at code commit `e0852cf7f268385dcf4ec57f017a22dce6b1f62e`.
+
+- Canonical rebuild: `883,225` raw rows, `176,918` canonical rows, `706,307`
+  deterministic duplicates removed, `0` gaps and `0` quarantined rows.
+- Canonical snapshot: `ohlcv_v2_0ab59816b52c77c6`, covering 14 EUR spot
+  markets and 5m/15m/1h timeframes. Public Kraken metadata supplied 36
+  explicit market mappings.
+- Feature snapshot: `features_v1_efb1946a8298900e`, with `707,672` feature
+  values, `706,076` ready values, `1,596` expected warm-up values, `0` missing
+  values and deterministic parity confirmed.
+- Unknown source ingestion time remains an explicit blocker on all migrated
+  legacy rows. This bundle is valid research evidence, not proof of full
+  runtime point-in-time parity.
+- Storage used: approximately 69 MB canonical OHLCV and 209 MB features;
+  the VPS retained about 63 GB free before the feature materialization.
+- Local verification: 330 research tests and 67 targeted safety/integration
+  tests passed; source compilation and diff checks passed.
+- VPS: container healthy, WebSocket connected, 14 instances. All paper bridge,
+  legacy direct-entry, capital-reallocation, leverage, instance-split and live
+  promotion flags were false. No traceback, critical or live activity appeared
+  in the post-deployment logs.
+
+## Updated decision
+
+`GO` for the next research-only stage: use the versioned feature snapshot in
+the Alpha Lab and experiment registry. `REWORK` is still required before any
+claim of runtime/shadow parity because the historical source did not preserve
+its ingestion time. No promotion, paper capital or live activation is allowed.
