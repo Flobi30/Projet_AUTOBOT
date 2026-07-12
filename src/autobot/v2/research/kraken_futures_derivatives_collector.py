@@ -139,6 +139,10 @@ class KrakenFuturesCollectionResult:
     basis_history_ready: bool
     basis_confidence_status: str
     derivatives_data_quality: str
+    funding_history_row_count: int = 0
+    funding_history_path: str | None = None
+    derivatives_candle_history_row_count: int = 0
+    derivatives_candle_history_path: str | None = None
     basis_history_row_count: int = 0
     basis_history_start: str | None = None
     basis_history_end: str | None = None
@@ -184,6 +188,10 @@ class KrakenFuturesCollectionResult:
             "basis_history_ready": self.basis_history_ready,
             "basis_confidence_status": self.basis_confidence_status,
             "derivatives_data_quality": self.derivatives_data_quality,
+            "funding_history_row_count": self.funding_history_row_count,
+            "funding_history_path": self.funding_history_path,
+            "derivatives_candle_history_row_count": self.derivatives_candle_history_row_count,
+            "derivatives_candle_history_path": self.derivatives_candle_history_path,
             "basis_history_row_count": self.basis_history_row_count,
             "basis_history_start": self.basis_history_start,
             "basis_history_end": self.basis_history_end,
@@ -402,6 +410,27 @@ def collect_kraken_futures_derivatives(
     # The collector writes one immutable file per run.  Read the canonical
     # archive after the current rows have been persisted so readiness reflects
     # the accumulated forward history, never just the latest snapshot.
+    funding_history_rows, funding_history_path, _funding_history_duplicates = _load_or_compact_canonical_history(
+        config.canonical_dir / "funding",
+        history_filename="funding_history.csv",
+        key_fields=("exchange", "futures_symbol", "timestamp"),
+        fieldnames=(
+            "schema_version", "exchange", "futures_symbol", "base_asset", "timestamp", "event_time", "available_time",
+            "ingestion_time", "temporal_status", "funding_rate_absolute", "funding_rate_relative", "source", "source_endpoint",
+        ),
+        compact=config.collect_funding,
+    )
+    candle_history_rows, candle_history_path, _candle_history_duplicates = _load_or_compact_canonical_history(
+        config.canonical_dir / "candles",
+        history_filename="derivatives_candle_history.csv",
+        key_fields=("exchange", "futures_symbol", "tick_type", "timeframe", "timestamp"),
+        fieldnames=(
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "bar_close_time", "temporal_status",
+            "exchange", "futures_symbol", "base_asset", "quote_asset", "tick_type", "timeframe", "open", "high", "low", "close",
+            "volume", "source", "source_endpoint",
+        ),
+        compact=config.collect_candles,
+    )
     ticker_history_rows, ticker_history_path, _ticker_history_duplicates = _compact_canonical_history(
         config.canonical_dir / "tickers",
         history_filename="ticker_history.csv",
@@ -460,19 +489,23 @@ def collect_kraken_futures_derivatives(
         datasets=datasets,
         errors=tuple([*errors, *invalid_rows]),
         raw_response_count=raw_response_count,
-        funding_history_ready=bool(funding_rows),
-        funding_history_start=_min_timestamp(funding_rows),
-        funding_history_end=_max_timestamp(funding_rows),
-        mark_candles_ready=any(row.get("tick_type") == "mark" for row in candle_rows),
-        trade_candles_ready=any(row.get("tick_type") == "trade" for row in candle_rows),
-        spot_reference_candles_ready=any(row.get("tick_type") == "spot" for row in candle_rows),
+        funding_history_ready=bool(funding_history_rows),
+        funding_history_start=_min_timestamp(funding_history_rows),
+        funding_history_end=_max_timestamp(funding_history_rows),
+        mark_candles_ready=any(row.get("tick_type") == "mark" for row in candle_history_rows),
+        trade_candles_ready=any(row.get("tick_type") == "trade" for row in candle_history_rows),
+        spot_reference_candles_ready=any(row.get("tick_type") == "spot" for row in candle_history_rows),
         current_open_interest_ready=any(_safe_float(row.get("open_interest")) is not None for row in ticker_rows),
         open_interest_history_ready=open_interest_history_ready,
         predicted_funding_ready=any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_rows),
         basis_current_ready=bool(basis_rows),
         basis_history_ready=basis_history_ready,
         basis_confidence_status=_aggregate_basis_confidence(basis_rows),
-        derivatives_data_quality=_quality_label(funding_rows, ticker_rows, candle_rows, basis_rows),
+        derivatives_data_quality=_quality_label(funding_history_rows, ticker_rows, candle_history_rows, basis_rows),
+        funding_history_row_count=len(funding_history_rows),
+        funding_history_path=str(funding_history_path),
+        derivatives_candle_history_row_count=len(candle_history_rows),
+        derivatives_candle_history_path=str(candle_history_path),
         basis_history_row_count=len(valid_basis_history_rows),
         basis_history_start=_min_timestamp(valid_basis_history_rows),
         basis_history_end=_max_timestamp(valid_basis_history_rows),
@@ -623,9 +656,13 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
             f"- funding_history_ready: `{result.funding_history_ready}`",
             f"- funding_history_start: `{result.funding_history_start}`",
             f"- funding_history_end: `{result.funding_history_end}`",
+            f"- funding_history_rows: `{result.funding_history_row_count}`",
+            f"- funding_history_path: `{result.funding_history_path or '-'}`",
             f"- mark_candles_ready: `{result.mark_candles_ready}`",
             f"- trade_candles_ready: `{result.trade_candles_ready}`",
             f"- spot_reference_candles_ready: `{result.spot_reference_candles_ready}`",
+            f"- derivatives_candle_history_rows: `{result.derivatives_candle_history_row_count}`",
+            f"- derivatives_candle_history_path: `{result.derivatives_candle_history_path or '-'}`",
             f"- current_open_interest_ready: `{result.current_open_interest_ready}`",
             f"- open_interest_history_ready: `{result.open_interest_history_ready}`",
             f"- predicted_funding_ready: `{result.predicted_funding_ready}`",
@@ -927,6 +964,38 @@ def _compact_canonical_history(
     deduped_rows, duplicate_count = _dedupe_rows(rows, key_fields)
     history_path = dataset_dir / history_filename
     _write_csv(deduped_rows, history_path, fieldnames)
+    return deduped_rows, history_path, duplicate_count
+
+
+def _load_or_compact_canonical_history(
+    dataset_dir: Path,
+    *,
+    history_filename: str,
+    key_fields: Sequence[str],
+    fieldnames: Sequence[str],
+    compact: bool,
+) -> tuple[list[dict[str, Any]], Path, int]:
+    """Reuse an existing immutable-history compaction when a run skips it.
+
+    Ticker-only forward collection must not make previously backfilled funding
+    or candle capability disappear.  Recompacting those large datasets every
+    fifteen minutes would also waste CPU and disk I/O, so they are refreshed
+    only when their source is collected or when no compact history exists yet.
+    """
+
+    history_path = dataset_dir / history_filename
+    if compact or not history_path.exists():
+        return _compact_canonical_history(
+            dataset_dir,
+            history_filename=history_filename,
+            key_fields=key_fields,
+            fieldnames=fieldnames,
+        )
+    with history_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = [dict(row) for row in csv.DictReader(handle) if row.get("timestamp")]
+    deduped_rows, duplicate_count = _dedupe_rows(rows, key_fields)
+    if duplicate_count:
+        _write_csv(deduped_rows, history_path, fieldnames)
     return deduped_rows, history_path, duplicate_count
 
 

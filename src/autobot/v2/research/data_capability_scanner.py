@@ -572,7 +572,12 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
         if item.get("csv_path")
     ) + tuple(
         str(path)
-        for path in (manifest.get("basis_history_path"), manifest.get("open_interest_history_path"))
+        for path in (
+            manifest.get("funding_history_path"),
+            manifest.get("derivatives_candle_history_path"),
+            manifest.get("basis_history_path"),
+            manifest.get("open_interest_history_path"),
+        )
         if path
     )
     funding = datasets.get("funding_rates", {})
@@ -589,25 +594,29 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
         "funding_rates": DataCapability(
             capability_id="funding_rates",
             available=funding_available,
-            source_paths=tuple(path for path in (funding.get("csv_path"), manifest.get("manifest_path")) if path),
+            source_paths=tuple(path for path in (manifest.get("funding_history_path"), funding.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
-            start_at=funding.get("start_at"),
-            end_at=funding.get("end_at"),
-            row_count=int(funding.get("row_count") or 0),
+            start_at=manifest.get("funding_history_start") or funding.get("start_at"),
+            end_at=manifest.get("funding_history_end") or funding.get("end_at"),
+            row_count=int(manifest.get("funding_history_row_count") or funding.get("row_count") or 0),
             duplicate_count=int(funding.get("duplicate_count") or 0),
-            storage_size_bytes=int(funding.get("storage_size_bytes") or 0),
+            storage_size_bytes=_storage_size(tuple(Path(path) for path in (manifest.get("funding_history_path"), funding.get("csv_path")) if path)),
             freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
             quality_status="historical_funding_ready" if funding_available else "missing",
             alpha_families_unlocked=ALPHA_UNLOCKS["funding_rates"] if funding_available else (),
             blockers=() if funding_available else ("funding_rates_missing",),
             proxy_status="not_proxy",
-            notes=("kraken_futures_historical_funding_rates", f"snapshot_id={manifest.get('snapshot_id')}"),
+            notes=(
+                "kraken_futures_historical_funding_rates",
+                f"history_rows={manifest.get('funding_history_row_count') or funding.get('row_count') or 0}",
+                f"snapshot_id={manifest.get('snapshot_id')}",
+            ),
         ),
         "futures_perp_prices": DataCapability(
             capability_id="futures_perp_prices",
             available=perp_available,
-            source_paths=tuple(path for path in (tickers.get("csv_path"), candles.get("csv_path"), manifest.get("manifest_path")) if path),
+            source_paths=tuple(path for path in (tickers.get("csv_path"), manifest.get("derivatives_candle_history_path"), candles.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
             timeframes=("current", "1m") if perp_available else (),
@@ -615,7 +624,13 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             end_at=max(item for item in (tickers.get("end_at"), candles.get("end_at")) if item) if any((tickers.get("end_at"), candles.get("end_at"))) else None,
             row_count=int(tickers.get("row_count") or 0) + int(candles.get("row_count") or 0),
             duplicate_count=int(tickers.get("duplicate_count") or 0) + int(candles.get("duplicate_count") or 0),
-            storage_size_bytes=int(tickers.get("storage_size_bytes") or 0) + int(candles.get("storage_size_bytes") or 0),
+            storage_size_bytes=_storage_size(
+                tuple(
+                    Path(path)
+                    for path in (tickers.get("csv_path"), manifest.get("derivatives_candle_history_path"), candles.get("csv_path"))
+                    if path
+                )
+            ),
             freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
             quality_status="kraken_futures_perp_prices_ready" if perp_available else "missing",
             alpha_families_unlocked=ALPHA_UNLOCKS["futures_perp_prices"] if perp_available else (),

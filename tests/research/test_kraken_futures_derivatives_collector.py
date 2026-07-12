@@ -221,6 +221,43 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.max_candles == 5
 
 
+def test_ticker_only_run_preserves_backfilled_funding_and_candle_capabilities(tmp_path):
+    initial = KrakenFuturesCollectorConfig(
+        run_id="full_backfill",
+        priority_assets=("BTC", "ETH"),
+        max_symbols=2,
+        max_candles=2,
+        raw_dir=tmp_path / "raw",
+        canonical_dir=tmp_path / "canonical",
+        manifest_dir=tmp_path / "manifests",
+        report_dir=tmp_path / "reports",
+        observed_at=datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc),
+    )
+    full = collect_kraken_futures_derivatives(initial, client=_FakeKrakenFuturesClient())
+    ticker_only = collect_kraken_futures_derivatives(
+        replace(initial, run_id="ticker_only", collect_funding=False, collect_candles=False),
+        client=_FakeKrakenFuturesClient(),
+    )
+
+    assert full.funding_history_ready is True
+    assert ticker_only.funding_history_ready is True
+    assert ticker_only.funding_history_row_count == full.funding_history_row_count
+    assert ticker_only.mark_candles_ready is True
+    assert ticker_only.trade_candles_ready is True
+    assert ticker_only.spot_reference_candles_ready is True
+    assert Path(str(ticker_only.funding_history_path)).exists()
+    assert Path(str(ticker_only.derivatives_candle_history_path)).exists()
+
+    scan = build_data_capability_scan_report(
+        run_id="ticker_only_preserves_capabilities",
+        data_roots=(tmp_path,),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    funding = next(item for item in scan.capabilities if item.capability_id == "funding_rates")
+    assert funding.available is True
+    assert funding.row_count == full.funding_history_row_count
+
+
 def test_ticker_only_forward_collection_compacts_history_atomically_and_requires_meaningful_coverage(tmp_path):
     canonical_dir = tmp_path / "canonical" / "derivatives"
     _seed_forward_history(canonical_dir)
