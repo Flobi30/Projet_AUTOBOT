@@ -105,3 +105,33 @@ def test_feature_registry_rejects_naive_temporal_rows():
             source_snapshot_id="bad-time",
             feature_ids=("return_1_bps",),
         )
+
+
+def test_feature_registry_uses_bounded_history_for_monotonic_canonical_rows():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = []
+    for index in range(2_000):
+        event_time = start + timedelta(minutes=5 * index)
+        rows.append(
+            {
+                "event_time": event_time.isoformat(),
+                "available_time": (event_time + timedelta(minutes=5)).isoformat(),
+                "open": "100",
+                "high": "102",
+                "low": "99",
+                "close": str(100 + index),
+                "volume": "100",
+            }
+        )
+
+    values = default_feature_registry().compute_series(
+        rows=rows,
+        market=_market(),
+        timeframe="5m",
+        source_snapshot_id="long-canonical-snapshot",
+        feature_ids=("momentum_3_bps", "atr_14_bps"),
+    )
+
+    assert len(values) == 4_000
+    assert values[-1].status == READY
+    assert float(values[-2].value) == pytest.approx(((2099 / 2096) - 1.0) * 10_000.0)

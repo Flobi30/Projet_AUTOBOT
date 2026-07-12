@@ -22,6 +22,10 @@ to rely on canonical features. It remains batch-only and research-only.
 - Batch CLI reports default to `data/research/reports/`, which is writable by
   the locked-down container. Versioned project reports stay separate under
   `reports/program/`.
+- Monotonic canonical series use only the maximum declared feature lookback;
+  delayed or out-of-order input retains the stricter general point-in-time
+  filter. This keeps a full historical materialization bounded without
+  weakening temporal checks.
 
 ## Safety invariants
 

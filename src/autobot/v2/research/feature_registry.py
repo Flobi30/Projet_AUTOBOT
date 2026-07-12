@@ -121,14 +121,24 @@ class FeatureRegistry:
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
         values: list[FeatureValue] = []
-        for target in normalized:
+        # Canonical OHLCV is ordered by both event and availability time.  In
+        # that ordinary case a target can only observe a bounded prefix, so
+        # retain only the largest required feature window.  The fallback keeps
+        # the stricter general rule for delayed/out-of-order data rather than
+        # silently assuming temporal monotonicity.
+        monotonic_event_time = _event_times_are_monotonic(normalized)
+        max_lookback = max((definition.lookback for definition in definitions), default=1)
+        for index, target in enumerate(normalized):
             if cutoff and target["available_time"] > cutoff:
                 continue
-            observed = [
-                row
-                for row in normalized
-                if row["event_time"] <= target["event_time"] and row["available_time"] <= target["available_time"]
-            ]
+            if monotonic_event_time:
+                observed = normalized[max(0, index - max_lookback) : index + 1]
+            else:
+                observed = [
+                    row
+                    for row in normalized
+                    if row["event_time"] <= target["event_time"] and row["available_time"] <= target["available_time"]
+                ]
             for definition in definitions:
                 values.append(
                     _compute_feature(
@@ -314,6 +324,13 @@ def _normalize_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             raise ValueError("feature row available_time cannot precede event_time")
         normalized.append({**dict(row), "event_time": event_time, "available_time": available_time})
     return sorted(normalized, key=lambda item: (item["available_time"], item["event_time"], json.dumps(item, default=str, sort_keys=True)))
+
+
+def _event_times_are_monotonic(rows: Sequence[Mapping[str, Any]]) -> bool:
+    return all(
+        rows[index - 1]["event_time"] <= rows[index]["event_time"]
+        for index in range(1, len(rows))
+    )
 
 
 def _row_time(row: Mapping[str, Any], key: str, *, fallback: str) -> datetime | None:
