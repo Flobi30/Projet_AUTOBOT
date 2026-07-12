@@ -311,6 +311,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional verified feature snapshot manifest. When supplied, runner evidence is appended to the experiment registry.",
     )
+    alpha_hypothesis_runner.add_argument(
+        "--derivatives-feature-snapshot-manifest",
+        default=None,
+        help="Optional verified DERIVATIVES_POINT_IN_TIME snapshot; it is bound materially to manifested experiment evidence.",
+    )
     alpha_hypothesis_runner.add_argument("--experiment-registry", default="data/research/experiment_registry.sqlite3")
     alpha_hypothesis_runner.add_argument("--experiment-seed", type=int, default=0)
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
@@ -401,6 +406,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated registered feature IDs. Defaults to the canonical OHLCV library.",
     )
     materialize_features.set_defaults(handler=_cmd_materialize_feature_snapshot)
+
+    materialize_derivatives_features = subparsers.add_parser(
+        "materialize-derivatives-feature-snapshot",
+        help="Materialize a point-in-time, research-only feature bundle from canonical derivatives histories",
+    )
+    materialize_derivatives_features.add_argument("--run-id", default=None)
+    materialize_derivatives_features.add_argument("--derivatives-manifest", required=True)
+    materialize_derivatives_features.add_argument("--as-of-time", required=True, help="UTC ISO-8601 cutoff; future or unavailable rows are excluded")
+    materialize_derivatives_features.add_argument("--output-dir", default="data/research/canonical/derivatives_features")
+    materialize_derivatives_features.add_argument("--manifest-dir", default="data/research/manifests")
+    materialize_derivatives_features.add_argument("--report-dir", default="data/research/reports/derivatives_features")
+    materialize_derivatives_features.add_argument(
+        "--feature-ids",
+        default="funding_rate_relative,basis_bps,open_interest_change_24_pct",
+        help="Comma-separated registered derivatives feature IDs.",
+    )
+    materialize_derivatives_features.set_defaults(handler=_cmd_materialize_derivatives_feature_snapshot)
 
     upgrade_feature_manifest = subparsers.add_parser(
         "upgrade-feature-snapshot-manifest",
@@ -2049,6 +2071,11 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             thesis=str(hypothesis["thesis"]),
             code_commit=code_commit,
             feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
+            derivatives_snapshot_manifest=(
+                Path(args.derivatives_feature_snapshot_manifest)
+                if args.derivatives_feature_snapshot_manifest
+                else None
+            ),
             parameters={
                 "max_variants": args.max_variants,
                 "max_symbols": args.max_symbols,
@@ -2069,6 +2096,11 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             "path": str(Path(args.experiment_registry)),
             "state": state.to_dict(),
             "feature_snapshot": provenance.to_dict(),
+            "derivatives_feature_snapshot": (
+                dict(spec.environment["derivatives_snapshot"])
+                if spec.environment.get("derivatives_snapshot")
+                else None
+            ),
             "research_only": True,
             "paper_capital_allowed": False,
             "live_allowed": False,
@@ -2219,6 +2251,29 @@ def _cmd_materialize_feature_snapshot(args: argparse.Namespace) -> int:
         )
     )
     json_path, markdown_path = write_canonical_feature_snapshot_report(snapshot, Path(args.report_dir))
+    _print_json({**snapshot.to_dict(), "json_report_path": str(json_path), "markdown_report_path": str(markdown_path)})
+    return 0
+
+
+def _cmd_materialize_derivatives_feature_snapshot(args: argparse.Namespace) -> int:
+    from autobot.v2.research.derivatives_feature_snapshot import (
+        DerivativesFeatureSnapshotConfig,
+        build_derivatives_feature_snapshot,
+        write_derivatives_feature_snapshot_report,
+    )
+
+    run_id = args.run_id or f"derivatives_features_{date.today().strftime('%Y%m%d')}"
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id=run_id,
+            derivatives_manifest_path=Path(args.derivatives_manifest),
+            as_of_time=_parse_datetime(args.as_of_time),
+            output_dir=Path(args.output_dir),
+            manifest_dir=Path(args.manifest_dir),
+            feature_ids=_csv_tuple(args.feature_ids, "--feature-ids"),
+        )
+    )
+    json_path, markdown_path = write_derivatives_feature_snapshot_report(snapshot, Path(args.report_dir))
     _print_json({**snapshot.to_dict(), "json_report_path": str(json_path), "markdown_report_path": str(markdown_path)})
     return 0
 

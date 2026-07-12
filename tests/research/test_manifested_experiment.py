@@ -48,6 +48,7 @@ def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_pat
     assert spec.data_snapshot_id == "ohlcv_v2_test"
     assert spec.feature_versions == {"momentum_3_bps": "1.0.0"}
     assert spec.environment["feature_snapshot"]["feature_snapshot_id"] == "features_v1_test"
+    assert "manifest_path" not in spec.environment["feature_snapshot"]
     assert spec.environment["runtime_parity_proven"] is False
     assert provenance.runtime_parity_proven is False
 
