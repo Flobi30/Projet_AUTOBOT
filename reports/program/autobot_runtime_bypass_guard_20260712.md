@@ -12,6 +12,8 @@
   state is evaluated.
 - Dynamic paper-capital reallocation is disabled by default; tests which study
   it must opt in explicitly.
+- Docker Compose now enforces these entry/capital/leverage invariants so an
+  older value retained in the VPS `.env` cannot reactivate them.
 - Both paths now require explicit opt-in flags and remain outside the approved
   route until migrated through portfolio, independent risk, and OMS contracts.
 

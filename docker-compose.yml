@@ -34,6 +34,17 @@ services:
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
       - PAPER_TRADING=${PAPER_TRADING:-true}
       - LIVE_TRADING_CONFIRMATION=${LIVE_TRADING_CONFIRMATION:-false}
+      # Programme research/shadow : ces garde-fous doivent primer sur les
+      # anciennes valeurs éventuellement conservées dans .env.
+      - PAPER_EXECUTION_ADAPTER_ENABLED=false
+      - PAPER_DYNAMIC_CAPITAL_REBALANCE_ENABLED=false
+      - AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED=false
+      - AUTOBOT_LEGACY_POSITION_ADD_ENABLED=false
+      - AUTOBOT_LEGACY_LEVERAGE_ACTIVATION_ENABLED=false
+      - ENABLE_INSTANCE_SPLIT_EXECUTOR=false
+      - COLONY_AUTO_SCALE_PAPER_CHILDREN=false
+      - COLONY_AUTO_LIVE_PROMOTION=false
+      - STRATEGY_ROUTER_LIVE_ENABLED=false
       - API_KEY_ASSIGNMENT_MODE=${API_KEY_ASSIGNMENT_MODE:-dedicated}
       - ALLOW_SHARED_API_KEY=${ALLOW_SHARED_API_KEY:-false}
       - UNIQUE_BOT_ID=${UNIQUE_BOT_ID:-}
