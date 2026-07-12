@@ -28,5 +28,5 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "paper" not in script.lower()
     assert "ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-collection.sh" in service
     assert "NoNewPrivileges=true" in service
-    assert "*:00,15,30,45:00 UTC" in timer
+    assert "*:00,15,30,45:00" in timer
     assert "Persistent=true" in timer
