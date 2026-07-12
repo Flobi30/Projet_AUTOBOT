@@ -600,6 +600,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
                 family=family,
                 hypothesis_id=hypothesis_id,
                 data=readiness,
+                derivatives_family_status=capability_scan.alpha_family_status,
                 adapter_status=adapter_readiness.get(str(template["template_id"]), "ADAPTER_MISSING"),
                 memory=memory,
                 family_trial_count=family_counts.get(family_id, 0),
@@ -616,6 +617,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         candidates=ranked,
         memory=memory,
         data=readiness,
+        derivatives_family_status=capability_scan.alpha_family_status,
     )
     top_adapter = next((item for item in adapter_backlog if item.priority_score > 0), None)
     return AlphaSchedulerReport(
@@ -1091,6 +1093,7 @@ def _build_adapter_backlog(
     candidates: Sequence[ScheduledHypothesis],
     memory: AlphaResearchMemory,
     data: DataReadiness,
+    derivatives_family_status: Mapping[str, Mapping[str, Any]],
 ) -> tuple[AdapterBacklogItem, ...]:
     candidate_by_template = {item.template_id: item for item in candidates}
     family_counts = memory.trial_count_by_family()
@@ -1106,7 +1109,15 @@ def _build_adapter_backlog(
         family = families.get(family_id, {})
         candidate = candidate_by_template.get(template_id)
         required_data = set(str(item) for item in template.get("signal_inputs", ())) | set(str(item) for item in family.get("required_data", ()))
-        missing = tuple(_missing_data_reasons(required_data, data, family))
+        hypothesis_id = FAMILY_TO_HYPOTHESIS.get(family_id, family_id)
+        missing = tuple(
+            _missing_data_reasons(
+                required_data,
+                data,
+                family,
+                derivatives_status=derivatives_family_status.get(hypothesis_id),
+            )
+        )
         hypotheses_blocked = tuple(sorted(_hypotheses_for_template(family_id, template_id)))
         rejected_blockers = tuple(
             f"rejected_current_config:{hypothesis}"
@@ -1197,6 +1208,7 @@ def _schedule_template(
     family: Mapping[str, Any],
     hypothesis_id: str,
     data: DataReadiness,
+    derivatives_family_status: Mapping[str, Mapping[str, Any]],
     adapter_status: str,
     memory: AlphaResearchMemory,
     family_trial_count: int,
@@ -1208,7 +1220,12 @@ def _schedule_template(
     blockers: list[str] = []
     warnings: list[str] = []
     required_data = set(str(item) for item in template.get("signal_inputs", ())) | set(str(item) for item in family.get("required_data", ()))
-    missing = _missing_data_reasons(required_data, data, family)
+    missing = _missing_data_reasons(
+        required_data,
+        data,
+        family,
+        derivatives_status=derivatives_family_status.get(hypothesis_id),
+    )
     blockers.extend(missing)
     if adapter_status != "READY":
         blockers.append("adapter_missing")
@@ -1225,6 +1242,8 @@ def _schedule_template(
 
     if "rejected_current_config_requires_new_data" in blockers:
         status = "REJECTED_CURRENT_CONFIG"
+    elif "derivatives_waiting_for_more_data" in blockers:
+        status = "WAITING_FOR_MORE_DATA"
     elif any(
         (item.endswith("_missing") or item.startswith("missing_")) and item != "adapter_missing"
         for item in blockers
@@ -1466,10 +1485,20 @@ def _candidate_missing_family(template: Mapping[str, Any], data: DataReadiness) 
     )
 
 
-def _missing_data_reasons(required_data: set[str], data: DataReadiness, family: Mapping[str, Any]) -> list[str]:
+def _missing_data_reasons(
+    required_data: set[str],
+    data: DataReadiness,
+    family: Mapping[str, Any],
+    *,
+    derivatives_status: Mapping[str, Any] | None = None,
+) -> list[str]:
     missing: list[str] = []
     if required_data & DERIVATIVES_DATA or bool(family.get("requires_derivatives_data")):
-        missing.append("derivatives_data_missing")
+        status = str((derivatives_status or {}).get("status") or "").upper()
+        if status == "WAITING_FOR_MORE_DATA":
+            missing.append("derivatives_waiting_for_more_data")
+        elif status not in {"DATA_AVAILABLE_RESEARCH_ONLY", "READY_FOR_ADAPTER"}:
+            missing.append("derivatives_data_missing")
     if required_data & ORDERBOOK_DATA or bool(family.get("requires_orderbook_data")):
         missing.append("orderbook_data_missing")
     if required_data & NEWS_DATA or bool(family.get("requires_news_data")):

@@ -41,6 +41,87 @@ def test_alpha_runner_reads_registry_and_policy_and_stops_missing_data(tmp_path)
     assert all(gate["safety"]["paper_capital_allowed"] is False for gate in payload["gates"])
 
 
+def test_funding_basis_data_check_reports_waiting_derivatives_snapshot_without_rejecting_the_thesis(tmp_path):
+    spot_manifest = _feature_manifest(tmp_path / "spot.json")
+    derivatives_manifest = _feature_manifest(
+        tmp_path / "derivatives.json",
+        snapshot_kind="DERIVATIVES_POINT_IN_TIME",
+        status="WAITING_FOR_MORE_DATA",
+        feature_ids=["funding_rate_relative", "basis_bps", "open_interest_change_24_pct"],
+        blockers=["BASIS_HISTORY_WAITING", "OPEN_INTEREST_HISTORY_WAITING"],
+        basis_contract={
+            "same_quote_required": True,
+            "accepted_confidence_status": "MARK_INDEX_SAME_QUOTE",
+            "implicit_usd_eur_conversion_allowed": False,
+        },
+    )
+
+    report = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_funding_waiting",
+            hypothesis_id="funding_basis",
+            mode="data_check",
+            feature_snapshot_manifest=spot_manifest,
+            derivatives_feature_snapshot_manifest=derivatives_manifest,
+        ),
+        commit="test",
+    )
+
+    gate = report.gates[0]
+    assert report.final_status == "INSUFFICIENT_DATA"
+    assert gate.gate == "DATA_CHECK"
+    assert "derivatives_waiting_for_more_data" in gate.reasons
+    assert "BASIS_HISTORY_WAITING" in gate.reasons
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
+    assert report.promotable is False
+
+
+def test_funding_basis_ready_inputs_reach_data_gate_but_stop_before_missing_adapter(tmp_path):
+    spot_manifest = _feature_manifest(tmp_path / "spot.json")
+    derivatives_manifest = _feature_manifest(
+        tmp_path / "derivatives.json",
+        snapshot_kind="DERIVATIVES_POINT_IN_TIME",
+        feature_ids=["funding_rate_relative", "basis_bps"],
+        feature_versions={"funding_rate_relative": "1.0.0", "basis_bps": "1.0.0"},
+        basis_contract={
+            "same_quote_required": True,
+            "accepted_confidence_status": "MARK_INDEX_SAME_QUOTE",
+            "implicit_usd_eur_conversion_allowed": False,
+        },
+    )
+
+    data_check = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_funding_ready_data_check",
+            hypothesis_id="funding_basis",
+            mode="data_check",
+            feature_snapshot_manifest=spot_manifest,
+            derivatives_feature_snapshot_manifest=derivatives_manifest,
+        ),
+        commit="test",
+    )
+    smoke = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_funding_ready_smoke",
+            hypothesis_id="funding_basis",
+            mode="smoke",
+            feature_snapshot_manifest=spot_manifest,
+            derivatives_feature_snapshot_manifest=derivatives_manifest,
+        ),
+        commit="test",
+    )
+
+    assert data_check.gates[0].passed is True
+    assert data_check.final_decision == "NEXT_STAGE_AVAILABLE"
+    assert [gate.gate for gate in smoke.gates] == ["DATA_CHECK", "FAST_NET_EDGE_TEST"]
+    assert smoke.final_status == "INSUFFICIENT_DATA"
+    assert "funding_basis_adapter_not_implemented" in smoke.gates[-1].reasons
+    assert smoke.paper_capital_allowed is False
+    assert smoke.live_allowed is False
+    assert smoke.promotable is False
+
+
 def test_alpha_runner_smoke_alias_advances_auto_allowed_without_walk_forward(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     report = build_alpha_hypothesis_runner_report(
@@ -167,6 +248,30 @@ def _write_ohlcv(tmp_path: Path, *, falling: bool = False) -> Path:
         _write_rows(data_dir / f"{symbol}_15m.csv", symbol, "15m", start, 600, timedelta(minutes=15), falling=falling)
         _write_rows(data_dir / f"{symbol}_5m.csv", symbol, "5m", start, 1800, timedelta(minutes=5), falling=falling)
     return data_dir
+
+
+def _feature_manifest(path: Path, **overrides: object) -> Path:
+    payload: dict[str, object] = {
+        "status": "READY",
+        "parity_ok": True,
+        "feature_count": 2,
+        "feature_snapshot_id": "features_test",
+        "fingerprint": "feature-fingerprint",
+        "source_snapshot_id": "source-test",
+        "source_snapshot_fingerprint": "source-fingerprint",
+        "feature_registry_fingerprint": "registry-fingerprint",
+        "feature_versions": {"return_1_bps": "1.0.0"},
+        "feature_ids": ["return_1_bps"],
+        "ingestion_time_unknown_count": 0,
+        "runtime_parity_proven": True,
+        "paper_capital_allowed": False,
+        "live_allowed": False,
+        "promotable": False,
+    }
+    payload.update(overrides)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def _write_rows(path: Path, symbol: str, timeframe: str, start: datetime, count: int, step: timedelta, *, falling: bool) -> None:

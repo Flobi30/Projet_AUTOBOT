@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -160,6 +161,42 @@ def test_scheduler_marks_generic_cross_sectional_adapter_ready_when_data_exists(
     assert candidates["leader_laggard_momentum"].adapter_ready is True
     assert "adapter_missing" not in candidates["leader_laggard_momentum"].blockers
     assert "--template-id leader_laggard_momentum" in str(candidates["leader_laggard_momentum"].recommended_command)
+
+
+def test_scheduler_reports_derivatives_waiting_instead_of_generic_data_missing(tmp_path, monkeypatch):
+    data_dir = _write_ohlcv(tmp_path)
+    capability_scan = SimpleNamespace(
+        capabilities=(),
+        alpha_family_status={
+            "funding_basis": {
+                "status": "WAITING_FOR_MORE_DATA",
+                "blockers": ("basis_history_too_short",),
+            }
+        },
+        rejected_family_status={},
+        scheduler_data_state={},
+        scheduler_notes=(),
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_scheduler.build_data_capability_scan_report",
+        lambda **_kwargs: capability_scan,
+    )
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_derivatives_waiting",
+            state_db=None,
+            data_paths=(data_dir,),
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    candidate = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
+    assert candidate.status == "WAITING_FOR_MORE_DATA"
+    assert "derivatives_waiting_for_more_data" in candidate.blockers
+    assert candidate.next_action == "wait_for_more_data"
+    assert candidate.recommended_command is None
+    assert candidate.adapter_ready is False
 
 
 def test_cross_sectional_template_rejection_is_recorded_without_blocking_family(tmp_path):

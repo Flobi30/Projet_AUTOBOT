@@ -54,7 +54,8 @@ SMOKE_ADAPTER_IDS = {
     "long_trend": "long_timeframe_adaptive_trend",
     "cross_momentum": GENERIC_CROSS_SECTIONAL_ADAPTER_ID,
 }
-MISSING_DATA_IDS = {"funding_basis", "liquidation_cascade"}
+MISSING_DATA_IDS = {"liquidation_cascade"}
+FUNDING_BASIS_REQUIRED_DERIVATIVES_FEATURES = {"funding_rate_relative", "basis_bps"}
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,8 @@ class AlphaHypothesisRunnerConfig:
     max_variants: int = 5
     max_symbols: int = 6
     max_data_rows: int = 250_000
+    feature_snapshot_manifest: Path | None = None
+    derivatives_feature_snapshot_manifest: Path | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -355,6 +358,8 @@ def _data_check(
     started: float,
 ) -> AlphaGateResult:
     hypothesis_id = str(hypothesis["id"])
+    if hypothesis_id == "funding_basis":
+        return _funding_basis_data_check(config, policy, started)
     if hypothesis_id in MISSING_DATA_IDS:
         return _gate(
             "DATA_CHECK",
@@ -434,6 +439,138 @@ def _data_check(
     )
 
 
+def _funding_basis_data_check(
+    config: AlphaHypothesisRunnerConfig,
+    policy: Mapping[str, Any],
+    started: float,
+) -> AlphaGateResult:
+    """Gate funding/basis research on explicit, immutable input manifests.
+
+    This validates only research input readiness.  It deliberately does not
+    create a signal, trade, shadow write, paper order, or promotion path; the
+    alpha adapter remains a separate future deliverable.
+    """
+
+    if config.feature_snapshot_manifest is None:
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            ["spot_feature_snapshot_manifest_missing"],
+            policy,
+            started,
+        )
+    if config.derivatives_feature_snapshot_manifest is None:
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            ["derivatives_feature_snapshot_manifest_missing"],
+            policy,
+            started,
+        )
+
+    from .derivatives_feature_snapshot import (
+        DerivativesFeatureSnapshotManifestError,
+        inspect_derivatives_feature_snapshot_manifest,
+    )
+    from .manifested_experiment import ManifestedExperimentError, load_feature_snapshot_provenance
+
+    try:
+        spot = load_feature_snapshot_provenance(config.feature_snapshot_manifest)
+    except ManifestedExperimentError as exc:
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            [f"spot_feature_snapshot_invalid:{exc}"],
+            policy,
+            started,
+        )
+    if spot.snapshot_kind == "DERIVATIVES_POINT_IN_TIME":
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            ["spot_feature_snapshot_kind_invalid"],
+            policy,
+            started,
+        )
+    try:
+        derivatives = inspect_derivatives_feature_snapshot_manifest(
+            config.derivatives_feature_snapshot_manifest
+        )
+    except DerivativesFeatureSnapshotManifestError as exc:
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            [f"derivatives_feature_snapshot_invalid:{exc}"],
+            policy,
+            started,
+        )
+
+    metrics = {
+        "spot_feature_snapshot_id": spot.feature_snapshot_id,
+        "spot_runtime_parity_proven": spot.runtime_parity_proven,
+        **derivatives.to_dict(),
+        "required_derivatives_features": sorted(FUNDING_BASIS_REQUIRED_DERIVATIVES_FEATURES),
+    }
+    if derivatives.status == "WAITING_FOR_MORE_DATA":
+        return _gate(
+            "DATA_CHECK",
+            "INSUFFICIENT_DATA",
+            False,
+            True,
+            ["derivatives_waiting_for_more_data", *derivatives.blockers],
+            policy,
+            started,
+            metrics=metrics,
+        )
+    if derivatives.status != "READY":
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            ["derivatives_feature_snapshot_not_ready", *derivatives.blockers],
+            policy,
+            started,
+            metrics=metrics,
+        )
+    missing_features = sorted(FUNDING_BASIS_REQUIRED_DERIVATIVES_FEATURES - set(derivatives.feature_ids))
+    if missing_features or derivatives.feature_count <= 0 or not derivatives.parity_ok:
+        reasons = ["derivatives_feature_requirements_not_met", *derivatives.blockers]
+        reasons.extend(f"derivatives_feature_missing:{feature_id}" for feature_id in missing_features)
+        if not derivatives.parity_ok:
+            reasons.append("derivatives_feature_parity_failed")
+        return _gate(
+            "DATA_CHECK",
+            "DATA_MISSING",
+            False,
+            True,
+            reasons,
+            policy,
+            started,
+            metrics=metrics,
+        )
+    return _gate(
+        "DATA_CHECK",
+        "KEEP_RESEARCH",
+        True,
+        False,
+        ["funding_basis_research_inputs_ready", "adapter_still_required_before_smoke"],
+        policy,
+        started,
+        metrics=metrics,
+    )
+
+
 def _fast_net_edge_test(
     config: AlphaHypothesisRunnerConfig,
     hypothesis_id: str,
@@ -441,6 +578,16 @@ def _fast_net_edge_test(
     started: float,
     commit: str | None,
 ) -> AlphaGateResult:
+    if hypothesis_id == "funding_basis":
+        return _gate(
+            "FAST_NET_EDGE_TEST",
+            "INSUFFICIENT_DATA",
+            False,
+            True,
+            ["funding_basis_adapter_not_implemented"],
+            policy,
+            started,
+        )
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     if not adapter_id:
         return _gate("FAST_NET_EDGE_TEST", "REJECT_FAST", False, True, ["fast_adapter_missing"], policy, started)

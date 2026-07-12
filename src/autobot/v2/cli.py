@@ -2039,6 +2039,14 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 max_variants=args.max_variants,
                 max_symbols=args.max_symbols,
                 max_data_rows=args.max_data_rows,
+                feature_snapshot_manifest=(
+                    Path(args.feature_snapshot_manifest) if args.feature_snapshot_manifest else None
+                ),
+                derivatives_feature_snapshot_manifest=(
+                    Path(args.derivatives_feature_snapshot_manifest)
+                    if args.derivatives_feature_snapshot_manifest
+                    else None
+                ),
             ),
             commit=args.commit,
         ),
@@ -2057,6 +2065,26 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
     if args.feature_snapshot_manifest:
         if template is None:
             raise ValueError("a registered strategy template is required for manifested experiment evidence")
+        if args.derivatives_feature_snapshot_manifest:
+            from autobot.v2.research.derivatives_feature_snapshot import (
+                inspect_derivatives_feature_snapshot_manifest,
+            )
+
+            derivatives_availability = inspect_derivatives_feature_snapshot_manifest(
+                Path(args.derivatives_feature_snapshot_manifest)
+            )
+            if derivatives_availability.status != "READY":
+                payload["experiment_registry"] = {
+                    "recorded": False,
+                    "reason": "derivatives_feature_snapshot_not_ready_for_material_experiment",
+                    "derivatives_feature_snapshot": derivatives_availability.to_dict(),
+                    "research_only": True,
+                    "paper_capital_allowed": False,
+                    "live_allowed": False,
+                    "promotable": False,
+                }
+                _print_json(payload)
+                return 0
         from autobot.v2.research.alpha_hypothesis_lab import load_alpha_hypotheses
         from autobot.v2.research.experiment_registry import ExperimentRegistry
         from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec

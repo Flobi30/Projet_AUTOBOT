@@ -9,8 +9,10 @@ import pytest
 
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.derivatives_feature_snapshot import (
+    DerivativesFeatureSnapshotManifestError,
     DerivativesFeatureSnapshotConfig,
     build_derivatives_feature_snapshot,
+    inspect_derivatives_feature_snapshot_manifest,
 )
 from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
 
@@ -108,6 +110,58 @@ def test_derivatives_snapshot_does_not_claim_runtime_parity_for_missing_temporal
     assert snapshot.status == "READY"
     assert snapshot.runtime_parity_proven is False
     assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" in snapshot.blockers
+
+
+def test_derivatives_snapshot_excludes_rows_ingested_after_as_of_and_reports_unknown_ingestion(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    funding_path = tmp_path / "funding.csv"
+    with funding_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[0]["ingestion_time"] = (AS_OF + timedelta(hours=1)).isoformat()
+    rows[1]["ingestion_time"] = ""
+    _write_rows(funding_path, rows)
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_ingestion_point_in_time",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+        )
+    )
+
+    assert snapshot.datasets["funding"]["row_count"] == 1
+    assert snapshot.ingestion_time_unknown_count == 1
+    assert snapshot.temporal_contract["post_as_of_ingestion_rows_excluded"] == 1
+    assert snapshot.temporal_contract["ingestion_time_unknown_count"] == 1
+
+
+def test_derivatives_snapshot_readiness_view_requires_same_quote_and_research_only(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_readiness",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+        )
+    )
+
+    availability = inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
+
+    assert availability.status == "READY"
+    assert availability.basis_same_quote_verified is True
+    assert availability.paper_capital_allowed is False
+    assert availability.live_allowed is False
+    assert availability.promotable is False
+
+    payload = json.loads(Path(str(snapshot.manifest_path)).read_text(encoding="utf-8"))
+    payload["basis_contract"]["implicit_usd_eur_conversion_allowed"] = True
+    Path(str(snapshot.manifest_path)).write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(DerivativesFeatureSnapshotManifestError, match="same-quote"):
+        inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
 
 
 def test_manifested_experiment_binds_derivatives_materially_without_local_paths(tmp_path):

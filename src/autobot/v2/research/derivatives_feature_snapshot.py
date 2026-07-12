@@ -53,6 +53,107 @@ FEATURE_CSV_FIELDS = (
 )
 
 
+class DerivativesFeatureSnapshotManifestError(ValueError):
+    """Raised when a derivatives snapshot cannot be used as research input."""
+
+
+@dataclass(frozen=True)
+class DerivativesFeatureSnapshotAvailability:
+    """Small, side-effect-free readiness view for a persisted snapshot.
+
+    The view is intentionally distinct from the full materializer result: a
+    caller can explain ``WAITING_FOR_MORE_DATA`` without treating an unready
+    manifest as valid experiment evidence.  It imports neither a strategy nor
+    any runtime execution surface.
+    """
+
+    manifest_path: str
+    status: str
+    blockers: tuple[str, ...]
+    feature_ids: tuple[str, ...]
+    feature_count: int
+    parity_ok: bool
+    runtime_parity_proven: bool
+    basis_same_quote_verified: bool
+    paper_capital_allowed: bool
+    live_allowed: bool
+    promotable: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "blockers": list(self.blockers),
+            "feature_ids": list(self.feature_ids),
+            "feature_count": self.feature_count,
+            "parity_ok": self.parity_ok,
+            "runtime_parity_proven": self.runtime_parity_proven,
+            "basis_same_quote_verified": self.basis_same_quote_verified,
+            "research_only": True,
+            "paper_capital_allowed": self.paper_capital_allowed,
+            "live_allowed": self.live_allowed,
+            "promotable": self.promotable,
+        }
+
+
+def inspect_derivatives_feature_snapshot_manifest(
+    path: str | Path,
+) -> DerivativesFeatureSnapshotAvailability:
+    """Read a derivatives snapshot status without relaxing any safety gate."""
+
+    manifest_path = Path(path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DerivativesFeatureSnapshotManifestError(
+            f"invalid derivatives feature snapshot manifest: {manifest_path}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature snapshot manifest must be an object")
+    if str(payload.get("snapshot_kind") or "") != DERIVATIVES_POINT_IN_TIME_KIND:
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives snapshot manifest must be DERIVATIVES_POINT_IN_TIME"
+        )
+    status = str(payload.get("status") or "").upper()
+    if status not in {"READY", "WAITING_FOR_MORE_DATA", "DATA_MISSING"}:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot status is invalid")
+    feature_ids = tuple(
+        dict.fromkeys(str(item).strip() for item in (payload.get("feature_ids") or ()) if str(item).strip())
+    )
+    if not feature_ids:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot feature_ids are required")
+    feature_count = max(0, int(payload.get("feature_count") or 0))
+    blockers = tuple(
+        dict.fromkeys(str(item).strip() for item in (payload.get("blockers") or ()) if str(item).strip())
+    )
+    basis_contract = payload.get("basis_contract")
+    if not isinstance(basis_contract, Mapping):
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot basis_contract is required")
+    basis_same_quote_verified = (
+        basis_contract.get("same_quote_required") is True
+        and basis_contract.get("implicit_usd_eur_conversion_allowed") is False
+        and str(basis_contract.get("accepted_confidence_status") or "") == "MARK_INDEX_SAME_QUOTE"
+    )
+    if not basis_same_quote_verified:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot basis contract is not same-quote verified")
+    if any(bool(payload.get(key)) for key in ("paper_capital_allowed", "live_allowed", "promotable")):
+        raise DerivativesFeatureSnapshotManifestError(
+            "derivatives snapshot cannot enable paper capital, live or promotion"
+        )
+    return DerivativesFeatureSnapshotAvailability(
+        manifest_path=str(manifest_path),
+        status=status,
+        blockers=blockers,
+        feature_ids=feature_ids,
+        feature_count=feature_count,
+        parity_ok=payload.get("parity_ok") is True,
+        runtime_parity_proven=payload.get("runtime_parity_proven") is True,
+        basis_same_quote_verified=basis_same_quote_verified,
+        paper_capital_allowed=False,
+        live_allowed=False,
+        promotable=False,
+    )
+
+
 @dataclass(frozen=True)
 class DerivativesFeatureSnapshotConfig:
     run_id: str
@@ -103,6 +204,7 @@ class DerivativesFeatureSnapshot:
     ready_count: int
     waiting_count: int
     missing_count: int
+    ingestion_time_unknown_count: int
     parity_ok: bool
     runtime_parity_proven: bool
     status: str
@@ -138,7 +240,7 @@ class DerivativesFeatureSnapshot:
             "missing_count": self.missing_count,
             "parity_ok": self.parity_ok,
             "runtime_parity_proven": self.runtime_parity_proven,
-            "ingestion_time_unknown_count": 0,
+            "ingestion_time_unknown_count": self.ingestion_time_unknown_count,
             "status": self.status,
             "blockers": list(self.blockers),
             "files": [item.to_dict() for item in self.files],
@@ -178,7 +280,13 @@ def build_derivatives_feature_snapshot(
     as_of_time = _utc(config.as_of_time)
     dataset_paths = _history_paths(manifest)
     raw_source_rows = {dataset: _read_csv(path) for dataset, path in dataset_paths.items()}
-    source_rows, future_rows_excluded, invalid_temporal_rows = _point_in_time_rows(raw_source_rows, as_of_time)
+    (
+        source_rows,
+        future_rows_excluded,
+        invalid_temporal_rows,
+        ingestion_time_unknown_count,
+        post_as_of_ingestion_rows_excluded,
+    ) = _point_in_time_rows(raw_source_rows, as_of_time)
     mappings = _validated_market_mappings(manifest)
     source_rows, mapping_rows_excluded = _filter_rows_by_mapping(source_rows, mappings)
     invalid_basis_rows = sum(
@@ -291,6 +399,7 @@ def build_derivatives_feature_snapshot(
         ready_count=sum(item["status"] == "READY" for item in output_rows),
         waiting_count=sum(item["status"] == "WAITING_FOR_MORE_DATA" for item in output_rows),
         missing_count=sum(item["status"] == "DATA_MISSING" for item in output_rows),
+        ingestion_time_unknown_count=ingestion_time_unknown_count,
         parity_ok=parity_ok,
         runtime_parity_proven=runtime_parity_proven,
         status=status,
@@ -304,6 +413,8 @@ def build_derivatives_feature_snapshot(
             "as_of_time": as_of_time.isoformat(),
             "future_rows_excluded": future_rows_excluded,
             "invalid_temporal_rows_excluded": invalid_temporal_rows,
+            "ingestion_time_unknown_count": ingestion_time_unknown_count,
+            "post_as_of_ingestion_rows_excluded": post_as_of_ingestion_rows_excluded,
             "market_mapping_rows_excluded": mapping_rows_excluded,
             "runtime_parity_proven": runtime_parity_proven,
         },
@@ -405,21 +516,28 @@ def _validated_market_mappings(manifest: Mapping[str, Any]) -> tuple[dict[str, s
 def _point_in_time_rows(
     datasets: Mapping[str, Sequence[Mapping[str, Any]]],
     as_of_time: datetime,
-) -> tuple[dict[str, list[dict[str, Any]]], int, int]:
+) -> tuple[dict[str, list[dict[str, Any]]], int, int, int, int]:
     accepted: dict[str, list[dict[str, Any]]] = {}
     future_rows_excluded = 0
     invalid_temporal_rows = 0
+    ingestion_time_unknown_count = 0
+    post_as_of_ingestion_rows_excluded = 0
     for dataset, rows in datasets.items():
         accepted_rows: list[dict[str, Any]] = []
         for row in rows:
             event_time = _row_time(row, "event_time")
             available_time = _row_time(row, "available_time")
             ingestion_time = _row_time(row, "ingestion_time")
+            if ingestion_time is None:
+                ingestion_time_unknown_count += 1
             if event_time is None or available_time is None or ingestion_time is None or available_time < event_time:
                 invalid_temporal_rows += 1
                 continue
             if event_time > as_of_time or available_time > as_of_time:
                 future_rows_excluded += 1
+                continue
+            if ingestion_time > as_of_time:
+                post_as_of_ingestion_rows_excluded += 1
                 continue
             accepted_rows.append(
                 {
@@ -430,7 +548,13 @@ def _point_in_time_rows(
                 }
             )
         accepted[dataset] = accepted_rows
-    return accepted, future_rows_excluded, invalid_temporal_rows
+    return (
+        accepted,
+        future_rows_excluded,
+        invalid_temporal_rows,
+        ingestion_time_unknown_count,
+        post_as_of_ingestion_rows_excluded,
+    )
 
 
 def _filter_rows_by_mapping(
