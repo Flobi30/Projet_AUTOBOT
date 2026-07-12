@@ -287,7 +287,7 @@ def test_rejected_long_trend_and_volatility_receive_zero_priority_after_backfill
     assert by_template["breakout_after_compression"].priority_score == 0
 
 
-def test_adapter_backlog_no_longer_contains_generic_cross_sectional_adapter(tmp_path):
+def test_adapter_backlog_omits_implemented_adapters_but_keeps_unready_data_blocked(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"
     backfill_alpha_research_memory(memory_path=memory_path)
@@ -303,9 +303,10 @@ def test_adapter_backlog_no_longer_contains_generic_cross_sectional_adapter(tmp_
 
     adapter_ids = {item.adapter_id for item in report.adapter_backlog}
     assert "generic_cross_sectional_ohlcv_adapter" not in adapter_ids
-    assert {item.template_id for item in report.adapter_backlog}.issuperset(
-        {"funding_extreme_reversion"}
-    )
+    assert "funding_basis_research_adapter" not in adapter_ids
+    assert "funding_extreme_reversion" not in {item.template_id for item in report.adapter_backlog}
+    funding = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
+    assert funding.status in {"DATA_MISSING", "WAITING_FOR_MORE_DATA"}
     assert all(item.template_id not in {"leader_laggard_momentum", "relative_strength_rotation"} for item in report.adapter_backlog)
 
 
