@@ -36,6 +36,15 @@ or incomplete validation evidence.
 - Python compilation of the changed governance module: passed.
 - `git diff --check`: passed.
 
+## Test isolation follow-up
+
+The VPS validation image deliberately mounts the repository read-only. The
+daily-collection test originally relied on default relative canonical output
+directories, which pointed into that read-only checkout. Its fixture now
+directs every temporary raw, canonical, manifest, feature and quarantine path
+to its own temporary directory. This preserves the production defaults while
+proving that the test suite does not require a writable source tree.
+
 ## Residual risk
 
 The runtime remains fail-closed and does not yet consume this artifact registry
