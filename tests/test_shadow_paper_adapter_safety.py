@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -60,10 +61,10 @@ async def test_enabled_adapter_does_not_claim_a_blocked_entry_was_handled():
                 "variant": "trend-v1",
                 "last_price": 65_000.0,
                 "last_signal": {"price": 65_000.0, "features": {"momentum_bps": 50.0}},
-                "last_decision": {
-                    "status": "opened",
-                    "timestamp": "2026-07-12T10:00:00+00:00",
-                    "notional_eur": 20.0,
+                    "last_decision": {
+                        "status": "opened",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "notional_eur": 20.0,
                     "reason": "test",
                 },
             },

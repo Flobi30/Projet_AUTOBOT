@@ -223,6 +223,11 @@ def test_market_selector_blocks_forex_by_default(monkeypatch) -> None:
     orch = SimpleNamespace(_instances={})
     selector = MarketSelector(orch)
     selector.allow_forex_for_spinoff = False
+    # This test isolates the permanent Forex block. Universe/ranking behavior
+    # has its own contract tests and may be toggled by earlier module reloads.
+    selector.use_universe_manager = False
+    selector.universe_manager = None
+    selector.use_pair_ranking_engine = False
 
     monkeypatch.setattr("autobot.v2.market_selector.is_market_open", lambda _symbol: True)
 

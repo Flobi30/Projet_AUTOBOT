@@ -299,7 +299,8 @@ class _RecoverExecutor(_Executor):
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_and_cost_guard_without_external_injection():
+async def test_execute_buy_and_cost_guard_with_explicit_legacy_test_opt_in(monkeypatch):
+    monkeypatch.setenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", "true")
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=_Executor())
     handler.validator = _Validator()
     handler._osm = _OSM()
