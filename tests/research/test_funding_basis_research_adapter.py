@@ -42,6 +42,12 @@ def test_adapter_uses_same_quote_derivatives_context_but_calculates_net_pnl_on_s
     assert result.metrics.trade_count > 0
     assert result.metrics.total_cost_bps > 0.0
     assert result.metrics.net_pnl_eur <= result.metrics.gross_pnl_eur
+    first = result.primary_trades[0]
+    assert first.gross_pnl_eur - first.net_pnl_eur == pytest.approx(
+        first.fees_eur + first.spread_cost_eur + first.slippage_eur + first.latency_cost_eur
+    )
+    assert first.entry_price > 0.0
+    assert first.exit_price > 0.0
     assert result.paper_capital_allowed is False
     assert result.live_allowed is False
     assert result.promotable is False

@@ -26,6 +26,9 @@ It has no paper, live, order-routing, or promotion capability.
 - A fixed-template walk-forward now evaluates sequential non-overlapping
   out-of-sample windows. A signal, entry and exit must all be inside the
   relevant test window; no fold can select parameters from its own future.
+- The post-walk-forward gate reuses the existing deterministic DSR/PSR and
+  bootstrap/stress diagnostics, with an explicit lower-bound trial count.
+  It can only return `KEEP_RESEARCH`, never a capital or promotion decision.
 
 ## Evidence
 
@@ -59,8 +62,9 @@ It has no paper, live, order-routing, or promotion capability.
 - Spot canonical data still has unknown ingestion times, so it cannot prove
   runtime shadow parity; those data are usable only for bounded historical
   research.
-- A passing net-cost walk-forward still requires stress/Monte Carlo, holdout
-  and explicit human review before any shadow consideration.
+- A passing net-cost walk-forward now runs DSR/PSR/bootstrap/stress. It still
+  requires an immutable holdout and explicit human review before any shadow
+  consideration.
 
 ## Next Action
 

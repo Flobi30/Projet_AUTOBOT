@@ -32,7 +32,12 @@ from .funding_basis_research_adapter import (
 )
 from .funding_basis_walk_forward import (
     FundingBasisWalkForwardConfig,
+    FundingBasisWalkForwardReport,
     build_funding_basis_walk_forward_report,
+)
+from .funding_basis_statistical_validation import (
+    FundingBasisStatisticalValidationConfig,
+    build_funding_basis_statistical_validation_report,
 )
 from .volatility_breakout_walk_forward import (
     VolatilityBreakoutWalkForwardConfig,
@@ -226,7 +231,7 @@ def build_alpha_hypothesis_runner_report(
         elif stage == "WALK_FORWARD":
             result = _walk_forward(config, hypothesis_id, policy, started, report_commit)
         elif stage == "STRESS_MONTE_CARLO":
-            result = _stress_placeholder(policy, started)
+            result = _stress_placeholder(config, hypothesis_id, policy, started)
         else:
             result = _gate(stage, "HUMAN_REVIEW_REQUIRED", False, True, ["stage_requires_human_review"], policy, started)
         gates.append(result)
@@ -721,21 +726,7 @@ def _walk_forward(
                 policy,
                 started,
             )
-        template = _funding_basis_template(config)
-        report = build_funding_basis_walk_forward_report(
-            FundingBasisWalkForwardConfig(
-                run_id=f"{config.run_id}_walk_forward",
-                spot_data_paths=config.data_paths,
-                derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
-                template=template,
-                symbols=config.symbols,
-                cost_profile=config.cost_profile,
-                max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
-                max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
-                max_runtime_seconds=config.max_runtime_seconds,
-                max_data_rows=config.max_data_rows,
-            )
-        )
+        report = _funding_basis_walk_forward_report(config)
         passed = report.decision == "KEEP_RESEARCH"
         return _gate(
             "WALK_FORWARD",
@@ -775,7 +766,52 @@ def _walk_forward(
     )
 
 
-def _stress_placeholder(policy: Mapping[str, Any], started: float) -> AlphaGateResult:
+def _stress_placeholder(
+    config: AlphaHypothesisRunnerConfig,
+    hypothesis_id: str,
+    policy: Mapping[str, Any],
+    started: float,
+) -> AlphaGateResult:
+    if hypothesis_id == "funding_basis":
+        report = _funding_basis_walk_forward_report(config)
+        if report.decision != "KEEP_RESEARCH":
+            return _gate(
+                "STRESS_MONTE_CARLO",
+                "REJECTED",
+                False,
+                True,
+                ("walk_forward_gate_not_passed", *report.reasons),
+                policy,
+                started,
+                metrics=report.overall_oos.to_dict(),
+            )
+        validation = build_funding_basis_statistical_validation_report(
+            report.oos_trades,
+            FundingBasisStatisticalValidationConfig(
+                run_id=f"{config.run_id}_statistical_validation",
+                # Every bounded variant/symbol/fold is treated as a trial
+                # lower bound; an experiment registry may only increase it.
+                assumed_trial_count=max(1, config.max_variants * config.max_symbols * len(report.folds)),
+            ),
+            walk_forward_passed=True,
+        )
+        passed = validation.decision == "KEEP_RESEARCH"
+        return _gate(
+            "STRESS_MONTE_CARLO",
+            validation.decision,
+            passed,
+            not passed,
+            validation.reasons,
+            policy,
+            started,
+            metrics={
+                "trade_count": validation.trade_count,
+                "assumed_trial_count": validation.assumed_trial_count,
+                "deflated_sharpe": dict(validation.deflated_sharpe),
+                "probabilistic_sharpe": dict(validation.probabilistic_sharpe),
+                "robustness": dict(validation.robustness),
+            },
+        )
     return _gate(
         "STRESS_MONTE_CARLO",
         "WEAK_SIGNAL",
@@ -784,6 +820,28 @@ def _stress_placeholder(policy: Mapping[str, Any], started: float) -> AlphaGateR
         ["stress_not_run_without_prior_walk_forward_pass"],
         policy,
         started,
+    )
+
+
+def _funding_basis_walk_forward_report(
+    config: AlphaHypothesisRunnerConfig,
+) -> FundingBasisWalkForwardReport:
+    if config.derivatives_feature_snapshot_manifest is None:
+        raise ValueError("derivatives_feature_snapshot_manifest is required for funding/basis walk-forward")
+    template = _funding_basis_template(config)
+    return build_funding_basis_walk_forward_report(
+        FundingBasisWalkForwardConfig(
+            run_id=f"{config.run_id}_walk_forward",
+            spot_data_paths=config.data_paths,
+            derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
+            template=template,
+            symbols=config.symbols,
+            cost_profile=config.cost_profile,
+            max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+            max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+            max_runtime_seconds=config.max_runtime_seconds,
+            max_data_rows=config.max_data_rows,
+        )
     )
 
 

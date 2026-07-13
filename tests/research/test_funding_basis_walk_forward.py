@@ -14,6 +14,7 @@ from autobot.v2.research.funding_basis_walk_forward import (
 )
 from autobot.v2.research.alpha_hypothesis_runner import (
     AlphaHypothesisRunnerConfig,
+    _stress_placeholder,
     _walk_forward,
     load_alpha_autonomy_policy,
 )
@@ -212,5 +213,34 @@ def test_alpha_runner_uses_funding_basis_walk_forward_gate_research_only(tmp_pat
     assert gate.gate == "WALK_FORWARD"
     assert gate.status in {"KEEP_RESEARCH", "REJECTED", "INSUFFICIENT_DATA"}
     assert gate.artifacts["diagnostics"]["fixed_template_only"] is True
+    assert gate.safety["paper_capital_allowed"] is False
+    assert gate.safety["live_allowed"] is False
+
+
+def test_alpha_runner_statistical_gate_stays_blocked_without_walk_forward_pass(tmp_path):
+    spot_dir = _spot_data(tmp_path)
+    snapshot = _derivatives_snapshot(tmp_path, status="READY")
+    config = AlphaHypothesisRunnerConfig(
+        run_id="pytest_funding_runner_statistical",
+        hypothesis_id="funding_basis",
+        mode="full_research",
+        data_paths=(spot_dir,),
+        derivatives_feature_snapshot_manifest=snapshot,
+        template_id="funding_extreme_reversion",
+        symbols=("BTCZEUR",),
+        max_variants=1,
+        max_symbols=1,
+    )
+
+    gate = _stress_placeholder(
+        config,
+        "funding_basis",
+        load_alpha_autonomy_policy(config.autonomy_policy_path),
+        time.perf_counter(),
+    )
+
+    assert gate.gate == "STRESS_MONTE_CARLO"
+    assert gate.status == "REJECTED"
+    assert "walk_forward_gate_not_passed" in gate.reasons
     assert gate.safety["paper_capital_allowed"] is False
     assert gate.safety["live_allowed"] is False

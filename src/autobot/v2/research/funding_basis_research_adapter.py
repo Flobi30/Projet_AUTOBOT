@@ -29,6 +29,7 @@ from .derivatives_feature_snapshot import (
 )
 from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .market_data_repository import MarketBar
+from .trade_journal import TradeRecord
 
 
 ADAPTER_ID = "funding_basis_research_adapter"
@@ -117,11 +118,18 @@ class FundingBasisTrade:
     funding_rate_relative: float
     funding_percentile_threshold: float
     basis_bps: float
+    entry_price: float
+    exit_price: float
     gross_bps: float
     cost_bps: float
     net_bps: float
+    order_notional_eur: float
     gross_pnl_eur: float
     net_pnl_eur: float
+    fees_eur: float
+    spread_cost_eur: float
+    slippage_eur: float
+    latency_cost_eur: float
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -520,6 +528,7 @@ def _simulate_variant(
     variant: Mapping[str, Any],
 ) -> list[FundingBasisTrade]:
     cost_bps = cost_config.round_trip_cost_estimate_bps()
+    cost_components = _round_trip_cost_components(cost_config, config.order_notional_eur)
     hold_bars = _hold_hours_to_bars(float(variant["max_hold_hours"]), timeframe)
     trades: list[FundingBasisTrade] = []
     for futures_symbol, spot_symbol in sorted(futures_to_spot.items()):
@@ -570,11 +579,18 @@ def _simulate_variant(
                     funding_rate_relative=round(current_funding.value, 10),
                     funding_percentile_threshold=round(threshold, 10),
                     basis_bps=round(current_basis.value, 6),
+                    entry_price=round(entry.open, 10),
+                    exit_price=round(exit_bar.close, 10),
                     gross_bps=round(gross_bps, 6),
                     cost_bps=round(cost_bps, 6),
                     net_bps=round(net_bps, 6),
+                    order_notional_eur=round(config.order_notional_eur, 6),
                     gross_pnl_eur=round(config.order_notional_eur * gross_bps / 10_000.0, 6),
                     net_pnl_eur=round(config.order_notional_eur * net_bps / 10_000.0, 6),
+                    fees_eur=cost_components["fees_eur"],
+                    spread_cost_eur=cost_components["spread_cost_eur"],
+                    slippage_eur=cost_components["slippage_eur"],
+                    latency_cost_eur=cost_components["latency_cost_eur"],
                     metadata={
                         "derivatives_context": "perpetual_usd_directional_only",
                         "spot_pnl_market": spot_symbol,
@@ -648,6 +664,54 @@ def compute_funding_basis_metrics(trades: Sequence[FundingBasisTrade]) -> Fundin
     )
 
 
+def funding_basis_trade_records(
+    trades: Sequence[FundingBasisTrade],
+    *,
+    run_id: str,
+    strategy_id: str = "funding_basis",
+) -> tuple[TradeRecord, ...]:
+    """Convert audit-complete adapter trades for research diagnostics only.
+
+    The converted journal remains spot-EUR only. Futures values are retained in
+    metadata as directional context and never become an execution price.
+    """
+
+    records: list[TradeRecord] = []
+    for trade in trades:
+        if trade.entry_price <= 0.0 or trade.exit_price <= 0.0:
+            continue
+        quantity = max(1e-12, trade.order_notional_eur / trade.entry_price)
+        records.append(
+            TradeRecord(
+                run_id=run_id,
+                strategy_id=strategy_id,
+                symbol=trade.spot_symbol,
+                side="buy",
+                opened_at=trade.opened_at,
+                closed_at=trade.closed_at,
+                quantity=quantity,
+                entry_price=trade.entry_price,
+                exit_price=trade.exit_price,
+                gross_pnl_eur=trade.gross_pnl_eur,
+                net_pnl_eur=trade.net_pnl_eur,
+                fees_eur=trade.fees_eur,
+                spread_cost_eur=trade.spread_cost_eur,
+                slippage_eur=trade.slippage_eur,
+                latency_cost_eur=trade.latency_cost_eur,
+                entry_reason="funding_basis_directional_context",
+                exit_reason="fixed_hold_research_replay",
+                metadata={
+                    **dict(trade.metadata),
+                    "futures_symbol": trade.futures_symbol,
+                    "funding_rate_relative": trade.funding_rate_relative,
+                    "basis_bps": trade.basis_bps,
+                    "spot_only_pnl": True,
+                },
+            )
+        )
+    return tuple(records)
+
+
 def _decision(
     metrics: FundingBasisMetrics,
     variants: Sequence[Mapping[str, Any]],
@@ -672,6 +736,23 @@ def _decision(
     if reasons:
         return "REJECT_FAST", reasons
     return "WALK_FORWARD_AVAILABLE", ["net_cost_smoke_requires_walk_forward_before_shadow_or_paper"]
+
+
+def _round_trip_cost_components(config: ExecutionCostConfig, notional_eur: float) -> dict[str, float]:
+    entry_fee_bps = config.fee_for_order_type(config.default_entry_order_type)
+    exit_fee_bps = config.fee_for_order_type(config.default_exit_order_type)
+    spread_bps = config.fallback_spread_bps * (
+        config.spread_charge_fraction(config.default_entry_order_type) / 2.0
+        + config.spread_charge_fraction(config.default_exit_order_type) / 2.0
+    )
+    slippage_bps = 2.0 * config.slippage_bps
+    latency_bps = 2.0 * config.latency_buffer_bps
+    return {
+        "fees_eur": round(notional_eur * (entry_fee_bps + exit_fee_bps) / 10_000.0, 6),
+        "spread_cost_eur": round(notional_eur * spread_bps / 10_000.0, 6),
+        "slippage_eur": round(notional_eur * slippage_bps / 10_000.0, 6),
+        "latency_cost_eur": round(notional_eur * latency_bps / 10_000.0, 6),
+    }
 
 
 def _bounded_variants(config: FundingBasisResearchConfig) -> Iterable[dict[str, Any]]:
