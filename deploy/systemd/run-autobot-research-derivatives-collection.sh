@@ -27,8 +27,8 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   exit 1
 fi
 
-# The image uses appuser uid/gid 999.  Keep all mutable outputs below the
-# research data boundary, outside the tracked source and runtime order paths.
+# The image uses appuser uid/gid 999. Keep all mutable outputs below the
+# research data boundary, outside the runtime state DB and order paths.
 install -d -o 999 -g 999 -m 0775 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR}" "${REPORT_DIR}"
 chown 999:999 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR}" "${REPORT_DIR}"
 chmod 0775 "${RAW_DIR}" "${CANONICAL_DIR}" "${MANIFEST_DIR}" "${REPORT_DIR}"
@@ -62,7 +62,7 @@ exec docker run --rm \
   --env PYTHONDONTWRITEBYTECODE=1 \
   --env HOME=/tmp \
   --env TZ=UTC \
-  --volume "${REPO_DIR}/data:/app/data" \
+  --volume "${REPO_DIR}/data/research:/app/data/research" \
   "${IMAGE}" \
   python -m autobot.v2.cli collect-kraken-futures-derivatives \
     --run-id "${RUN_ID}" \

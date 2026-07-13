@@ -37,10 +37,9 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   exit 1
 fi
 
-# The image runs as appuser (uid/gid 999). It mounts data/ so the
-# research-only shadow sync can append attributed shadow_paper rows, but it
-# still does not mount secrets, logs, or any live-trading control surface.
-# Canonical artifacts remain inside the same research-only data boundary.
+# The image runs as appuser (uid/gid 999). Its only writable data mount is
+# data/research, so this public-data job cannot write the runtime state DB or
+# any paper/live ledger. Canonical artifacts remain inside that boundary.
 install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 # install -d preserves ownership for pre-existing directories. Restore the
 # appuser-owned output boundary so a prior root-created report cannot make a
@@ -65,7 +64,7 @@ docker run --rm \
   --env HOME=/tmp \
   --env TZ=Europe/Paris \
   --volume "${CONFIG_PATH}:/app/config/research_data_collection.yaml:ro" \
-  --volume "${REPO_DIR}/data:/app/data" \
+  --volume "${REPO_DIR}/data/research:/app/data/research" \
   --volume "${REPORT_DIR}:/app/reports/research/daily_data_collection" \
   --volume "${HIGH_CONVICTION_REPORT_DIR}:/app/reports/research/high_conviction_walk_forward" \
   --volume "${STRATEGY_ORCHESTRATOR_REPORT_DIR}:/app/reports/research/strategy_orchestrator" \

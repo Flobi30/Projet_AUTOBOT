@@ -20,6 +20,8 @@ def test_daily_research_service_runs_a_read_only_capability_scan_after_collectio
     capability_section = script.split("data-capability-scan", maxsplit=1)[0]
     assert "autobot-research-capability-${RUN_ID}" in capability_section
     assert "--network none" in capability_section
+    assert '"${REPO_DIR}/data/research:/app/data/research"' in script
+    assert '"${REPO_DIR}/data:/app/data"' not in script
     assert '"${REPO_DIR}/data:/app/data:ro"' in capability_section
     assert "--state-db data/autobot_state.db" in script
     assert "--data-roots data/research" in script

@@ -23,7 +23,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE" in script
     assert "funding_refresh" in script
     assert "--assets \"BTC,ETH,SOL,XRP,ADA,LINK\"" in script
-    assert "--volume \"${REPO_DIR}/data:/app/data\"" in script
+    assert "--volume \"${REPO_DIR}/data/research:/app/data/research\"" in script
+    assert "--volume \"${REPO_DIR}/data:/app/data\"" not in script
     assert "--env-file" not in script
     assert "/.env:" not in script
     assert "--read-only" in script
