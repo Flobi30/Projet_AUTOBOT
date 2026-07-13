@@ -47,3 +47,21 @@ execution.
 `GO_INCREMENT`. The anti-overfitting accounting increment is deployed; Block 2
 remains in progress until its remaining generic validation and holdout-review
 work are audited and integrated.
+
+## Post-deployment point-in-time smoke
+
+The deployed container canonicalized the existing public OHLCV archive without
+touching runtime trading:
+
+- canonical snapshot `ohlcv_v2_9becc7a0cfda611e` contains 182,630 rows across
+  14 EUR spot symbols and the 5m, 15m and 1h timeframes;
+- 730,877 duplicated raw rows were removed; the canonical result has zero
+  logical duplicates and zero detected gaps;
+- all 36 market mappings are explicit Kraken public mappings.
+
+The subsequent feature materialization correctly returned `DATA_MISSING`, not
+`READY`: 182,630 legacy canonical rows have unknown ingestion time. Its 730,520
+feature values are useful research artifacts, but are not allowed to prove
+runtime parity or unlock shadow/paper/live. The next daily collector, which
+uses current-run raw files with recorded ingestion time, is the valid path to
+create a point-in-time-ready bundle.
