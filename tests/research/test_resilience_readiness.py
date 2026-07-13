@@ -14,6 +14,7 @@ from autobot.v2.research.resilience_readiness import (
     decide_fail_closed,
     evaluate_human_paper_readiness,
     retry_bounded,
+    verify_sqlite_restore_drill,
     write_readiness_dossier,
 )
 
@@ -81,6 +82,35 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
     assert restored == "preserved"
     with pytest.raises(ResilienceError, match="approved external backup layer"):
         create_verified_sqlite_backup(source, tmp_path / "encrypted.sqlite3", encrypted=True)
+
+
+def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    backup = tmp_path / "backup.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE observations (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.executemany("INSERT INTO observations(value) VALUES (?)", [("one",), ("two",)])
+    create_verified_sqlite_backup(source, backup)
+
+    manifest = verify_sqlite_restore_drill(backup)
+
+    assert manifest.backup_sha256_before == manifest.backup_sha256_after
+    assert manifest.source_schema_sha256 == manifest.restored_schema_sha256
+    assert manifest.source_table_row_counts == {"observations": 2}
+    assert manifest.restored_table_row_counts == {"observations": 2}
+    assert manifest.temporary_restore_cleaned is True
+    assert manifest.paper_capital_allowed is False
+    assert manifest.live_allowed is False
+
+
+def test_sqlite_restore_drill_rejects_corrupt_or_missing_backup(tmp_path):
+    corrupt = tmp_path / "corrupt.sqlite3"
+    corrupt.write_bytes(b"not a sqlite database")
+
+    with pytest.raises(ResilienceError, match="could not read the backup safely"):
+        verify_sqlite_restore_drill(corrupt)
+    with pytest.raises(ResilienceError, match="does not exist"):
+        verify_sqlite_restore_drill(tmp_path / "missing.sqlite3")
 
 
 def test_readiness_dossier_is_non_authorizing_and_blocks_partial_or_unsafe_layers():

@@ -428,6 +428,13 @@ def _build_parser() -> argparse.ArgumentParser:
     data_capability_scan.add_argument("--output-dir", default="reports/research")
     data_capability_scan.set_defaults(handler=_cmd_data_capability_scan)
 
+    sqlite_restore_drill = subparsers.add_parser(
+        "sqlite-restore-drill",
+        help="Verify a SQLite backup through a disposable research-only restore drill",
+    )
+    sqlite_restore_drill.add_argument("--backup-path", required=True)
+    sqlite_restore_drill.set_defaults(handler=_cmd_sqlite_restore_drill)
+
     canonicalize_ohlcv = subparsers.add_parser(
         "canonicalize-ohlcv",
         help="Build a deterministic research-only canonical OHLCV snapshot from raw CSV exports",
@@ -2509,6 +2516,16 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
         "markdown_report_path": str(markdown_path),
     }
     _print_json(payload)
+    return 0
+
+
+def _cmd_sqlite_restore_drill(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import verify_sqlite_restore_drill
+
+    manifest = verify_sqlite_restore_drill(Path(args.backup_path))
+    _print_json(asdict(manifest))
     return 0
 
 

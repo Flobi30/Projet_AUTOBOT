@@ -1701,6 +1701,24 @@ def test_cli_reserves_an_immutable_experiment_holdout_without_enabling_execution
     assert output["live_allowed"] is False
 
 
+def test_cli_sqlite_restore_drill_is_non_authorizing_and_preserves_backup(tmp_path, capsys):
+    backup_path = tmp_path / "backup.sqlite3"
+    with sqlite3.connect(backup_path) as connection:
+        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.execute("INSERT INTO evidence(value) VALUES ('preserved')")
+    before = backup_path.read_bytes()
+
+    exit_code = cli.main(["sqlite-restore-drill", "--backup-path", str(backup_path)])
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["temporary_restore_cleaned"] is True
+    assert output["research_only"] is True
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert backup_path.read_bytes() == before
+
+
 def test_cli_pre_registers_material_trial_plan_before_runner_statistics(tmp_path):
     feature_manifest = tmp_path / "feature_snapshot.json"
     feature_manifest.write_text(

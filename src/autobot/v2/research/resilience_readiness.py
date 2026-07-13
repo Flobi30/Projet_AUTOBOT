@@ -7,6 +7,7 @@ flags.  A readiness result is documentation for human review, never a mandate.
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -14,6 +15,7 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Any, Callable, Mapping, Sequence, TypeVar
 
@@ -109,6 +111,24 @@ class SQLiteBackupManifest:
 
 
 @dataclass(frozen=True)
+class SQLiteRestoreDrillManifest:
+    backup_path: str
+    backup_sha256_before: str
+    backup_sha256_after: str
+    restored_sha256: str
+    source_schema_sha256: str
+    restored_schema_sha256: str
+    source_table_row_counts: Mapping[str, int]
+    restored_table_row_counts: Mapping[str, int]
+    integrity_check: str
+    temporary_restore_cleaned: bool
+    verified_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+
+@dataclass(frozen=True)
 class PaperReadinessDossier:
     status: str
     blockers: tuple[str, ...]
@@ -194,6 +214,57 @@ def create_verified_sqlite_backup(
         integrity_check=integrity,
         encrypted=False,
         created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifest:
+    """Restore a backup into a disposable directory and verify it without runtime writes."""
+
+    backup_path = Path(backup).resolve()
+    if not backup_path.is_file():
+        raise ResilienceError("SQLite restore drill backup does not exist")
+
+    backup_sha256_before = _sha256_file(backup_path)
+    try:
+        with closing(sqlite3.connect(f"file:{backup_path}?mode=ro", uri=True)) as source_connection:
+            source_integrity = str(source_connection.execute("PRAGMA integrity_check").fetchone()[0])
+            if source_integrity.lower() != "ok":
+                raise ResilienceError(f"SQLite restore drill source integrity check failed: {source_integrity}")
+            source_schema_sha256 = _sqlite_schema_sha256(source_connection)
+            source_table_row_counts = _sqlite_table_row_counts(source_connection)
+
+            with TemporaryDirectory(prefix="autobot-sqlite-restore-drill-") as temporary_directory:
+                restored_path = Path(temporary_directory) / "restored.sqlite3"
+                with closing(sqlite3.connect(restored_path)) as restored_connection:
+                    source_connection.backup(restored_connection)
+                    restored_connection.commit()
+                    restored_integrity = str(restored_connection.execute("PRAGMA integrity_check").fetchone()[0])
+                    if restored_integrity.lower() != "ok":
+                        raise ResilienceError(f"SQLite restore drill integrity check failed: {restored_integrity}")
+                    restored_schema_sha256 = _sqlite_schema_sha256(restored_connection)
+                    restored_table_row_counts = _sqlite_table_row_counts(restored_connection)
+                restored_sha256 = _sha256_file(restored_path)
+    except sqlite3.DatabaseError as exc:
+        raise ResilienceError("SQLite restore drill could not read the backup safely") from exc
+
+    backup_sha256_after = _sha256_file(backup_path)
+    if backup_sha256_before != backup_sha256_after:
+        raise ResilienceError("SQLite restore drill modified its backup input")
+    if source_schema_sha256 != restored_schema_sha256 or source_table_row_counts != restored_table_row_counts:
+        raise ResilienceError("SQLite restore drill schema or row-count mismatch")
+
+    return SQLiteRestoreDrillManifest(
+        backup_path=str(backup_path),
+        backup_sha256_before=backup_sha256_before,
+        backup_sha256_after=backup_sha256_after,
+        restored_sha256=restored_sha256,
+        source_schema_sha256=source_schema_sha256,
+        restored_schema_sha256=restored_schema_sha256,
+        source_table_row_counts=source_table_row_counts,
+        restored_table_row_counts=restored_table_row_counts,
+        integrity_check=source_integrity,
+        temporary_restore_cleaned=True,
+        verified_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -287,3 +358,22 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _sqlite_schema_sha256(connection: sqlite3.Connection) -> str:
+    rows = connection.execute(
+        "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master "
+        "WHERE type IN ('index', 'table', 'trigger', 'view') ORDER BY type, name"
+    ).fetchall()
+    return sha256(json.dumps(rows, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def _sqlite_table_row_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    table_names = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).fetchall()
+    counts: dict[str, int] = {}
+    for (name,) in table_names:
+        escaped_name = str(name).replace('"', '""')
+        counts[str(name)] = int(connection.execute(f'SELECT COUNT(*) FROM "{escaped_name}"').fetchone()[0])
+    return counts

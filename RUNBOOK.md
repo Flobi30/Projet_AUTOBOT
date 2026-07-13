@@ -1,4 +1,11 @@
-# RUNBOOK (micro-live)
+# RUNBOOK (ARCHIVED: micro-live instructions)
+
+> This file is not an operational authorization. AUTOBOT is research/shadow
+> only: paper capital, live trading and automatic promotion remain disabled.
+> The current recovery check is documented in
+> `docs/research/RESILIENCE_RESTORE_DRILL.md`.
+
+## Legacy content (do not use as a launch procedure)
 
 1. Vérifier absence du marker compromis (`data/compromised_secret.marker`).
 2. Exécuter préflight (`PREFLIGHT_ONLY=true`).
