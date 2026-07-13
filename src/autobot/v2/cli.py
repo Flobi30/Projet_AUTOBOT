@@ -1,8 +1,8 @@
 """Unified research CLI for AUTOBOT V2.
 
-The CLI is deliberately limited to audit, research validation, scorecards and
-paper reporting. It never starts runtime services, never submits Kraken orders,
-and never mutates the strategy registry.
+The CLI is deliberately limited to audit, research validation, scorecards,
+paper reporting and governed non-executable artifact registration. It never
+starts runtime services, submits Kraken orders or changes runtime policy.
 """
 
 from __future__ import annotations
@@ -362,6 +362,34 @@ def _build_parser() -> argparse.ArgumentParser:
     experiment_registry_holdout.add_argument("--immutable-fingerprint", required=True)
     experiment_registry_holdout.add_argument("--manifest-path", default=None)
     experiment_registry_holdout.set_defaults(handler=_cmd_experiment_registry_reserve_holdout)
+
+    strategy_artifact_register = subparsers.add_parser(
+        "strategy-artifact-register",
+        help="Register a non-executable research/shadow artifact from immutable experiment evidence",
+    )
+    strategy_artifact_register.add_argument(
+        "--experiment-registry-path",
+        default="data/research/experiment_registry.sqlite3",
+    )
+    strategy_artifact_register.add_argument(
+        "--artifact-registry-path",
+        default="data/research/strategy_artifacts.sqlite3",
+    )
+    strategy_artifact_register.add_argument("--experiment-id", required=True)
+    strategy_artifact_register.add_argument("--strategy-version", required=True)
+    strategy_artifact_register.add_argument("--risk-mandate-fingerprint", required=True)
+    strategy_artifact_register.add_argument("--validation-manifest-fingerprint", required=True)
+    strategy_artifact_register.add_argument(
+        "--status",
+        choices=("RESEARCH", "REJECTED", "SHADOW_ELIGIBLE", "SHADOW", "THROTTLED", "QUARANTINED", "RETIRED"),
+        default="RESEARCH",
+    )
+    strategy_artifact_register.add_argument(
+        "--human-approval-reference",
+        default=None,
+        help="Required for any shadow-capable status; this is an audit reference, never a live/paper authorization.",
+    )
+    strategy_artifact_register.set_defaults(handler=_cmd_strategy_artifact_register)
 
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
@@ -2335,6 +2363,51 @@ def _cmd_experiment_registry_reserve_holdout(args: argparse.Namespace) -> int:
             "paper_capital_allowed": False,
             "live_allowed": False,
             "promotable": False,
+        }
+    )
+    return 0
+
+
+def _cmd_strategy_artifact_register(args: argparse.Namespace) -> int:
+    """Persist immutable research/shadow governance evidence only.
+
+    This command does not route a signal, start a shadow service, allocate
+    capital or create an order. Shadow-capable statuses remain contingent on a
+    passed terminal experiment plus an explicit human approval reference.
+    """
+
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+    from autobot.v2.research.shadow_governance import (
+        StrategyArtifactRegistry,
+        build_strategy_artifact_from_experiment,
+    )
+
+    experiment_registry = ExperimentRegistry(Path(args.experiment_registry_path))
+    artifact = build_strategy_artifact_from_experiment(
+        experiment_registry=experiment_registry,
+        experiment_id=args.experiment_id,
+        strategy_version=args.strategy_version,
+        risk_mandate_fingerprint=args.risk_mandate_fingerprint,
+        validation_manifest_fingerprint=args.validation_manifest_fingerprint,
+        requested_status=args.status,
+        human_approval_reference=args.human_approval_reference,
+    )
+    artifact_registry = StrategyArtifactRegistry(
+        Path(args.artifact_registry_path),
+        experiment_registry_path=experiment_registry.path,
+    )
+    artifact_id = artifact_registry.register(artifact)
+    _print_json(
+        {
+            "artifact_id": artifact_id,
+            "artifact": artifact.to_dict(),
+            "experiment_registry_path": str(experiment_registry.path),
+            "artifact_registry_path": str(artifact_registry.path),
+            "research_only": True,
+            "shadow_runtime_started": False,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "automatic_promotion_allowed": False,
         }
     )
     return 0
