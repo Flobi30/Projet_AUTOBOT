@@ -214,6 +214,7 @@ def test_alpha_runner_cli_is_registered():
     assert args.max_variants == 5
     assert args.max_symbols == 6
     assert args.template_id == "leader_laggard_momentum"
+    assert args.output_dir == "data/research/reports/alpha_hypothesis_runner"
 
 
 def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):

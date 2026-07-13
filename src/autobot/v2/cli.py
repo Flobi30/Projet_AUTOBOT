@@ -294,7 +294,11 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--data-paths", default="")
     alpha_hypothesis_runner.add_argument("--hypotheses-path", default="docs/research/alpha_hypotheses.json")
     alpha_hypothesis_runner.add_argument("--autonomy-policy", default="docs/research/alpha_autonomy_policy.json")
-    alpha_hypothesis_runner.add_argument("--output-dir", default="reports/research/alpha_hypothesis_runner")
+    alpha_hypothesis_runner.add_argument(
+        "--output-dir",
+        default="data/research/reports/alpha_hypothesis_runner",
+        help="Runtime-writable output directory; copy compact decision reports into reports/ explicitly if needed.",
+    )
     alpha_hypothesis_runner.add_argument("--run-id", default=None)
     alpha_hypothesis_runner.add_argument("--symbols", default="BTCZEUR,ETHZEUR,BCHEUR,ADAEUR,XRPZEUR,SOLEUR")
     alpha_hypothesis_runner.add_argument("--cost-profile", default="research_stress")
@@ -338,7 +342,11 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_scheduler.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_scheduler.add_argument("--hypotheses", default="docs/research/alpha_hypotheses.json")
     alpha_hypothesis_scheduler.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
-    alpha_hypothesis_scheduler.add_argument("--output-dir", default="reports/research/alpha_hypothesis_runner")
+    alpha_hypothesis_scheduler.add_argument(
+        "--output-dir",
+        default="data/research/reports/alpha_hypothesis_runner",
+        help="Runtime-writable output directory for scheduler/runner evidence.",
+    )
     alpha_hypothesis_scheduler.add_argument("--run-id", default=None)
     alpha_hypothesis_scheduler.add_argument("--max-variants", type=int, default=5)
     alpha_hypothesis_scheduler.add_argument("--max-symbols", type=int, default=6)

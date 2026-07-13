@@ -360,7 +360,7 @@ class AlphaSchedulerConfig:
     templates_path: Path = Path("docs/research/strategy_templates.json")
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
     memory_path: Path = DEFAULT_RESEARCH_MEMORY_PATH
-    output_dir: Path = Path("reports/research/alpha_hypothesis_runner")
+    output_dir: Path = Path("data/research/reports/alpha_hypothesis_runner")
     run_id: str = "alpha_hypothesis_scheduler"
     max_variants: int = 5
     max_symbols: int = 6

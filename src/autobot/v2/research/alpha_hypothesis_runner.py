@@ -65,6 +65,7 @@ SMOKE_ADAPTER_IDS = {
 }
 MISSING_DATA_IDS = {"liquidation_cascade"}
 FUNDING_BASIS_REQUIRED_DERIVATIVES_FEATURES = {"funding_rate_relative", "basis_bps"}
+DEFAULT_RUNTIME_REPORT_DIR = Path("data/research/reports/alpha_hypothesis_runner")
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,9 @@ class AlphaHypothesisRunnerConfig:
     template_id: str | None = None
     state_db: Path | None = None
     data_paths: tuple[Path, ...] = ()
-    output_dir: Path = Path("reports/research/alpha_hypothesis_runner")
+    # Runtime reports belong on the persistent writable data volume.  Compact
+    # decision reports can be explicitly copied into reports/ for versioning.
+    output_dir: Path = DEFAULT_RUNTIME_REPORT_DIR
     symbols: tuple[str, ...] = ("BTCZEUR", "ETHZEUR", "BCHEUR", "ADAEUR", "XRPZEUR", "SOLEUR")
     cost_profile: str = "research_stress"
     max_runtime_seconds: float = 120.0
