@@ -30,6 +30,10 @@ from .funding_basis_research_adapter import (
     FundingBasisResearchConfig,
     run_funding_basis_research_smoke,
 )
+from .funding_basis_walk_forward import (
+    FundingBasisWalkForwardConfig,
+    build_funding_basis_walk_forward_report,
+)
 from .volatility_breakout_walk_forward import (
     VolatilityBreakoutWalkForwardConfig,
     build_volatility_breakout_walk_forward_report,
@@ -703,6 +707,44 @@ def _walk_forward(
     started: float,
     commit: str | None,
 ) -> AlphaGateResult:
+    if hypothesis_id == "funding_basis":
+        if config.derivatives_feature_snapshot_manifest is None:
+            return _gate(
+                "WALK_FORWARD",
+                "INSUFFICIENT_DATA",
+                False,
+                True,
+                ["derivatives_feature_snapshot_manifest_missing"],
+                policy,
+                started,
+            )
+        template = _funding_basis_template(config)
+        report = build_funding_basis_walk_forward_report(
+            FundingBasisWalkForwardConfig(
+                run_id=f"{config.run_id}_walk_forward",
+                spot_data_paths=config.data_paths,
+                derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
+                template=template,
+                symbols=config.symbols,
+                cost_profile=config.cost_profile,
+                max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+                max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+                max_runtime_seconds=config.max_runtime_seconds,
+                max_data_rows=config.max_data_rows,
+            )
+        )
+        passed = report.decision == "KEEP_RESEARCH"
+        return _gate(
+            "WALK_FORWARD",
+            report.decision,
+            passed,
+            not passed,
+            report.reasons,
+            policy,
+            started,
+            metrics=report.overall_oos.to_dict(),
+            artifacts={"folds": [fold.to_dict() for fold in report.folds], "diagnostics": dict(report.diagnostics)},
+        )
     if hypothesis_id != "volatility_breakout":
         return _gate("WALK_FORWARD", "REJECTED", False, True, ["walk_forward_adapter_missing"], policy, started)
     report = build_volatility_breakout_walk_forward_report(

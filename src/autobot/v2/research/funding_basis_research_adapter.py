@@ -51,6 +51,8 @@ class FundingBasisResearchConfig:
     order_notional_eur: float = 100.0
     min_funding_observations: int = 30
     timeframe_preference: tuple[str, ...] = ("1h", "15m")
+    evaluation_start_at: datetime | None = None
+    evaluation_end_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -71,6 +73,15 @@ class FundingBasisResearchConfig:
             raise ValueError("order_notional_eur must be positive")
         if self.min_funding_observations < 10:
             raise ValueError("min_funding_observations must be at least 10")
+        for value in (self.evaluation_start_at, self.evaluation_end_at):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("evaluation bounds must be timezone-aware")
+        if (
+            self.evaluation_start_at is not None
+            and self.evaluation_end_at is not None
+            and self.evaluation_end_at <= self.evaluation_start_at
+        ):
+            raise ValueError("evaluation_end_at must be after evaluation_start_at")
         execution_cost_config_for_profile(self.cost_profile).validate()
 
 
@@ -222,7 +233,7 @@ def run_funding_basis_research_smoke(config: FundingBasisResearchConfig) -> Fund
             primary_variant=None,
             decision="INSUFFICIENT_DATA",
             reasons=availability.blockers or ("funding_basis_inputs_unavailable",),
-            metrics=_metrics(()),
+            metrics=compute_funding_basis_metrics(()),
             variants=(),
             availability=availability,
             elapsed_seconds=round(time.perf_counter() - started, 6),
@@ -249,7 +260,7 @@ def run_funding_basis_research_smoke(config: FundingBasisResearchConfig) -> Fund
             cost_config=cost_config,
             variant=variant,
         )
-        metrics = _metrics(trades)
+        metrics = compute_funding_basis_metrics(trades)
         variant_rows.append(
             {
                 "variant_index": index,
@@ -262,7 +273,7 @@ def run_funding_basis_research_smoke(config: FundingBasisResearchConfig) -> Fund
         )
         if index == 0:
             primary_trades = trades
-    primary_metrics = _metrics(primary_trades)
+    primary_metrics = compute_funding_basis_metrics(primary_trades)
     decision, reasons = _decision(primary_metrics, variant_rows, config.template)
     return FundingBasisSmokeResult(
         adapter_id=ADAPTER_ID,
@@ -521,6 +532,14 @@ def _simulate_variant(
         for index, signal_bar in enumerate(bars[:-hold_bars - 1]):
             if index <= cooldown_until:
                 continue
+            if config.evaluation_start_at is not None and signal_bar.timestamp < config.evaluation_start_at:
+                continue
+            entry = bars[index + 1]
+            exit_bar = bars[index + 1 + hold_bars]
+            if config.evaluation_start_at is not None and entry.timestamp < config.evaluation_start_at:
+                continue
+            if config.evaluation_end_at is not None and exit_bar.timestamp > config.evaluation_end_at:
+                continue
             current_funding = _latest_available(funding, signal_bar.timestamp)
             current_basis = _latest_available(basis, signal_bar.timestamp)
             if current_funding is None or current_basis is None:
@@ -537,8 +556,6 @@ def _simulate_variant(
             # directional contexts; neither USD price level enters the PnL.
             if current_funding.value > threshold or current_basis.value > 0.0:
                 continue
-            entry = bars[index + 1]
-            exit_bar = bars[index + 1 + hold_bars]
             gross_bps = _return_bps(entry.open, exit_bar.close)
             net_bps = gross_bps - cost_bps
             trades.append(
@@ -567,6 +584,12 @@ def _simulate_variant(
                         "basis_event_time": current_basis.event_time.isoformat(),
                         "basis_available_time": current_basis.available_time.isoformat(),
                         "anti_lookahead": "derivatives_available_before_signal; entry_uses_next_spot_bar",
+                        "evaluation_start_at": (
+                            config.evaluation_start_at.isoformat() if config.evaluation_start_at else None
+                        ),
+                        "evaluation_end_at": (
+                            config.evaluation_end_at.isoformat() if config.evaluation_end_at else None
+                        ),
                     },
                 )
             )
@@ -574,7 +597,7 @@ def _simulate_variant(
     return trades
 
 
-def _metrics(trades: Sequence[FundingBasisTrade]) -> FundingBasisMetrics:
+def compute_funding_basis_metrics(trades: Sequence[FundingBasisTrade]) -> FundingBasisMetrics:
     net = [trade.net_pnl_eur for trade in trades]
     gross = [trade.gross_pnl_eur for trade in trades]
     wins = [value for value in net if value > 0.0]
