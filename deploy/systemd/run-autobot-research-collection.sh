@@ -10,6 +10,10 @@ MEMORY_LIMIT="${AUTOBOT_RESEARCH_MEMORY_LIMIT:-1536m}"
 CPU_LIMIT="${AUTOBOT_RESEARCH_CPU_LIMIT:-0.50}"
 
 DATA_DIR="${REPO_DIR}/data/research/daily"
+CANONICAL_OHLCV_DIR="${REPO_DIR}/data/research/canonical/ohlcv"
+CANONICAL_FEATURES_DIR="${REPO_DIR}/data/research/canonical/features"
+CANONICAL_MANIFEST_DIR="${REPO_DIR}/data/research/manifests"
+CANONICAL_QUARANTINE_DIR="${REPO_DIR}/data/research/quarantine"
 HIGH_CONVICTION_SHADOW_SYNC_DIR="${REPO_DIR}/data/research/high_conviction_shadow_sync"
 REPORT_DIR="${REPO_DIR}/reports/research/daily_data_collection"
 HIGH_CONVICTION_REPORT_DIR="${REPO_DIR}/reports/research/high_conviction_walk_forward"
@@ -36,12 +40,12 @@ fi
 # The image runs as appuser (uid/gid 999). It mounts data/ so the
 # research-only shadow sync can append attributed shadow_paper rows, but it
 # still does not mount secrets, logs, or any live-trading control surface.
-install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
+install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 # install -d preserves ownership for pre-existing directories. Restore the
 # appuser-owned output boundary so a prior root-created report cannot make a
 # subsequent isolated daily run fail while writing its research artifacts.
-chown 999:999 "${DATA_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
-chmod 0775 "${DATA_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
+chown 999:999 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
+chmod 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 
 exec docker run --rm \
   --name "autobot-research-${RUN_ID}" \
