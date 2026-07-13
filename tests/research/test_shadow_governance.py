@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -8,6 +9,7 @@ import sqlite3
 import pytest
 
 from autobot.v2.contracts import TargetPortfolio
+from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.shadow_governance import (
     ShadowGovernanceError,
     ShadowObservation,
@@ -15,6 +17,7 @@ from autobot.v2.research.shadow_governance import (
     StrategyArtifactRegistry,
     StrategyArtifact,
     apply_shadow_safety,
+    build_strategy_artifact_from_experiment,
     decide_shadow_safety,
     evaluate_shadow_parity,
 )
@@ -34,7 +37,34 @@ def _artifact(*, status: str = "SHADOW") -> StrategyArtifact:
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
         status=status,
+        experiment_id="exp_fixture",
+        experiment_fingerprint="fixture-fingerprint",
+        human_approval_reference="test-approval-reference",
     )
+
+
+def _experiment_spec() -> ExperimentSpec:
+    return ExperimentSpec(
+        hypothesis_id="funding_basis",
+        template_id="funding_extreme_reversion",
+        thesis="funding-basis hypothesis for a hermetic shadow-governance test",
+        code_commit="ee62e17",
+        data_snapshot_id="snapshot-1",
+        feature_versions={"basis_bps": "1.0.0"},
+        parameters={"threshold": 2.5},
+        seed=42,
+        cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
+        environment={"mode": "research"},
+    )
+
+
+def _passed_experiment_registry(tmp_path) -> tuple[ExperimentRegistry, str]:
+    registry = ExperimentRegistry(tmp_path / "experiment_registry.sqlite3")
+    state = registry.register_experiment(_experiment_spec())
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+        state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+    assert state.terminal is True
+    return registry, state.experiment_id
 
 
 def _target(*, decision_id: str = "decision-1", weight: float = 0.20) -> TargetPortfolio:
@@ -83,6 +113,58 @@ def test_strategy_artifact_keeps_grid_retired_and_cannot_enable_paper_or_live():
             risk_mandate_fingerprint="mandate",
             validation_manifest_fingerprint="validation",
             paper_capital_allowed=True,
+        )
+
+
+def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():
+    kwargs = {
+        "strategy_id": "funding_basis",
+        "strategy_version": "v1",
+        "code_commit": "ee62e17",
+        "data_snapshot_id": "snapshot-1",
+        "feature_versions": {"basis_bps": "1.0.0"},
+        "parameters": {"threshold": 2.5},
+        "risk_mandate_fingerprint": "mandate-1",
+        "validation_manifest_fingerprint": "validation-1",
+        "status": "SHADOW",
+    }
+
+    with pytest.raises(ShadowGovernanceError, match="requires an experiment binding"):
+        StrategyArtifact(**kwargs)
+    with pytest.raises(ShadowGovernanceError, match="supplied together"):
+        StrategyArtifact(**kwargs, experiment_id="exp_only")
+    with pytest.raises(ShadowGovernanceError, match="explicit human approval"):
+        StrategyArtifact(
+            **kwargs,
+            experiment_id="exp_fixture",
+            experiment_fingerprint="fixture-fingerprint",
+        )
+
+
+def test_shadow_artifact_factory_requires_passed_terminal_evidence_and_human_approval(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "unpassed_experiments.sqlite3")
+    unpassed = registry.register_experiment(_experiment_spec())
+
+    with pytest.raises(ShadowGovernanceError, match="passed terminal SHADOW_REVIEW"):
+        build_strategy_artifact_from_experiment(
+            experiment_registry=registry,
+            experiment_id=unpassed.experiment_id,
+            strategy_version="v1",
+            risk_mandate_fingerprint="mandate-1",
+            validation_manifest_fingerprint="validation-1",
+            requested_status="SHADOW",
+            human_approval_reference="human-review-1",
+        )
+
+    passed_registry, experiment_id = _passed_experiment_registry(tmp_path)
+    with pytest.raises(ShadowGovernanceError, match="explicit human approval"):
+        build_strategy_artifact_from_experiment(
+            experiment_registry=passed_registry,
+            experiment_id=experiment_id,
+            strategy_version="v1",
+            risk_mandate_fingerprint="mandate-1",
+            validation_manifest_fingerprint="validation-1",
+            requested_status="SHADOW",
         )
 
 
@@ -137,8 +219,20 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
 
 
 def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation(tmp_path):
-    artifact = _artifact()
-    registry = StrategyArtifactRegistry(tmp_path / "strategy_artifacts.sqlite3")
+    experiment_registry, experiment_id = _passed_experiment_registry(tmp_path)
+    artifact = build_strategy_artifact_from_experiment(
+        experiment_registry=experiment_registry,
+        experiment_id=experiment_id,
+        strategy_version="v1",
+        risk_mandate_fingerprint="mandate-1",
+        validation_manifest_fingerprint="validation-1",
+        requested_status="SHADOW",
+        human_approval_reference="human-review-1",
+    )
+    registry = StrategyArtifactRegistry(
+        tmp_path / "strategy_artifacts.sqlite3",
+        experiment_registry_path=experiment_registry.path,
+    )
     severe = ShadowPerformanceWindow(
         trade_count=60,
         rolling_profit_factor=0.75,
@@ -163,6 +257,27 @@ def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation
     with sqlite3.connect(tmp_path / "strategy_artifacts.sqlite3") as connection:
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             connection.execute("DELETE FROM strategy_safety_events")
+
+
+def test_strategy_artifact_registry_rejects_a_mismatched_experiment_fingerprint(tmp_path):
+    experiment_registry, experiment_id = _passed_experiment_registry(tmp_path)
+    artifact = build_strategy_artifact_from_experiment(
+        experiment_registry=experiment_registry,
+        experiment_id=experiment_id,
+        strategy_version="v1",
+        risk_mandate_fingerprint="mandate-1",
+        validation_manifest_fingerprint="validation-1",
+        requested_status="SHADOW_ELIGIBLE",
+        human_approval_reference="human-review-1",
+    )
+    mismatched = replace(artifact, experiment_fingerprint="tampered-fingerprint")
+    registry = StrategyArtifactRegistry(
+        tmp_path / "strategy_artifacts.sqlite3",
+        experiment_registry_path=experiment_registry.path,
+    )
+
+    with pytest.raises(ShadowGovernanceError, match="fingerprint mismatch"):
+        registry.register(mismatched)
 
 
 def test_shadow_governance_module_does_not_import_runtime_execution_paths():

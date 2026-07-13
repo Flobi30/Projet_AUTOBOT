@@ -18,6 +18,8 @@ from typing import Any, Mapping
 
 from autobot.v2.contracts import TargetPortfolio, contract_fingerprint
 
+from .experiment_registry import DEFAULT_EXPERIMENT_REGISTRY_PATH, ExperimentRegistry, ExperimentRegistryError
+
 
 ARTIFACT_STATUSES = frozenset(
     {
@@ -32,6 +34,7 @@ ARTIFACT_STATUSES = frozenset(
 )
 SHADOW_ACTIONS = ("NORMAL", "WATCH", "REDUCE", "DISABLE_NEW_ENTRIES", "QUARANTINE")
 GRID_ALIASES = frozenset({"grid", "grid_async", "grid_core", "dynamic_grid"})
+EXPERIMENT_BOUND_SHADOW_STATUSES = frozenset({"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED", "QUARANTINED"})
 DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH = Path("data/research/strategy_artifacts.sqlite3")
 
 
@@ -51,6 +54,9 @@ class StrategyArtifact:
     validation_manifest_fingerprint: str
     status: str = "RESEARCH"
     rollback_artifact_id: str | None = None
+    experiment_id: str | None = None
+    experiment_fingerprint: str | None = None
+    human_approval_reference: str | None = None
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     automatic_promotion_allowed: bool = False
@@ -73,6 +79,16 @@ class StrategyArtifact:
             raise ShadowGovernanceError("grid aliases must remain RETIRED")
         if self.paper_capital_allowed or self.live_allowed or self.automatic_promotion_allowed:
             raise ShadowGovernanceError("shadow artifact cannot permit paper, live or automatic promotion")
+        experiment_id = str(self.experiment_id or "").strip() or None
+        experiment_fingerprint = str(self.experiment_fingerprint or "").strip() or None
+        human_approval_reference = str(self.human_approval_reference or "").strip() or None
+        if bool(experiment_id) != bool(experiment_fingerprint):
+            raise ShadowGovernanceError("experiment_id and experiment_fingerprint must be supplied together")
+        if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES:
+            if not experiment_id:
+                raise ShadowGovernanceError("shadow artifact requires an experiment binding")
+            if not human_approval_reference:
+                raise ShadowGovernanceError("shadow artifact requires an explicit human approval reference")
         object.__setattr__(self, "strategy_id", self.strategy_id.lower())
         object.__setattr__(self, "strategy_version", self.strategy_version.strip())
         object.__setattr__(self, "code_commit", self.code_commit.strip())
@@ -80,6 +96,9 @@ class StrategyArtifact:
         object.__setattr__(self, "feature_versions", {str(key): str(value) for key, value in self.feature_versions.items()})
         object.__setattr__(self, "parameters", dict(self.parameters))
         object.__setattr__(self, "status", normalized_status)
+        object.__setattr__(self, "experiment_id", experiment_id)
+        object.__setattr__(self, "experiment_fingerprint", experiment_fingerprint)
+        object.__setattr__(self, "human_approval_reference", human_approval_reference)
 
     @property
     def artifact_id(self) -> str:
@@ -97,6 +116,59 @@ class StrategyArtifact:
         payload["live_allowed"] = False
         payload["automatic_promotion_allowed"] = False
         return payload
+
+
+def build_strategy_artifact_from_experiment(
+    *,
+    experiment_registry: ExperimentRegistry,
+    experiment_id: str,
+    strategy_version: str,
+    risk_mandate_fingerprint: str,
+    validation_manifest_fingerprint: str,
+    requested_status: str = "RESEARCH",
+    human_approval_reference: str | None = None,
+) -> StrategyArtifact:
+    """Build an immutable artifact from append-only experiment evidence.
+
+    This is the only supported construction path for a shadow-governed status.
+    It cannot promote paper/live; a human reference authorizes only a research
+    shadow artifact after all experiment gates have passed.
+    """
+
+    try:
+        state = experiment_registry.get_state(experiment_id)
+        manifest = experiment_registry.export_manifest(experiment_id)
+    except ExperimentRegistryError as exc:
+        raise ShadowGovernanceError(f"experiment binding unavailable: {exc}") from exc
+    spec = manifest.get("experiment")
+    if not isinstance(spec, Mapping):
+        raise ShadowGovernanceError("experiment manifest is missing its immutable specification")
+    status = str(requested_status).upper()
+    if status not in ARTIFACT_STATUSES:
+        raise ShadowGovernanceError(f"unsupported artifact status: {requested_status}")
+    if status in EXPERIMENT_BOUND_SHADOW_STATUSES:
+        if state.latest_stage != "SHADOW_REVIEW" or state.latest_status != "PASSED" or not state.terminal:
+            raise ShadowGovernanceError("shadow artifact requires a passed terminal SHADOW_REVIEW experiment")
+        if not str(human_approval_reference or "").strip():
+            raise ShadowGovernanceError("shadow artifact requires an explicit human approval reference")
+    feature_versions = spec.get("feature_versions")
+    parameters = spec.get("parameters")
+    if not isinstance(feature_versions, Mapping) or not isinstance(parameters, Mapping):
+        raise ShadowGovernanceError("experiment specification is missing feature versions or parameters")
+    return StrategyArtifact(
+        strategy_id=str(state.hypothesis_id),
+        strategy_version=strategy_version,
+        code_commit=str(spec.get("code_commit") or ""),
+        data_snapshot_id=str(spec.get("data_snapshot_id") or ""),
+        feature_versions={str(key): str(value) for key, value in feature_versions.items()},
+        parameters=dict(parameters),
+        risk_mandate_fingerprint=risk_mandate_fingerprint,
+        validation_manifest_fingerprint=validation_manifest_fingerprint,
+        status=status,
+        experiment_id=state.experiment_id,
+        experiment_fingerprint=state.material_fingerprint,
+        human_approval_reference=human_approval_reference,
+    )
 
 
 @dataclass(frozen=True)
@@ -204,10 +276,17 @@ class ShadowSafetyDecision:
 class StrategyArtifactRegistry:
     """Append-only source of truth for versioned research/shadow artifacts."""
 
-    def __init__(self, path: str | Path = DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH) -> None:
+    def __init__(
+        self,
+        path: str | Path = DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH,
+        *,
+        experiment_registry_path: str | Path = DEFAULT_EXPERIMENT_REGISTRY_PATH,
+    ) -> None:
         self.path = Path(path)
+        self.experiment_registry_path = Path(experiment_registry_path)
 
     def register(self, artifact: StrategyArtifact) -> str:
+        self._validate_shadow_experiment_binding(artifact)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._initialize(connection)
@@ -228,6 +307,18 @@ class StrategyArtifactRegistry:
                 ),
             )
             return artifact.artifact_id
+
+    def _validate_shadow_experiment_binding(self, artifact: StrategyArtifact) -> None:
+        if artifact.status not in EXPERIMENT_BOUND_SHADOW_STATUSES:
+            return
+        try:
+            state = ExperimentRegistry(self.experiment_registry_path).get_state(str(artifact.experiment_id))
+        except ExperimentRegistryError as exc:
+            raise ShadowGovernanceError(f"shadow artifact experiment binding unavailable: {exc}") from exc
+        if state.material_fingerprint != artifact.experiment_fingerprint:
+            raise ShadowGovernanceError("shadow artifact experiment fingerprint mismatch")
+        if state.latest_stage != "SHADOW_REVIEW" or state.latest_status != "PASSED" or not state.terminal:
+            raise ShadowGovernanceError("shadow artifact experiment has not passed terminal SHADOW_REVIEW")
 
     def record_safety_decision(self, artifact: StrategyArtifact, decision: ShadowSafetyDecision) -> bool:
         """Append one non-increasing-risk decision, rejecting action relaxation."""
