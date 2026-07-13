@@ -313,7 +313,14 @@ async def test_execute_buy_and_cost_guard_with_explicit_legacy_test_opt_in(monke
         volume=0.2,
         reason="unit",
         timestamp=datetime.now(timezone.utc),
-        metadata={"spread_bps": 10.0, "expected_move_bps": 160.0, "fee_bps": 20.0, "slippage_bps": 8.0},
+        metadata={
+            "strategy_id": "trend_momentum",
+            "strategy": "trend_momentum",
+            "spread_bps": 10.0,
+            "expected_move_bps": 160.0,
+            "fee_bps": 20.0,
+            "slippage_bps": 8.0,
+        },
     )
 
     assert handler._passes_cost_guard(signal, atr_pct=0.01) is True
