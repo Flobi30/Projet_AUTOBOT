@@ -48,7 +48,7 @@ install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANON
 chown 999:999 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 chmod 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 
-exec docker run --rm \
+docker run --rm \
   --name "autobot-research-${RUN_ID}" \
   --label "autobot.component=research-data-collection" \
   --network bridge \
@@ -75,3 +75,32 @@ exec docker run --rm \
   python -m autobot.v2.cli collect-research-daily \
     --config /app/config/research_data_collection.yaml \
     --run-id "${RUN_ID}"
+
+# The collector only produces data. Run a separate read-only capability scan
+# afterwards so the next research scheduler cycle has an auditable explanation
+# of which alpha families remain blocked by data, without launching a strategy.
+docker run --rm \
+  --name "autobot-research-capability-${RUN_ID}" \
+  --label "autobot.component=research-data-capability" \
+  --network none \
+  --no-healthcheck \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --security-opt no-new-privileges \
+  --cap-drop ALL \
+  --memory "${MEMORY_LIMIT}" \
+  --cpus "${CPU_LIMIT}" \
+  --env PYTHONPATH=/app/src \
+  --env PYTHONUNBUFFERED=1 \
+  --env PYTHONDONTWRITEBYTECODE=1 \
+  --env HOME=/tmp \
+  --env TZ=Europe/Paris \
+  --volume "${REPO_DIR}/data:/app/data:ro" \
+  --volume "${REPORT_DIR}:/app/reports/research/daily_data_collection" \
+  "${IMAGE}" \
+  python -m autobot.v2.cli data-capability-scan \
+    --run-id "${RUN_ID}_capability" \
+    --state-db data/autobot_state.db \
+    --data-roots data/research \
+    --memory-path data/research/alpha_research_memory.sqlite3 \
+    --output-dir reports/research/daily_data_collection
