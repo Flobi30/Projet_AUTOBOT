@@ -73,6 +73,7 @@ class ShadowPaperObservationSyncConfig:
     trend_shadow_db_path: Path = Path("data/trend_shadow_lab.db")
     mean_reversion_shadow_db_path: Path = Path("data/mean_reversion_shadow_lab.db")
     high_conviction_data_paths: tuple[Path, ...] = ()
+    high_conviction_feature_snapshot_manifest: Path | None = None
     output_dir: Path = Path("reports/paper/shadow_observations")
     high_conviction_output_dir: Path | None = None
     opportunity_match_window_hours: float = 6.0
@@ -391,6 +392,17 @@ def _sync_high_conviction_source(
             warnings=tuple(f"missing:{path}" for path in missing),
         )
 
+    evidence, evidence_reason = _load_high_conviction_feature_evidence(config)
+    if evidence_reason is not None:
+        return ShadowSyncSourceResult(
+            strategy_id=strategy_id,
+            source=source_name,
+            source_path=",".join(str(path) for path in high_conviction_data_paths),
+            can_write_shadow=False,
+            reason_counts={evidence_reason: 1},
+            warnings=(evidence_reason,),
+        )
+
     try:
         report = write_high_conviction_portfolio_report(
             build_high_conviction_portfolio_report(
@@ -457,6 +469,11 @@ def _sync_high_conviction_source(
             generated_at=generated_at,
             max_window_hours=config.opportunity_match_window_hours,
         )
+        opportunity_metadata = {
+            **opportunity_metadata,
+            "point_in_time_feature_snapshot_id": evidence["feature_snapshot_id"],
+            "point_in_time_feature_snapshot_fingerprint": evidence["fingerprint"],
+        }
         if _ledger_trade_exists(state_conn, f"{source_id}:close") or _ledger_trade_exists(
             state_conn, f"{source_id}:open"
         ) or _high_conviction_economic_trade_exists(
@@ -529,6 +546,44 @@ def _resolve_high_conviction_data_paths(config: ShadowPaperObservationSyncConfig
         return ()
     latest = max(candidates, key=lambda path: path.stat().st_mtime)
     return (latest,)
+
+
+def _load_high_conviction_feature_evidence(
+    config: ShadowPaperObservationSyncConfig,
+) -> tuple[dict[str, str], str | None]:
+    """Require a ready canonical feature manifest before ledger shadow writes.
+
+    A High Conviction replay built from raw OHLCV can remain a research report,
+    but cannot become an attributed official shadow observation until its data
+    has passed the point-in-time canonical/feature boundary.
+    """
+
+    manifest_path = config.high_conviction_feature_snapshot_manifest
+    if manifest_path is None:
+        return {}, "canonical_point_in_time_evidence_required"
+    if not manifest_path.exists():
+        return {}, "canonical_point_in_time_evidence_missing"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, "canonical_point_in_time_evidence_invalid"
+    if not isinstance(payload, Mapping):
+        return {}, "canonical_point_in_time_evidence_invalid"
+    if str(payload.get("status") or "").upper() != "READY":
+        return {}, "canonical_point_in_time_evidence_not_ready"
+    if payload.get("parity_ok") is not True:
+        return {}, "canonical_point_in_time_parity_not_proven"
+    if int(payload.get("ingestion_time_unknown_count") or 0) != 0:
+        return {}, "canonical_point_in_time_ingestion_unknown"
+    if int(payload.get("rejected_unverified_mapping_count") or 0) != 0:
+        return {}, "canonical_point_in_time_mapping_unverified"
+    if payload.get("blockers"):
+        return {}, "canonical_point_in_time_feature_blockers_present"
+    snapshot_id = str(payload.get("feature_snapshot_id") or "").strip()
+    fingerprint = str(payload.get("fingerprint") or "").strip()
+    if not snapshot_id or not fingerprint:
+        return {}, "canonical_point_in_time_evidence_invalid"
+    return {"feature_snapshot_id": snapshot_id, "fingerprint": fingerprint}, None
 
 
 def _select_high_conviction_primary_result(

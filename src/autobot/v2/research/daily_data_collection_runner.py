@@ -163,6 +163,7 @@ class DailyShadowObservationSyncConfig:
     registry_path: Path = Path("docs/research/strategy_hypotheses.json")
     trend_shadow_db_path: Path = Path("data/trend_shadow_lab.db")
     mean_reversion_shadow_db_path: Path = Path("data/mean_reversion_shadow_lab.db")
+    high_conviction_feature_snapshot_manifest: Path | None = None
     output_dir: Path = Path("reports/paper/shadow_observations")
     high_conviction_output_dir: Path | None = None
 
@@ -372,6 +373,11 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             trend_shadow_db_path=Path(str(shadow_sync.get("trend_shadow_db_path") or "data/trend_shadow_lab.db")),
             mean_reversion_shadow_db_path=Path(
                 str(shadow_sync.get("mean_reversion_shadow_db_path") or "data/mean_reversion_shadow_lab.db")
+            ),
+            high_conviction_feature_snapshot_manifest=(
+                Path(str(shadow_sync.get("high_conviction_feature_snapshot_manifest")))
+                if shadow_sync.get("high_conviction_feature_snapshot_manifest") not in (None, "")
+                else None
             ),
             output_dir=Path(str(shadow_sync.get("output_dir") or "reports/paper/shadow_observations")),
             high_conviction_output_dir=(
@@ -813,6 +819,17 @@ def _run_shadow_observation_sync(
     scheduled = config.shadow_observation_sync
     if not scheduled.enabled:
         return None
+    if scheduled.high_conviction_feature_snapshot_manifest is None:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="shadow_observation_sync",
+                symbol=None,
+                timeframe=None,
+                status="blocked",
+                error="canonical_point_in_time_evidence_required",
+            )
+        )
+        return None
     if not scheduled.state_db_path.exists():
         operations.append(
             DailyCollectionOperation(
@@ -837,6 +854,7 @@ def _run_shadow_observation_sync(
                 trend_shadow_db_path=scheduled.trend_shadow_db_path,
                 mean_reversion_shadow_db_path=scheduled.mean_reversion_shadow_db_path,
                 high_conviction_data_paths=tuple(Path(path) for path in ohlcv_csv_paths),
+                high_conviction_feature_snapshot_manifest=scheduled.high_conviction_feature_snapshot_manifest,
                 output_dir=scheduled.output_dir,
                 high_conviction_output_dir=scheduled.high_conviction_output_dir,
                 run_id=f"{run_id}_shadow_observation_sync",

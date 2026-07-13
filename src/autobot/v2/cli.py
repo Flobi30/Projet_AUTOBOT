@@ -524,6 +524,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated OHLCV CSV/Parquet path(s) or directories used to build closed high-conviction shadow observations",
     )
     shadow_observations.add_argument(
+        "--high-conviction-feature-snapshot-manifest",
+        default=None,
+        help="Required READY point-in-time feature manifest for High Conviction shadow ledger writes",
+    )
+    shadow_observations.add_argument(
         "--high-conviction-output-dir",
         default=None,
         help="Optional output directory for the research-only high-conviction replay report",
@@ -2627,6 +2632,11 @@ def _cmd_shadow_paper_observations(args: argparse.Namespace) -> int:
                 tuple(Path(item) for item in _csv_tuple(args.high_conviction_data_paths, "--high-conviction-data-paths"))
                 if args.high_conviction_data_paths
                 else ()
+            ),
+            high_conviction_feature_snapshot_manifest=(
+                Path(args.high_conviction_feature_snapshot_manifest)
+                if args.high_conviction_feature_snapshot_manifest
+                else None
             ),
             output_dir=Path(args.output_dir),
             high_conviction_output_dir=(

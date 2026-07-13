@@ -326,7 +326,7 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
     assert result.live_promotion_allowed is False
 
 
-def test_daily_runner_can_sync_shadow_observations_to_persistent_ledger(tmp_path, monkeypatch):
+def test_daily_runner_blocks_shadow_ledger_sync_without_point_in_time_evidence(tmp_path, monkeypatch):
     config_path = tmp_path / "research_daily_shadow_sync.yaml"
     state_db = tmp_path / "data" / "autobot_state.db"
     registry = tmp_path / "docs" / "research" / "strategy_hypotheses.json"
@@ -366,20 +366,11 @@ def test_daily_runner_can_sync_shadow_observations_to_persistent_ledger(tmp_path
     def depth_fetcher(pair, depth_count):
         return {"error": [], "result": {pair: {"bids": [["1.0", "10", "1"]], "asks": [["1.1", "10", "1"]]}}}
 
-    fake_result = SimpleNamespace(
-        cost_profile="research_stress",
-        policy="conservative",
-        scenario={
-            "min_expected_move_bps": 500.0,
-            "risk_reward_ratio": 2.0,
-            "max_hold_hours": 72.0,
-            "exit_mode": "fixed_tp_sl",
-        },
-        trade_records=(_high_conviction_record(),),
+    monkeypatch.setattr(
+        shadow_observation_sync,
+        "build_high_conviction_portfolio_report",
+        lambda _config: pytest.fail("daily raw OHLCV must not start a shadow replay without evidence"),
     )
-    fake_report = SimpleNamespace(portfolio_results=(fake_result,))
-    monkeypatch.setattr(shadow_observation_sync, "build_high_conviction_portfolio_report", lambda _config: fake_report)
-    monkeypatch.setattr(shadow_observation_sync, "write_high_conviction_portfolio_report", lambda report, _output: report)
 
     result = run_daily_research_data_collection(
         config_path=config_path,
@@ -391,9 +382,8 @@ def test_daily_runner_can_sync_shadow_observations_to_persistent_ledger(tmp_path
 
     shadow_ops = [op for op in result.operations if op.operation_type == "shadow_observation_sync"]
     assert len(shadow_ops) == 1
-    assert shadow_ops[0].status == "ok"
-    assert result.shadow_observation_sync_report_path
-    assert Path(result.shadow_observation_sync_report_path).exists()
+    assert shadow_ops[0].status == "blocked"
+    assert shadow_ops[0].error == "canonical_point_in_time_evidence_required"
+    assert result.shadow_observation_sync_report_path is None
     loaded = load_state_db_paper_ledger(state_db)
-    assert loaded.journal.records[0].strategy_id == "high_conviction_swing"
-    assert loaded.journal.records[0].metadata["execution_mode"] == "shadow_paper"
+    assert not loaded.journal.records

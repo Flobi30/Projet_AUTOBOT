@@ -54,6 +54,24 @@ def _strategy_entry(strategy_id: str, status: str = "learning") -> dict:
     }
 
 
+def _write_ready_feature_snapshot(path: Path) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "feature_snapshot_id": "features_v1_pytest_ready",
+                "fingerprint": "pytest-feature-fingerprint",
+                "status": "READY",
+                "parity_ok": True,
+                "ingestion_time_unknown_count": 0,
+                "rejected_unverified_mapping_count": 0,
+                "blockers": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _write_registry(path: Path) -> None:
     payload = {
         "decision_statuses": [
@@ -755,6 +773,7 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
             trend_shadow_db_path=tmp_path / "missing_trend.db",
             mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
             high_conviction_data_paths=(data_path,),
+            high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
             output_dir=tmp_path / "reports",
             run_id="pytest_high_conviction_shadow_sync",
         )
@@ -785,6 +804,72 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
     assert trade.net_pnl_eur == pytest.approx(7.5)
 
 
+def test_high_conviction_raw_ohlcv_cannot_write_shadow_ledger_without_feature_evidence(tmp_path, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    data_path = tmp_path / "ohlcv.csv"
+    data_path.write_text("timestamp,symbol,timeframe,open,high,low,close,volume\n", encoding="utf-8")
+    _write_registry(registry)
+    monkeypatch.setattr(
+        shadow_observation_sync,
+        "build_high_conviction_portfolio_report",
+        lambda _config: pytest.fail("raw OHLCV replay must be blocked before execution"),
+    )
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_data_paths=(data_path,),
+            output_dir=tmp_path / "reports",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing")
+    assert high_conviction["can_write_shadow"] is False
+    assert high_conviction["inserted_trade_count"] == 0
+    assert high_conviction["reason_counts"] == {"canonical_point_in_time_evidence_required": 1}
+    assert not load_state_db_paper_ledger(state_db).journal.records
+
+
+def test_high_conviction_rejects_non_ready_feature_evidence(tmp_path, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    data_path = tmp_path / "ohlcv.csv"
+    evidence_path = _write_ready_feature_snapshot(tmp_path / "features.json")
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["status"] = "DATA_MISSING"
+    payload["blockers"] = ["INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN"]
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+    data_path.write_text("timestamp,symbol,timeframe,open,high,low,close,volume\n", encoding="utf-8")
+    _write_registry(registry)
+    monkeypatch.setattr(
+        shadow_observation_sync,
+        "build_high_conviction_portfolio_report",
+        lambda _config: pytest.fail("invalid feature evidence must block replay"),
+    )
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=tmp_path / "missing_trend.db",
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_data_paths=(data_path,),
+            high_conviction_feature_snapshot_manifest=evidence_path,
+            output_dir=tmp_path / "reports",
+            write_report=False,
+        )
+    ).to_dict()
+
+    high_conviction = next(item for item in report["source_results"] if item["strategy_id"] == "high_conviction_swing")
+    assert high_conviction["can_write_shadow"] is False
+    assert high_conviction["reason_counts"] == {"canonical_point_in_time_evidence_not_ready": 1}
+
+
 def test_shadow_sync_commits_before_high_conviction_replay(tmp_path, monkeypatch):
     state_db = tmp_path / "state.db"
     registry = tmp_path / "strategy_hypotheses.json"
@@ -810,6 +895,7 @@ def test_shadow_sync_commits_before_high_conviction_replay(tmp_path, monkeypatch
             trend_shadow_db_path=trend_db,
             mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
             high_conviction_data_paths=(data_path,),
+            high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
             output_dir=tmp_path / "reports",
             run_id="pytest_commit_before_high_conviction",
             write_report=False,
@@ -855,6 +941,7 @@ def test_high_conviction_shadow_sync_is_idempotent_across_replay_run_ids(tmp_pat
         trend_shadow_db_path=tmp_path / "missing_trend.db",
         mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
         high_conviction_data_paths=(data_path,),
+        high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
         output_dir=tmp_path / "reports",
         write_report=False,
     )
@@ -920,6 +1007,7 @@ def test_high_conviction_missing_data_paths_reports_diagnostic(tmp_path):
             registry_path=registry,
             trend_shadow_db_path=tmp_path / "missing_trend.db",
             mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
             output_dir=tmp_path / "reports",
             run_id="pytest_high_conviction_missing_paths",
             write_report=False,
@@ -975,6 +1063,7 @@ def test_high_conviction_shadow_sync_auto_discovers_latest_daily_ohlcv(tmp_path,
             registry_path=registry,
             trend_shadow_db_path=tmp_path / "missing_trend.db",
             mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
             output_dir=tmp_path / "reports",
             run_id="pytest_high_conviction_auto_discover",
             write_report=False,
@@ -1043,6 +1132,7 @@ def test_high_conviction_no_closed_trades_reports_diagnostic(tmp_path, monkeypat
             trend_shadow_db_path=tmp_path / "missing_trend.db",
             mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
             high_conviction_data_paths=(data_path,),
+            high_conviction_feature_snapshot_manifest=_write_ready_feature_snapshot(tmp_path / "features.json"),
             output_dir=tmp_path / "reports",
             run_id="pytest_high_conviction_no_closed",
             write_report=False,
@@ -1342,6 +1432,8 @@ def test_cli_shadow_paper_observations_accepts_high_conviction_paths(tmp_path, c
             str(tmp_path / "missing_mean.db"),
             "--high-conviction-data-paths",
             str(data_path),
+            "--high-conviction-feature-snapshot-manifest",
+            str(_write_ready_feature_snapshot(tmp_path / "features.json")),
             "--high-conviction-output-dir",
             str(high_output_dir),
             "--run-id",
