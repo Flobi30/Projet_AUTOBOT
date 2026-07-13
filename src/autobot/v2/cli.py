@@ -435,6 +435,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_restore_drill.add_argument("--backup-path", required=True)
     sqlite_restore_drill.set_defaults(handler=_cmd_sqlite_restore_drill)
 
+    runtime_oms_ledger_audit = subparsers.add_parser(
+        "runtime-oms-ledger-audit",
+        help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
+    )
+    runtime_oms_ledger_audit.add_argument("--state-db", required=True)
+    runtime_oms_ledger_audit.set_defaults(handler=_cmd_runtime_oms_ledger_audit)
+
     canonicalize_ohlcv = subparsers.add_parser(
         "canonicalize-ohlcv",
         help="Build a deterministic research-only canonical OHLCV snapshot from raw CSV exports",
@@ -2526,6 +2533,13 @@ def _cmd_sqlite_restore_drill(args: argparse.Namespace) -> int:
 
     manifest = verify_sqlite_restore_drill(Path(args.backup_path))
     _print_json(asdict(manifest))
+    return 0
+
+
+def _cmd_runtime_oms_ledger_audit(args: argparse.Namespace) -> int:
+    from autobot.v2.research.runtime_oms_ledger_audit import audit_runtime_oms_ledger
+
+    _print_json(audit_runtime_oms_ledger(Path(args.state_db)).to_dict())
     return 0
 
 
