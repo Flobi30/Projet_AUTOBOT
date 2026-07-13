@@ -54,6 +54,21 @@ passes the research gates.
 
 ## Deployment verification
 
-This section is completed only after the source commit is pushed, the VPS is
-fast-forwarded, its isolated research tests pass, and the unchanged runtime
-health and safety flags are verified.
+Source and runtime were verified on the VPS after the final implementation
+commit `17a2f1c17d277eb0656dc58a5cc9a39bbb32dfc9`; the test-isolation follow-up
+is recorded in commit `64e3ce169d3859bdfdf01f3a13c52360c7b185c7`.
+
+- GitHub and `/opt/Projet_AUTOBOT` are aligned on `64e3ce1`.
+- The isolated research test image ran `435 passed` against a read-only source
+  mount, with the test cache disabled.
+- The production `autobot-v2` container was rebuilt/recreated from the updated
+  source and returned `/health: healthy` with its WebSocket connected and
+  fourteen instances running.
+- `PAPER_EXECUTION_ADAPTER_ENABLED=false`;
+  `LIVE_TRADING_CONFIRMATION=false`;
+  `STRATEGY_ROUTER_LIVE_ENABLED=false`; and
+  `COLONY_AUTO_LIVE_PROMOTION=false`.
+- No matching critical error, live-order, Kraken-live-order or live-activation
+  log line was found after restart.
+- The VPS has approximately 61 GiB free storage; no storage pressure blocks
+  the research collectors.
