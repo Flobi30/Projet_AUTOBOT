@@ -31,7 +31,7 @@ execution.
 
 ## Validation
 
-- Focused registry, manifested-experiment, runner and CLI tests: `56 passed`.
+- Focused registry, manifested-experiment, runner and CLI tests: `57 passed`.
 - Touched Python modules compile successfully.
 - Full isolated container validation and VPS smoke remain required before this
   increment is accepted as deployed.

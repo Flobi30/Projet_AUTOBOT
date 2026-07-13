@@ -2054,6 +2054,7 @@ def _cmd_volatility_breakout_walk_forward(args: argparse.Namespace) -> int:
 def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
     from autobot.v2.research.alpha_hypothesis_runner import (
         AlphaHypothesisRunnerConfig,
+        _current_git_commit,
         build_alpha_hypothesis_runner_report,
         write_alpha_hypothesis_runner_report,
     )
@@ -2065,12 +2066,13 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
     run_id = args.run_id or f"alpha_hypothesis_runner_{args.hypothesis_id}_{args.mode}"
     data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
     pre_run_context = None
-    if args.feature_snapshot_manifest and args.commit:
+    pre_run_commit = str(args.commit or _current_git_commit() or "").strip()
+    if args.feature_snapshot_manifest and pre_run_commit:
         pre_run_context = _prepare_alpha_experiment_context(
             args,
             data_paths=data_paths,
             hypothesis_id=args.hypothesis_id,
-            code_commit=str(args.commit),
+            code_commit=pre_run_commit,
         )
     if pre_run_context and pre_run_context.get("state") and pre_run_context["state"].terminal:
         state = pre_run_context["state"]
@@ -2164,8 +2166,8 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             report=result,
             variant_count=args.max_variants,
             symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
-            timeframes=_csv_tuple(args.trial_timeframes, "--trial-timeframes"),
-            regimes=_csv_tuple(args.trial_regimes, "--trial-regimes"),
+            timeframes=_optional_csv_tuple(args.trial_timeframes, "--trial-timeframes"),
+            regimes=_optional_csv_tuple(args.trial_regimes, "--trial-regimes"),
             record_trial_dimensions=False,
         )
         payload["experiment_registry"] = {
@@ -2232,8 +2234,8 @@ def _prepare_alpha_experiment_context(
         if derivatives_availability.status != "READY":
             return {"derivatives_availability": derivatives_availability}
 
-    timeframes = _csv_tuple(args.trial_timeframes, "--trial-timeframes")
-    regimes = _csv_tuple(args.trial_regimes, "--trial-regimes")
+    timeframes = _optional_csv_tuple(args.trial_timeframes, "--trial-timeframes")
+    regimes = _optional_csv_tuple(args.trial_regimes, "--trial-regimes")
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
     spec, provenance = build_manifested_experiment_spec(
         hypothesis_id=resolved_hypothesis_id,
@@ -3208,6 +3210,12 @@ def _csv_tuple(text: str, label: str, *, uppercase: bool = False) -> tuple[str, 
     if not values:
         raise ValueError(f"{label} must contain at least one value")
     return tuple(values)
+
+
+def _optional_csv_tuple(text: str | None, label: str, *, uppercase: bool = False) -> tuple[str, ...]:
+    if not str(text or "").strip():
+        return ()
+    return _csv_tuple(str(text), label, uppercase=uppercase)
 
 
 def _csv_float_tuple(text: str, label: str) -> tuple[float, ...]:

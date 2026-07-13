@@ -1754,3 +1754,59 @@ def test_cli_pre_registers_material_trial_plan_before_runner_statistics(tmp_path
     assert context["registry"].validation_trial_count(hypothesis_id="long_trend") == 16
     assert context["spec"].to_dict()["paper_capital_allowed"] is False
     assert context["spec"].to_dict()["live_allowed"] is False
+
+
+def test_cli_skips_a_terminal_material_experiment_before_research_retries(tmp_path, capsys):
+    feature_manifest = tmp_path / "feature_snapshot.json"
+    feature_manifest.write_text(
+        json.dumps(
+            {
+                "status": "READY",
+                "parity_ok": True,
+                "feature_count": 2,
+                "feature_snapshot_id": "features_terminal",
+                "fingerprint": "feature-fingerprint-terminal",
+                "source_snapshot_id": "ohlcv_terminal",
+                "source_snapshot_fingerprint": "source-fingerprint-terminal",
+                "feature_registry_fingerprint": "registry-fingerprint-terminal",
+                "feature_versions": {"momentum_3_bps": "1.0.0"},
+                "ingestion_time_unknown_count": 0,
+                "runtime_parity_proven": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    command = [
+        "alpha-hypothesis-runner",
+        "--hypothesis-id",
+        "long_trend",
+        "--mode",
+        "data_check",
+        "--commit",
+        "pytest-commit-terminal",
+        "--feature-snapshot-manifest",
+        str(feature_manifest),
+        "--experiment-registry",
+        str(tmp_path / "experiment_registry.sqlite3"),
+        "--memory-path",
+        str(tmp_path / "memory.sqlite3"),
+        "--output-dir",
+        str(tmp_path / "reports"),
+        "--symbols",
+        "BTCZEUR",
+        "--max-variants",
+        "1",
+    ]
+
+    assert cli.main(command) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["experiment_registry"]["state"]["terminal"] is True
+    assert first["paper_capital_allowed"] is False
+    assert first["live_allowed"] is False
+
+    assert cli.main(command) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["final_decision"] == "MATERIAL_EXPERIMENT_ALREADY_TERMINAL"
+    assert second["experiment_registry"]["recorded"] is False
+    assert second["paper_capital_allowed"] is False
+    assert second["live_allowed"] is False
