@@ -40,6 +40,7 @@ fi
 # The image runs as appuser (uid/gid 999). It mounts data/ so the
 # research-only shadow sync can append attributed shadow_paper rows, but it
 # still does not mount secrets, logs, or any live-trading control surface.
+# Canonical artifacts remain inside the same research-only data boundary.
 install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
 # install -d preserves ownership for pre-existing directories. Restore the
 # appuser-owned output boundary so a prior root-created report cannot make a
