@@ -250,7 +250,7 @@ def build_canonical_feature_snapshot(
         blockers.append("INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN")
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
-    status = "READY" if all_rows and parity_ok else "DATA_MISSING"
+    status = "READY" if all_rows and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
     snapshot = CanonicalFeatureSnapshot(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),

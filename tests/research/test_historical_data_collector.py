@@ -98,6 +98,7 @@ def test_historical_collector_excludes_open_bar_and_records_point_in_time_proven
         rows = list(csv.DictReader(handle))
     assert len(rows) == 1
     assert rows[0]["timestamp"] == "2026-06-01T00:00:00+00:00"
+    assert rows[0]["available_time"] == collection_time.isoformat()
     assert rows[0]["ingestion_time"] == collection_time.isoformat()
     assert rows[0]["collected_at"] == collection_time.isoformat()
 
@@ -111,6 +112,10 @@ def test_historical_collector_excludes_open_bar_and_records_point_in_time_proven
             market_mappings={"TRXEUR": {"base_asset": "TRX", "quote_asset": "EUR"}},
         )
     )
+    with Path(canonical.files[0].csv_path).open("r", newline="", encoding="utf-8") as handle:
+        canonical_rows = list(csv.DictReader(handle))
+    assert canonical_rows[0]["available_time"] == collection_time.isoformat()
+    assert canonical_rows[0]["ingestion_time"] == collection_time.isoformat()
     feature_snapshot = build_canonical_feature_snapshot(
         CanonicalFeatureSnapshotConfig(
             run_id="pytest_point_in_time_features",
@@ -121,6 +126,30 @@ def test_historical_collector_excludes_open_bar_and_records_point_in_time_proven
     )
     assert feature_snapshot.ingestion_time_unknown_count == 0
     assert "INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN" not in feature_snapshot.blockers
+
+
+def test_historical_collector_keeps_bar_that_closes_at_collection_time(tmp_path, monkeypatch):
+    collection_time = datetime(2026, 6, 1, 0, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr(collector_module, "_utc_now", lambda: collection_time)
+    result = collect_historical_ohlcv(
+        HistoricalDataCollectorConfig(
+            run_id="pytest_closed_boundary",
+            symbols=("TRXEUR",),
+            timeframes=("5m",),
+            output_dir=tmp_path,
+            export_csv=False,
+            export_parquet=False,
+        ),
+        fetcher=_fake_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    collected = result.files[0]
+    assert collected.row_count_raw == collected.row_count_closed + collected.incomplete_bar_count
+    assert collected.row_count_raw == 2
+    assert collected.row_count_closed == 1
+    assert collected.row_count_deduped == 1
+    assert collected.duplicate_count == 0
 
 
 def test_historical_collector_rejects_unsupported_timeframe(tmp_path):

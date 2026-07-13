@@ -66,8 +66,10 @@ def test_historical_collector_paginates_from_start_and_stops_at_end(tmp_path):
     file = result.files[0]
     assert file.pages_fetched == 2
     assert file.row_count_raw == 4
+    assert file.row_count_closed == 4
     assert file.row_count_deduped == 3
     assert file.duplicate_count == 1
+    assert file.row_count_closed == file.row_count_deduped + file.duplicate_count
     assert file.end_at == "2026-06-01T00:10:00+00:00"
     assert result.readiness.files[0].duplicate_count == 0
 

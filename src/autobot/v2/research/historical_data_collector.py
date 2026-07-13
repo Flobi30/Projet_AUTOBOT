@@ -67,7 +67,7 @@ class HistoricalDataCollectorConfig:
     dedupe: bool = True
     fail_on_gaps: bool = False
     export_csv: bool = True
-    export_parquet: bool = True
+    export_parquet: bool = False
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -235,14 +235,13 @@ def collect_historical_ohlcv(
                 )
             if config.export_parquet:
                 try:
-                    parquet_path = repository.save_parquet(
+                    parquet_path = _save_collected_parquet(
                         bars,
                         output_dir / f"{config.run_id}_{safe_symbol}_{safe_timeframe}.parquet",
+                        collection_time=collection_time,
                     )
                 except ImportError:
                     warnings.append("parquet_export_unavailable")
-                else:
-                    warnings.append("parquet_temporal_metadata_not_supported_use_csv_for_point_in_time")
             expected_seconds = parse_timeframe_seconds(timeframe)
             quality = analyze_bars(
                 bars,
@@ -524,7 +523,6 @@ def _save_collected_csv(
         raise ValueError("collection_time must be timezone-aware")
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = collection_time.astimezone(timezone.utc).isoformat()
     with output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
@@ -538,18 +536,56 @@ def _save_collected_csv(
                 "close",
                 "volume",
                 "metadata",
+                "available_time",
                 "ingestion_time",
                 "collected_at",
             ),
         )
         writer.writeheader()
-        for bar in bars:
-            row = bar.to_dict()
-            row["metadata"] = json.dumps(row.get("metadata") or {}, sort_keys=True)
-            row["ingestion_time"] = timestamp
-            row["collected_at"] = timestamp
+        for row in _collected_ohlcv_rows(bars, collection_time=collection_time):
             writer.writerow(row)
     return output
+
+
+def _save_collected_parquet(
+    bars: Sequence[MarketBar],
+    path: str | Path,
+    *,
+    collection_time: datetime,
+) -> Path:
+    """Write an optional Parquet export with the same point-in-time fields as CSV."""
+
+    try:
+        import pandas as pd  # type: ignore
+    except Exception as exc:
+        raise ImportError("pandas with parquet support is required to save parquet data") from exc
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(_collected_ohlcv_rows(bars, collection_time=collection_time)).to_parquet(output, index=False)
+    return output
+
+
+def _collected_ohlcv_rows(
+    bars: Sequence[MarketBar],
+    *,
+    collection_time: datetime,
+) -> list[dict[str, Any]]:
+    """Attach the same explicit availability and ingestion facts to every export."""
+
+    if collection_time.tzinfo is None or collection_time.utcoffset() is None:
+        raise ValueError("collection_time must be timezone-aware")
+    collected_at = collection_time.astimezone(timezone.utc).isoformat()
+    rows: list[dict[str, Any]] = []
+    for bar in bars:
+        row = bar.to_dict()
+        row["metadata"] = json.dumps(row.get("metadata") or {}, sort_keys=True)
+        # For a public historical fetch, AUTOBOT itself could first know the
+        # bar at collection time, not merely at the exchange's bar close.
+        row["available_time"] = collected_at
+        row["ingestion_time"] = collected_at
+        row["collected_at"] = collected_at
+        rows.append(row)
+    return rows
 
 
 def _count_duplicate_bars(bars: Sequence[MarketBar]) -> int:

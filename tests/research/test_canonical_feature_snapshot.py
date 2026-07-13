@@ -70,7 +70,7 @@ def test_materialized_feature_snapshot_is_deterministic_and_has_feature_parity(t
         )
     )
 
-    assert first.status == "READY"
+    assert first.status == "DATA_MISSING"
     assert first.parity_ok is True
     assert first.feature_count == 25 * 4
     assert first.feature_versions == {

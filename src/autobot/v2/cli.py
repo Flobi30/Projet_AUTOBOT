@@ -109,6 +109,11 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_history.add_argument("--dedupe", choices=["true", "false"], default="true")
     collect_history.add_argument("--fail-on-gaps", action="store_true")
     collect_history.add_argument("--no-csv", action="store_true")
+    collect_history.add_argument(
+        "--parquet",
+        action="store_true",
+        help="Write an explicit Parquet copy with the same point-in-time timestamps as CSV",
+    )
     collect_history.add_argument("--no-parquet", action="store_true")
     collect_history.set_defaults(handler=_cmd_collect_history)
 
@@ -1213,7 +1218,7 @@ def _cmd_collect_history(args: argparse.Namespace) -> int:
             dedupe=_parse_bool(args.dedupe, "--dedupe"),
             fail_on_gaps=bool(args.fail_on_gaps),
             export_csv=not bool(args.no_csv),
-            export_parquet=not bool(args.no_parquet),
+            export_parquet=bool(args.parquet) and not bool(args.no_parquet),
         )
     )
     _print_json(result.to_dict())

@@ -1336,6 +1336,7 @@ def test_cli_collect_history_uses_detected_active_symbols_when_omitted(monkeypat
 
     def fake_collect(config, **kwargs):
         calls["symbols"] = tuple(config.symbols)
+        calls["export_parquet"] = config.export_parquet
         return HistoricalDataCollectionResult(
             run_id=config.run_id,
             provider=config.provider,
@@ -1377,13 +1378,13 @@ def test_cli_collect_history_uses_detected_active_symbols_when_omitted(monkeypat
             "5m",
             "--output-dir",
             str(tmp_path / "history"),
-            "--no-parquet",
         ]
     )
 
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert calls["symbols"] == ("BTCZEUR", "TRXEUR")
+    assert calls["export_parquet"] is False
     assert output["run_id"] == "pytest_collect_history"
 
 
