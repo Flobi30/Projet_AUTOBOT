@@ -4032,51 +4032,53 @@ class OrchestratorAsync:
         logger.info("🛑 Arrêt OrchestratorAsync...")
         self.running = False
 
-        if self._main_task:
-            self._main_task.cancel()
-            try:
-                await self._main_task
-            except asyncio.CancelledError:
-                pass
-        await self.background_tasks.stop()
-        self._daily_report_task = None
-        self._xgboost_train_task = None
-        self._sentiment_task = None
-        self._cycle_health_task = None
-        self._shadow_promotion_task = None
-        self._rebalance_task = None
-        self._auto_evolution_task = None
+        try:
+            if self._main_task:
+                self._main_task.cancel()
+                try:
+                    await self._main_task
+                except asyncio.CancelledError:
+                    pass
+            await self.background_tasks.stop()
+            self._daily_report_task = None
+            self._xgboost_train_task = None
+            self._sentiment_task = None
+            self._cycle_health_task = None
+            self._shadow_promotion_task = None
+            self._rebalance_task = None
+            self._auto_evolution_task = None
 
-        for inst in list(self._instances.values()):
-            await inst.stop()  # Each instance drains its queue + cancels consumer task
+            for inst in list(self._instances.values()):
+                await inst.stop()  # Each instance drains its queue + cancels consumer task
 
-        # P3: Stop async dispatcher (cancels dispatch tasks, drains all queues)
-        await self.async_dispatcher.stop()
+            # P3: Stop async dispatcher (cancels dispatch tasks, drains all queues)
+            await self.async_dispatcher.stop()
 
-        await self.ring_dispatcher.disconnect()
-        await self.stop_loss_manager.stop()
+            await self.ring_dispatcher.disconnect()
+            await self.stop_loss_manager.stop()
 
-        if self.reconciliation_manager:
-            await self.reconciliation_manager.stop()
+            if self.reconciliation_manager:
+                await self.reconciliation_manager.stop()
 
-        # Stop optional modules
-        await self.module_manager.stop()
-        self.decision_journal.close()
+            # Stop optional modules
+            await self.module_manager.stop()
+            self.decision_journal.close()
 
-        await self.order_executor.close()
+            await self.order_executor.close()
 
-        # The global persistence singleton owns aiosqlite worker threads.
-        # Release it before the application event loop is allowed to close.
-        await close_persistence()
+            # P4: Stop cold scheduler then re-enable GC
+            await self.cold_scheduler.stop()
+            self.hot_optimizer.exit_hot_path()
 
-        # P4: Stop cold scheduler then re-enable GC
-        await self.cold_scheduler.stop()
-        self.hot_optimizer.exit_hot_path()
-
-        logger.info(
-            "✅ OrchestratorAsync arrêté — "
-            f"hot path stats: {self.hot_optimizer.stats}"
-        )
+            logger.info(
+                "✅ OrchestratorAsync arrêté — "
+                f"hot path stats: {self.hot_optimizer.stats}"
+            )
+        finally:
+            # The global persistence singleton owns aiosqlite worker threads.
+            # Release it even when another shutdown component raises, before the
+            # application event loop is allowed to close.
+            await close_persistence()
 
     async def emergency_stop_all(self) -> None:
         logger.error("🚨🚨🚨 EMERGENCY STOP ALL!")
