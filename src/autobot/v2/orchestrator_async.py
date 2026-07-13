@@ -43,7 +43,7 @@ from .reconciliation_async import ReconciliationManagerAsync
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
 from .orchestrator import InstanceConfig  # Reuse config dataclass
 from .risk_manager import get_risk_manager
-from .persistence import get_persistence
+from .persistence import close_persistence, get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer
 from .cold_path_scheduler import ColdPathScheduler, get_cold_path_scheduler
 from .module_manager import ModuleManager
@@ -4064,6 +4064,10 @@ class OrchestratorAsync:
         self.decision_journal.close()
 
         await self.order_executor.close()
+
+        # The global persistence singleton owns aiosqlite worker threads.
+        # Release it before the application event loop is allowed to close.
+        await close_persistence()
 
         # P4: Stop cold scheduler then re-enable GC
         await self.cold_scheduler.stop()

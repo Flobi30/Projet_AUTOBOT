@@ -1658,3 +1658,19 @@ def get_persistence(db_path: str = "data/autobot_state.db") -> StatePersistence:
     if _persistence_instance is None:
         _persistence_instance = StatePersistence(db_path)
     return _persistence_instance
+
+
+async def close_persistence() -> None:
+    """Close and clear the process-wide persistence singleton safely.
+
+    The singleton is intentionally process-scoped while AUTOBOT is running.
+    Shutdown and preflight-only paths must release its aiosqlite worker threads
+    before their event loop is closed. Calling this function repeatedly is
+    safe and never creates a database connection.
+    """
+
+    global _persistence_instance
+    persistence = _persistence_instance
+    _persistence_instance = None
+    if persistence is not None:
+        await persistence.close()

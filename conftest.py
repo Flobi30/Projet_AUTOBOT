@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 _REQUIRED_MARKERS = {"unit", "integration", "e2e"}
@@ -28,3 +30,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             "(unit/integration/e2e). Missing markers:\n"
             f"{details}"
         )
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Release process-scoped SQLite workers after the isolated test suite."""
+
+    del session, exitstatus
+    from autobot.v2.persistence import close_persistence
+
+    asyncio.run(close_persistence())

@@ -239,6 +239,9 @@ class AutoBotV2Async:
                 await attestation.enforce(preflight_only=preflight_only)
                 if preflight_only:
                     logger.info("✅ PREFLIGHT_ONLY=true: checks passed, trading not started.")
+                    from autobot.v2.persistence import close_persistence
+
+                    await close_persistence()
                     self.running = False
                     return
             finally:
