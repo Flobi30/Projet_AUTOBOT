@@ -26,6 +26,17 @@ ohlcv:
   export_csv: true
   export_parquet: false
 
+# Each daily raw batch is immediately canonicalized and materialized as a
+# point-in-time feature snapshot. These artifacts are research-only evidence;
+# they do not activate shadow, paper, promotion or live trading.
+canonical_features:
+  enabled: true
+  feature_ids:
+    - return_1_bps
+    - momentum_3_bps
+    - volatility_20_bps
+    - atr_14_bps
+
 microstructure:
   depth_count: 10
   sample_interval_seconds: 60
@@ -95,6 +106,11 @@ output_dirs:
   ohlcv: data/research/daily/ohlcv
   microstructure: data/research/daily/microstructure
   reports: reports/research/daily_data_collection
+  canonical_ohlcv: data/research/canonical/ohlcv
+  canonical_manifests: data/research/manifests
+  canonical_quarantine: data/research/quarantine
+  canonical_features: data/research/canonical/features
+  feature_manifests: data/research/manifests
 
 safety:
   public_endpoints_only: true

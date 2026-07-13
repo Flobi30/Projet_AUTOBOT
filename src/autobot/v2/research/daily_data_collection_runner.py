@@ -10,7 +10,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .data_readiness_dashboard import build_data_readiness_dashboard, write_data_readiness_dashboard
 from .historical_data_collector import (
@@ -41,6 +41,11 @@ class DailyResearchOutputDirs:
     ohlcv: Path
     microstructure: Path
     reports: Path
+    canonical_ohlcv: Path = Path("data/research/canonical/ohlcv")
+    canonical_manifests: Path = Path("data/research/manifests")
+    canonical_quarantine: Path = Path("data/research/quarantine")
+    canonical_features: Path = Path("data/research/canonical/features")
+    feature_manifests: Path = Path("data/research/manifests")
 
 
 @dataclass(frozen=True)
@@ -177,6 +182,23 @@ class DailyShadowObservationSyncConfig:
 
 
 @dataclass(frozen=True)
+class DailyCanonicalFeatureConfig:
+    """Canonical point-in-time data/feature materialization for one daily run."""
+
+    enabled: bool = True
+    feature_ids: tuple[str, ...] = (
+        "return_1_bps",
+        "momentum_3_bps",
+        "volatility_20_bps",
+        "atr_14_bps",
+    )
+
+    def validate(self) -> None:
+        if self.enabled and not self.feature_ids:
+            raise ValueError("canonical_features.feature_ids must not be empty when enabled")
+
+
+@dataclass(frozen=True)
 class DailyResearchDataCollectionConfig:
     priority_symbols: tuple[str, ...]
     secondary_symbols: tuple[str, ...]
@@ -196,6 +218,7 @@ class DailyResearchDataCollectionConfig:
     strategy_orchestrator: DailyStrategyOrchestratorConfig = DailyStrategyOrchestratorConfig()
     strategy_edge_review: DailyStrategyEdgeReviewConfig = DailyStrategyEdgeReviewConfig()
     shadow_observation_sync: DailyShadowObservationSyncConfig = DailyShadowObservationSyncConfig()
+    canonical_features: DailyCanonicalFeatureConfig = DailyCanonicalFeatureConfig()
 
     @property
     def all_symbols(self) -> tuple[str, ...]:
@@ -226,6 +249,7 @@ class DailyResearchDataCollectionConfig:
         self.strategy_orchestrator.validate()
         self.strategy_edge_review.validate()
         self.shadow_observation_sync.validate()
+        self.canonical_features.validate()
 
 
 @dataclass(frozen=True)
@@ -259,6 +283,8 @@ class DailyResearchDataCollectionResult:
     strategy_orchestrator_report_path: str | None = None
     strategy_edge_review_report_path: str | None = None
     shadow_observation_sync_report_path: str | None = None
+    canonical_manifest_path: str | None = None
+    feature_snapshot_manifest_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -284,6 +310,8 @@ class DailyResearchDataCollectionResult:
             "strategy_orchestrator_report_path": self.strategy_orchestrator_report_path,
             "strategy_edge_review_report_path": self.strategy_edge_review_report_path,
             "shadow_observation_sync_report_path": self.shadow_observation_sync_report_path,
+            "canonical_manifest_path": self.canonical_manifest_path,
+            "feature_snapshot_manifest_path": self.feature_snapshot_manifest_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -301,6 +329,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
     strategy_orchestrator = payload.get("strategy_orchestrator") or {}
     strategy_edge_review = payload.get("strategy_edge_review") or {}
     shadow_sync = payload.get("shadow_observation_sync") or {}
+    canonical_features = payload.get("canonical_features") or {}
     config = DailyResearchDataCollectionConfig(
         priority_symbols=_tuple_upper(payload.get("priority_symbols")),
         secondary_symbols=_tuple_upper(payload.get("secondary_symbols")),
@@ -309,6 +338,11 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             ohlcv=Path(str(output_dirs.get("ohlcv") or "data/research/daily/ohlcv")),
             microstructure=Path(str(output_dirs.get("microstructure") or "data/research/daily/microstructure")),
             reports=Path(str(output_dirs.get("reports") or "reports/research/daily_data_collection")),
+            canonical_ohlcv=Path(str(output_dirs.get("canonical_ohlcv") or "data/research/canonical/ohlcv")),
+            canonical_manifests=Path(str(output_dirs.get("canonical_manifests") or "data/research/manifests")),
+            canonical_quarantine=Path(str(output_dirs.get("canonical_quarantine") or "data/research/quarantine")),
+            canonical_features=Path(str(output_dirs.get("canonical_features") or "data/research/canonical/features")),
+            feature_manifests=Path(str(output_dirs.get("feature_manifests") or "data/research/manifests")),
         ),
         include_runtime_active_symbols=bool(payload.get("include_runtime_active_symbols", False)),
         safety=DailyResearchSafetyConfig(
@@ -384,6 +418,13 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
                 Path(str(shadow_sync.get("high_conviction_output_dir")))
                 if shadow_sync.get("high_conviction_output_dir") not in (None, "")
                 else None
+            ),
+        ),
+        canonical_features=DailyCanonicalFeatureConfig(
+            enabled=bool(canonical_features.get("enabled", True)),
+            feature_ids=_tuple_text(
+                canonical_features.get("feature_ids")
+                or ("return_1_bps", "momentum_3_bps", "volatility_20_bps", "atr_14_bps")
             ),
         ),
     )
@@ -486,6 +527,14 @@ def run_daily_research_data_collection(
         )
         dashboard_path = dashboard.markdown_report_path
 
+    canonical_manifest_path, feature_snapshot_manifest_path = _materialize_daily_canonical_features(
+        config=config,
+        run_id=run_id,
+        ohlcv_csv_paths=tuple(ohlcv_csv_paths),
+        symbol_mappings=symbol_mappings,
+        operations=operations,
+    )
+
     high_conviction_path = _run_high_conviction_walk_forward(
         config=config,
         run_id=run_id,
@@ -523,6 +572,8 @@ def run_daily_research_data_collection(
         strategy_orchestrator_report_path=strategy_orchestrator_path,
         strategy_edge_review_report_path=strategy_edge_review_path,
         shadow_observation_sync_report_path=shadow_sync_path,
+        canonical_manifest_path=canonical_manifest_path,
+        feature_snapshot_manifest_path=feature_snapshot_manifest_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -549,6 +600,8 @@ def write_daily_research_data_collection_report(
         strategy_orchestrator_report_path=result.strategy_orchestrator_report_path,
         strategy_edge_review_report_path=result.strategy_edge_review_report_path,
         shadow_observation_sync_report_path=result.shadow_observation_sync_report_path,
+        canonical_manifest_path=result.canonical_manifest_path,
+        feature_snapshot_manifest_path=result.feature_snapshot_manifest_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -586,6 +639,8 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             f"- Strategy orchestrator treasury report: `{result.strategy_orchestrator_report_path or 'not enabled'}`",
             f"- Strategy edge review: `{result.strategy_edge_review_report_path or 'not enabled'}`",
             f"- Shadow observation sync: `{result.shadow_observation_sync_report_path or 'not enabled'}`",
+            f"- Canonical OHLCV manifest: `{result.canonical_manifest_path or 'not generated'}`",
+            f"- Feature snapshot manifest: `{result.feature_snapshot_manifest_path or 'not generated'}`",
             "",
             "## Safety",
             "",
@@ -594,6 +649,121 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
     lines.extend(f"- {note}" for note in result.safety_notes)
     lines.append("")
     return "\n".join(lines)
+
+
+def _materialize_daily_canonical_features(
+    *,
+    config: DailyResearchDataCollectionConfig,
+    run_id: str,
+    ohlcv_csv_paths: Sequence[str],
+    symbol_mappings: Mapping[str, KrakenPublicPairMapping],
+    operations: list[DailyCollectionOperation],
+) -> tuple[str | None, str | None]:
+    """Create the point-in-time canonical and feature artifacts for this run.
+
+    The source paths are restricted to the current daily collection.  This
+    avoids silently mixing old raw files with a new run and produces an
+    explicit manifest that later shadow migration can require as evidence.
+    """
+
+    scheduled = config.canonical_features
+    if not scheduled.enabled:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="canonical_features",
+                symbol=None,
+                timeframe=None,
+                status="skipped",
+                error="canonical_features_disabled",
+            )
+        )
+        return None, None
+    raw_paths = tuple(Path(path) for path in ohlcv_csv_paths if Path(path).exists())
+    if not raw_paths:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="canonical_ohlcv",
+                symbol=None,
+                timeframe=None,
+                status="blocked",
+                error="canonical_source_ohlcv_missing",
+            )
+        )
+        return None, None
+
+    explicit_mappings = {
+        mapping.autobot_symbol: explicit
+        for mapping in symbol_mappings.values()
+        if (explicit := mapping.explicit_market_mapping()) is not None
+    }
+    try:
+        from .canonical_feature_snapshot import CanonicalFeatureSnapshotConfig, build_canonical_feature_snapshot
+        from .canonical_ohlcv_store import CanonicalOHLCVConfig, build_canonical_ohlcv_snapshot
+
+        canonical = build_canonical_ohlcv_snapshot(
+            CanonicalOHLCVConfig(
+                run_id=f"{run_id}_canonical_ohlcv",
+                raw_paths=raw_paths,
+                output_dir=config.output_dirs.canonical_ohlcv,
+                manifest_dir=config.output_dirs.canonical_manifests,
+                quarantine_dir=config.output_dirs.canonical_quarantine,
+                market_mappings=explicit_mappings,
+            )
+        )
+        canonical_manifest_path = str(canonical.manifest_path) if canonical.manifest_path else None
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="canonical_ohlcv",
+                symbol=None,
+                timeframe=None,
+                status="ok" if canonical.canonical_row_count else "blocked",
+                row_count=canonical.canonical_row_count,
+                duplicate_count=canonical.duplicate_count,
+                gap_count=canonical.gap_count,
+                output_path=canonical_manifest_path,
+                error=(
+                    f"quarantine_count={canonical.quarantine_count}"
+                    if canonical.quarantine_count
+                    else None
+                ),
+            )
+        )
+        if canonical_manifest_path is None:
+            return None, None
+
+        features = build_canonical_feature_snapshot(
+            CanonicalFeatureSnapshotConfig(
+                run_id=f"{run_id}_canonical_features",
+                canonical_manifest_path=Path(canonical_manifest_path),
+                output_dir=config.output_dirs.canonical_features,
+                manifest_dir=config.output_dirs.feature_manifests,
+                feature_ids=scheduled.feature_ids,
+            )
+        )
+        feature_manifest_path = str(features.manifest_path) if features.manifest_path else None
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="canonical_feature_snapshot",
+                symbol=None,
+                timeframe=None,
+                status="ok" if features.status == "READY" else "blocked",
+                row_count=features.feature_count,
+                output_path=feature_manifest_path,
+                error=",".join(features.blockers) or None,
+            )
+        )
+        return canonical_manifest_path, feature_manifest_path
+    except Exception as exc:
+        operations.append(
+            DailyCollectionOperation(
+                operation_type="canonical_ohlcv",
+                symbol=None,
+                timeframe=None,
+                status="error",
+                error=f"canonical_feature_materialization_error:{type(exc).__name__}:{exc}",
+            )
+        )
+        return None, None
 
 
 def _run_high_conviction_walk_forward(
@@ -640,11 +810,11 @@ def _run_high_conviction_walk_forward(
                 operation_type="high_conviction_walk_forward",
                 symbol=None,
                 timeframe=None,
-                status="ok",
+                status="unverified",
                 row_count=report.deduplicated_bar_count,
                 output_path=report.json_report_path,
                 markdown_report_path=report.markdown_report_path,
-                error=report.decision.status,
+                error=f"UNVERIFIED_POINT_IN_TIME_RAW_OHLCV; decision={report.decision.status}",
             )
         )
         return report.markdown_report_path
@@ -710,11 +880,11 @@ def _run_strategy_orchestrator(
                 operation_type="strategy_orchestrator",
                 symbol=None,
                 timeframe=None,
-                status="ok",
+                status="unverified",
                 row_count=len(report.standardized_signals),
                 output_path=report.json_report_path,
                 markdown_report_path=report.markdown_report_path,
-                error=report.final_status,
+                error=f"UNVERIFIED_POINT_IN_TIME_RAW_OHLCV; status={report.final_status}",
             )
         )
         return report.markdown_report_path

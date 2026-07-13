@@ -21,9 +21,9 @@ pytestmark = pytest.mark.unit
 
 def _asset_pairs_fixture():
     return {
-        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
-        "XXBTZEUR": {"altname": "XBTEUR", "wsname": "XBT/EUR"},
-        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR"},
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR", "base": "TRX", "quote": "ZEUR"},
+        "XXBTZEUR": {"altname": "XBTEUR", "wsname": "XBT/EUR", "base": "XXBT", "quote": "ZEUR"},
+        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR", "base": "XXRP", "quote": "ZEUR"},
     }
 
 
@@ -179,6 +179,16 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
     assert payload["markdown_report_path"]
     assert payload["microstructure_profile_path"]
     assert payload["data_readiness_dashboard_path"]
+    canonical_ops = [op for op in payload["operations"] if op["operation_type"] == "canonical_ohlcv"]
+    feature_ops = [op for op in payload["operations"] if op["operation_type"] == "canonical_feature_snapshot"]
+    assert len(canonical_ops) == 1
+    assert canonical_ops[0]["status"] == "ok"
+    assert len(feature_ops) == 1
+    assert feature_ops[0]["status"] == "ok"
+    assert payload["canonical_manifest_path"]
+    assert payload["feature_snapshot_manifest_path"]
+    assert Path(payload["canonical_manifest_path"]).exists()
+    assert Path(payload["feature_snapshot_manifest_path"]).exists()
     assert "No paper or live order is created." in payload["safety_notes"]
 
 
@@ -310,19 +320,20 @@ def test_daily_runner_writes_research_only_high_conviction_walk_forward_report(t
 
     high_conviction_ops = [op for op in result.operations if op.operation_type == "high_conviction_walk_forward"]
     assert len(high_conviction_ops) == 1
-    assert high_conviction_ops[0].status == "ok"
+    assert high_conviction_ops[0].status == "unverified"
+    assert "UNVERIFIED_POINT_IN_TIME_RAW_OHLCV" in str(high_conviction_ops[0].error)
     assert result.high_conviction_walk_forward_report_path
     assert Path(result.high_conviction_walk_forward_report_path).exists()
     strategy_orchestrator_ops = [op for op in result.operations if op.operation_type == "strategy_orchestrator"]
     assert len(strategy_orchestrator_ops) == 1
-    assert strategy_orchestrator_ops[0].status == "ok"
+    assert strategy_orchestrator_ops[0].status == "unverified"
+    assert "UNVERIFIED_POINT_IN_TIME_RAW_OHLCV" in str(strategy_orchestrator_ops[0].error)
     assert result.strategy_orchestrator_report_path
     assert Path(result.strategy_orchestrator_report_path).exists()
     strategy_edge_ops = [op for op in result.operations if op.operation_type == "strategy_edge_review"]
     assert len(strategy_edge_ops) == 1
-    assert strategy_edge_ops[0].status == "ok"
-    assert result.strategy_edge_review_report_path
-    assert Path(result.strategy_edge_review_report_path).exists()
+    assert strategy_edge_ops[0].status == "skipped"
+    assert result.strategy_edge_review_report_path is None
     assert result.live_promotion_allowed is False
 
 
