@@ -481,6 +481,8 @@ def _exposed_ledger_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "opportunity_match_delta_seconds",
         "execution_mode",
         "research_only",
+        "point_in_time_feature_snapshot_id",
+        "point_in_time_feature_snapshot_fingerprint",
         "family",
         "policy",
         "expected_move_bps",

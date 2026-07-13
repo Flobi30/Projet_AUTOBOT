@@ -800,6 +800,8 @@ def test_high_conviction_shadow_sync_writes_closed_replay_records_only(tmp_path,
     assert trade.metadata["logical_stop_bps"] == pytest.approx(180)
     assert "mfe_bps" in trade.metadata
     assert "mfe_bps" not in trade.metadata["score_v2_components"]
+    assert trade.metadata["point_in_time_feature_snapshot_id"] == "features_v1_pytest_ready"
+    assert trade.metadata["point_in_time_feature_snapshot_fingerprint"] == "pytest-feature-fingerprint"
     assert trade.metadata["family"] == "breakout_1h_4h"
     assert trade.net_pnl_eur == pytest.approx(7.5)
 
