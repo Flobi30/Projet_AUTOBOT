@@ -1670,3 +1670,87 @@ def test_cli_migrates_research_memory_to_append_only_experiment_registry(tmp_pat
     assert output["research_only"] is True
     assert output["paper_capital_allowed"] is False
     assert output["live_allowed"] is False
+
+
+def test_cli_reserves_an_immutable_experiment_holdout_without_enabling_execution(tmp_path, capsys):
+    registry_path = tmp_path / "experiment_registry.sqlite3"
+    manifest_path = tmp_path / "holdout.json"
+    manifest_path.write_text(json.dumps({"period": "2026-Q3", "symbols": ["BTCZEUR"]}), encoding="utf-8")
+
+    exit_code = cli.main(
+        [
+            "experiment-registry-reserve-holdout",
+            "--registry-path",
+            str(registry_path),
+            "--holdout-id",
+            "holdout_2026_q3",
+            "--data-snapshot-id",
+            "ohlcv_holdout_2026_q3",
+            "--immutable-fingerprint",
+            "fingerprint-holdout",
+            "--manifest-path",
+            str(manifest_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["reserved"] is True
+    assert output["optimization_allowed"] is False
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+
+
+def test_cli_pre_registers_material_trial_plan_before_runner_statistics(tmp_path):
+    feature_manifest = tmp_path / "feature_snapshot.json"
+    feature_manifest.write_text(
+        json.dumps(
+            {
+                "status": "READY",
+                "parity_ok": True,
+                "feature_count": 2,
+                "feature_snapshot_id": "features_pytest",
+                "fingerprint": "feature-fingerprint",
+                "source_snapshot_id": "ohlcv_pytest",
+                "source_snapshot_fingerprint": "source-fingerprint",
+                "feature_registry_fingerprint": "registry-fingerprint",
+                "feature_versions": {"momentum_3_bps": "1.0.0"},
+                "ingestion_time_unknown_count": 0,
+                "runtime_parity_proven": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = cli._build_parser().parse_args(
+        [
+            "alpha-hypothesis-runner",
+            "--hypothesis-id",
+            "long_trend",
+            "--commit",
+            "pytest-commit",
+            "--feature-snapshot-manifest",
+            str(feature_manifest),
+            "--experiment-registry",
+            str(tmp_path / "experiment_registry.sqlite3"),
+            "--symbols",
+            "BTCZEUR,ETHZEUR",
+            "--max-variants",
+            "2",
+            "--trial-timeframes",
+            "1h,15m",
+            "--trial-regimes",
+            "trend,range",
+        ]
+    )
+
+    context = cli._prepare_alpha_experiment_context(
+        args,
+        data_paths=(),
+        hypothesis_id=args.hypothesis_id,
+        code_commit=args.commit,
+    )
+
+    assert context["validation_trial_count"] == 16
+    assert context["registry"].validation_trial_count(hypothesis_id="long_trend") == 16
+    assert context["spec"].to_dict()["paper_capital_allowed"] is False
+    assert context["spec"].to_dict()["live_allowed"] is False

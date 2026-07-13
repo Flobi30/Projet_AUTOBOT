@@ -327,6 +327,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     alpha_hypothesis_runner.add_argument("--experiment-registry", default="data/research/experiment_registry.sqlite3")
     alpha_hypothesis_runner.add_argument("--experiment-seed", type=int, default=0)
+    alpha_hypothesis_runner.add_argument(
+        "--trial-timeframes",
+        default="",
+        help="Explicit research timeframes counted in the pre-run trial plan; omitted values stay unspecified.",
+    )
+    alpha_hypothesis_runner.add_argument(
+        "--trial-regimes",
+        default="",
+        help="Explicit research regimes counted in the pre-run trial plan; omitted values stay unspecified.",
+    )
+    alpha_hypothesis_runner.add_argument(
+        "--holdout-id",
+        default=None,
+        help="Previously reserved immutable holdout identifier; never available for optimization.",
+    )
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
     experiment_registry_migrate = subparsers.add_parser(
@@ -336,6 +351,17 @@ def _build_parser() -> argparse.ArgumentParser:
     experiment_registry_migrate.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
     experiment_registry_migrate.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
     experiment_registry_migrate.set_defaults(handler=_cmd_experiment_registry_migrate_memory)
+
+    experiment_registry_holdout = subparsers.add_parser(
+        "experiment-registry-reserve-holdout",
+        help="Reserve an immutable research holdout; it can only be used for final non-optimizing review.",
+    )
+    experiment_registry_holdout.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
+    experiment_registry_holdout.add_argument("--holdout-id", required=True)
+    experiment_registry_holdout.add_argument("--data-snapshot-id", required=True)
+    experiment_registry_holdout.add_argument("--immutable-fingerprint", required=True)
+    experiment_registry_holdout.add_argument("--manifest-path", default=None)
+    experiment_registry_holdout.set_defaults(handler=_cmd_experiment_registry_reserve_holdout)
 
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
@@ -2038,6 +2064,36 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
 
     run_id = args.run_id or f"alpha_hypothesis_runner_{args.hypothesis_id}_{args.mode}"
     data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
+    pre_run_context = None
+    if args.feature_snapshot_manifest and args.commit:
+        pre_run_context = _prepare_alpha_experiment_context(
+            args,
+            data_paths=data_paths,
+            hypothesis_id=args.hypothesis_id,
+            code_commit=str(args.commit),
+        )
+    if pre_run_context and pre_run_context.get("state") and pre_run_context["state"].terminal:
+        state = pre_run_context["state"]
+        _print_json(
+            {
+                "run_id": run_id,
+                "hypothesis_id": state.hypothesis_id,
+                "final_status": state.latest_status,
+                "final_decision": "MATERIAL_EXPERIMENT_ALREADY_TERMINAL",
+                "reasons": ["material_fingerprint_already_terminal", "new_data_thesis_or_template_required"],
+                "experiment_registry": {
+                    "path": str(Path(args.experiment_registry)),
+                    "state": state.to_dict(),
+                    "recorded": False,
+                },
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            }
+        )
+        return 0
+    validation_trial_count_floor = int(pre_run_context.get("validation_trial_count") or 0) if pre_run_context else 0
     result = write_alpha_hypothesis_runner_report(
         build_alpha_hypothesis_runner_report(
             AlphaHypothesisRunnerConfig(
@@ -2057,6 +2113,7 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 max_variants=args.max_variants,
                 max_symbols=args.max_symbols,
                 max_data_rows=args.max_data_rows,
+                validation_trial_count_floor=validation_trial_count_floor,
                 feature_snapshot_manifest=(
                     Path(args.feature_snapshot_manifest) if args.feature_snapshot_manifest else None
                 ),
@@ -2081,16 +2138,15 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         )
     payload = result.to_dict()
     if args.feature_snapshot_manifest:
-        if template is None:
-            raise ValueError("a registered strategy template is required for manifested experiment evidence")
-        if args.derivatives_feature_snapshot_manifest:
-            from autobot.v2.research.derivatives_feature_snapshot import (
-                inspect_derivatives_feature_snapshot_manifest,
+        if pre_run_context is None:
+            pre_run_context = _prepare_alpha_experiment_context(
+                args,
+                data_paths=data_paths,
+                hypothesis_id=result.hypothesis_id,
+                code_commit=str(result.commit or args.commit or ""),
             )
-
-            derivatives_availability = inspect_derivatives_feature_snapshot_manifest(
-                Path(args.derivatives_feature_snapshot_manifest)
-            )
+        if pre_run_context.get("derivatives_availability") is not None:
+            derivatives_availability = pre_run_context["derivatives_availability"]
             if derivatives_availability.status != "READY":
                 payload["experiment_registry"] = {
                     "recorded": False,
@@ -2103,56 +2159,26 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 }
                 _print_json(payload)
                 return 0
-        from autobot.v2.research.alpha_hypothesis_lab import load_alpha_hypotheses
-        from autobot.v2.research.experiment_registry import ExperimentRegistry
-        from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
-
-        hypotheses = load_alpha_hypotheses(args.hypotheses_path)
-        hypothesis = next(
-            (item for item in hypotheses.get("hypotheses", ()) if str(item.get("id") or "") == result.hypothesis_id),
-            None,
-        )
-        if not isinstance(hypothesis, dict):
-            raise ValueError(f"hypothesis metadata missing for {result.hypothesis_id}")
-        code_commit = str(result.commit or args.commit or "").strip()
-        if not code_commit:
-            raise ValueError("a code commit is required for manifested experiment evidence")
-        spec, provenance = build_manifested_experiment_spec(
-            hypothesis_id=result.hypothesis_id,
-            template_id=str(template["template_id"]),
-            thesis=str(hypothesis["thesis"]),
-            code_commit=code_commit,
-            feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
-            derivatives_snapshot_manifest=(
-                Path(args.derivatives_feature_snapshot_manifest)
-                if args.derivatives_feature_snapshot_manifest
-                else None
-            ),
-            parameters={
-                "max_variants": args.max_variants,
-                "max_symbols": args.max_symbols,
-                "max_data_rows": args.max_data_rows,
-                "symbols": list(_csv_tuple(args.symbols, "--symbols", uppercase=True)),
-            },
-            seed=args.experiment_seed,
-            cost_model={"profile": args.cost_profile},
-            environment={"data_paths": [str(path) for path in data_paths]},
-        )
-        state = ExperimentRegistry(Path(args.experiment_registry)).record_runner_evidence(
-            spec=spec,
+        state = pre_run_context["registry"].record_runner_evidence(
+            spec=pre_run_context["spec"],
             report=result,
             variant_count=args.max_variants,
             symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+            timeframes=_csv_tuple(args.trial_timeframes, "--trial-timeframes"),
+            regimes=_csv_tuple(args.trial_regimes, "--trial-regimes"),
+            record_trial_dimensions=False,
         )
         payload["experiment_registry"] = {
             "path": str(Path(args.experiment_registry)),
             "state": state.to_dict(),
-            "feature_snapshot": provenance.to_dict(),
+            "feature_snapshot": pre_run_context["provenance"].to_dict(),
             "derivatives_feature_snapshot": (
-                dict(spec.environment["derivatives_snapshot"])
-                if spec.environment.get("derivatives_snapshot")
+                dict(pre_run_context["spec"].environment["derivatives_snapshot"])
+                if pre_run_context["spec"].environment.get("derivatives_snapshot")
                 else None
             ),
+            "validation_trial_count_floor": validation_trial_count_floor,
+            "pre_registered_before_runner": validation_trial_count_floor > 0,
             "research_only": True,
             "paper_capital_allowed": False,
             "live_allowed": False,
@@ -2160,6 +2186,95 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
         }
     _print_json(payload)
     return 0
+
+
+def _prepare_alpha_experiment_context(
+    args: argparse.Namespace,
+    *,
+    data_paths: tuple[Path, ...],
+    hypothesis_id: str,
+    code_commit: str,
+) -> dict[str, Any]:
+    """Register a material research plan before a runner can calculate DSR.
+
+    The helper is deliberately CLI-side: the research runner stays independent
+    from SQLite and receives only a conservative trial-count floor.
+    """
+
+    from autobot.v2.research.alpha_hypothesis_lab import load_alpha_hypotheses
+    from autobot.v2.research.alpha_hypothesis_scheduler import load_strategy_templates
+    from autobot.v2.research.alpha_hypothesis_runner import canonical_hypothesis_id
+    from autobot.v2.research.derivatives_feature_snapshot import inspect_derivatives_feature_snapshot_manifest
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+    from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
+
+    resolved_hypothesis_id = canonical_hypothesis_id(hypothesis_id)
+    templates = load_strategy_templates(args.templates)
+    template = _template_for_hypothesis(resolved_hypothesis_id, templates, template_id=args.template_id)
+    if template is None:
+        raise ValueError("a registered strategy template is required for manifested experiment evidence")
+    hypotheses = load_alpha_hypotheses(args.hypotheses_path)
+    hypothesis = next(
+        (item for item in hypotheses.get("hypotheses", ()) if str(item.get("id") or "") == resolved_hypothesis_id),
+        None,
+    )
+    if not isinstance(hypothesis, dict):
+        raise ValueError(f"hypothesis metadata missing for {resolved_hypothesis_id}")
+    resolved_commit = str(code_commit or "").strip()
+    if not resolved_commit:
+        raise ValueError("a code commit is required for manifested experiment evidence")
+
+    derivatives_availability = None
+    if args.derivatives_feature_snapshot_manifest:
+        derivatives_availability = inspect_derivatives_feature_snapshot_manifest(
+            Path(args.derivatives_feature_snapshot_manifest)
+        )
+        if derivatives_availability.status != "READY":
+            return {"derivatives_availability": derivatives_availability}
+
+    timeframes = _csv_tuple(args.trial_timeframes, "--trial-timeframes")
+    regimes = _csv_tuple(args.trial_regimes, "--trial-regimes")
+    symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
+    spec, provenance = build_manifested_experiment_spec(
+        hypothesis_id=resolved_hypothesis_id,
+        template_id=str(template["template_id"]),
+        thesis=str(hypothesis["thesis"]),
+        code_commit=resolved_commit,
+        feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
+        derivatives_snapshot_manifest=(
+            Path(args.derivatives_feature_snapshot_manifest) if args.derivatives_feature_snapshot_manifest else None
+        ),
+        parameters={
+            "max_variants": args.max_variants,
+            "max_symbols": args.max_symbols,
+            "max_data_rows": args.max_data_rows,
+            "symbols": list(symbols),
+            "trial_timeframes": list(timeframes),
+            "trial_regimes": list(regimes),
+        },
+        seed=args.experiment_seed,
+        cost_model={"profile": args.cost_profile},
+        environment={"data_paths": [str(path) for path in data_paths]},
+        holdout_id=args.holdout_id,
+    )
+    registry = ExperimentRegistry(Path(args.experiment_registry))
+    state = registry.register_experiment(spec)
+    if not state.terminal:
+        registry.record_trial_plan(
+            experiment_id=state.experiment_id,
+            variant_count=args.max_variants,
+            symbols=symbols,
+            timeframes=timeframes,
+            regimes=regimes,
+        )
+    return {
+        "registry": registry,
+        "spec": spec,
+        "provenance": provenance,
+        "state": state,
+        "validation_trial_count": registry.validation_trial_count(hypothesis_id=spec.hypothesis_id),
+        "derivatives_availability": derivatives_availability,
+    }
 
 
 def _cmd_experiment_registry_migrate_memory(args: argparse.Namespace) -> int:
@@ -2177,6 +2292,43 @@ def _cmd_experiment_registry_migrate_memory(args: argparse.Namespace) -> int:
             "memory_path": str(Path(args.memory_path)),
             "legacy_records_seen": len(memory.records),
             "legacy_records_inserted": inserted,
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
+    return 0
+
+
+def _cmd_experiment_registry_reserve_holdout(args: argparse.Namespace) -> int:
+    """Reserve immutable data for a final review, never for optimization."""
+
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+
+    manifest: dict[str, Any] = {}
+    if args.manifest_path:
+        try:
+            loaded = json.loads(Path(args.manifest_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid holdout manifest: {args.manifest_path}") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError("holdout manifest must be a JSON object")
+        manifest = loaded
+    registry = ExperimentRegistry(Path(args.registry_path))
+    created = registry.reserve_holdout(
+        holdout_id=args.holdout_id,
+        data_snapshot_id=args.data_snapshot_id,
+        immutable_fingerprint=args.immutable_fingerprint,
+        manifest=manifest,
+    )
+    _print_json(
+        {
+            "registry_path": str(Path(args.registry_path)),
+            "holdout_id": args.holdout_id,
+            "data_snapshot_id": args.data_snapshot_id,
+            "reserved": created,
+            "optimization_allowed": False,
             "research_only": True,
             "paper_capital_allowed": False,
             "live_allowed": False,

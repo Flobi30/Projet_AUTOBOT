@@ -14,6 +14,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
+from itertools import product
 from typing import Any, Iterable, Mapping, Sequence
 
 from .alpha_hypothesis_lab import CANONICAL_RESEARCH_STAGES, next_research_stage, normalize_research_stage
@@ -255,13 +256,16 @@ class ExperimentRegistry:
         report: Any,
         variant_count: int,
         symbols: Sequence[str] = (),
+        timeframes: Sequence[str] = (),
+        regimes: Sequence[str] = (),
+        record_trial_dimensions: bool = True,
     ) -> ExperimentState:
         """Project a bounded runner report into canonical trial and gate evidence.
 
-        The runner remains research-only.  This projection deliberately records
-        all known variant and symbol dimensions, but does not infer a timeframe,
-        regime, or a missing data snapshot.  A repeated report cannot reopen a
-        terminal material experiment.
+        The runner remains research-only.  Trial dimensions are recorded before
+        validation whenever possible so that multiple-testing statistics can use
+        the same evidence as the later gate projection.  A repeated report
+        cannot reopen a terminal material experiment.
         """
 
         if variant_count < 0:
@@ -272,17 +276,13 @@ class ExperimentRegistry:
         run_id = str(getattr(report, "run_id", "") or "").strip()
         if not run_id:
             raise ExperimentRegistryError("runner report must carry a run_id")
-        for index in range(variant_count):
-            self.record_trial(
+        if record_trial_dimensions:
+            self.record_trial_plan(
                 experiment_id=state.experiment_id,
-                dimension="parameter_variant",
-                value={"run_id": run_id, "variant_index": index},
-            )
-        for symbol in sorted({str(item).strip().upper() for item in symbols if str(item).strip()}):
-            self.record_trial(
-                experiment_id=state.experiment_id,
-                dimension="pair",
-                value={"run_id": run_id, "symbol": symbol},
+                variant_count=variant_count,
+                symbols=symbols,
+                timeframes=timeframes,
+                regimes=regimes,
             )
 
         for gate in tuple(getattr(report, "gates", ())):
@@ -311,6 +311,62 @@ class ExperimentRegistry:
             if current.terminal:
                 return current
         return self.get_state(state.experiment_id)
+
+    def record_trial_plan(
+        self,
+        *,
+        experiment_id: str,
+        variant_count: int,
+        symbols: Sequence[str] = (),
+        timeframes: Sequence[str] = (),
+        regimes: Sequence[str] = (),
+    ) -> int:
+        """Append a deterministic, auditable trial plan before validation.
+
+        Dimension rows preserve the research decision surface.  Candidate rows
+        represent the configurations used by multiple-testing correction.  An
+        omitted timeframe or regime stays explicitly unspecified rather than
+        being guessed from a dataset or a report.
+        """
+
+        if variant_count < 0:
+            raise ExperimentRegistryError("variant_count cannot be negative")
+        normalized_symbols = _normalized_trial_values(symbols, uppercase=True)
+        normalized_timeframes = _normalized_trial_values(timeframes)
+        normalized_regimes = _normalized_trial_values(regimes)
+
+        for index in range(variant_count):
+            self.record_trial(
+                experiment_id=experiment_id,
+                dimension="parameter_variant",
+                value={"variant_index": index},
+            )
+        for symbol in normalized_symbols:
+            self.record_trial(experiment_id=experiment_id, dimension="pair", value={"symbol": symbol})
+        for timeframe in normalized_timeframes:
+            self.record_trial(experiment_id=experiment_id, dimension="timeframe", value={"timeframe": timeframe})
+        for regime in normalized_regimes:
+            self.record_trial(experiment_id=experiment_id, dimension="regime", value={"regime": regime})
+
+        candidate_symbols = normalized_symbols or ("UNSPECIFIED",)
+        candidate_timeframes = normalized_timeframes or ("UNSPECIFIED",)
+        candidate_regimes = normalized_regimes or ("UNSPECIFIED",)
+        candidate_count = 0
+        for variant_index, symbol, timeframe, regime in product(
+            range(variant_count), candidate_symbols, candidate_timeframes, candidate_regimes
+        ):
+            self.record_trial(
+                experiment_id=experiment_id,
+                dimension="candidate_configuration",
+                value={
+                    "variant_index": variant_index,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "regime": regime,
+                },
+            )
+            candidate_count += 1
+        return candidate_count
 
     def migrate_legacy_memory(self, records: Iterable[Mapping[str, Any]]) -> int:
         """Append legacy memory records once without treating them as gate evidence."""
@@ -360,6 +416,31 @@ class ExperimentRegistry:
                     (hypothesis_id,),
                 ).fetchone()[0]
             )
+
+    def validation_trial_count(self, *, hypothesis_id: str) -> int:
+        """Return the conservative count used by multiple-testing validation.
+
+        Block 2 candidate configurations are preferred because they encode the
+        actual crossed decision surface.  Older registry evidence predating the
+        candidate schema remains conservatively countable instead of silently
+        disappearing from the correction.
+        """
+
+        if not str(hypothesis_id or "").strip() or not self.path.exists():
+            return 0
+        with self._connect() as connection:
+            self._initialize(connection)
+            candidate_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*) FROM experiment_trials AS trial
+                    JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
+                    WHERE experiment.hypothesis_id = ? AND trial.dimension = 'candidate_configuration'
+                    """,
+                    (hypothesis_id,),
+                ).fetchone()[0]
+            )
+        return candidate_count or self.trial_count(hypothesis_id=hypothesis_id)
 
     def export_manifest(self, experiment_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -620,6 +701,15 @@ def _next_stage(stage: str) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _normalized_trial_values(values: Sequence[str], *, uppercase: bool = False) -> tuple[str, ...]:
+    normalized = {
+        (str(value).strip().upper() if uppercase else str(value).strip())
+        for value in values
+        if str(value).strip()
+    }
+    return tuple(sorted(normalized))
 
 
 def _fingerprint(value: Any) -> str:

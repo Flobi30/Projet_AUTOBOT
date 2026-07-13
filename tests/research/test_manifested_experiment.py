@@ -95,3 +95,21 @@ def test_manifested_experiment_fingerprint_changes_for_material_inputs_not_runne
     second, _ = build_manifested_experiment_spec(**common, environment={"data_paths": ["canonical"]})
 
     assert first.experiment_id == second.experiment_id
+
+
+def test_manifested_experiment_binds_a_pre_reserved_holdout_identity(tmp_path):
+    spec, _ = build_manifested_experiment_spec(
+        hypothesis_id="long_trend",
+        template_id="regime_filtered_trend",
+        thesis="test thesis",
+        code_commit="abc123",
+        feature_snapshot_manifest=_manifest(tmp_path),
+        parameters={"lookback": 24},
+        seed=7,
+        cost_model={"profile": "research_stress"},
+        holdout_id="holdout_2026_q3",
+    )
+
+    assert spec.holdout_id == "holdout_2026_q3"
+    assert spec.to_dict()["paper_capital_allowed"] is False
+    assert spec.to_dict()["live_allowed"] is False

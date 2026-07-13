@@ -93,6 +93,7 @@ class AlphaHypothesisRunnerConfig:
     max_variants: int = 5
     max_symbols: int = 6
     max_data_rows: int = 250_000
+    validation_trial_count_floor: int = 0
     feature_snapshot_manifest: Path | None = None
     derivatives_feature_snapshot_manifest: Path | None = None
 
@@ -109,6 +110,8 @@ class AlphaHypothesisRunnerConfig:
             raise ValueError("max_symbols must be between 1 and 14")
         if self.max_data_rows <= 0:
             raise ValueError("max_data_rows must be positive")
+        if self.validation_trial_count_floor < 0:
+            raise ValueError("validation_trial_count_floor cannot be negative")
 
 
 @dataclass(frozen=True)
@@ -789,9 +792,10 @@ def _stress_placeholder(
             report.oos_trades,
             FundingBasisStatisticalValidationConfig(
                 run_id=f"{config.run_id}_statistical_validation",
-                # Every bounded variant/symbol/fold is treated as a trial
-                # lower bound; an experiment registry may only increase it.
-                assumed_trial_count=max(1, config.max_variants * config.max_symbols * len(report.folds)),
+                # Every bounded variant/symbol/fold is a local lower bound.
+                # The registry floor is prepared before the runner starts and
+                # can only make the multiple-testing correction stricter.
+                assumed_trial_count=_validation_trial_count(config, len(report.folds)),
             ),
             walk_forward_passed=True,
         )
@@ -821,6 +825,11 @@ def _stress_placeholder(
         policy,
         started,
     )
+
+
+def _validation_trial_count(config: AlphaHypothesisRunnerConfig, fold_count: int) -> int:
+    local_floor = max(1, config.max_variants * config.max_symbols * max(1, fold_count))
+    return max(local_floor, config.validation_trial_count_floor)
 
 
 def _funding_basis_walk_forward_report(

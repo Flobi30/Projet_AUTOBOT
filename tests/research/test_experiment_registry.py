@@ -48,8 +48,41 @@ def test_experiment_registry_is_idempotent_and_tracks_all_trial_dimensions(tmp_p
     state = registry.get_state(first.experiment_id)
     assert state.trial_count == 4
     assert registry.trial_count(hypothesis_id="funding_basis") == 4
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 4
     assert state.paper_capital_allowed is False
     assert state.live_allowed is False
+
+
+def test_trial_plan_is_idempotent_and_counts_candidate_configurations_across_experiments(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    first = registry.register_experiment(_spec(snapshot="ohlcv_v2_first"))
+
+    assert registry.record_trial_plan(
+        experiment_id=first.experiment_id,
+        variant_count=2,
+        symbols=("BTCZEUR", "ETHZEUR"),
+        timeframes=("1h", "15m"),
+        regimes=("trend",),
+    ) == 8
+    assert registry.record_trial_plan(
+        experiment_id=first.experiment_id,
+        variant_count=2,
+        symbols=("ETHZEUR", "BTCZEUR"),
+        timeframes=("15m", "1h"),
+        regimes=("trend",),
+    ) == 8
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 8
+
+    second = registry.register_experiment(_spec(snapshot="ohlcv_v2_second"))
+    registry.record_trial_plan(
+        experiment_id=second.experiment_id,
+        variant_count=1,
+        symbols=("BTCZEUR",),
+        timeframes=("1h",),
+        regimes=(),
+    )
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 9
+    assert registry.trial_count(hypothesis_id="funding_basis") == 19
 
 
 def test_registry_enforces_monotonic_gate_pipeline_and_terminal_rejection(tmp_path):
@@ -177,7 +210,8 @@ def test_runner_projection_counts_bounded_dimensions_and_normalizes_legacy_stage
 
     assert state.latest_stage == "NET_SMOKE"
     assert state.latest_status == "INSUFFICIENT_DATA"
-    assert state.trial_count == 4
+    assert state.trial_count == 8
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 4
     assert state.terminal is True
 
 

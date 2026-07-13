@@ -10,6 +10,7 @@ import pytest
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.alpha_hypothesis_runner import (
     AlphaHypothesisRunnerConfig,
+    _validation_trial_count,
     build_alpha_hypothesis_runner_report,
     load_alpha_autonomy_policy,
 )
@@ -215,6 +216,9 @@ def test_alpha_runner_cli_is_registered():
     assert args.max_symbols == 6
     assert args.template_id == "leader_laggard_momentum"
     assert args.output_dir == "data/research/reports/alpha_hypothesis_runner"
+    assert args.trial_timeframes == ""
+    assert args.trial_regimes == ""
+    assert args.holdout_id is None
 
 
 def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):
@@ -225,6 +229,32 @@ def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):
             mode="smoke",
             data_paths=(tmp_path,),
             max_variants=99,
+        )
+
+
+def test_alpha_runner_multiple_testing_floor_can_only_make_validation_stricter(tmp_path):
+    config = AlphaHypothesisRunnerConfig(
+        run_id="trial_floor",
+        hypothesis_id="funding_basis",
+        mode="full_research",
+        data_paths=(tmp_path,),
+        max_variants=2,
+        max_symbols=3,
+        validation_trial_count_floor=97,
+    )
+
+    assert _validation_trial_count(config, fold_count=4) == 97
+    assert _validation_trial_count(config, fold_count=40) == 240
+
+
+def test_alpha_runner_rejects_negative_multiple_testing_floor(tmp_path):
+    with pytest.raises(ValueError, match="validation_trial_count_floor"):
+        AlphaHypothesisRunnerConfig(
+            run_id="negative_trial_floor",
+            hypothesis_id="funding_basis",
+            mode="full_research",
+            data_paths=(tmp_path,),
+            validation_trial_count_floor=-1,
         )
 
 
