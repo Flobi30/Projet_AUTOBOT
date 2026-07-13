@@ -1,4 +1,6 @@
+import csv
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,15 @@ from autobot.v2.research.historical_data_collector import (
     collect_historical_ohlcv,
     write_historical_data_collection_reports,
 )
+from autobot.v2.research.canonical_feature_snapshot import (
+    CanonicalFeatureSnapshotConfig,
+    build_canonical_feature_snapshot,
+)
+from autobot.v2.research.canonical_ohlcv_store import (
+    CanonicalOHLCVConfig,
+    build_canonical_ohlcv_snapshot,
+)
+from autobot.v2.research import historical_data_collector as collector_module
 
 
 pytestmark = pytest.mark.unit
@@ -56,6 +67,60 @@ def test_historical_collector_writes_csv_and_quality_report(tmp_path):
     assert "No private Kraken endpoint is called." in written.safety_notes
     assert (tmp_path / "reports" / "pytest_history.md").exists()
     assert (tmp_path / "reports" / "pytest_history_manifest.json").exists()
+
+
+def test_historical_collector_excludes_open_bar_and_records_point_in_time_provenance(tmp_path, monkeypatch):
+    collection_time = datetime(2026, 6, 1, 0, 6, tzinfo=timezone.utc)
+    monkeypatch.setattr(collector_module, "_utc_now", lambda: collection_time)
+    result = collect_historical_ohlcv(
+        HistoricalDataCollectorConfig(
+            run_id="pytest_point_in_time",
+            symbols=("TRXEUR",),
+            timeframes=("5m",),
+            output_dir=tmp_path / "raw",
+            export_csv=True,
+            export_parquet=False,
+        ),
+        fetcher=_fake_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    collected = result.files[0]
+    assert collected.row_count_raw == 2
+    assert collected.row_count_closed == 1
+    assert collected.row_count == 1
+    assert collected.incomplete_bar_count == 1
+    assert collected.collection_time == collection_time.isoformat()
+    assert "incomplete_current_bars_excluded" in collected.warnings
+
+    csv_path = tmp_path / "raw" / "pytest_point_in_time_TRXEUR_5m.csv"
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["timestamp"] == "2026-06-01T00:00:00+00:00"
+    assert rows[0]["ingestion_time"] == collection_time.isoformat()
+    assert rows[0]["collected_at"] == collection_time.isoformat()
+
+    canonical = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_point_in_time_canonical",
+            raw_paths=(csv_path,),
+            output_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+            market_mappings={"TRXEUR": {"base_asset": "TRX", "quote_asset": "EUR"}},
+        )
+    )
+    feature_snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="pytest_point_in_time_features",
+            canonical_manifest_path=Path(str(canonical.manifest_path)),
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+    assert feature_snapshot.ingestion_time_unknown_count == 0
+    assert "INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN" not in feature_snapshot.blockers
 
 
 def test_historical_collector_rejects_unsupported_timeframe(tmp_path):

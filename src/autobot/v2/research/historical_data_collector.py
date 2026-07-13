@@ -7,12 +7,13 @@ runtime paper/live execution.
 
 from __future__ import annotations
 
+import csv
 import json
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -104,8 +105,11 @@ class HistoricalDataFile:
     last_cursor: int | None = None
     pages_fetched: int = 0
     row_count_raw: int = 0
+    row_count_closed: int = 0
     row_count_deduped: int = 0
     duplicate_count: int = 0
+    incomplete_bar_count: int = 0
+    collection_time: str | None = None
     csv_path: str | None = None
     parquet_path: str | None = None
     aliases: tuple[str, ...] = ()
@@ -198,25 +202,37 @@ def collect_historical_ohlcv(
                 max_pages=config.max_pages,
                 sleep_seconds=config.sleep_seconds,
             )
+            collection_time = _utc_now()
             raw_bars = _bars_from_kraken_rows(
                 fetched.rows,
                 symbol=canonical_symbol,
                 timeframe=timeframe,
                 provider=config.provider,
             )
-            bars, duplicate_count = _dedupe_bars(raw_bars) if config.dedupe else (
-                MarketDataRepository.normalize(raw_bars),
-                _count_duplicate_bars(raw_bars),
+            closed_bars, incomplete_bar_count = _closed_bars_only(
+                raw_bars,
+                timeframe=timeframe,
+                collection_time=collection_time,
+            )
+            bars, duplicate_count = _dedupe_bars(closed_bars) if config.dedupe else (
+                MarketDataRepository.normalize(closed_bars),
+                _count_duplicate_bars(closed_bars),
             )
             safe_symbol = canonical_symbol.replace("/", "").upper()
             safe_timeframe = timeframe.lower()
             csv_path: Path | None = None
             parquet_path: Path | None = None
             warnings: list[str] = list(fetched.warnings)
+            if incomplete_bar_count:
+                warnings.append("incomplete_current_bars_excluded")
             if duplicate_count:
                 warnings.append("duplicates_deduped" if config.dedupe else "duplicates_present")
             if config.export_csv:
-                csv_path = repository.save_csv(bars, output_dir / f"{config.run_id}_{safe_symbol}_{safe_timeframe}.csv")
+                csv_path = _save_collected_csv(
+                    bars,
+                    output_dir / f"{config.run_id}_{safe_symbol}_{safe_timeframe}.csv",
+                    collection_time=collection_time,
+                )
             if config.export_parquet:
                 try:
                     parquet_path = repository.save_parquet(
@@ -225,6 +241,8 @@ def collect_historical_ohlcv(
                     )
                 except ImportError:
                     warnings.append("parquet_export_unavailable")
+                else:
+                    warnings.append("parquet_temporal_metadata_not_supported_use_csv_for_point_in_time")
             expected_seconds = parse_timeframe_seconds(timeframe)
             quality = analyze_bars(
                 bars,
@@ -252,8 +270,11 @@ def collect_historical_ohlcv(
                     last_cursor=fetched.last_cursor,
                     pages_fetched=fetched.pages_fetched,
                     row_count_raw=len(raw_bars),
+                    row_count_closed=len(closed_bars),
                     row_count_deduped=len(bars),
                     duplicate_count=duplicate_count,
+                    incomplete_bar_count=incomplete_bar_count,
+                    collection_time=collection_time.isoformat(),
                     csv_path=str(csv_path) if csv_path else None,
                     parquet_path=str(parquet_path) if parquet_path else None,
                     aliases=mapping.aliases,
@@ -333,14 +354,14 @@ def render_historical_data_collection_report(result: HistoricalDataCollectionRes
         "",
         "## Files",
         "",
-        "| Symbol | Kraken Pair | Runtime Symbol | Timeframe | Rows | Raw | Duplicates | Pages | Cursor | Start | End | CSV | Parquet | Warnings |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+        "| Symbol | Kraken Pair | Runtime Symbol | Timeframe | Rows | Raw | Closed | Incomplete excluded | Duplicates | Pages | Cursor | Collected at | Start | End | CSV | Parquet | Warnings |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
     ]
     for item in result.files:
         lines.append(
             f"| {item.symbol} | {item.kraken_ohlcv_symbol} | {item.runtime_symbol} | {item.timeframe} | {item.row_count} | {item.row_count_raw} | "
-            f"{item.duplicate_count} | {item.pages_fetched} | {item.last_cursor or '-'} | "
-            f"{item.start_at or '-'} | {item.end_at or '-'} | {item.csv_path or '-'} | {item.parquet_path or '-'} | "
+            f"{item.row_count_closed} | {item.incomplete_bar_count} | {item.duplicate_count} | {item.pages_fetched} | {item.last_cursor or '-'} | "
+            f"{item.collection_time or '-'} | {item.start_at or '-'} | {item.end_at or '-'} | {item.csv_path or '-'} | {item.parquet_path or '-'} | "
             f"{', '.join(item.warnings) or 'none'} |"
         )
     lines.extend(["", "## Safety", ""])
@@ -465,9 +486,81 @@ def _dedupe_bars(bars: Sequence[MarketBar]) -> tuple[list[MarketBar], int]:
     return deduped, duplicate_count
 
 
+def _closed_bars_only(
+    bars: Sequence[MarketBar],
+    *,
+    timeframe: str,
+    collection_time: datetime,
+) -> tuple[list[MarketBar], int]:
+    """Return only OHLCV bars that had closed when AUTOBOT collected them.
+
+    Kraken's public OHLC endpoint includes the currently forming candle. Keeping
+    it would let research read a close that was not yet known at decision time.
+    The collection time is recorded separately in the CSV for canonical
+    point-in-time provenance.
+    """
+
+    if collection_time.tzinfo is None or collection_time.utcoffset() is None:
+        raise ValueError("collection_time must be timezone-aware")
+    interval = timedelta(seconds=parse_timeframe_seconds(timeframe))
+    closed = [
+        bar
+        for bar in bars
+        if bar.timestamp + interval <= collection_time.astimezone(timezone.utc)
+    ]
+    normalized = MarketDataRepository.normalize(closed)
+    return normalized, len(bars) - len(normalized)
+
+
+def _save_collected_csv(
+    bars: Sequence[MarketBar],
+    path: str | Path,
+    *,
+    collection_time: datetime,
+) -> Path:
+    """Persist public OHLCV with an explicit, auditable ingestion timestamp."""
+
+    if collection_time.tzinfo is None or collection_time.utcoffset() is None:
+        raise ValueError("collection_time must be timezone-aware")
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = collection_time.astimezone(timezone.utc).isoformat()
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=(
+                "timestamp",
+                "symbol",
+                "timeframe",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "metadata",
+                "ingestion_time",
+                "collected_at",
+            ),
+        )
+        writer.writeheader()
+        for bar in bars:
+            row = bar.to_dict()
+            row["metadata"] = json.dumps(row.get("metadata") or {}, sort_keys=True)
+            row["ingestion_time"] = timestamp
+            row["collected_at"] = timestamp
+            writer.writerow(row)
+    return output
+
+
 def _count_duplicate_bars(bars: Sequence[MarketBar]) -> int:
     keys = [bar.key() for bar in bars]
     return len(keys) - len(set(keys))
+
+
+def _utc_now() -> datetime:
+    """Small seam for deterministic collection-time tests."""
+
+    return datetime.now(timezone.utc)
 
 
 def _row_epoch(row: Sequence[Any]) -> int | None:
