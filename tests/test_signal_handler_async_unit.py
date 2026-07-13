@@ -305,6 +305,9 @@ async def test_execute_buy_and_cost_guard_with_explicit_legacy_test_opt_in(monke
     handler.validator = _Validator()
     handler._osm = _OSM()
     handler._post_trade_reconcile = _noop_reconcile
+    # This legacy-path test covers the cost guard only. Opportunity selection
+    # has separate tests and may be enabled by production-like test fixtures.
+    handler._opportunity_gate_applies = lambda: {"selection_applies_to_execution": False}
 
     signal = TradingSignal(
         type=SignalType.BUY,
