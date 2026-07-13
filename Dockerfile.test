@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r /app/requirements/tests.txt
 COPY src/ /app/src/
 COPY tests/ /app/tests/
 COPY conftest.py pytest.ini /app/
+COPY Dockerfile /app/Dockerfile
 COPY docs/research/ /app/docs/research/
+COPY docs/architecture/ /app/docs/architecture/
 COPY deploy/systemd/ /app/deploy/systemd/
 # The scheduler's test backfill has a deliberately small, versioned evidence
 # set.  Copy only those source reports rather than the mutable runtime report
