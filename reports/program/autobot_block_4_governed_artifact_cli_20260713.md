@@ -18,6 +18,13 @@ evidence without changing runtime behavior.
 
 - CLI/governance/experiment focused suite: `51 passed`.
 - Compilation and whitespace validation: passed.
+- Full isolated VPS suite: `1567 passed` with exit status `0`.
+- The VPS runtime was rebuilt/recreated from code commit
+  `66ebb8ce8595a68e2c70ac05d16ea28bc4f2dd17` and returned healthy with its
+  WebSocket connected and fourteen instances running.
+- `PAPER_EXECUTION_ADAPTER_ENABLED=false`,
+  `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false` and
+  `COLONY_AUTO_LIVE_PROMOTION=false` after restart.
 
 ## Residual constraint
 
