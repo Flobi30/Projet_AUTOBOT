@@ -119,19 +119,25 @@ class OrderRepository(_PersistenceRepositoryBase):
         userref: Optional[int] = None,
         decision_id: Optional[str] = None,
         signal_id: Optional[str] = None,
+        strategy_id: Optional[str] = None,
     ) -> bool:
+        normalized_strategy_id = str(strategy_id or "").strip()
+        if not normalized_strategy_id:
+            logger.warning("Order creation rejected: strategy_id is required (client_order_id=%s)", client_order_id)
+            return False
         now = datetime.now(timezone.utc).isoformat()
         try:
             conn = await self.get_conn()
             await conn.execute(
                 """
                 INSERT INTO orders
-                (client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                (client_order_id, decision_id, signal_id, strategy_id, instance_id, symbol, side, order_type,
                  requested_qty, status, userref, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(client_order_id) DO UPDATE SET
                     decision_id=excluded.decision_id,
                     signal_id=excluded.signal_id,
+                    strategy_id=excluded.strategy_id,
                     instance_id=excluded.instance_id,
                     symbol=excluded.symbol,
                     side=excluded.side,
@@ -141,7 +147,7 @@ class OrderRepository(_PersistenceRepositoryBase):
                     updated_at=excluded.updated_at
                 """,
                 (
-                    client_order_id, decision_id, signal_id, instance_id, symbol, side, order_type,
+                    client_order_id, decision_id, signal_id, normalized_strategy_id, instance_id, symbol, side, order_type,
                     requested_qty, status, userref, now, now,
                 ),
             )
@@ -628,6 +634,7 @@ class StatePersistence:
                     exchange_order_id TEXT,
                     decision_id TEXT,
                     signal_id TEXT,
+                    strategy_id TEXT,
                     instance_id TEXT NOT NULL,
                     symbol TEXT NOT NULL,
                     side TEXT NOT NULL,
@@ -752,6 +759,11 @@ class StatePersistence:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_lineage_root ON instance_lineage(root_instance_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_symbol ON trade_ledger(symbol)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_ledger_created_at ON trade_ledger(created_at)")
+            await self._ensure_columns(
+                conn,
+                "orders",
+                {"strategy_id": "TEXT"},
+            )
             await self._ensure_columns(
                 conn,
                 "trade_ledger",

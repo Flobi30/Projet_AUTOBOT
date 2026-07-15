@@ -1401,6 +1401,7 @@ class SignalHandlerAsync:
             side="buy",
             order_type=execution_plan["order_type"],
             requested_qty=volume,
+            strategy_id=signal_engine,
             decision_id=decision_id,
             signal_id=signal_id,
         ))
@@ -1726,6 +1727,7 @@ class SignalHandlerAsync:
                 side="sell",
                 order_type="market",
                 requested_qty=vol,
+                strategy_id=signal_engine,
                 decision_id=decision_id,
                 signal_id=signal_id
             )

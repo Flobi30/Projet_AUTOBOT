@@ -83,7 +83,7 @@ def test_restart_recovery_non_terminal_orders(tmp_path):
         osm = PersistedOrderStateMachine(p)
 
         try:
-            rec = await osm.new_order("inst-1", "XXBTZEUR", "buy", "market", 0.1)
+            rec = await osm.new_order("inst-1", "XXBTZEUR", "buy", "market", 0.1, strategy_id="test_strategy")
             assert await osm.transition(rec.client_order_id, "SENT", "send")
 
             recovered = await osm.recover_non_terminal()

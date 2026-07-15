@@ -32,14 +32,18 @@ class PersistedOrderStateMachine:
         side: str,
         order_type: str,
         requested_qty: float,
+        strategy_id: str,
         decision_id: Optional[str] = None,
         signal_id: Optional[str] = None,
         client_order_id: Optional[str] = None,
         userref: Optional[int] = None,
     ) -> OrderLifecycleRecord:
+        normalized_strategy_id = str(strategy_id or "").strip()
+        if not normalized_strategy_id:
+            raise ValueError("strategy_id is required for a persisted order")
         oid = client_order_id or f"ord_{uuid.uuid4().hex}"
         uref = userref or (time.time_ns() % 2147483647)
-        await self._persistence.upsert_order(
+        persisted = await self._persistence.upsert_order(
             client_order_id=oid,
             instance_id=instance_id,
             symbol=symbol,
@@ -50,7 +54,10 @@ class PersistedOrderStateMachine:
             userref=uref,
             decision_id=decision_id,
             signal_id=signal_id,
+            strategy_id=normalized_strategy_id,
         )
+        if not persisted:
+            raise RuntimeError("persisted order creation was rejected")
         return OrderLifecycleRecord(client_order_id=oid, status="NEW", userref=uref)
 
     async def transition(self, client_order_id: str, to_status: str, reason: str, source: str = "runtime", **kwargs: Any) -> bool:

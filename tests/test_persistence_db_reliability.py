@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from autobot.v2.persistence import StatePersistence
+from autobot.v2.order_state_machine import PersistedOrderStateMachine
 
 
 pytestmark = pytest.mark.unit
@@ -143,6 +144,7 @@ async def test_order_transition_records_explicit_from_status_and_rejects_orphans
         order_type="market",
         requested_qty=1.0,
         status="NEW",
+        strategy_id="trend_momentum",
     )
 
     assert await persistence.transition_order_state(
@@ -163,7 +165,68 @@ async def test_order_transition_records_explicit_from_status_and_rejects_orphans
         transition = connection.execute(
             "SELECT client_order_id, from_status, to_status FROM order_state_transitions"
         ).fetchall()
-        status = connection.execute("SELECT status FROM orders WHERE client_order_id = 'order-1'").fetchone()[0]
+        status, strategy_id = connection.execute(
+            "SELECT status, strategy_id FROM orders WHERE client_order_id = 'order-1'"
+        ).fetchone()
 
     assert transition == [("order-1", "NEW", "SENT")]
     assert status == "SENT"
+    assert strategy_id == "trend_momentum"
+
+
+@pytest.mark.asyncio
+async def test_order_creation_rejects_missing_strategy_provenance(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+
+    created = await persistence.upsert_order(
+        client_order_id="missing-strategy",
+        instance_id="instance-1",
+        symbol="TRXEUR",
+        side="buy",
+        order_type="market",
+        requested_qty=1.0,
+    )
+    await persistence.close()
+
+    assert created is False
+    with sqlite3.connect(tmp_path / "state.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_order_state_machine_requires_strategy_id(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    machine = PersistedOrderStateMachine(persistence)
+
+    with pytest.raises(ValueError, match="strategy_id is required"):
+        await machine.new_order(
+            instance_id="instance-1",
+            symbol="TRXEUR",
+            side="buy",
+            order_type="market",
+            requested_qty=1.0,
+            strategy_id="",
+        )
+    await persistence.close()
+
+
+@pytest.mark.asyncio
+async def test_order_state_machine_stops_when_persistence_rejects_new_order(tmp_path, monkeypatch):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    machine = PersistedOrderStateMachine(persistence)
+
+    async def reject_order(**_kwargs):
+        return False
+
+    monkeypatch.setattr(persistence, "upsert_order", reject_order)
+    with pytest.raises(RuntimeError, match="persisted order creation was rejected"):
+        await machine.new_order(
+            instance_id="instance-1",
+            symbol="TRXEUR",
+            side="buy",
+            order_type="market",
+            requested_qty=1.0,
+            strategy_id="trend_momentum",
+        )
+    await persistence.close()
