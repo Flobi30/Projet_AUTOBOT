@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.order_executor import OrderResult, OrderStatus
+from autobot.v2.research.shadow_governance import StrategyArtifact
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
 from autobot.v2.validator import ValidationStatus
@@ -385,6 +386,20 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
             "net_expected_edge_bps": 24.0,
             "shadow_notional_eur": 20.0,
             "feature_versions": {"momentum": "v1"},
+            "strategy_artifact": StrategyArtifact(
+                strategy_id="trend_momentum",
+                strategy_version="trend-v3",
+                code_commit="handler-fixture-commit",
+                data_snapshot_id="ohlcv_snapshot_1",
+                feature_versions={"momentum": "v1"},
+                parameters={"fixture": True},
+                risk_mandate_fingerprint="handler-mandate-fixture",
+                validation_manifest_fingerprint="handler-validation-fixture",
+                status="SHADOW",
+                experiment_id="handler-experiment-fixture",
+                experiment_fingerprint="handler-experiment-fingerprint",
+                human_approval_reference="handler-human-approval",
+            ).to_dict(),
             "market_identity": {
                 "exchange": "kraken",
                 "market_type": "spot",

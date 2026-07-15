@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from autobot.v2.research.runtime_shadow_preview import preview_runtime_buy_signal
+from autobot.v2.research.shadow_governance import StrategyArtifact
 
 
 pytestmark = pytest.mark.unit
@@ -17,6 +18,7 @@ def _metadata(**overrides):
         "net_expected_edge_bps": 24.0,
         "shadow_notional_eur": 20.0,
         "feature_versions": {"momentum": "v1", "volatility": "v1"},
+        "strategy_artifact": _artifact_payload(),
         "market_identity": {
             "exchange": "kraken",
             "market_type": "spot",
@@ -27,6 +29,23 @@ def _metadata(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _artifact_payload(*, strategy_version: str = "trend-v3") -> dict:
+    return StrategyArtifact(
+        strategy_id="trend_momentum",
+        strategy_version=strategy_version,
+        code_commit="preview-fixture-commit",
+        data_snapshot_id="ohlcv_snapshot_1",
+        feature_versions={"momentum": "v1", "volatility": "v1"},
+        parameters={"fixture": True},
+        risk_mandate_fingerprint="preview-mandate-fixture",
+        validation_manifest_fingerprint="preview-validation-fixture",
+        status="SHADOW",
+        experiment_id="preview-experiment-fixture",
+        experiment_fingerprint="preview-experiment-fingerprint",
+        human_approval_reference="preview-human-approval",
+    ).to_dict()
 
 
 def _preview(**metadata):
@@ -83,3 +102,10 @@ def test_missing_feature_provenance_is_not_invented():
 
     assert preview.status == "SHADOW_PREVIEW_REJECTED"
     assert preview.reason == "feature_versions_required"
+
+
+def test_shadow_preview_rejects_an_artifact_mismatch():
+    preview = _preview(strategy_artifact=_artifact_payload(strategy_version="other"))
+
+    assert preview.status == "SHADOW_PREVIEW_REJECTED"
+    assert preview.reason == "strategy_artifact_version_mismatch"

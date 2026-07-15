@@ -20,6 +20,7 @@ from autobot.v2.research.shadow_governance import (
     build_strategy_artifact_from_experiment,
     decide_shadow_safety,
     evaluate_shadow_parity,
+    strategy_artifact_reference_from_mapping,
 )
 
 
@@ -278,6 +279,20 @@ def test_strategy_artifact_registry_rejects_a_mismatched_experiment_fingerprint(
 
     with pytest.raises(ShadowGovernanceError, match="fingerprint mismatch"):
         registry.register(mismatched)
+
+
+def test_strategy_artifact_reference_requires_a_self_consistent_serialized_artifact():
+    artifact = _artifact()
+    reference = strategy_artifact_reference_from_mapping(artifact.to_dict())
+
+    assert reference.artifact_id == artifact.artifact_id
+    assert reference.fingerprint == artifact.fingerprint
+    assert reference.strategy_version == artifact.strategy_version
+
+    tampered = artifact.to_dict()
+    tampered["fingerprint"] = "tampered"
+    with pytest.raises(ShadowGovernanceError, match="fingerprint_mismatch"):
+        strategy_artifact_reference_from_mapping(tampered)
 
 
 def test_shadow_governance_module_does_not_import_runtime_execution_paths():

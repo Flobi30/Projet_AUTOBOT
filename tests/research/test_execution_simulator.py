@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from autobot.v2.contracts import MarketIdentity, OrderIntent
+from autobot.v2.contracts import MarketIdentity, OrderIntent, StrategyArtifactReference
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.execution_simulator import (
     PESSIMISTIC_SCENARIO,
@@ -25,6 +25,16 @@ def _intent(*, mode: str = "shadow", notional: float = 300.0) -> OrderIntent:
     return OrderIntent(
         decision_id="decision-1",
         strategy_id="funding_basis",
+        strategy_artifact=StrategyArtifactReference(
+            artifact_id="strategy_artifact_execution_fixture",
+            fingerprint="artifact-fingerprint-execution-fixture",
+            strategy_id="funding_basis",
+            strategy_version="v1",
+            code_commit="execution-fixture-commit",
+            data_snapshot_id="snapshot-1",
+            feature_versions={"basis_bps": "1"},
+            status="SHADOW",
+        ),
         market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
         side="buy",
         target_notional=notional,

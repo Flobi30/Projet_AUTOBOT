@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from autobot.v2.contracts import FillEvent, MarketIdentity, OrderEvent, OrderIntent
+from autobot.v2.contracts import FillEvent, MarketIdentity, OrderEvent, OrderIntent, StrategyArtifactReference
 from autobot.v2.research.oms_ledger import OMSLedgerError, ShadowOMSLedger, TransactionCostAnalysis
 
 
@@ -19,6 +19,16 @@ def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
     return OrderIntent(
         decision_id="decision-oms",
         strategy_id="funding_basis",
+        strategy_artifact=StrategyArtifactReference(
+            artifact_id="strategy_artifact_oms_fixture",
+            fingerprint="artifact-fingerprint-oms-fixture",
+            strategy_id="funding_basis",
+            strategy_version="v1",
+            code_commit="oms-fixture-commit",
+            data_snapshot_id="snapshot-1",
+            feature_versions={"basis_bps": "1"},
+            status="SHADOW",
+        ),
         market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
         side="buy",
         target_notional=notional,

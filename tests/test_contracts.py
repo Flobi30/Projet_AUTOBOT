@@ -11,6 +11,7 @@ from autobot.v2.contracts import (
     ExecutionCommand,
     OrderIntent,
     RiskDecision,
+    StrategyArtifactReference,
     TargetPortfolio,
     contract_fingerprint,
     contract_to_dict,
@@ -21,6 +22,19 @@ pytestmark = pytest.mark.unit
 
 def _market() -> MarketIdentity:
     return MarketIdentity("Kraken", "spot", "BTCZEUR", "BTC", "EUR")
+
+
+def _artifact_reference() -> StrategyArtifactReference:
+    return StrategyArtifactReference(
+        artifact_id="strategy_artifact_contract_fixture",
+        fingerprint="artifact-fingerprint-contract-fixture",
+        strategy_id="research_strategy",
+        strategy_version="v1",
+        code_commit="contract-fixture-commit",
+        data_snapshot_id="snapshot-1",
+        feature_versions={"atr": "1"},
+        status="SHADOW",
+    )
 
 
 def test_market_event_enforces_explicit_identity_and_point_in_time_ordering():
@@ -87,6 +101,7 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
     intent = OrderIntent(
         decision_id="decision-1",
         strategy_id="research_strategy",
+        strategy_artifact=_artifact_reference(),
         market=_market(),
         side="buy",
         target_notional=25.0,
@@ -96,6 +111,20 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
         client_order_id="client-1",
     )
     assert intent.execution_mode == "shadow"
+
+    with pytest.raises(ValueError, match="must match"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="other_strategy",
+            strategy_artifact=_artifact_reference(),
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-mismatch",
+        )
 
     with pytest.raises(ValueError, match="cannot exceed"):
         TargetPortfolio(

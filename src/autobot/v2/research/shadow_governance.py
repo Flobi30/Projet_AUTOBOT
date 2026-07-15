@@ -16,7 +16,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Mapping
 
-from autobot.v2.contracts import TargetPortfolio, contract_fingerprint
+from autobot.v2.contracts import StrategyArtifactReference, TargetPortfolio, contract_fingerprint
 
 from .experiment_registry import DEFAULT_EXPERIMENT_REGISTRY_PATH, ExperimentRegistry, ExperimentRegistryError
 
@@ -116,6 +116,52 @@ class StrategyArtifact:
         payload["live_allowed"] = False
         payload["automatic_promotion_allowed"] = False
         return payload
+
+    def to_order_intent_reference(self) -> StrategyArtifactReference:
+        """Return the immutable provenance facts required by an OrderIntent.
+
+        The returned object is non-executable.  Its purpose is to make a
+        shadow intent reject any mismatch between its signal evidence and the
+        strategy artifact registered for that experiment.
+        """
+
+        return StrategyArtifactReference(
+            artifact_id=self.artifact_id,
+            fingerprint=self.fingerprint,
+            strategy_id=self.strategy_id,
+            strategy_version=self.strategy_version,
+            code_commit=self.code_commit,
+            data_snapshot_id=self.data_snapshot_id,
+            feature_versions=self.feature_versions,
+            status=self.status,
+        )
+
+
+def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> StrategyArtifactReference:
+    """Parse a serialized artifact only when its identity is self-consistent.
+
+    This is intentionally pure and read-only: the runtime preview can validate
+    immutable provenance without opening or mutating the registry database.
+    The later shadow scheduler must still resolve the reference from the
+    append-only registry before it can write a real shadow observation.
+    """
+
+    if not isinstance(value, Mapping):
+        raise ShadowGovernanceError("strategy_artifact_required")
+    payload = dict(value)
+    claimed_artifact_id = str(payload.pop("artifact_id", "") or "").strip()
+    claimed_fingerprint = str(payload.pop("fingerprint", "") or "").strip()
+    if not claimed_artifact_id or not claimed_fingerprint:
+        raise ShadowGovernanceError("strategy_artifact_identity_required")
+    try:
+        artifact = StrategyArtifact(**payload)
+    except TypeError as exc:
+        raise ShadowGovernanceError("strategy_artifact_payload_invalid") from exc
+    if claimed_artifact_id != artifact.artifact_id:
+        raise ShadowGovernanceError("strategy_artifact_id_mismatch")
+    if claimed_fingerprint != artifact.fingerprint:
+        raise ShadowGovernanceError("strategy_artifact_fingerprint_mismatch")
+    return artifact.to_order_intent_reference()
 
 
 def build_strategy_artifact_from_experiment(

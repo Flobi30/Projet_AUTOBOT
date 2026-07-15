@@ -15,10 +15,19 @@ from hashlib import sha256
 import math
 from typing import Any, Mapping
 
-from autobot.v2.contracts import AlphaSignal, MarketIdentity, OrderIntent, RiskDecision, TargetPortfolio, contract_to_dict
+from autobot.v2.contracts import (
+    AlphaSignal,
+    MarketIdentity,
+    OrderIntent,
+    RiskDecision,
+    StrategyArtifactReference,
+    TargetPortfolio,
+    contract_to_dict,
+)
 from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
 from .portfolio_construction import PortfolioConstructionError, build_target_portfolio
+from .shadow_governance import strategy_artifact_reference_from_mapping
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,13 @@ def preview_runtime_buy_signal(
         data_snapshot_id = _required_metadata_text(metadata, "data_snapshot_id")
         market = _market_identity(metadata, expected_symbol=symbol)
         feature_versions = _feature_versions(metadata)
+        artifact = _strategy_artifact_reference(
+            metadata,
+            strategy_id=strategy_id,
+            strategy_version=strategy_version,
+            data_snapshot_id=data_snapshot_id,
+            feature_versions=feature_versions,
+        )
         available_at = _metadata_timestamp(metadata, "data_available_at")
         if available_at < generated_at:
             return _rejected(decision_id, generated_at, "data_available_before_signal")
@@ -93,6 +109,8 @@ def preview_runtime_buy_signal(
                 "adapter": "runtime_shadow_preview/v1",
                 "signal_price": float(price),
                 "source": str(metadata.get("execution_source") or "legacy_runtime_signal"),
+                "strategy_artifact_id": artifact.artifact_id,
+                "strategy_artifact_fingerprint": artifact.fingerprint,
             },
         )
         target_result = build_target_portfolio(
@@ -107,6 +125,7 @@ def preview_runtime_buy_signal(
         intent = OrderIntent(
             decision_id=decision_id,
             strategy_id=strategy_id,
+            strategy_artifact=artifact,
             market=market,
             side="buy",
             target_notional=shadow_notional,
@@ -118,6 +137,8 @@ def preview_runtime_buy_signal(
                 "adapter": "runtime_shadow_preview/v1",
                 "requested_price": float(price),
                 "target_weight": target_result.target.target_weights[market.symbol],
+                "strategy_artifact_id": artifact.artifact_id,
+                "strategy_artifact_fingerprint": artifact.fingerprint,
                 "paper_capital_allowed": False,
                 "live_allowed": False,
             },
@@ -185,6 +206,28 @@ def _feature_versions(metadata: Mapping[str, Any]) -> dict[str, str]:
     if not all(normalized.values()):
         raise ValueError("feature_versions_invalid")
     return normalized
+
+
+def _strategy_artifact_reference(
+    metadata: Mapping[str, Any],
+    *,
+    strategy_id: str,
+    strategy_version: str,
+    data_snapshot_id: str,
+    feature_versions: Mapping[str, str],
+) -> StrategyArtifactReference:
+    artifact = strategy_artifact_reference_from_mapping(metadata.get("strategy_artifact"))
+    if artifact.strategy_id != strategy_id.lower():
+        raise ValueError("strategy_artifact_strategy_mismatch")
+    if artifact.strategy_version != strategy_version:
+        raise ValueError("strategy_artifact_version_mismatch")
+    if artifact.data_snapshot_id != data_snapshot_id:
+        raise ValueError("strategy_artifact_snapshot_mismatch")
+    if dict(artifact.feature_versions) != dict(feature_versions):
+        raise ValueError("strategy_artifact_feature_versions_mismatch")
+    if artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED"}:
+        raise ValueError("strategy_artifact_not_shadow_eligible")
+    return artifact
 
 
 def _metadata_timestamp(metadata: Mapping[str, Any], key: str) -> datetime:

@@ -136,6 +136,44 @@ class AlphaSignal:
 
 
 @dataclass(frozen=True)
+class StrategyArtifactReference:
+    """Immutable research artifact facts required by a future order intent.
+
+    This reference deliberately carries no execution permission.  It binds an
+    intent to the exact strategy artifact that supplied the strategy version,
+    data snapshot and feature definitions, without importing the governance
+    registry into the generic contract module.
+    """
+
+    artifact_id: str
+    fingerprint: str
+    strategy_id: str
+    strategy_version: str
+    code_commit: str
+    data_snapshot_id: str
+    feature_versions: Mapping[str, str]
+    status: str
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "artifact_id",
+            "fingerprint",
+            "strategy_id",
+            "strategy_version",
+            "code_commit",
+            "data_snapshot_id",
+            "status",
+        ):
+            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        versions = {str(key).strip(): str(value).strip() for key, value in self.feature_versions.items()}
+        if not versions or not all(versions.keys()) or not all(versions.values()):
+            raise ValueError("artifact feature_versions are required")
+        object.__setattr__(self, "strategy_id", self.strategy_id.lower())
+        object.__setattr__(self, "status", self.status.upper())
+        object.__setattr__(self, "feature_versions", versions)
+
+@dataclass(frozen=True)
 class TargetPortfolio:
     decision_id: str
     generated_at: datetime
@@ -164,6 +202,7 @@ class OrderIntent:
     """Non-executable request that must pass independent risk review."""
     decision_id: str
     strategy_id: str
+    strategy_artifact: StrategyArtifactReference
     market: MarketIdentity
     side: str
     target_notional: Decimal | float
@@ -189,6 +228,10 @@ class OrderIntent:
             raise ValueError("execution_mode must be shadow, paper or live")
         for field_name in ("decision_id", "strategy_id", "client_order_id"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        if not isinstance(self.strategy_artifact, StrategyArtifactReference):
+            raise ValueError("strategy_artifact must be a StrategyArtifactReference")
+        if self.strategy_artifact.strategy_id != self.strategy_id.lower():
+            raise ValueError("strategy_artifact strategy_id must match order intent strategy_id")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)
