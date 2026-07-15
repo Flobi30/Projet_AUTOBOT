@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from autobot.v2.research.runtime_shadow_preview import preview_runtime_buy_signal
-from autobot.v2.research.shadow_governance import StrategyArtifact
+from autobot.v2.research.shadow_governance import StrategyArtifact, feature_snapshot_reference_from_mapping
 
 
 pytestmark = pytest.mark.unit
@@ -41,6 +41,23 @@ def _artifact_payload(*, strategy_version: str = "trend-v3", status: str = "SHAD
         parameters={"fixture": True},
         risk_mandate_fingerprint="preview-mandate-fixture",
         validation_manifest_fingerprint="preview-validation-fixture",
+        feature_snapshots=(
+            feature_snapshot_reference_from_mapping(
+                {
+                    "feature_snapshot_id": "features_preview_fixture",
+                    "feature_snapshot_fingerprint": "feature-fingerprint-preview-fixture",
+                    "snapshot_kind": "FEATURE_SNAPSHOT",
+                    "source_snapshot_id": "ohlcv_snapshot_1",
+                    "source_snapshot_fingerprint": "source-fingerprint-preview-fixture",
+                    "feature_registry_fingerprint": "registry-fingerprint-preview-fixture",
+                    "feature_versions": {"momentum": "v1", "volatility": "v1"},
+                    "feature_count": 20,
+                    "parity_ok": True,
+                    "runtime_parity_proven": True,
+                    "ingestion_time_unknown_count": 0,
+                }
+            ),
+        ),
         status=status,
         experiment_id="preview-experiment-fixture",
         experiment_fingerprint="preview-experiment-fingerprint",

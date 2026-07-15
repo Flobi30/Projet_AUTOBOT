@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.order_executor import OrderResult, OrderStatus
-from autobot.v2.research.shadow_governance import StrategyArtifact
+from autobot.v2.research.shadow_governance import StrategyArtifact, feature_snapshot_reference_from_mapping
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
 from autobot.v2.validator import ValidationStatus
@@ -395,6 +395,23 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
                 parameters={"fixture": True},
                 risk_mandate_fingerprint="handler-mandate-fixture",
                 validation_manifest_fingerprint="handler-validation-fixture",
+                feature_snapshots=(
+                    feature_snapshot_reference_from_mapping(
+                        {
+                            "feature_snapshot_id": "features_handler_fixture",
+                            "feature_snapshot_fingerprint": "feature-fingerprint-handler-fixture",
+                            "snapshot_kind": "FEATURE_SNAPSHOT",
+                            "source_snapshot_id": "ohlcv_snapshot_1",
+                            "source_snapshot_fingerprint": "source-fingerprint-handler-fixture",
+                            "feature_registry_fingerprint": "registry-fingerprint-handler-fixture",
+                            "feature_versions": {"momentum": "v1"},
+                            "feature_count": 20,
+                            "parity_ok": True,
+                            "runtime_parity_proven": True,
+                            "ingestion_time_unknown_count": 0,
+                        }
+                    ),
+                ),
                 status="SHADOW",
                 experiment_id="handler-experiment-fixture",
                 experiment_fingerprint="handler-experiment-fingerprint",

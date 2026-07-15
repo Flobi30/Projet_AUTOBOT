@@ -25,7 +25,22 @@ def _passed_experiment(registry_path):
             parameters={"threshold": 2.5},
             seed=7,
             cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
-            environment={"mode": "research"},
+            environment={
+                "mode": "research",
+                "feature_snapshot": {
+                    "feature_snapshot_id": "features_cli_fixture",
+                    "feature_snapshot_fingerprint": "feature-fingerprint-cli-fixture",
+                    "snapshot_kind": "FEATURE_SNAPSHOT",
+                    "source_snapshot_id": "snapshot-pytest",
+                    "source_snapshot_fingerprint": "source-fingerprint-cli-fixture",
+                    "feature_registry_fingerprint": "registry-fingerprint-cli-fixture",
+                    "feature_versions": {"basis_bps": "1.0.0"},
+                    "feature_count": 20,
+                    "parity_ok": True,
+                    "runtime_parity_proven": True,
+                    "ingestion_time_unknown_count": 0,
+                },
+            },
         )
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):

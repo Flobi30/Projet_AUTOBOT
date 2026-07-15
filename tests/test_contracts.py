@@ -5,6 +5,7 @@ import pytest
 from autobot.v2.contracts import (
     AlphaSignal,
     CanonicalMarketEvent,
+    FeatureSnapshotReference,
     FeatureValue,
     LedgerEntry,
     MarketIdentity,
@@ -34,6 +35,18 @@ def _artifact_reference() -> StrategyArtifactReference:
         data_snapshot_id="snapshot-1",
         feature_versions={"atr": "1"},
         status="SHADOW",
+        feature_snapshots=(
+            FeatureSnapshotReference(
+                feature_snapshot_id="features_contract_fixture",
+                fingerprint="feature-fingerprint-contract-fixture",
+                snapshot_kind="FEATURE_SNAPSHOT",
+                source_snapshot_id="snapshot-1",
+                source_snapshot_fingerprint="source-fingerprint-contract-fixture",
+                feature_registry_fingerprint="registry-fingerprint-contract-fixture",
+                feature_versions={"atr": "1"},
+                runtime_parity_proven=True,
+            ),
+        ),
     )
 
 
@@ -124,6 +137,30 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
             data_available_at=now,
             execution_mode="shadow",
             client_order_id="client-mismatch",
+        )
+
+    missing_feature_evidence = StrategyArtifactReference(
+        artifact_id="strategy_artifact_missing_feature_evidence",
+        fingerprint="artifact-fingerprint-missing-feature-evidence",
+        strategy_id="research_strategy",
+        strategy_version="v1",
+        code_commit="contract-fixture-commit",
+        data_snapshot_id="snapshot-1",
+        feature_versions={"atr": "1"},
+        status="SHADOW",
+    )
+    with pytest.raises(ValueError, match="feature snapshot evidence"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="research_strategy",
+            strategy_artifact=missing_feature_evidence,
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-missing-feature-evidence",
         )
 
     with pytest.raises(ValueError, match="cannot exceed"):

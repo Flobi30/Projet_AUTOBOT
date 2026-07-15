@@ -16,7 +16,12 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Mapping
 
-from autobot.v2.contracts import StrategyArtifactReference, TargetPortfolio, contract_fingerprint
+from autobot.v2.contracts import (
+    FeatureSnapshotReference,
+    StrategyArtifactReference,
+    TargetPortfolio,
+    contract_fingerprint,
+)
 
 from .experiment_registry import DEFAULT_EXPERIMENT_REGISTRY_PATH, ExperimentRegistry, ExperimentRegistryError
 
@@ -53,6 +58,7 @@ class StrategyArtifact:
     parameters: Mapping[str, Any]
     risk_mandate_fingerprint: str
     validation_manifest_fingerprint: str
+    feature_snapshots: tuple[FeatureSnapshotReference, ...] = ()
     status: str = "RESEARCH"
     rollback_artifact_id: str | None = None
     experiment_id: str | None = None
@@ -80,6 +86,15 @@ class StrategyArtifact:
             raise ShadowGovernanceError("grid aliases must remain RETIRED")
         if self.paper_capital_allowed or self.live_allowed or self.automatic_promotion_allowed:
             raise ShadowGovernanceError("shadow artifact cannot permit paper, live or automatic promotion")
+        snapshots = tuple(self.feature_snapshots)
+        if any(not isinstance(item, FeatureSnapshotReference) for item in snapshots):
+            raise ShadowGovernanceError("feature_snapshots must contain FeatureSnapshotReference values")
+        snapshot_versions = _feature_versions_from_snapshots(snapshots)
+        normalized_versions = {str(key): str(value) for key, value in self.feature_versions.items()}
+        if snapshots and snapshot_versions != normalized_versions:
+            raise ShadowGovernanceError("feature snapshot versions must match artifact feature_versions")
+        if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES and not snapshots:
+            raise ShadowGovernanceError("shadow artifact requires point-in-time feature snapshot evidence")
         experiment_id = str(self.experiment_id or "").strip() or None
         experiment_fingerprint = str(self.experiment_fingerprint or "").strip() or None
         human_approval_reference = str(self.human_approval_reference or "").strip() or None
@@ -94,7 +109,8 @@ class StrategyArtifact:
         object.__setattr__(self, "strategy_version", self.strategy_version.strip())
         object.__setattr__(self, "code_commit", self.code_commit.strip())
         object.__setattr__(self, "data_snapshot_id", self.data_snapshot_id.strip())
-        object.__setattr__(self, "feature_versions", {str(key): str(value) for key, value in self.feature_versions.items()})
+        object.__setattr__(self, "feature_versions", normalized_versions)
+        object.__setattr__(self, "feature_snapshots", snapshots)
         object.__setattr__(self, "parameters", dict(self.parameters))
         object.__setattr__(self, "status", normalized_status)
         object.__setattr__(self, "experiment_id", experiment_id)
@@ -135,6 +151,7 @@ class StrategyArtifact:
             data_snapshot_id=self.data_snapshot_id,
             feature_versions=self.feature_versions,
             status=self.status,
+            feature_snapshots=self.feature_snapshots,
         )
 
 
@@ -154,6 +171,12 @@ def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> Strate
     claimed_fingerprint = str(payload.pop("fingerprint", "") or "").strip()
     if not claimed_artifact_id or not claimed_fingerprint:
         raise ShadowGovernanceError("strategy_artifact_identity_required")
+    raw_snapshots = payload.get("feature_snapshots") or ()
+    if not isinstance(raw_snapshots, (list, tuple)):
+        raise ShadowGovernanceError("strategy_artifact_feature_snapshots_invalid")
+    payload["feature_snapshots"] = tuple(
+        feature_snapshot_reference_from_mapping(item) for item in raw_snapshots
+    )
     try:
         artifact = StrategyArtifact(**payload)
     except TypeError as exc:
@@ -163,6 +186,70 @@ def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> Strate
     if claimed_fingerprint != artifact.fingerprint:
         raise ShadowGovernanceError("strategy_artifact_fingerprint_mismatch")
     return artifact.to_order_intent_reference()
+
+
+def feature_snapshot_reference_from_mapping(value: Mapping[str, Any]) -> FeatureSnapshotReference:
+    """Normalize persisted feature evidence without opening a mutable store.
+
+    Materialized spot and derivatives manifests use the same provenance facts
+    but historically named their snapshot fingerprint differently.  This
+    adapter makes the boundary explicit and rejects any bundle that did not
+    prove point-in-time runtime parity.
+    """
+
+    if not isinstance(value, Mapping):
+        raise ShadowGovernanceError("feature_snapshot_reference_required")
+    serialized_contract = "contract_version" in value
+    if not serialized_contract:
+        feature_count = int(value.get("feature_count") or 0)
+        if feature_count <= 0:
+            raise ShadowGovernanceError("feature_snapshot_feature_values_required")
+        if value.get("parity_ok") is not True:
+            raise ShadowGovernanceError("feature_snapshot_parity_not_proven")
+    try:
+        return FeatureSnapshotReference(
+            feature_snapshot_id=str(value.get("feature_snapshot_id") or ""),
+            fingerprint=str(value.get("feature_snapshot_fingerprint") or value.get("fingerprint") or ""),
+            snapshot_kind=str(value.get("snapshot_kind") or "FEATURE_SNAPSHOT"),
+            source_snapshot_id=str(value.get("source_snapshot_id") or ""),
+            source_snapshot_fingerprint=str(value.get("source_snapshot_fingerprint") or ""),
+            feature_registry_fingerprint=str(value.get("feature_registry_fingerprint") or ""),
+            feature_versions=value.get("feature_versions") or {},
+            runtime_parity_proven=value.get("runtime_parity_proven") is True,
+            ingestion_time_unknown_count=int(value.get("ingestion_time_unknown_count") or 0),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ShadowGovernanceError("feature_snapshot_reference_invalid") from exc
+
+
+def _feature_snapshots_from_experiment_environment(
+    environment: Mapping[str, Any],
+) -> tuple[FeatureSnapshotReference, ...]:
+    payloads: list[Mapping[str, Any]] = []
+    for key in ("feature_snapshot", "derivatives_snapshot"):
+        value = environment.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, Mapping):
+            raise ShadowGovernanceError(f"experiment {key} evidence is invalid")
+        payloads.append(value)
+    return tuple(feature_snapshot_reference_from_mapping(item) for item in payloads)
+
+
+def _feature_versions_from_snapshots(
+    snapshots: tuple[FeatureSnapshotReference, ...],
+) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    snapshot_ids: set[str] = set()
+    for snapshot in snapshots:
+        if snapshot.feature_snapshot_id in snapshot_ids:
+            raise ShadowGovernanceError("feature snapshot ids must be unique")
+        snapshot_ids.add(snapshot.feature_snapshot_id)
+        for feature_id, version in snapshot.feature_versions.items():
+            if feature_id in versions:
+                raise ShadowGovernanceError("feature snapshots cannot overlap feature versions")
+            versions[feature_id] = version
+    return versions
 
 
 def build_strategy_artifact_from_experiment(
@@ -202,6 +289,12 @@ def build_strategy_artifact_from_experiment(
     parameters = spec.get("parameters")
     if not isinstance(feature_versions, Mapping) or not isinstance(parameters, Mapping):
         raise ShadowGovernanceError("experiment specification is missing feature versions or parameters")
+    environment = spec.get("environment")
+    if not isinstance(environment, Mapping):
+        raise ShadowGovernanceError("experiment specification is missing its environment")
+    snapshots = _feature_snapshots_from_experiment_environment(environment)
+    if status in EXPERIMENT_BOUND_SHADOW_STATUSES and not snapshots:
+        raise ShadowGovernanceError("shadow artifact requires point-in-time feature snapshot evidence")
     return StrategyArtifact(
         strategy_id=str(state.hypothesis_id),
         strategy_version=strategy_version,
@@ -211,6 +304,7 @@ def build_strategy_artifact_from_experiment(
         parameters=dict(parameters),
         risk_mandate_fingerprint=risk_mandate_fingerprint,
         validation_manifest_fingerprint=validation_manifest_fingerprint,
+        feature_snapshots=snapshots,
         status=status,
         experiment_id=state.experiment_id,
         experiment_fingerprint=state.material_fingerprint,
@@ -472,6 +566,8 @@ class StrategyArtifactRegistry:
             raise ShadowGovernanceError("strategy artifact registry record is invalid") from exc
         if reference.status not in ORDER_INTENT_SHADOW_ARTIFACT_STATUSES:
             raise ShadowGovernanceError("strategy artifact is not eligible for a new shadow order intent")
+        if not reference.feature_snapshots:
+            raise ShadowGovernanceError("strategy artifact lacks point-in-time feature snapshot evidence")
         return reference
 
     def _connect(self) -> sqlite3.Connection:

@@ -136,6 +136,52 @@ class AlphaSignal:
 
 
 @dataclass(frozen=True)
+class FeatureSnapshotReference:
+    """Immutable point-in-time evidence for the features behind a strategy.
+
+    The reference contains only reproducible research facts.  It deliberately
+    has no filesystem path or execution permission: a future shadow intent
+    must prove the feature bundle that produced it without relying on a
+    mutable runtime directory.
+    """
+
+    feature_snapshot_id: str
+    fingerprint: str
+    snapshot_kind: str
+    source_snapshot_id: str
+    source_snapshot_fingerprint: str
+    feature_registry_fingerprint: str
+    feature_versions: Mapping[str, str]
+    runtime_parity_proven: bool
+    ingestion_time_unknown_count: int = 0
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "feature_snapshot_id",
+            "fingerprint",
+            "snapshot_kind",
+            "source_snapshot_id",
+            "source_snapshot_fingerprint",
+            "feature_registry_fingerprint",
+        ):
+            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        versions = {str(key).strip(): str(value).strip() for key, value in self.feature_versions.items()}
+        if not versions or not all(versions.keys()) or not all(versions.values()):
+            raise ValueError("feature snapshot feature_versions are required")
+        unknown_count = int(self.ingestion_time_unknown_count)
+        if unknown_count < 0:
+            raise ValueError("ingestion_time_unknown_count must be non-negative")
+        if not self.runtime_parity_proven:
+            raise ValueError("feature snapshot runtime parity must be proven")
+        if unknown_count:
+            raise ValueError("feature snapshot cannot prove runtime parity with unknown ingestion time")
+        object.__setattr__(self, "feature_versions", versions)
+        object.__setattr__(self, "snapshot_kind", self.snapshot_kind.upper())
+        object.__setattr__(self, "ingestion_time_unknown_count", unknown_count)
+
+
+@dataclass(frozen=True)
 class StrategyArtifactReference:
     """Immutable research artifact facts required by a future order intent.
 
@@ -153,6 +199,7 @@ class StrategyArtifactReference:
     data_snapshot_id: str
     feature_versions: Mapping[str, str]
     status: str
+    feature_snapshots: tuple[FeatureSnapshotReference, ...] = ()
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -172,6 +219,22 @@ class StrategyArtifactReference:
         object.__setattr__(self, "strategy_id", self.strategy_id.lower())
         object.__setattr__(self, "status", self.status.upper())
         object.__setattr__(self, "feature_versions", versions)
+        snapshots = tuple(self.feature_snapshots)
+        if any(not isinstance(item, FeatureSnapshotReference) for item in snapshots):
+            raise ValueError("artifact feature_snapshots must contain FeatureSnapshotReference values")
+        snapshot_ids = [item.feature_snapshot_id for item in snapshots]
+        if len(snapshot_ids) != len(set(snapshot_ids)):
+            raise ValueError("artifact feature snapshot ids must be unique")
+        if snapshots:
+            snapshot_versions: dict[str, str] = {}
+            for snapshot in snapshots:
+                for feature_id, version in snapshot.feature_versions.items():
+                    if feature_id in snapshot_versions:
+                        raise ValueError("artifact feature snapshots cannot overlap feature versions")
+                    snapshot_versions[feature_id] = version
+            if snapshot_versions != versions:
+                raise ValueError("artifact feature snapshot versions must match artifact feature_versions")
+        object.__setattr__(self, "feature_snapshots", snapshots)
 
 @dataclass(frozen=True)
 class TargetPortfolio:
@@ -232,6 +295,10 @@ class OrderIntent:
             raise ValueError("strategy_artifact must be a StrategyArtifactReference")
         if self.strategy_artifact.strategy_id != self.strategy_id.lower():
             raise ValueError("strategy_artifact strategy_id must match order intent strategy_id")
+        if not self.strategy_artifact.feature_snapshots:
+            raise ValueError("strategy_artifact feature snapshot evidence is required")
+        if not all(snapshot.runtime_parity_proven for snapshot in self.strategy_artifact.feature_snapshots):
+            raise ValueError("strategy_artifact feature snapshot runtime parity is required")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)

@@ -7,7 +7,14 @@ import sqlite3
 
 import pytest
 
-from autobot.v2.contracts import FillEvent, MarketIdentity, OrderEvent, OrderIntent, StrategyArtifactReference
+from autobot.v2.contracts import (
+    FeatureSnapshotReference,
+    FillEvent,
+    MarketIdentity,
+    OrderEvent,
+    OrderIntent,
+    StrategyArtifactReference,
+)
 from autobot.v2.research.oms_ledger import OMSLedgerError, ShadowOMSLedger, TransactionCostAnalysis
 
 
@@ -28,6 +35,18 @@ def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
             data_snapshot_id="snapshot-1",
             feature_versions={"basis_bps": "1"},
             status="SHADOW",
+            feature_snapshots=(
+                FeatureSnapshotReference(
+                    feature_snapshot_id="features_oms_fixture",
+                    fingerprint="feature-fingerprint-oms-fixture",
+                    snapshot_kind="FEATURE_SNAPSHOT",
+                    source_snapshot_id="snapshot-1",
+                    source_snapshot_fingerprint="source-fingerprint-oms-fixture",
+                    feature_registry_fingerprint="registry-fingerprint-oms-fixture",
+                    feature_versions={"basis_bps": "1"},
+                    runtime_parity_proven=True,
+                ),
+            ),
         ),
         market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
         side="buy",

@@ -21,6 +21,7 @@ from autobot.v2.research.shadow_governance import (
     build_strategy_artifact_from_experiment,
     decide_shadow_safety,
     evaluate_shadow_parity,
+    feature_snapshot_reference_from_mapping,
     strategy_artifact_reference_from_mapping,
 )
 
@@ -38,11 +39,32 @@ def _artifact(*, status: str = "SHADOW") -> StrategyArtifact:
         parameters={"threshold": 2.5},
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
+        feature_snapshots=(_feature_snapshot(),),
         status=status,
         experiment_id="exp_fixture",
         experiment_fingerprint="fixture-fingerprint",
         human_approval_reference="test-approval-reference",
     )
+
+
+def _feature_snapshot_evidence() -> dict[str, object]:
+    return {
+        "feature_snapshot_id": "features_fixture",
+        "feature_snapshot_fingerprint": "feature-fingerprint-fixture",
+        "snapshot_kind": "FEATURE_SNAPSHOT",
+        "source_snapshot_id": "snapshot-1",
+        "source_snapshot_fingerprint": "source-fingerprint-fixture",
+        "feature_registry_fingerprint": "registry-fingerprint-fixture",
+        "feature_versions": {"basis_bps": "1.0.0"},
+        "feature_count": 20,
+        "parity_ok": True,
+        "runtime_parity_proven": True,
+        "ingestion_time_unknown_count": 0,
+    }
+
+
+def _feature_snapshot():
+    return feature_snapshot_reference_from_mapping(_feature_snapshot_evidence())
 
 
 def _experiment_spec() -> ExperimentSpec:
@@ -56,7 +78,7 @@ def _experiment_spec() -> ExperimentSpec:
         parameters={"threshold": 2.5},
         seed=42,
         cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
-        environment={"mode": "research"},
+        environment={"mode": "research", "feature_snapshot": _feature_snapshot_evidence()},
     )
 
 
@@ -128,6 +150,7 @@ def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():
         "parameters": {"threshold": 2.5},
         "risk_mandate_fingerprint": "mandate-1",
         "validation_manifest_fingerprint": "validation-1",
+        "feature_snapshots": (_feature_snapshot(),),
         "status": "SHADOW",
     }
 
@@ -167,6 +190,37 @@ def test_shadow_artifact_factory_requires_passed_terminal_evidence_and_human_app
             risk_mandate_fingerprint="mandate-1",
             validation_manifest_fingerprint="validation-1",
             requested_status="SHADOW",
+        )
+
+
+def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_feature_evidence(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "legacy_experiments.sqlite3")
+    state = registry.register_experiment(
+        ExperimentSpec(
+            hypothesis_id="funding_basis",
+            template_id="funding_extreme_reversion",
+            thesis="legacy evidence cannot create a shadow artifact",
+            code_commit="ee62e17",
+            data_snapshot_id="snapshot-1",
+            feature_versions={"basis_bps": "1.0.0"},
+            parameters={"threshold": 2.5},
+            seed=42,
+            cost_model={"fee_bps": 16.0},
+            environment={"mode": "research"},
+        )
+    )
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+        state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+
+    with pytest.raises(ShadowGovernanceError, match="point-in-time feature snapshot evidence"):
+        build_strategy_artifact_from_experiment(
+            experiment_registry=registry,
+            experiment_id=state.experiment_id,
+            strategy_version="v1",
+            risk_mandate_fingerprint="mandate-1",
+            validation_manifest_fingerprint="validation-1",
+            requested_status="SHADOW_ELIGIBLE",
+            human_approval_reference="human-review-1",
         )
 
 
@@ -316,6 +370,7 @@ def test_strategy_artifact_registry_resolves_only_registered_shadow_references_r
 
     assert reference.artifact_id == artifact_id
     assert reference.fingerprint == artifact.fingerprint
+    assert reference.feature_snapshots[0].feature_snapshot_id == "features_fixture"
     assert sha256(path.read_bytes()).hexdigest() == before
     with pytest.raises(ShadowGovernanceError, match="unknown strategy artifact"):
         registry.resolve_shadow_order_intent_reference("unknown")
@@ -332,3 +387,11 @@ def test_shadow_governance_module_does_not_import_runtime_execution_paths():
     imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
     assert imports.isdisjoint(forbidden)
+
+
+def test_feature_snapshot_reference_rejects_unproven_runtime_parity():
+    evidence = _feature_snapshot_evidence()
+    evidence["runtime_parity_proven"] = False
+
+    with pytest.raises(ShadowGovernanceError, match="feature_snapshot_reference_invalid"):
+        feature_snapshot_reference_from_mapping(evidence)
