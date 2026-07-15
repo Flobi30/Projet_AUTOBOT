@@ -93,6 +93,8 @@ class StrategyArtifact:
         normalized_versions = {str(key): str(value) for key, value in self.feature_versions.items()}
         if snapshots and snapshot_versions != normalized_versions:
             raise ShadowGovernanceError("feature snapshot versions must match artifact feature_versions")
+        if snapshots and self.data_snapshot_id != _data_snapshot_id_from_feature_snapshots(snapshots):
+            raise ShadowGovernanceError("feature snapshots must match artifact data_snapshot_id")
         if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES and not snapshots:
             raise ShadowGovernanceError("shadow artifact requires point-in-time feature snapshot evidence")
         experiment_id = str(self.experiment_id or "").strip() or None
@@ -250,6 +252,36 @@ def _feature_versions_from_snapshots(
                 raise ShadowGovernanceError("feature snapshots cannot overlap feature versions")
             versions[feature_id] = version
     return versions
+
+
+def _data_snapshot_id_from_feature_snapshots(
+    snapshots: tuple[FeatureSnapshotReference, ...],
+) -> str:
+    """Recreate the data identity used by manifested experiments.
+
+    AUTOBOT currently supports either one canonical feature bundle or the
+    explicit spot-plus-derivatives pair produced by the manifested experiment
+    builder.  Rejecting other compositions is safer than quietly assigning an
+    arbitrary combined identity.
+    """
+
+    if len(snapshots) == 1:
+        return snapshots[0].source_snapshot_id
+    if len(snapshots) != 2:
+        raise ShadowGovernanceError("unsupported feature snapshot composition")
+    by_kind = {snapshot.snapshot_kind: snapshot for snapshot in snapshots}
+    if set(by_kind) != {"FEATURE_SNAPSHOT", "DERIVATIVES_POINT_IN_TIME"}:
+        raise ShadowGovernanceError("unsupported feature snapshot composition")
+    return "combined_" + sha256(
+        json.dumps(
+            {
+                "spot": by_kind["FEATURE_SNAPSHOT"].source_snapshot_id,
+                "derivatives": by_kind["DERIVATIVES_POINT_IN_TIME"].source_snapshot_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:16]
 
 
 def build_strategy_artifact_from_experiment(

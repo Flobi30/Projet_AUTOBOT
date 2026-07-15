@@ -140,6 +140,43 @@ def test_strategy_artifact_keeps_grid_retired_and_cannot_enable_paper_or_live():
         )
 
 
+def test_strategy_artifact_binds_data_snapshot_to_feature_evidence():
+    with pytest.raises(ShadowGovernanceError, match="must match artifact data_snapshot_id"):
+        replace(_artifact(), data_snapshot_id="unrelated-snapshot")
+
+    derivatives = feature_snapshot_reference_from_mapping(
+        {
+            "feature_snapshot_id": "derivatives_features_fixture",
+            "fingerprint": "derivatives-feature-fingerprint-fixture",
+            "snapshot_kind": "DERIVATIVES_POINT_IN_TIME",
+            "source_snapshot_id": "derivatives-snapshot-1",
+            "source_snapshot_fingerprint": "derivatives-source-fingerprint-fixture",
+            "feature_registry_fingerprint": "registry-fingerprint-fixture",
+            "feature_versions": {"funding_rate_relative": "1.0.0"},
+            "feature_count": 20,
+            "parity_ok": True,
+            "runtime_parity_proven": True,
+            "ingestion_time_unknown_count": 0,
+        }
+    )
+    combined_snapshot_id = "combined_" + sha256(
+        b'{"derivatives":"derivatives-snapshot-1","spot":"snapshot-1"}'
+    ).hexdigest()[:16]
+    combined = StrategyArtifact(
+        strategy_id="funding_basis",
+        strategy_version="v2",
+        code_commit="ee62e17",
+        data_snapshot_id=combined_snapshot_id,
+        feature_versions={"basis_bps": "1.0.0", "funding_rate_relative": "1.0.0"},
+        parameters={"threshold": 2.5},
+        risk_mandate_fingerprint="mandate-1",
+        validation_manifest_fingerprint="validation-1",
+        feature_snapshots=(_feature_snapshot(), derivatives),
+    )
+
+    assert combined.data_snapshot_id == combined_snapshot_id
+
+
 def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():
     kwargs = {
         "strategy_id": "funding_basis",
