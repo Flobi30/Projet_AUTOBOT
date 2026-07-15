@@ -96,11 +96,11 @@ class TestTuningResult:
 
 class TestCapabilityDetection:
     def test_is_root_true_when_uid_zero(self):
-        with patch("os.getuid", return_value=0):
+        with patch("os.getuid", return_value=0, create=True):
             assert OSTuner.is_root() is True
 
     def test_is_root_false_when_uid_nonzero(self):
-        with patch("os.getuid", return_value=1000):
+        with patch("os.getuid", return_value=1000, create=True):
             assert OSTuner.is_root() is False
 
     def test_is_linux_matches_platform(self):
@@ -279,7 +279,7 @@ class TestTuneWebsocket:
 class TestApplyCpuPinning:
     def test_success_returns_true(self):
         tuner = OSTuner()
-        with patch("os.sched_setaffinity") as mock_aff:
+        with patch("os.sched_setaffinity", create=True) as mock_aff:
             mock_aff.return_value = None
             with patch.object(OSTuner, "has_sched_setaffinity", return_value=True):
                 result = tuner.apply_cpu_pinning({0, 1})
@@ -288,14 +288,14 @@ class TestApplyCpuPinning:
 
     def test_permission_error_returns_false(self):
         tuner = OSTuner()
-        with patch("os.sched_setaffinity", side_effect=PermissionError("EPERM")):
+        with patch("os.sched_setaffinity", side_effect=PermissionError("EPERM"), create=True):
             with patch.object(OSTuner, "has_sched_setaffinity", return_value=True):
                 result = tuner.apply_cpu_pinning({0})
         assert result is False
 
     def test_oserror_returns_false(self):
         tuner = OSTuner()
-        with patch("os.sched_setaffinity", side_effect=OSError("invalid")):
+        with patch("os.sched_setaffinity", side_effect=OSError("invalid"), create=True):
             with patch.object(OSTuner, "has_sched_setaffinity", return_value=True):
                 result = tuner.apply_cpu_pinning({0})
         assert result is False
@@ -315,7 +315,7 @@ class TestApplyCpuPinning:
     def test_does_not_raise_on_any_error(self):
         """apply_cpu_pinning must never propagate exceptions."""
         tuner = OSTuner()
-        with patch("os.sched_setaffinity", side_effect=RuntimeError("unexpected")):
+        with patch("os.sched_setaffinity", side_effect=RuntimeError("unexpected"), create=True):
             with patch.object(OSTuner, "has_sched_setaffinity", return_value=True):
                 # RuntimeError is not explicitly caught — confirm it bubbles or is caught
                 # The spec says OSError only; RuntimeError should bubble up.
@@ -331,8 +331,8 @@ class TestApplyCpuPinning:
 class TestApplyRtScheduling:
     def test_success_returns_true(self):
         tuner = OSTuner()
-        with patch("os.sched_setscheduler") as mock_sched:
-            with patch("os.sched_param", return_value=MagicMock()) as mock_param:
+        with patch("os.sched_setscheduler", create=True) as mock_sched:
+            with patch("os.sched_param", return_value=MagicMock(), create=True) as mock_param:
                 with patch.object(OSTuner, "has_sched_fifo", return_value=True):
                     # os.SCHED_FIFO must exist for the call
                     import os as os_mod
@@ -343,8 +343,8 @@ class TestApplyRtScheduling:
 
     def test_permission_error_returns_false(self):
         tuner = OSTuner()
-        with patch("os.sched_setscheduler", side_effect=PermissionError("EPERM")):
-            with patch("os.sched_param", return_value=MagicMock()):
+        with patch("os.sched_setscheduler", side_effect=PermissionError("EPERM"), create=True):
+            with patch("os.sched_param", return_value=MagicMock(), create=True):
                 with patch.object(OSTuner, "has_sched_fifo", return_value=True):
                     import os as os_mod
                     if not hasattr(os_mod, "SCHED_FIFO"):
@@ -354,8 +354,8 @@ class TestApplyRtScheduling:
 
     def test_oserror_returns_false(self):
         tuner = OSTuner()
-        with patch("os.sched_setscheduler", side_effect=OSError("invalid")):
-            with patch("os.sched_param", return_value=MagicMock()):
+        with patch("os.sched_setscheduler", side_effect=OSError("invalid"), create=True):
+            with patch("os.sched_param", return_value=MagicMock(), create=True):
                 with patch.object(OSTuner, "has_sched_fifo", return_value=True):
                     import os as os_mod
                     if not hasattr(os_mod, "SCHED_FIFO"):
@@ -383,8 +383,8 @@ class TestApplyRtScheduling:
 
     def test_priority_boundary_valid(self):
         tuner = OSTuner()
-        with patch("os.sched_setscheduler") as mock_sched:
-            with patch("os.sched_param", return_value=MagicMock()):
+        with patch("os.sched_setscheduler", create=True) as mock_sched:
+            with patch("os.sched_param", return_value=MagicMock(), create=True):
                 with patch.object(OSTuner, "has_sched_fifo", return_value=True):
                     import os as os_mod
                     if not hasattr(os_mod, "SCHED_FIFO"):

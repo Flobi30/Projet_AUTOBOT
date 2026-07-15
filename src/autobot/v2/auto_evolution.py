@@ -6,6 +6,7 @@ Garde-fous stricts basés sur les reviews Gemini + Opus
 """
 
 import logging
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, Callable
@@ -119,7 +120,11 @@ class AutoEvolutionManager:
     def _init_database(self):
         """Initialise le stockage persistant"""
         import sqlite3
-        with sqlite3.connect(self.db_path) as conn:
+        # ``Connection.__exit__`` commits/rolls back but does not close the
+        # SQLite handle.  Closing explicitly matters on Windows and keeps
+        # temporary lifecycle databases removable after an AUTOBOT process
+        # finishes its initialization.
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS phase_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -460,7 +465,7 @@ class AutoEvolutionManager:
         default_note = f"Transition depuis {old_phase.value}"
         full_note = f"{default_note}. {note}" if note else default_note
         
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute(
                 """INSERT INTO phase_history 
                    (phase, start_date, approved_by_user, notes)
