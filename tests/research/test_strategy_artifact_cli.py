@@ -41,10 +41,21 @@ def _passed_experiment(registry_path):
                     "ingestion_time_unknown_count": 0,
                 },
             },
+            holdout_id="holdout_cli_fixture",
         )
     )
-    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+    registry.reserve_holdout(
+        holdout_id="holdout_cli_fixture",
+        data_snapshot_id="snapshot-pytest-holdout",
+        immutable_fingerprint="holdout-cli-fixture-fingerprint",
+    )
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+    registry.record_final_holdout_review(
+        experiment_id=state.experiment_id,
+        metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+    )
+    state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
     return registry, state
 
 

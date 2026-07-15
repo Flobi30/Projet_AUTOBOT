@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from autobot.v2 import cli
+from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
 from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
 
@@ -1696,6 +1697,52 @@ def test_cli_reserves_an_immutable_experiment_holdout_without_enabling_execution
     output = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert output["reserved"] is True
+    assert output["optimization_allowed"] is False
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+
+
+def test_cli_records_final_holdout_review_without_enabling_execution(tmp_path, capsys):
+    registry_path = tmp_path / "experiment_registry.sqlite3"
+    registry = ExperimentRegistry(registry_path)
+    experiment = registry.register_experiment(
+        ExperimentSpec(
+            hypothesis_id="funding_basis",
+            template_id="funding_extreme_reversion",
+            thesis="CLI final holdout review fixture",
+            code_commit="pytest-commit",
+            data_snapshot_id="snapshot-pytest",
+            feature_versions={"basis_bps": "1.0.0"},
+            parameters={"threshold": 2.5},
+            seed=7,
+            cost_model={"fee_bps": 16.0},
+            environment={"mode": "research"},
+            holdout_id="holdout_cli_review",
+        )
+    )
+    registry.reserve_holdout(
+        holdout_id="holdout_cli_review",
+        data_snapshot_id="snapshot-pytest-holdout",
+        immutable_fingerprint="holdout-cli-review-fingerprint",
+    )
+
+    exit_code = cli.main(
+        [
+            "experiment-registry-record-final-holdout-review",
+            "--registry-path",
+            str(registry_path),
+            "--experiment-id",
+            experiment.experiment_id,
+            "--metrics-json",
+            '{"net_pnl_eur": 3.0, "profit_factor": 1.2}',
+            "--reasons",
+            "final_review,pytest",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["final_holdout_review_recorded"] is True
     assert output["optimization_allowed"] is False
     assert output["paper_capital_allowed"] is False
     assert output["live_allowed"] is False

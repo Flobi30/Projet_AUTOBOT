@@ -23,6 +23,7 @@ STAGES = CANONICAL_RESEARCH_STAGES
 TERMINAL_STATUSES = {"REJECTED", "INSUFFICIENT_DATA"}
 PASS_STATUS = "PASSED"
 DEFAULT_EXPERIMENT_REGISTRY_PATH = Path("data/research/experiment_registry.sqlite3")
+FINAL_HOLDOUT_REVIEW_DIMENSION = "final_holdout_review"
 
 
 class ExperimentRegistryError(ValueError):
@@ -211,6 +212,34 @@ class ExperimentRegistry:
             )
             return trial_id
 
+    def record_final_holdout_review(
+        self,
+        *,
+        experiment_id: str,
+        metrics: Mapping[str, Any],
+        reasons: Sequence[str] = (),
+    ) -> str:
+        """Append immutable final-holdout evidence without optimizing on it.
+
+        A final holdout is evidence for accepting or rejecting an already
+        frozen experiment, never a source of a new parameter choice.  The
+        method is intentionally research-only and records no promotion.
+        """
+
+        if not isinstance(metrics, Mapping) or not metrics:
+            raise ExperimentRegistryError("final holdout review metrics are required")
+        return self.record_trial(
+            experiment_id=experiment_id,
+            dimension=FINAL_HOLDOUT_REVIEW_DIMENSION,
+            value={
+                "metrics": dict(metrics),
+                "reasons": [str(item) for item in reasons],
+                "review_kind": "final_immutable_holdout",
+            },
+            uses_holdout=True,
+            optimization=False,
+        )
+
     def record_gate_result(
         self,
         *,
@@ -236,6 +265,8 @@ class ExperimentRegistry:
             expected = STAGES[0] if previous.latest_stage is None else _next_stage(previous.latest_stage)
             if stage != expected:
                 raise ExperimentRegistryError(f"expected stage {expected}, received {stage}")
+            if stage == STAGES[-1] and status == PASS_STATUS:
+                self._require_final_holdout_review(connection, experiment_id=experiment_id)
             transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
             connection.execute(
                 """
@@ -442,6 +473,15 @@ class ExperimentRegistry:
             )
         return candidate_count or self.trial_count(hypothesis_id=hypothesis_id)
 
+    def has_final_holdout_review(self, experiment_id: str) -> bool:
+        """Return whether immutable final-holdout evidence exists for one experiment."""
+
+        if not self.path.exists():
+            return False
+        with self._connect() as connection:
+            self._initialize(connection)
+            return self._has_final_holdout_review(connection, experiment_id=experiment_id)
+
     def export_manifest(self, experiment_id: str) -> dict[str, Any]:
         with self._connect() as connection:
             self._initialize(connection)
@@ -568,6 +608,38 @@ class ExperimentRegistry:
         if not reservation:
             raise ExperimentRegistryError("experiment holdout must be reserved before use")
         return reserved_id
+
+    @staticmethod
+    def _has_final_holdout_review(connection: sqlite3.Connection, *, experiment_id: str) -> bool:
+        experiment = connection.execute(
+            "SELECT spec_json FROM experiments WHERE experiment_id = ?", (experiment_id,)
+        ).fetchone()
+        if not experiment:
+            raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+        holdout_id = str(json.loads(str(experiment[0])).get("holdout_id") or "").strip()
+        if not holdout_id:
+            return False
+        return bool(
+            connection.execute(
+                """
+                SELECT 1 FROM experiment_trials
+                WHERE experiment_id = ?
+                  AND dimension = ?
+                  AND uses_holdout = 1
+                  AND optimization = 0
+                  AND holdout_id = ?
+                LIMIT 1
+                """,
+                (experiment_id, FINAL_HOLDOUT_REVIEW_DIMENSION, holdout_id),
+            ).fetchone()
+        )
+
+    @classmethod
+    def _require_final_holdout_review(cls, connection: sqlite3.Connection, *, experiment_id: str) -> None:
+        if not cls._has_final_holdout_review(connection, experiment_id=experiment_id):
+            raise ExperimentRegistryError(
+                "SHADOW_REVIEW PASSED requires immutable final holdout review evidence"
+            )
 
     @staticmethod
     def _record_artifact(

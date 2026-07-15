@@ -315,6 +315,8 @@ def build_strategy_artifact_from_experiment(
     if status in EXPERIMENT_BOUND_SHADOW_STATUSES:
         if state.latest_stage != "SHADOW_REVIEW" or state.latest_status != "PASSED" or not state.terminal:
             raise ShadowGovernanceError("shadow artifact requires a passed terminal SHADOW_REVIEW experiment")
+        if not experiment_registry.has_final_holdout_review(state.experiment_id):
+            raise ShadowGovernanceError("shadow artifact requires immutable final holdout review evidence")
         if not str(human_approval_reference or "").strip():
             raise ShadowGovernanceError("shadow artifact requires an explicit human approval reference")
     feature_versions = spec.get("feature_versions")
@@ -485,13 +487,16 @@ class StrategyArtifactRegistry:
         if artifact.status not in EXPERIMENT_BOUND_SHADOW_STATUSES:
             return
         try:
-            state = ExperimentRegistry(self.experiment_registry_path).get_state(str(artifact.experiment_id))
+            experiment_registry = ExperimentRegistry(self.experiment_registry_path)
+            state = experiment_registry.get_state(str(artifact.experiment_id))
         except ExperimentRegistryError as exc:
             raise ShadowGovernanceError(f"shadow artifact experiment binding unavailable: {exc}") from exc
         if state.material_fingerprint != artifact.experiment_fingerprint:
             raise ShadowGovernanceError("shadow artifact experiment fingerprint mismatch")
         if state.latest_stage != "SHADOW_REVIEW" or state.latest_status != "PASSED" or not state.terminal:
             raise ShadowGovernanceError("shadow artifact experiment has not passed terminal SHADOW_REVIEW")
+        if not experiment_registry.has_final_holdout_review(str(artifact.experiment_id)):
+            raise ShadowGovernanceError("shadow artifact experiment lacks immutable final holdout review evidence")
 
     def record_safety_decision(self, artifact: StrategyArtifact, decision: ShadowSafetyDecision) -> bool:
         """Append one non-increasing-risk decision, rejecting action relaxation."""

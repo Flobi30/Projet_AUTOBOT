@@ -106,10 +106,26 @@ def test_registry_enforces_monotonic_gate_pipeline_and_terminal_rejection(tmp_pa
 def test_final_shadow_review_closes_the_material_experiment(tmp_path):
     registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
     experiment = registry.register_experiment(_spec())
-    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=experiment.experiment_id, stage=stage, status="PASSED")
 
+    with pytest.raises(ExperimentRegistryError, match="immutable final holdout review"):
+        registry.record_gate_result(experiment_id=experiment.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
+
+    registry.reserve_holdout(
+        holdout_id="holdout_2026_q3",
+        data_snapshot_id="ohlcv_v2_holdout",
+        immutable_fingerprint="fingerprint-holdout",
+    )
+    registry.record_final_holdout_review(
+        experiment_id=experiment.experiment_id,
+        metrics={"net_pnl_eur": 4.5, "profit_factor": 1.2},
+        reasons=("final_immutable_holdout",),
+    )
+    state = registry.record_gate_result(experiment_id=experiment.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
+
     assert state.terminal is True
+    assert registry.has_final_holdout_review(experiment.experiment_id) is True
     with pytest.raises(ExperimentRegistryError, match="terminal experiment"):
         registry.record_gate_result(experiment_id=experiment.experiment_id, stage="DATA_CHECK", status="PASSED")
 

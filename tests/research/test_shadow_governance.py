@@ -79,14 +79,25 @@ def _experiment_spec() -> ExperimentSpec:
         seed=42,
         cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
         environment={"mode": "research", "feature_snapshot": _feature_snapshot_evidence()},
+        holdout_id="holdout_shadow_fixture",
     )
 
 
 def _passed_experiment_registry(tmp_path) -> tuple[ExperimentRegistry, str]:
     registry = ExperimentRegistry(tmp_path / "experiment_registry.sqlite3")
     state = registry.register_experiment(_experiment_spec())
-    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+    registry.reserve_holdout(
+        holdout_id="holdout_shadow_fixture",
+        data_snapshot_id="snapshot-1-holdout",
+        immutable_fingerprint="holdout-shadow-fixture-fingerprint",
+    )
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+    registry.record_final_holdout_review(
+        experiment_id=state.experiment_id,
+        metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+    )
+    state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
     assert state.terminal is True
     return registry, state.experiment_id
 
@@ -244,10 +255,21 @@ def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_featur
             seed=42,
             cost_model={"fee_bps": 16.0},
             environment={"mode": "research"},
+            holdout_id="holdout_legacy_fixture",
         )
     )
-    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO", "SHADOW_REVIEW"):
+    registry.reserve_holdout(
+        holdout_id="holdout_legacy_fixture",
+        data_snapshot_id="snapshot-legacy-holdout",
+        immutable_fingerprint="holdout-legacy-fixture-fingerprint",
+    )
+    for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+    registry.record_final_holdout_review(
+        experiment_id=state.experiment_id,
+        metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+    )
+    state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
 
     with pytest.raises(ShadowGovernanceError, match="point-in-time feature snapshot evidence"):
         build_strategy_artifact_from_experiment(

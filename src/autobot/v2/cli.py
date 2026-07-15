@@ -363,6 +363,24 @@ def _build_parser() -> argparse.ArgumentParser:
     experiment_registry_holdout.add_argument("--manifest-path", default=None)
     experiment_registry_holdout.set_defaults(handler=_cmd_experiment_registry_reserve_holdout)
 
+    experiment_registry_holdout_review = subparsers.add_parser(
+        "experiment-registry-record-final-holdout-review",
+        help="Record non-optimizing immutable-holdout evidence for a frozen research experiment.",
+    )
+    experiment_registry_holdout_review.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
+    experiment_registry_holdout_review.add_argument("--experiment-id", required=True)
+    experiment_registry_holdout_review.add_argument(
+        "--metrics-json",
+        required=True,
+        help="JSON object of final holdout metrics; it is evidence only and cannot enable execution.",
+    )
+    experiment_registry_holdout_review.add_argument(
+        "--reasons",
+        default="",
+        help="Optional comma-separated review reasons.",
+    )
+    experiment_registry_holdout_review.set_defaults(handler=_cmd_experiment_registry_record_final_holdout_review)
+
     strategy_artifact_register = subparsers.add_parser(
         "strategy-artifact-register",
         help="Register a non-executable research/shadow artifact from immutable experiment evidence",
@@ -2390,6 +2408,40 @@ def _cmd_experiment_registry_reserve_holdout(args: argparse.Namespace) -> int:
             "holdout_id": args.holdout_id,
             "data_snapshot_id": args.data_snapshot_id,
             "reserved": created,
+            "optimization_allowed": False,
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
+    return 0
+
+
+def _cmd_experiment_registry_record_final_holdout_review(args: argparse.Namespace) -> int:
+    """Record immutable final-holdout evidence without changing any execution mode."""
+
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+
+    try:
+        metrics = json.loads(args.metrics_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("--metrics-json must be a JSON object") from exc
+    if not isinstance(metrics, dict):
+        raise ValueError("--metrics-json must be a JSON object")
+    reasons = _optional_csv_tuple(args.reasons, "--reasons")
+    registry = ExperimentRegistry(Path(args.registry_path))
+    trial_id = registry.record_final_holdout_review(
+        experiment_id=args.experiment_id,
+        metrics=metrics,
+        reasons=reasons,
+    )
+    _print_json(
+        {
+            "registry_path": str(registry.path),
+            "experiment_id": args.experiment_id,
+            "trial_id": trial_id,
+            "final_holdout_review_recorded": registry.has_final_holdout_review(args.experiment_id),
             "optimization_allowed": False,
             "research_only": True,
             "paper_capital_allowed": False,
