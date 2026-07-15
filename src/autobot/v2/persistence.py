@@ -168,52 +168,68 @@ class OrderRepository(_PersistenceRepositoryBase):
     ) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.get_conn()
-            # 1. Update order
-            updates = ["updated_at = ?", "status = ?", "retries = retries + ?"]
-            params = [now, to_status, retries_delta]
-            
-            if exchange_order_id:
-                updates.append("exchange_order_id = ?")
-                params.append(exchange_order_id)
-            if filled_qty is not None:
-                updates.append("filled_qty = ?")
-                params.append(filled_qty)
-            if avg_fill_price is not None:
-                updates.append("avg_fill_price = ?")
-                params.append(avg_fill_price)
-            if last_error_code:
-                updates.append("last_error_code = ?")
-                params.append(last_error_code)
-            if last_error_message:
-                updates.append("last_error_message = ?")
-                params.append(last_error_message)
-            if to_status == "SENT" and "sent_at" not in updates:
-                updates.append("sent_at = ?")
-                params.append(now)
-            if to_status == "ACK" and "ack_at" not in updates:
-                updates.append("ack_at = ?")
-                params.append(now)
-            if to_status in {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}:
-                updates.append("terminal_at = ?")
-                params.append(now)
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                async with conn.execute(
+                    "SELECT status FROM orders WHERE client_order_id = ?",
+                    (client_order_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None or row[0] is None or not str(row[0]).strip():
+                    logger.warning("Order transition rejected: missing prior order state (client_order_id=%s)", client_order_id)
+                    return False
+                from_status = str(row[0]).strip()
 
-            params.append(client_order_id)
-            query = f"UPDATE orders SET {', '.join(updates)} WHERE client_order_id = ?"
-            await conn.execute(query, tuple(params))
+                # Update the order and append its transition under the same
+                # serialized write boundary. Existing legacy rows are never
+                # rewritten; this only improves new transition evidence.
+                updates = ["updated_at = ?", "status = ?", "retries = retries + ?"]
+                params = [now, to_status, retries_delta]
+                if exchange_order_id:
+                    updates.append("exchange_order_id = ?")
+                    params.append(exchange_order_id)
+                if filled_qty is not None:
+                    updates.append("filled_qty = ?")
+                    params.append(filled_qty)
+                if avg_fill_price is not None:
+                    updates.append("avg_fill_price = ?")
+                    params.append(avg_fill_price)
+                if last_error_code:
+                    updates.append("last_error_code = ?")
+                    params.append(last_error_code)
+                if last_error_message:
+                    updates.append("last_error_message = ?")
+                    params.append(last_error_message)
+                if to_status == "SENT":
+                    updates.append("sent_at = ?")
+                    params.append(now)
+                if to_status == "ACK":
+                    updates.append("ack_at = ?")
+                    params.append(now)
+                if to_status in {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}:
+                    updates.append("terminal_at = ?")
+                    params.append(now)
 
-            # 2. Add transition log
-            payload_json = orjson.dumps(payload).decode() if payload else None
-            await conn.execute(
-                """
-                INSERT INTO order_state_transitions
-                (client_order_id, to_status, reason, source, payload_hash, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (client_order_id, to_status, reason, source, payload_json, now),
-            )
-            await conn.commit()
-            return True
+                params.append(client_order_id)
+                query = f"UPDATE orders SET {', '.join(updates)} WHERE client_order_id = ?"
+                update_cursor = await conn.execute(query, tuple(params))
+                if int(update_cursor.rowcount or 0) != 1:
+                    logger.warning("Order transition rejected: order update was not unique (client_order_id=%s)", client_order_id)
+                    return False
+
+                payload_json = orjson.dumps(payload).decode() if payload else None
+                await conn.execute(
+                    """
+                    INSERT INTO order_state_transitions
+                    (client_order_id, from_status, to_status, reason, source, payload_hash, occurred_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (client_order_id, from_status, to_status, reason, source, payload_json, now),
+                )
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("transition_order_state", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur transition_order_state {client_order_id} -> {to_status}: {e}")
             return False

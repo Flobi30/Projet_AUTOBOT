@@ -129,3 +129,41 @@ async def test_market_sample_retry_is_idempotent(monkeypatch, tmp_path):
 
     assert count == 1
     assert fake_conn.execute_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_order_transition_records_explicit_from_status_and_rejects_orphans(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    assert await persistence.upsert_order(
+        client_order_id="order-1",
+        instance_id="instance-1",
+        symbol="TRXEUR",
+        side="buy",
+        order_type="market",
+        requested_qty=1.0,
+        status="NEW",
+    )
+
+    assert await persistence.transition_order_state(
+        client_order_id="order-1",
+        to_status="SENT",
+        reason="submitted_for_shadow_observation",
+        source="pytest",
+    )
+    assert await persistence.transition_order_state(
+        client_order_id="unknown-order",
+        to_status="SENT",
+        reason="must_not_create_orphan_transition",
+        source="pytest",
+    ) is False
+    await persistence.close()
+
+    with sqlite3.connect(tmp_path / "state.db") as connection:
+        transition = connection.execute(
+            "SELECT client_order_id, from_status, to_status FROM order_state_transitions"
+        ).fetchall()
+        status = connection.execute("SELECT status FROM orders WHERE client_order_id = 'order-1'").fetchone()[0]
+
+    assert transition == [("order-1", "NEW", "SENT")]
+    assert status == "SENT"
