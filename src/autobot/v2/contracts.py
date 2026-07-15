@@ -223,6 +223,11 @@ class RiskMandateReference:
         object.__setattr__(self, "capital_max_eur", capital_max_eur)
         object.__setattr__(self, "expires_at", expires_at.astimezone(timezone.utc).isoformat())
 
+    def is_current(self, at: datetime) -> bool:
+        """Return whether this immutable mandate was still valid at ``at``."""
+
+        return _utc(at, "risk mandate evaluation time") <= datetime.fromisoformat(self.expires_at)
+
 
 @dataclass(frozen=True)
 class StrategyArtifactReference:
@@ -352,6 +357,8 @@ class OrderIntent:
             raise ValueError("strategy_artifact feature snapshot runtime parity is required")
         if mode == "shadow" and self.strategy_artifact.risk_mandate is None:
             raise ValueError("strategy_artifact risk mandate evidence is required")
+        if mode == "shadow" and not self.strategy_artifact.risk_mandate.is_current(created_at):
+            raise ValueError("strategy_artifact risk mandate is expired")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)

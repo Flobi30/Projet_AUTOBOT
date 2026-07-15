@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 
 import pytest
 
@@ -262,6 +263,7 @@ def test_shadow_contracts_require_immutable_non_authorizing_risk_evidence():
         )
     assert _artifact_reference().risk_mandate is not None
     assert _artifact_reference().risk_mandate.capital_max_eur == 0.0
+    assert _artifact_reference().risk_mandate.is_current(datetime(2026, 7, 10, tzinfo=timezone.utc)) is True
 
     signal = AlphaSignal(
         strategy_id="research_strategy",
@@ -277,3 +279,25 @@ def test_shadow_contracts_require_immutable_non_authorizing_risk_evidence():
     payload = contract_to_dict(signal)
     assert payload["generated_at"] == "2026-07-10T12:00:00+00:00"
     assert contract_fingerprint(signal) == contract_fingerprint(signal)
+
+
+def test_shadow_order_intent_rejects_an_expired_risk_mandate():
+    now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    expired_artifact = replace(
+        _artifact_reference(),
+        risk_mandate=replace(_risk_mandate(), expires_at="2020-01-01T00:00:00+00:00"),
+    )
+
+    with pytest.raises(ValueError, match="risk mandate is expired"):
+        OrderIntent(
+            decision_id="expired-mandate-decision",
+            strategy_id="research_strategy",
+            strategy_artifact=expired_artifact,
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="expired-mandate-order",
+        )
