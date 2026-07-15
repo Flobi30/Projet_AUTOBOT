@@ -20,11 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 pytest_asyncio = pytest.importorskip("pytest_asyncio")
 
-# Configuration pytest-asyncio
-pytestmark = [
-    pytest.mark.unit,
-    pytest.mark.asyncio(loop_scope="function"),
-]
+# Pytest runs coroutine tests in auto mode (see pytest.ini).  Keeping the
+# module marker limited to the suite classification prevents synchronous
+# dataclass tests in this file from being incorrectly marked as asyncio.
+pytestmark = pytest.mark.unit
 
 # Ajouter le répertoire parent au path pour les imports
 sys.path.insert(0, '/home/node/.openclaw/workspace/src')
