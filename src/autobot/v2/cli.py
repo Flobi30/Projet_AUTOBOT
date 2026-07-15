@@ -396,6 +396,16 @@ def _build_parser() -> argparse.ArgumentParser:
     strategy_artifact_register.add_argument("--experiment-id", required=True)
     strategy_artifact_register.add_argument("--strategy-version", required=True)
     strategy_artifact_register.add_argument("--risk-mandate-fingerprint", required=True)
+    strategy_artifact_register.add_argument(
+        "--risk-mandates",
+        default="docs/research/strategy_risk_mandates.json",
+        help="Versioned research risk mandates used to derive immutable evidence for a shadow-capable artifact.",
+    )
+    strategy_artifact_register.add_argument(
+        "--risk-mandate-id",
+        default=None,
+        help="Required for a shadow-capable artifact; it must resolve to the experiment strategy.",
+    )
     strategy_artifact_register.add_argument("--validation-manifest-fingerprint", required=True)
     strategy_artifact_register.add_argument(
         "--status",
@@ -2465,14 +2475,35 @@ def _cmd_strategy_artifact_register(args: argparse.Namespace) -> int:
         StrategyArtifactRegistry,
         build_strategy_artifact_from_experiment,
     )
+    from autobot.v2.research.strategy_risk_mandates import (
+        load_strategy_risk_mandates,
+        risk_mandate_reference,
+    )
 
     experiment_registry = ExperimentRegistry(Path(args.experiment_registry_path))
+    shadow_statuses = {"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED", "QUARANTINED"}
+    risk_mandate = None
+    if str(args.status).upper() in shadow_statuses:
+        mandate_id = str(args.risk_mandate_id or "").strip()
+        if not mandate_id:
+            raise ValueError("--risk-mandate-id is required for a shadow-capable artifact")
+        mandates = load_strategy_risk_mandates(Path(args.risk_mandates))
+        source_mandate = next(
+            (item for item in mandates.values() if item.mandate_id == mandate_id),
+            None,
+        )
+        if source_mandate is None:
+            raise ValueError("--risk-mandate-id was not found in --risk-mandates")
+        risk_mandate = risk_mandate_reference(source_mandate)
+        if risk_mandate.fingerprint != str(args.risk_mandate_fingerprint).strip():
+            raise ValueError("--risk-mandate-fingerprint does not match immutable mandate evidence")
     artifact = build_strategy_artifact_from_experiment(
         experiment_registry=experiment_registry,
         experiment_id=args.experiment_id,
         strategy_version=args.strategy_version,
         risk_mandate_fingerprint=args.risk_mandate_fingerprint,
         validation_manifest_fingerprint=args.validation_manifest_fingerprint,
+        risk_mandate=risk_mandate,
         requested_status=args.status,
         human_approval_reference=args.human_approval_reference,
     )
@@ -2487,6 +2518,7 @@ def _cmd_strategy_artifact_register(args: argparse.Namespace) -> int:
             "artifact": artifact.to_dict(),
             "experiment_registry_path": str(experiment_registry.path),
             "artifact_registry_path": str(artifact_registry.path),
+            "risk_mandate_id": risk_mandate.mandate_id if risk_mandate else None,
             "research_only": True,
             "shadow_runtime_started": False,
             "paper_capital_allowed": False,

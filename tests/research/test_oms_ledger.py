@@ -13,12 +13,25 @@ from autobot.v2.contracts import (
     MarketIdentity,
     OrderEvent,
     OrderIntent,
+    RiskMandateReference,
     StrategyArtifactReference,
 )
 from autobot.v2.research.oms_ledger import OMSLedgerError, ShadowOMSLedger, TransactionCostAnalysis
 
 
 pytestmark = pytest.mark.unit
+
+
+def _risk_mandate() -> RiskMandateReference:
+    return RiskMandateReference(
+        mandate_id="funding_basis_oms_mandate",
+        strategy_id="funding_basis",
+        fingerprint="risk-mandate-fingerprint-oms-fixture",
+        mode_allowed="shadow",
+        capital_max_eur=0.0,
+        expires_at="2026-12-31T23:59:59+00:00",
+        human_approved_required_for_risk_increase=True,
+    )
 
 
 def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
@@ -47,6 +60,7 @@ def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
                     runtime_parity_proven=True,
                 ),
             ),
+            risk_mandate=_risk_mandate(),
         ),
         market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
         side="buy",

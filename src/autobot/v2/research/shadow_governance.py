@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 from autobot.v2.contracts import (
     FeatureSnapshotReference,
+    RiskMandateReference,
     StrategyArtifactReference,
     TargetPortfolio,
     contract_fingerprint,
@@ -59,6 +60,7 @@ class StrategyArtifact:
     risk_mandate_fingerprint: str
     validation_manifest_fingerprint: str
     feature_snapshots: tuple[FeatureSnapshotReference, ...] = ()
+    risk_mandate: RiskMandateReference | None = None
     status: str = "RESEARCH"
     rollback_artifact_id: str | None = None
     experiment_id: str | None = None
@@ -97,6 +99,14 @@ class StrategyArtifact:
             raise ShadowGovernanceError("feature snapshots must match artifact data_snapshot_id")
         if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES and not snapshots:
             raise ShadowGovernanceError("shadow artifact requires point-in-time feature snapshot evidence")
+        risk_mandate = self.risk_mandate
+        if risk_mandate is not None:
+            if not isinstance(risk_mandate, RiskMandateReference):
+                raise ShadowGovernanceError("risk_mandate must be a RiskMandateReference")
+            if risk_mandate.strategy_id != self.strategy_id.lower():
+                raise ShadowGovernanceError("risk mandate strategy_id must match artifact strategy_id")
+            if risk_mandate.fingerprint != self.risk_mandate_fingerprint:
+                raise ShadowGovernanceError("risk mandate fingerprint must match artifact risk_mandate_fingerprint")
         experiment_id = str(self.experiment_id or "").strip() or None
         experiment_fingerprint = str(self.experiment_fingerprint or "").strip() or None
         human_approval_reference = str(self.human_approval_reference or "").strip() or None
@@ -107,12 +117,15 @@ class StrategyArtifact:
                 raise ShadowGovernanceError("shadow artifact requires an experiment binding")
             if not human_approval_reference:
                 raise ShadowGovernanceError("shadow artifact requires an explicit human approval reference")
+            if risk_mandate is None:
+                raise ShadowGovernanceError("shadow artifact requires immutable risk mandate evidence")
         object.__setattr__(self, "strategy_id", self.strategy_id.lower())
         object.__setattr__(self, "strategy_version", self.strategy_version.strip())
         object.__setattr__(self, "code_commit", self.code_commit.strip())
         object.__setattr__(self, "data_snapshot_id", self.data_snapshot_id.strip())
         object.__setattr__(self, "feature_versions", normalized_versions)
         object.__setattr__(self, "feature_snapshots", snapshots)
+        object.__setattr__(self, "risk_mandate", risk_mandate)
         object.__setattr__(self, "parameters", dict(self.parameters))
         object.__setattr__(self, "status", normalized_status)
         object.__setattr__(self, "experiment_id", experiment_id)
@@ -154,6 +167,7 @@ class StrategyArtifact:
             feature_versions=self.feature_versions,
             status=self.status,
             feature_snapshots=self.feature_snapshots,
+            risk_mandate=self.risk_mandate,
         )
 
 
@@ -179,6 +193,9 @@ def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> Strate
     payload["feature_snapshots"] = tuple(
         feature_snapshot_reference_from_mapping(item) for item in raw_snapshots
     )
+    raw_mandate = payload.get("risk_mandate")
+    if raw_mandate is not None:
+        payload["risk_mandate"] = risk_mandate_reference_from_mapping(raw_mandate)
     try:
         artifact = StrategyArtifact(**payload)
     except TypeError as exc:
@@ -222,6 +239,27 @@ def feature_snapshot_reference_from_mapping(value: Mapping[str, Any]) -> Feature
         )
     except (TypeError, ValueError) as exc:
         raise ShadowGovernanceError("feature_snapshot_reference_invalid") from exc
+
+
+def risk_mandate_reference_from_mapping(value: Mapping[str, Any]) -> RiskMandateReference:
+    """Normalize serialized immutable risk evidence without loading mutable policy files."""
+
+    if not isinstance(value, Mapping):
+        raise ShadowGovernanceError("risk_mandate_reference_required")
+    try:
+        return RiskMandateReference(
+            mandate_id=str(value.get("mandate_id") or ""),
+            strategy_id=str(value.get("strategy_id") or ""),
+            fingerprint=str(value.get("fingerprint") or ""),
+            mode_allowed=str(value.get("mode_allowed") or ""),
+            capital_max_eur=value.get("capital_max_eur"),
+            expires_at=str(value.get("expires_at") or ""),
+            human_approved_required_for_risk_increase=value.get("human_approved_required_for_risk_increase") is True,
+            paper_capital_allowed=value.get("paper_capital_allowed") is True,
+            live_allowed=value.get("live_allowed") is True,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ShadowGovernanceError("risk_mandate_reference_invalid") from exc
 
 
 def _feature_snapshots_from_experiment_environment(
@@ -291,6 +329,7 @@ def build_strategy_artifact_from_experiment(
     strategy_version: str,
     risk_mandate_fingerprint: str,
     validation_manifest_fingerprint: str,
+    risk_mandate: RiskMandateReference | None = None,
     requested_status: str = "RESEARCH",
     human_approval_reference: str | None = None,
 ) -> StrategyArtifact:
@@ -319,6 +358,12 @@ def build_strategy_artifact_from_experiment(
             raise ShadowGovernanceError("shadow artifact requires immutable final holdout review evidence")
         if not str(human_approval_reference or "").strip():
             raise ShadowGovernanceError("shadow artifact requires an explicit human approval reference")
+        if risk_mandate is None:
+            raise ShadowGovernanceError("shadow artifact requires immutable risk mandate evidence")
+        if risk_mandate.strategy_id != str(state.hypothesis_id).lower():
+            raise ShadowGovernanceError("risk mandate strategy_id must match experiment hypothesis")
+        if risk_mandate.fingerprint != str(risk_mandate_fingerprint).strip():
+            raise ShadowGovernanceError("risk mandate fingerprint must match immutable risk mandate evidence")
     feature_versions = spec.get("feature_versions")
     parameters = spec.get("parameters")
     if not isinstance(feature_versions, Mapping) or not isinstance(parameters, Mapping):
@@ -339,6 +384,7 @@ def build_strategy_artifact_from_experiment(
         risk_mandate_fingerprint=risk_mandate_fingerprint,
         validation_manifest_fingerprint=validation_manifest_fingerprint,
         feature_snapshots=snapshots,
+        risk_mandate=risk_mandate,
         status=status,
         experiment_id=state.experiment_id,
         experiment_fingerprint=state.material_fingerprint,

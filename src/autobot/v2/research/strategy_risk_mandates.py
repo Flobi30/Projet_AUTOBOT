@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from autobot.v2.contracts import RiskMandateReference
 from autobot.v2.strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, is_runtime_engine_retired
 
 
@@ -165,6 +167,17 @@ class StrategyRiskMandate:
         payload["allowed_order_types"] = list(self.allowed_order_types)
         return payload
 
+    @property
+    def fingerprint(self) -> str:
+        """Return a deterministic identity for the complete risk envelope."""
+
+        return risk_mandate_fingerprint(self)
+
+    def to_reference(self) -> RiskMandateReference:
+        """Create immutable research evidence without granting execution rights."""
+
+        return risk_mandate_reference(self)
+
 
 @dataclass(frozen=True)
 class PreTradeAutonomyRequest:
@@ -188,6 +201,7 @@ class PreTradeAutonomyRequest:
     kill_switch_active: bool = False
     requested_risk_increase: bool = False
     reactivation_after_kill: bool = False
+    evaluated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +263,37 @@ def load_strategy_risk_mandates(path: str | Path) -> dict[str, StrategyRiskManda
             raise StrategyRiskMandateError(f"duplicate mandate for strategy_id: {mandate.strategy_id}")
         parsed[mandate.strategy_id] = mandate
     return parsed
+
+
+def risk_mandate_fingerprint(mandate: StrategyRiskMandate) -> str:
+    """Fingerprint the complete versioned mandate, not a caller-supplied label."""
+
+    if not isinstance(mandate, StrategyRiskMandate):
+        raise StrategyRiskMandateError("risk mandate fingerprint requires StrategyRiskMandate")
+    payload = json.dumps(mandate.to_dict(), sort_keys=True, separators=(",", ":"))
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def risk_mandate_reference(mandate: StrategyRiskMandate) -> RiskMandateReference:
+    """Expose the non-authorizing immutable facts required by shadow governance."""
+
+    if not isinstance(mandate, StrategyRiskMandate):
+        raise StrategyRiskMandateError("risk mandate reference requires StrategyRiskMandate")
+    if mandate.mode_allowed not in {"research", "shadow"}:
+        raise StrategyRiskMandateError("risk mandate reference requires a research or shadow mandate")
+    if mandate.paper_capital_allowed or mandate.live_allowed:
+        raise StrategyRiskMandateError("risk mandate reference cannot authorize paper or live")
+    return RiskMandateReference(
+        mandate_id=mandate.mandate_id,
+        strategy_id=mandate.strategy_id,
+        fingerprint=mandate.fingerprint,
+        mode_allowed=mandate.mode_allowed,
+        capital_max_eur=mandate.capital_max_eur,
+        expires_at=mandate.expires_at,
+        human_approved_required_for_risk_increase=mandate.human_approved_required_for_risk_increase,
+        paper_capital_allowed=False,
+        live_allowed=False,
+    )
 
 
 def classify_autonomy_decision(decision: AutonomyDecision) -> dict[str, list[str]]:
@@ -318,6 +363,13 @@ class PreTradeAutonomyGate:
                 risk_direction="increase",
             )
         static_blockers = mandate_static_blockers(mandate)
+        _check(
+            checks,
+            reasons,
+            "mandate_not_expired",
+            _mandate_is_current(mandate, request.evaluated_at),
+            mandate.expires_at,
+        )
         if request.strategy_id != mandate.strategy_id:
             reasons.append("strategy_not_authorized_by_mandate")
         if is_runtime_engine_retired(request.strategy_id):
@@ -462,3 +514,18 @@ def _int(value: Any) -> int:
         return int(float(value))
     except (TypeError, ValueError) as exc:
         raise StrategyRiskMandateError(f"expected integer value, got {value!r}") from exc
+
+
+def _mandate_is_current(mandate: StrategyRiskMandate, evaluated_at: datetime | None) -> bool:
+    """Fail closed for absent, naive or expired mandate timestamps."""
+
+    try:
+        expires_at = datetime.fromisoformat(mandate.expires_at.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return False
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        return False
+    reference = evaluated_at or datetime.now(timezone.utc)
+    if reference.tzinfo is None or reference.utcoffset() is None:
+        return False
+    return reference.astimezone(timezone.utc) <= expires_at.astimezone(timezone.utc)

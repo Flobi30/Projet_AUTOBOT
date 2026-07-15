@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-from autobot.v2.contracts import TargetPortfolio
+from autobot.v2.contracts import RiskMandateReference, TargetPortfolio
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.shadow_governance import (
     ShadowGovernanceError,
@@ -29,6 +29,18 @@ from autobot.v2.research.shadow_governance import (
 pytestmark = pytest.mark.unit
 
 
+def _risk_mandate() -> RiskMandateReference:
+    return RiskMandateReference(
+        mandate_id="funding_basis_shadow_mandate",
+        strategy_id="funding_basis",
+        fingerprint="mandate-1",
+        mode_allowed="shadow",
+        capital_max_eur=0.0,
+        expires_at="2026-12-31T23:59:59+00:00",
+        human_approved_required_for_risk_increase=True,
+    )
+
+
 def _artifact(*, status: str = "SHADOW") -> StrategyArtifact:
     return StrategyArtifact(
         strategy_id="funding_basis",
@@ -40,6 +52,7 @@ def _artifact(*, status: str = "SHADOW") -> StrategyArtifact:
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
         feature_snapshots=(_feature_snapshot(),),
+        risk_mandate=_risk_mandate(),
         status=status,
         experiment_id="exp_fixture",
         experiment_fingerprint="fixture-fingerprint",
@@ -199,6 +212,7 @@ def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():
         "risk_mandate_fingerprint": "mandate-1",
         "validation_manifest_fingerprint": "validation-1",
         "feature_snapshots": (_feature_snapshot(),),
+        "risk_mandate": _risk_mandate(),
         "status": "SHADOW",
     }
 
@@ -211,6 +225,33 @@ def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():
             **kwargs,
             experiment_id="exp_fixture",
             experiment_fingerprint="fixture-fingerprint",
+        )
+    with pytest.raises(ShadowGovernanceError, match="immutable risk mandate evidence"):
+        StrategyArtifact(
+            **{**kwargs, "risk_mandate": None},
+            experiment_id="exp_fixture",
+            experiment_fingerprint="fixture-fingerprint",
+            human_approval_reference="human-review-1",
+        )
+
+
+def test_shadow_artifact_rejects_risk_mandate_mismatch():
+    with pytest.raises(ShadowGovernanceError, match="fingerprint must match"):
+        StrategyArtifact(
+            strategy_id="funding_basis",
+            strategy_version="v1",
+            code_commit="ee62e17",
+            data_snapshot_id="snapshot-1",
+            feature_versions={"basis_bps": "1.0.0"},
+            parameters={"threshold": 2.5},
+            risk_mandate_fingerprint="mandate-1",
+            validation_manifest_fingerprint="validation-1",
+            feature_snapshots=(_feature_snapshot(),),
+            risk_mandate=replace(_risk_mandate(), fingerprint="tampered-mandate-fingerprint"),
+            status="SHADOW",
+            experiment_id="exp_fixture",
+            experiment_fingerprint="fixture-fingerprint",
+            human_approval_reference="human-review-1",
         )
 
 
@@ -278,6 +319,7 @@ def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_featur
             strategy_version="v1",
             risk_mandate_fingerprint="mandate-1",
             validation_manifest_fingerprint="validation-1",
+            risk_mandate=_risk_mandate(),
             requested_status="SHADOW_ELIGIBLE",
             human_approval_reference="human-review-1",
         )
@@ -341,6 +383,7 @@ def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation
         strategy_version="v1",
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
+        risk_mandate=_risk_mandate(),
         requested_status="SHADOW",
         human_approval_reference="human-review-1",
     )
@@ -382,6 +425,7 @@ def test_strategy_artifact_registry_rejects_a_mismatched_experiment_fingerprint(
         strategy_version="v1",
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
+        risk_mandate=_risk_mandate(),
         requested_status="SHADOW_ELIGIBLE",
         human_approval_reference="human-review-1",
     )
@@ -417,6 +461,7 @@ def test_strategy_artifact_registry_resolves_only_registered_shadow_references_r
         strategy_version="v1",
         risk_mandate_fingerprint="mandate-1",
         validation_manifest_fingerprint="validation-1",
+        risk_mandate=_risk_mandate(),
         requested_status="SHADOW_ELIGIBLE",
         human_approval_reference="human-review-1",
     )

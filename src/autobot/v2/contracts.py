@@ -182,6 +182,49 @@ class FeatureSnapshotReference:
 
 
 @dataclass(frozen=True)
+class RiskMandateReference:
+    """Immutable, non-authorizing evidence for a strategy risk mandate.
+
+    A future shadow intent may only carry a mandate that was bound to the
+    artifact at research time.  The reference deliberately cannot authorize
+    paper capital or live trading; those transitions remain separate human
+    decisions outside the contract layer.
+    """
+
+    mandate_id: str
+    strategy_id: str
+    fingerprint: str
+    mode_allowed: str
+    capital_max_eur: Decimal | float
+    expires_at: str
+    human_approved_required_for_risk_increase: bool
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        for field_name in ("mandate_id", "strategy_id", "fingerprint", "mode_allowed", "expires_at"):
+            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        capital_max_eur = float(self.capital_max_eur)
+        if capital_max_eur < 0:
+            raise ValueError("risk mandate capital_max_eur must be non-negative")
+        try:
+            expires_at = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("risk mandate expires_at must be ISO-8601") from exc
+        if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+            raise ValueError("risk mandate expires_at must be timezone-aware")
+        if self.paper_capital_allowed or self.live_allowed:
+            raise ValueError("risk mandate reference cannot authorize paper or live")
+        if not self.human_approved_required_for_risk_increase:
+            raise ValueError("risk mandate reference must require human approval for risk increase")
+        object.__setattr__(self, "strategy_id", self.strategy_id.lower())
+        object.__setattr__(self, "mode_allowed", self.mode_allowed.lower())
+        object.__setattr__(self, "capital_max_eur", capital_max_eur)
+        object.__setattr__(self, "expires_at", expires_at.astimezone(timezone.utc).isoformat())
+
+
+@dataclass(frozen=True)
 class StrategyArtifactReference:
     """Immutable research artifact facts required by a future order intent.
 
@@ -200,6 +243,7 @@ class StrategyArtifactReference:
     feature_versions: Mapping[str, str]
     status: str
     feature_snapshots: tuple[FeatureSnapshotReference, ...] = ()
+    risk_mandate: RiskMandateReference | None = None
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -234,6 +278,13 @@ class StrategyArtifactReference:
                     snapshot_versions[feature_id] = version
             if snapshot_versions != versions:
                 raise ValueError("artifact feature snapshot versions must match artifact feature_versions")
+        if self.risk_mandate is not None:
+            if not isinstance(self.risk_mandate, RiskMandateReference):
+                raise ValueError("artifact risk_mandate must be a RiskMandateReference")
+            if self.risk_mandate.strategy_id != self.strategy_id:
+                raise ValueError("artifact risk mandate strategy_id must match artifact strategy_id")
+        if self.status in {"SHADOW_ELIGIBLE", "SHADOW"} and self.risk_mandate is None:
+            raise ValueError("shadow artifact risk mandate evidence is required")
         object.__setattr__(self, "feature_snapshots", snapshots)
 
 @dataclass(frozen=True)
@@ -299,6 +350,8 @@ class OrderIntent:
             raise ValueError("strategy_artifact feature snapshot evidence is required")
         if not all(snapshot.runtime_parity_proven for snapshot in self.strategy_artifact.feature_snapshots):
             raise ValueError("strategy_artifact feature snapshot runtime parity is required")
+        if mode == "shadow" and self.strategy_artifact.risk_mandate is None:
+            raise ValueError("strategy_artifact risk mandate evidence is required")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)

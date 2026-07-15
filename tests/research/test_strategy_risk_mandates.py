@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,12 @@ def test_strategy_risk_mandates_load_and_keep_capital_disabled():
         "paper_capital_allowed_false",
         "runtime_orders_not_allowed",
     ]
+    assert len(mandate.fingerprint) == 64
+    reference = mandate.to_reference()
+    assert reference.fingerprint == mandate.fingerprint
+    assert reference.strategy_id == mandate.strategy_id
+    assert reference.paper_capital_allowed is False
+    assert reference.live_allowed is False
 
 
 def test_pre_trade_gate_allows_within_explicit_test_mandate(tmp_path):
@@ -79,6 +86,21 @@ def test_daily_loss_drawdown_spread_slippage_and_stale_data_block(tmp_path):
     assert "spread_within_limit" in decision.reasons
     assert "slippage_within_limit" in decision.reasons
     assert "data_fresh" in decision.reasons
+
+
+def test_pre_trade_gate_fails_closed_for_an_expired_or_invalid_mandate(tmp_path):
+    mandate = _mandate(tmp_path, capital=100.0, symbols=["BCHEUR"], timeframes=["15m"], order_types=["market"])
+    expired = replace(mandate, expires_at="2020-01-01T00:00:00+00:00")
+    invalid = replace(mandate, expires_at="not-a-timestamp")
+    request = _request(evaluated_at=datetime(2026, 7, 15, tzinfo=timezone.utc))
+
+    expired_decision = PreTradeAutonomyGate().evaluate(expired, request, StrategyHealthSnapshot())
+    invalid_decision = PreTradeAutonomyGate().evaluate(invalid, request, StrategyHealthSnapshot())
+
+    assert expired_decision.decision == DECISION_BLOCK
+    assert invalid_decision.decision == DECISION_BLOCK
+    assert "mandate_not_expired" in expired_decision.reasons
+    assert "mandate_not_expired" in invalid_decision.reasons
 
 
 def test_research_only_mandate_reports_clear_static_blockers():

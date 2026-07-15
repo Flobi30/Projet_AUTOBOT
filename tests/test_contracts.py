@@ -12,6 +12,7 @@ from autobot.v2.contracts import (
     ExecutionCommand,
     OrderIntent,
     RiskDecision,
+    RiskMandateReference,
     StrategyArtifactReference,
     TargetPortfolio,
     contract_fingerprint,
@@ -23,6 +24,18 @@ pytestmark = pytest.mark.unit
 
 def _market() -> MarketIdentity:
     return MarketIdentity("Kraken", "spot", "BTCZEUR", "BTC", "EUR")
+
+
+def _risk_mandate() -> RiskMandateReference:
+    return RiskMandateReference(
+        mandate_id="research_strategy_shadow_mandate",
+        strategy_id="research_strategy",
+        fingerprint="risk-mandate-fingerprint-contract-fixture",
+        mode_allowed="shadow",
+        capital_max_eur=0.0,
+        expires_at="2026-12-31T23:59:59+00:00",
+        human_approved_required_for_risk_increase=True,
+    )
 
 
 def _artifact_reference() -> StrategyArtifactReference:
@@ -47,6 +60,7 @@ def _artifact_reference() -> StrategyArtifactReference:
                 runtime_parity_proven=True,
             ),
         ),
+        risk_mandate=_risk_mandate(),
     )
 
 
@@ -148,6 +162,7 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
         data_snapshot_id="snapshot-1",
         feature_versions={"atr": "1"},
         status="SHADOW",
+        risk_mandate=_risk_mandate(),
     )
     with pytest.raises(ValueError, match="feature snapshot evidence"):
         OrderIntent(
@@ -208,6 +223,45 @@ def test_execution_command_requires_a_risk_boundary_and_contracts_are_stable():
             execution_mode="paper",
             approved_notional=25,
         )
+
+
+def test_shadow_contracts_require_immutable_non_authorizing_risk_evidence():
+    now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="risk mandate evidence"):
+        StrategyArtifactReference(
+            artifact_id="strategy_artifact_missing_risk_mandate",
+            fingerprint="artifact-fingerprint-missing-risk-mandate",
+            strategy_id="research_strategy",
+            strategy_version="v1",
+            code_commit="contract-fixture-commit",
+            data_snapshot_id="snapshot-1",
+            feature_versions={"atr": "1"},
+            status="SHADOW",
+            feature_snapshots=_artifact_reference().feature_snapshots,
+        )
+    with pytest.raises(ValueError, match="cannot authorize paper or live"):
+        RiskMandateReference(
+            mandate_id="invalid-mandate",
+            strategy_id="research_strategy",
+            fingerprint="invalid-mandate-fingerprint",
+            mode_allowed="shadow",
+            capital_max_eur=0.0,
+            expires_at="2026-12-31T23:59:59+00:00",
+            human_approved_required_for_risk_increase=True,
+            paper_capital_allowed=True,
+        )
+    with pytest.raises(ValueError, match="expires_at must be ISO-8601"):
+        RiskMandateReference(
+            mandate_id="invalid-expiry-mandate",
+            strategy_id="research_strategy",
+            fingerprint="invalid-expiry-mandate-fingerprint",
+            mode_allowed="shadow",
+            capital_max_eur=0.0,
+            expires_at="not-a-timestamp",
+            human_approved_required_for_risk_increase=True,
+        )
+    assert _artifact_reference().risk_mandate is not None
+    assert _artifact_reference().risk_mandate.capital_max_eur == 0.0
 
     signal = AlphaSignal(
         strategy_id="research_strategy",

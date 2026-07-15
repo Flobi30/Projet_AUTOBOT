@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from autobot.v2.contracts import FeatureSnapshotReference, MarketIdentity, OrderIntent, StrategyArtifactReference
+from autobot.v2.contracts import FeatureSnapshotReference, MarketIdentity, OrderIntent, RiskMandateReference, StrategyArtifactReference
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.execution_simulator import (
     PESSIMISTIC_SCENARIO,
@@ -18,6 +18,18 @@ from autobot.v2.research.execution_simulator import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _risk_mandate() -> RiskMandateReference:
+    return RiskMandateReference(
+        mandate_id="funding_basis_shadow_mandate",
+        strategy_id="funding_basis",
+        fingerprint="risk-mandate-fingerprint-execution-fixture",
+        mode_allowed="shadow",
+        capital_max_eur=0.0,
+        expires_at="2026-12-31T23:59:59+00:00",
+        human_approved_required_for_risk_increase=True,
+    )
 
 
 def _intent(*, mode: str = "shadow", notional: float = 300.0) -> OrderIntent:
@@ -46,6 +58,7 @@ def _intent(*, mode: str = "shadow", notional: float = 300.0) -> OrderIntent:
                     runtime_parity_proven=True,
                 ),
             ),
+            risk_mandate=_risk_mandate(),
         ),
         market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
         side="buy",

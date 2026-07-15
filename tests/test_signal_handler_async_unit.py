@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.order_executor import OrderResult, OrderStatus
+from autobot.v2.contracts import RiskMandateReference
 from autobot.v2.research.shadow_governance import StrategyArtifact, feature_snapshot_reference_from_mapping
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
@@ -395,6 +396,15 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
                 parameters={"fixture": True},
                 risk_mandate_fingerprint="handler-mandate-fixture",
                 validation_manifest_fingerprint="handler-validation-fixture",
+                risk_mandate=RiskMandateReference(
+                    mandate_id="trend_handler_shadow_mandate",
+                    strategy_id="trend_momentum",
+                    fingerprint="handler-mandate-fixture",
+                    mode_allowed="shadow",
+                    capital_max_eur=0.0,
+                    expires_at="2026-12-31T23:59:59+00:00",
+                    human_approved_required_for_risk_increase=True,
+                ),
                 feature_snapshots=(
                     feature_snapshot_reference_from_mapping(
                         {
