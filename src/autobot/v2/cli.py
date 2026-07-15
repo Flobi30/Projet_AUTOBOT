@@ -442,6 +442,13 @@ def _build_parser() -> argparse.ArgumentParser:
     runtime_oms_ledger_audit.add_argument("--state-db", required=True)
     runtime_oms_ledger_audit.set_defaults(handler=_cmd_runtime_oms_ledger_audit)
 
+    runtime_oms_ledger_migration_plan = subparsers.add_parser(
+        "runtime-oms-ledger-migration-plan",
+        help="Build a non-executable, read-only canonical migration plan for runtime OMS/ledger evidence",
+    )
+    runtime_oms_ledger_migration_plan.add_argument("--state-db", required=True)
+    runtime_oms_ledger_migration_plan.set_defaults(handler=_cmd_runtime_oms_ledger_migration_plan)
+
     canonicalize_ohlcv = subparsers.add_parser(
         "canonicalize-ohlcv",
         help="Build a deterministic research-only canonical OHLCV snapshot from raw CSV exports",
@@ -2540,6 +2547,13 @@ def _cmd_runtime_oms_ledger_audit(args: argparse.Namespace) -> int:
     from autobot.v2.research.runtime_oms_ledger_audit import audit_runtime_oms_ledger
 
     _print_json(audit_runtime_oms_ledger(Path(args.state_db)).to_dict())
+    return 0
+
+
+def _cmd_runtime_oms_ledger_migration_plan(args: argparse.Namespace) -> int:
+    from autobot.v2.research.runtime_oms_ledger_migration_plan import plan_runtime_oms_ledger_migration
+
+    _print_json(plan_runtime_oms_ledger_migration(Path(args.state_db)).to_dict())
     return 0
 
 

@@ -1719,6 +1719,31 @@ def test_cli_sqlite_restore_drill_is_non_authorizing_and_preserves_backup(tmp_pa
     assert backup_path.read_bytes() == before
 
 
+def test_cli_runtime_oms_ledger_migration_plan_is_non_authorizing(tmp_path, capsys):
+    state_db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(state_db) as connection:
+        connection.execute("CREATE TABLE orders (client_order_id TEXT, exchange_order_id TEXT)")
+        connection.execute(
+            "CREATE TABLE order_state_transitions (id INTEGER PRIMARY KEY, client_order_id TEXT, from_status TEXT, to_status TEXT, reason TEXT, occurred_at TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE trade_ledger (id INTEGER PRIMARY KEY, trade_id TEXT, exchange_order_id TEXT, decision_id TEXT, signal_id TEXT, strategy_id TEXT, execution_mode TEXT, volume REAL, executed_price REAL, fees REAL, created_at TEXT)"
+        )
+        connection.execute("INSERT INTO orders VALUES ('client-1', 'exchange-1')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (1, 'client-1', NULL, 'SENT', NULL, '2026-07-15T12:00:00+00:00')")
+    before = state_db.read_bytes()
+
+    exit_code = cli.main(["runtime-oms-ledger-migration-plan", "--state-db", str(state_db)])
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["status"] == "MIGRATION_REVIEW_REQUIRED"
+    assert output["migration_allowed"] is False
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert state_db.read_bytes() == before
+
+
 def test_cli_pre_registers_material_trial_plan_before_runner_statistics(tmp_path):
     feature_manifest = tmp_path / "feature_snapshot.json"
     feature_manifest.write_text(
