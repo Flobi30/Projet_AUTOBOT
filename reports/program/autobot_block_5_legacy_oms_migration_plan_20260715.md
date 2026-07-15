@@ -1,6 +1,6 @@
 # AUTOBOT Block 5 - Legacy OMS/Ledger Migration Plan
 
-Date: 2026-07-15  
+Date: 2026-07-15
 Code commit: `7f9e947225769069f3cb555b362a379d99fe82b1`
 
 ## Decision
