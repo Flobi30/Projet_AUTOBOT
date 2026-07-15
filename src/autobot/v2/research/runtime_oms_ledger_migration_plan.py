@@ -5,7 +5,8 @@ database through SQLite ``mode=ro``, never creates a table or output database,
 and never imports an execution, paper or reconciliation component.  Legacy
 facts that cannot satisfy the versioned contracts are counted as quarantined;
 the planner never invents a strategy, market identity, decision or lifecycle
-state to make a row look migratable.
+state to make a row look migratable.  Only timezone-aware ISO-8601 timestamps
+are supported; epoch, naive and other legacy timestamp formats are quarantined.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 import sqlite3
 from typing import Any, Mapping
@@ -38,6 +40,13 @@ _ORDER_EVENT_TYPES = {
     "CANCELLED": "CANCELLED",
     "REJECTED": "REJECTED",
     "UNKNOWN": "UNKNOWN",
+}
+_ALLOWED_ORDER_EVENT_TRANSITIONS = {
+    "CREATED": frozenset({"SUBMITTED", "CANCELLED", "REJECTED"}),
+    "SUBMITTED": frozenset({"ACKNOWLEDGED", "CANCELLED", "REJECTED", "UNKNOWN"}),
+    "ACKNOWLEDGED": frozenset({"PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED", "UNKNOWN"}),
+    "PARTIALLY_FILLED": frozenset({"PARTIALLY_FILLED", "FILLED", "CANCELLED", "UNKNOWN"}),
+    "UNKNOWN": frozenset({"ACKNOWLEDGED", "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED"}),
 }
 _REQUIRED_COLUMNS = {
     "orders": frozenset({"client_order_id", "exchange_order_id"}),
@@ -75,6 +84,7 @@ class RuntimeOMSLedgerMigrationPlan:
     canonical_intent_candidate_count: int
     unmigratable_order_intent_count: int
     reconstructable_order_event_count: int
+    reconstructable_order_event_with_exchange_order_id_count: int
     order_event_reconciliation_required_count: int
     reconstructable_fill_event_count: int
     quarantine_reason_counts: Mapping[str, int]
@@ -104,10 +114,12 @@ def plan_runtime_oms_ledger_migration(state_db: str | Path) -> RuntimeOMSLedgerM
     if not path.is_file():
         return _empty_plan(path, "NO_RUNTIME_ORDER_EVIDENCE", ("state_db_missing",))
 
-    before = _sha256_file(path)
+    before = _sha256_sqlite_snapshot(path)
     try:
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
             connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only = ON")
+            connection.execute("BEGIN")
             columns = _table_columns(connection)
             missing = {
                 table: tuple(sorted(required - columns.get(table, frozenset())))
@@ -144,12 +156,13 @@ def plan_runtime_oms_ledger_migration(state_db: str | Path) -> RuntimeOMSLedgerM
             state_db_path=str(path),
             database_exists=True,
             database_sha256_before=before,
-            database_sha256_after=_sha256_file(path),
+            database_sha256_after=_sha256_sqlite_snapshot(path),
             source_table_row_counts={},
             missing_columns={},
             canonical_intent_candidate_count=0,
             unmigratable_order_intent_count=0,
             reconstructable_order_event_count=0,
+            reconstructable_order_event_with_exchange_order_id_count=0,
             order_event_reconciliation_required_count=0,
             reconstructable_fill_event_count=0,
             quarantine_reason_counts={},
@@ -158,7 +171,7 @@ def plan_runtime_oms_ledger_migration(state_db: str | Path) -> RuntimeOMSLedgerM
             reasons=(f"sqlite_read_error:{type(exc).__name__}",),
         )
 
-    after = _sha256_file(path)
+    after = _sha256_sqlite_snapshot(path)
     if before != after:
         status = "RECONCILIATION_REQUIRED"
         reasons = tuple(reasons) + ("database_changed_during_read_only_planning",)
@@ -177,6 +190,9 @@ def plan_runtime_oms_ledger_migration(state_db: str | Path) -> RuntimeOMSLedgerM
         canonical_intent_candidate_count=0,
         unmigratable_order_intent_count=intent_count,
         reconstructable_order_event_count=len(order_events),
+        reconstructable_order_event_with_exchange_order_id_count=sum(
+            1 for candidate in order_events if candidate["exchange_order_id_preserved"]
+        ),
         order_event_reconciliation_required_count=event_review_count,
         reconstructable_fill_event_count=len(fills),
         quarantine_reason_counts=_reason_counts(quarantined),
@@ -199,6 +215,7 @@ def _empty_plan(path: Path, status: str, reasons: tuple[str, ...]) -> RuntimeOMS
         canonical_intent_candidate_count=0,
         unmigratable_order_intent_count=0,
         reconstructable_order_event_count=0,
+        reconstructable_order_event_with_exchange_order_id_count=0,
         order_event_reconciliation_required_count=0,
         reconstructable_fill_event_count=0,
         quarantine_reason_counts={},
@@ -211,9 +228,22 @@ def _empty_plan(path: Path, status: str, reasons: tuple[str, ...]) -> RuntimeOMS
 def _build_candidates(connection: sqlite3.Connection) -> tuple[list[dict[str, Any]], list[dict[str, str]], int]:
     candidates: list[dict[str, Any]] = []
     quarantined: list[dict[str, str]] = []
-    orders_by_exchange, known_client_order_ids = _orders_by_exchange_id(connection)
-    events, event_quarantine, event_review_count = _order_event_candidates(connection, known_client_order_ids)
-    fills, fill_quarantine = _fill_event_candidates(connection, orders_by_exchange)
+    orders_by_exchange, known_client_order_ids, exchange_by_client = _orders_by_exchange_id(connection)
+    duplicate_transition_ids = _duplicate_non_blank_values(connection, "order_state_transitions", "id")
+    duplicate_trade_row_ids = _duplicate_non_blank_values(connection, "trade_ledger", "id")
+    duplicate_trade_ids = _duplicate_non_blank_values(connection, "trade_ledger", "trade_id")
+    events, event_quarantine, event_review_count = _order_event_candidates(
+        connection,
+        known_client_order_ids,
+        exchange_by_client,
+        duplicate_transition_ids,
+    )
+    fills, fill_quarantine = _fill_event_candidates(
+        connection,
+        orders_by_exchange,
+        duplicate_trade_row_ids,
+        duplicate_trade_ids,
+    )
     candidates.extend(events)
     candidates.extend(fills)
     quarantined.extend(event_quarantine)
@@ -221,9 +251,12 @@ def _build_candidates(connection: sqlite3.Connection) -> tuple[list[dict[str, An
     return candidates, quarantined, event_review_count
 
 
-def _orders_by_exchange_id(connection: sqlite3.Connection) -> tuple[dict[str, tuple[str, ...]], frozenset[str]]:
+def _orders_by_exchange_id(
+    connection: sqlite3.Connection,
+) -> tuple[dict[str, tuple[str, ...]], frozenset[str], dict[str, str | None]]:
     mapping: dict[str, list[str]] = {}
     client_order_ids: set[str] = set()
+    exchange_ids_by_client: dict[str, set[str]] = {}
     for row in connection.execute("SELECT client_order_id, exchange_order_id FROM orders"):
         exchange_order_id = _text(row["exchange_order_id"])
         client_order_id = _text(row["client_order_id"])
@@ -231,20 +264,40 @@ def _orders_by_exchange_id(connection: sqlite3.Connection) -> tuple[dict[str, tu
             client_order_ids.add(client_order_id)
         if exchange_order_id and client_order_id:
             mapping.setdefault(exchange_order_id, []).append(client_order_id)
-    return {key: tuple(sorted(set(value))) for key, value in mapping.items()}, frozenset(client_order_ids)
+            exchange_ids_by_client.setdefault(client_order_id, set()).add(exchange_order_id)
+    exchange_by_client = {
+        client_order_id: next(iter(exchange_order_ids)) if len(exchange_order_ids) == 1 else None
+        for client_order_id, exchange_order_ids in exchange_ids_by_client.items()
+    }
+    return (
+        {key: tuple(sorted(set(value))) for key, value in mapping.items()},
+        frozenset(client_order_ids),
+        exchange_by_client,
+    )
 
 
 def _order_event_candidates(
-    connection: sqlite3.Connection, known_client_order_ids: frozenset[str]
+    connection: sqlite3.Connection,
+    known_client_order_ids: frozenset[str],
+    exchange_by_client: Mapping[str, str | None],
+    duplicate_source_ids: frozenset[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], int]:
     candidates: list[dict[str, Any]] = []
     quarantined: list[dict[str, str]] = []
     reconciliation_required = 0
+    last_occurred_at_by_client_order: dict[str, datetime] = {}
     query = "SELECT id, client_order_id, from_status, to_status, reason, occurred_at FROM order_state_transitions ORDER BY id"
     for row in connection.execute(query):
-        source_id = str(row["id"])
+        source_id = _text(row["id"])
+        if not source_id:
+            quarantined.append(_quarantine("order_state_transitions", "<missing>", "missing_source_row_id"))
+            continue
+        if source_id in duplicate_source_ids:
+            quarantined.append(_quarantine("order_state_transitions", source_id, "duplicate_source_row_id"))
+            continue
         client_order_id = _text(row["client_order_id"])
         event_type = _ORDER_EVENT_TYPES.get(_text(row["to_status"]).upper())
+        from_event_type = _ORDER_EVENT_TYPES.get(_text(row["from_status"]).upper())
         occurred_at = _parse_utc(row["occurred_at"])
         if not client_order_id:
             quarantined.append(_quarantine("order_state_transitions", source_id, "missing_client_order_id"))
@@ -252,22 +305,37 @@ def _order_event_candidates(
         if client_order_id not in known_client_order_ids:
             quarantined.append(_quarantine("order_state_transitions", source_id, "unresolved_legacy_order"))
             continue
+        if not _text(row["from_status"]):
+            quarantined.append(_quarantine("order_state_transitions", source_id, "missing_from_status"))
+            continue
+        if from_event_type is None:
+            quarantined.append(_quarantine("order_state_transitions", source_id, "unsupported_legacy_from_status"))
+            continue
         if event_type is None:
             quarantined.append(_quarantine("order_state_transitions", source_id, "unsupported_legacy_order_status"))
             continue
         if occurred_at is None:
             quarantined.append(_quarantine("order_state_transitions", source_id, "invalid_or_naive_occurred_at"))
             continue
-        warnings: list[str] = []
-        if not _text(row["from_status"]):
-            warnings.append("missing_from_status")
+        previous_occurred_at = last_occurred_at_by_client_order.get(client_order_id)
+        if previous_occurred_at is not None and occurred_at < previous_occurred_at:
+            quarantined.append(_quarantine("order_state_transitions", source_id, "non_monotonic_legacy_transition_time"))
+            continue
+        last_occurred_at_by_client_order[client_order_id] = occurred_at
+        if event_type not in _ALLOWED_ORDER_EVENT_TRANSITIONS.get(from_event_type, frozenset()):
+            quarantined.append(_quarantine("order_state_transitions", source_id, "incoherent_legacy_transition"))
+            continue
+        warnings = ["requires_human_transition_reconciliation"]
+        if exchange_by_client.get(client_order_id) is None:
+            warnings.append("missing_or_ambiguous_exchange_order_id")
         if warnings:
             reconciliation_required += 1
         event = OrderEvent(
             client_order_id=client_order_id,
             event_type=event_type,
             occurred_at=occurred_at,
-            reason=_text(row["reason"]) or "legacy_runtime_transition",
+            reason=_text(row["reason"]) or None,
+            exchange_order_id=exchange_by_client.get(client_order_id),
         )
         candidates.append(
             _candidate(
@@ -282,7 +350,10 @@ def _order_event_candidates(
 
 
 def _fill_event_candidates(
-    connection: sqlite3.Connection, orders_by_exchange: Mapping[str, tuple[str, ...]]
+    connection: sqlite3.Connection,
+    orders_by_exchange: Mapping[str, tuple[str, ...]],
+    duplicate_source_ids: frozenset[str],
+    duplicate_trade_ids: frozenset[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     candidates: list[dict[str, Any]] = []
     quarantined: list[dict[str, str]] = []
@@ -293,7 +364,13 @@ def _fill_event_candidates(
         ORDER BY id
     """
     for row in connection.execute(query):
-        source_id = str(row["id"])
+        source_id = _text(row["id"])
+        if not source_id:
+            quarantined.append(_quarantine("trade_ledger", "<missing>", "missing_source_row_id"))
+            continue
+        if source_id in duplicate_source_ids:
+            quarantined.append(_quarantine("trade_ledger", source_id, "duplicate_source_row_id"))
+            continue
         missing_provenance = [
             field_name
             for field_name in ("decision_id", "signal_id", "strategy_id", "execution_mode")
@@ -310,6 +387,9 @@ def _fill_event_candidates(
         if not trade_id:
             quarantined.append(_quarantine("trade_ledger", source_id, "missing_trade_id"))
             continue
+        if trade_id in duplicate_trade_ids:
+            quarantined.append(_quarantine("trade_ledger", source_id, "duplicate_trade_id"))
+            continue
         exchange_order_id = _text(row["exchange_order_id"])
         matched_order_ids = orders_by_exchange.get(exchange_order_id, ())
         if len(matched_order_ids) != 1:
@@ -320,14 +400,20 @@ def _fill_event_candidates(
         if occurred_at is None:
             quarantined.append(_quarantine("trade_ledger", source_id, "invalid_or_naive_occurred_at"))
             continue
+        if row["fees"] is None:
+            quarantined.append(_quarantine("trade_ledger", source_id, "missing_fees"))
+            continue
         try:
+            quantity = _finite_positive(row["volume"])
+            average_price = _finite_positive(row["executed_price"])
+            fees = _finite_non_negative(row["fees"])
             fill = FillEvent(
                 client_order_id=matched_order_ids[0],
                 fill_id=trade_id,
                 occurred_at=occurred_at,
-                quantity=float(row["volume"]),
-                average_price=float(row["executed_price"]),
-                fees=float(row["fees"] or 0.0),
+                quantity=quantity,
+                average_price=average_price,
+                fees=fees,
             )
         except (TypeError, ValueError):
             quarantined.append(_quarantine("trade_ledger", source_id, "invalid_fill_values"))
@@ -359,6 +445,7 @@ def _candidate(
         "contract": contract_to_dict(contract),
         "contract_fingerprint": contract_fingerprint(contract),
         "warnings": tuple(sorted(warnings)),
+        "exchange_order_id_preserved": bool(contract_to_dict(contract).get("exchange_order_id")),
     }
 
 
@@ -381,6 +468,17 @@ def _row_count(connection: sqlite3.Connection, table: str) -> int:
     return int(connection.execute(f'SELECT COUNT(*) FROM "{escaped}"').fetchone()[0])
 
 
+def _duplicate_non_blank_values(connection: sqlite3.Connection, table: str, column: str) -> frozenset[str]:
+    escaped_table = table.replace('"', '""')
+    escaped_column = column.replace('"', '""')
+    rows = connection.execute(
+        f'''SELECT "{escaped_column}" FROM "{escaped_table}"
+            WHERE "{escaped_column}" IS NOT NULL AND TRIM("{escaped_column}") != ''
+            GROUP BY "{escaped_column}" HAVING COUNT(*) > 1'''
+    ).fetchall()
+    return frozenset(_text(row[0]) for row in rows)
+
+
 def _parse_utc(value: object) -> datetime | None:
     text = _text(value)
     if not text:
@@ -398,6 +496,20 @@ def _text(value: object) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _finite_positive(value: object) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise ValueError("value must be finite and positive")
+    return parsed
+
+
+def _finite_non_negative(value: object) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError("value must be finite and non-negative")
+    return parsed
+
+
 def _reason_counts(rows: list[dict[str, str]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -413,9 +525,16 @@ def _fingerprint(rows: list[dict[str, Any]]) -> str | None:
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_sqlite_snapshot(path: Path) -> str:
+    """Fingerprint main SQLite plus WAL data, never the mutable shared-memory file."""
+
     digest = sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
+    for candidate in (path, Path(f"{path}-wal")):
+        digest.update(candidate.name.encode("utf-8"))
+        if not candidate.is_file():
+            digest.update(b"absent")
+            continue
+        with candidate.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
     return digest.hexdigest()

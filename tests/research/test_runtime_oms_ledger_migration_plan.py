@@ -42,9 +42,10 @@ def test_migration_plan_is_read_only_deterministic_and_quarantines_unknown_prove
     _create_legacy_runtime_tables(state_db)
     with sqlite3.connect(state_db) as connection:
         connection.execute("INSERT INTO orders VALUES ('client-1', 'exchange-1')")
-        connection.execute("INSERT INTO order_state_transitions VALUES (1, 'client-1', NULL, 'SENT', 'legacy', '2026-07-15T12:00:00+00:00')")
-        connection.execute("INSERT INTO order_state_transitions VALUES (2, NULL, 'SENT', 'ACK', 'invalid', '2026-07-15T12:01:00+00:00')")
-        connection.execute("INSERT INTO order_state_transitions VALUES (3, 'unknown-client', 'SENT', 'ACK', 'orphan', '2026-07-15T12:01:30+00:00')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (1, 'client-1', 'NEW', 'SENT', 'legacy', '2026-07-15T12:00:00+00:00')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (2, 'client-1', NULL, 'ACK', 'missing', '2026-07-15T12:00:30+00:00')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (3, NULL, 'SENT', 'ACK', 'invalid', '2026-07-15T12:01:00+00:00')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (4, 'unknown-client', 'SENT', 'ACK', 'orphan', '2026-07-15T12:01:30+00:00')")
         connection.execute(
             "INSERT INTO trade_ledger VALUES (1, 'fill-1', 'exchange-1', 'decision-1', 'signal-1', 'trend_momentum', 'shadow_paper', 2.0, 100.0, 0.2, '2026-07-15T12:02:00+00:00')"
         )
@@ -61,10 +62,12 @@ def test_migration_plan_is_read_only_deterministic_and_quarantines_unknown_prove
     assert first.canonical_intent_candidate_count == 0
     assert first.unmigratable_order_intent_count == 1
     assert first.reconstructable_order_event_count == 1
+    assert first.reconstructable_order_event_with_exchange_order_id_count == 1
     assert first.order_event_reconciliation_required_count == 1
     assert first.reconstructable_fill_event_count == 1
     assert first.quarantine_reason_counts == {
         "missing_client_order_id": 1,
+        "missing_from_status": 1,
         "missing_strategy_id": 1,
         "unresolved_legacy_order": 1,
     }
@@ -72,6 +75,51 @@ def test_migration_plan_is_read_only_deterministic_and_quarantines_unknown_prove
     assert first.quarantine_fingerprint == second.quarantine_fingerprint
     assert first.paper_capital_allowed is False and first.live_allowed is False
     assert state_db.read_bytes() == before
+
+
+def test_migration_plan_quarantines_unknown_costs_non_finite_values_duplicates_and_bad_transitions(tmp_path):
+    state_db = tmp_path / "state.sqlite3"
+    _create_legacy_runtime_tables(state_db)
+    with sqlite3.connect(state_db) as connection:
+        connection.execute("INSERT INTO orders VALUES ('client-1', 'exchange-1')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (1, 'client-1', 'FILLED', 'SENT', NULL, '2026-07-15T12:00:00+00:00')")
+        connection.execute(
+            "INSERT INTO trade_ledger VALUES (1, 'duplicate-fill', 'exchange-1', 'd-1', 's-1', 'trend', 'shadow_paper', 1.0, 100.0, 0.1, '2026-07-15T12:01:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO trade_ledger VALUES (2, 'duplicate-fill', 'exchange-1', 'd-2', 's-2', 'trend', 'shadow_paper', 1.0, 100.0, 0.1, '2026-07-15T12:02:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO trade_ledger VALUES (3, 'missing-fees', 'exchange-1', 'd-3', 's-3', 'trend', 'shadow_paper', 1.0, 100.0, NULL, '2026-07-15T12:03:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO trade_ledger VALUES (4, 'nan-volume', 'exchange-1', 'd-4', 's-4', 'trend', 'shadow_paper', 'NaN', 100.0, 0.1, '2026-07-15T12:04:00+00:00')"
+        )
+
+    plan = plan_runtime_oms_ledger_migration(state_db)
+
+    assert plan.reconstructable_order_event_count == 0
+    assert plan.reconstructable_fill_event_count == 0
+    assert plan.quarantine_reason_counts == {
+        "duplicate_trade_id": 2,
+        "incoherent_legacy_transition": 1,
+        "invalid_fill_values": 1,
+        "missing_fees": 1,
+    }
+
+
+def test_migration_plan_quarantines_non_monotonic_transition_timestamps(tmp_path):
+    state_db = tmp_path / "state.sqlite3"
+    _create_legacy_runtime_tables(state_db)
+    with sqlite3.connect(state_db) as connection:
+        connection.execute("INSERT INTO orders VALUES ('client-1', 'exchange-1')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (1, 'client-1', 'NEW', 'SENT', NULL, '2026-07-15T12:01:00+00:00')")
+        connection.execute("INSERT INTO order_state_transitions VALUES (2, 'client-1', 'SENT', 'ACK', NULL, '2026-07-15T12:00:00+00:00')")
+
+    plan = plan_runtime_oms_ledger_migration(state_db)
+
+    assert plan.reconstructable_order_event_count == 1
+    assert plan.quarantine_reason_counts == {"non_monotonic_legacy_transition_time": 1}
 
 
 def test_migration_plan_does_not_create_missing_database(tmp_path):
