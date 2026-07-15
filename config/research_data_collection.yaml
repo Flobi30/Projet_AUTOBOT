@@ -42,8 +42,12 @@ microstructure:
   sample_interval_seconds: 60
   samples_per_run: 60
 
+# Full walk-forward and portfolio orchestration re-read the entire archive.
+# They are deliberately separate, manually reviewed research batches: running
+# them in the daily public-data collector caused the isolated job to exhaust
+# its memory budget before canonical data could be completed.
 high_conviction_walk_forward:
-  enabled: true
+  enabled: false
   output_dir: reports/research/high_conviction_walk_forward
   # 15m bars: 3 days warm-up, then independent 2-day OOS folds.
   train_window_bars: 288
@@ -63,7 +67,7 @@ high_conviction_walk_forward:
 # This is a read-only research meta-allocator. It uses the collected OHLCV
 # files, writes reports only, and cannot create child instances or orders.
 strategy_orchestrator:
-  enabled: true
+  enabled: false
   output_dir: reports/research/strategy_orchestrator
   instance_id: research-parent-001
   initial_treasury_eur: 500
@@ -81,7 +85,7 @@ strategy_orchestrator:
 # generated above, writes research-only edge triage, and cannot promote
 # strategies or create orders.
 strategy_edge_review:
-  enabled: true
+  enabled: false
   output_dir: reports/research/strategy_edge
   min_candidate_trades: 50
   min_candidate_pf: 1.30

@@ -8,7 +8,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-def test_daily_research_service_runs_a_read_only_capability_scan_after_collection():
+def test_daily_research_service_runs_read_only_capability_and_scheduler_reports_after_collection():
     script = (
         Path(__file__).resolve().parents[1]
         / "deploy"
@@ -25,3 +25,8 @@ def test_daily_research_service_runs_a_read_only_capability_scan_after_collectio
     assert '"${REPO_DIR}/data:/app/data:ro"' in capability_section
     assert "--state-db data/autobot_state.db" in script
     assert "--data-roots data/research" in script
+    scheduler_section = script.split("alpha-hypothesis-scheduler", maxsplit=1)[0]
+    assert "autobot-research-scheduler-${RUN_ID}" in scheduler_section
+    assert "--no-memory-backfill" in script
+    assert "--data-paths data/research/canonical/ohlcv" in script
+    assert '"${REPO_DIR}/data/research:/app/data/research:ro"' in script

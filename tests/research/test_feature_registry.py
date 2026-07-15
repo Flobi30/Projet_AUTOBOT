@@ -59,6 +59,19 @@ def test_feature_registry_uses_only_closed_bars_and_waits_for_lookback():
     assert values[1].available_time == datetime(2026, 1, 1, 0, 10, tzinfo=timezone.utc)
 
 
+def test_feature_registry_iterator_matches_materialized_series():
+    registry = default_feature_registry()
+    kwargs = {
+        "rows": _rows(),
+        "market": _market(),
+        "timeframe": "5m",
+        "source_snapshot_id": "snapshot-iterator",
+        "feature_ids": ("return_1_bps", "momentum_3_bps"),
+    }
+
+    assert tuple(registry.iter_series(**kwargs)) == registry.compute_series(**kwargs)
+
+
 def test_feature_registry_rejects_unverified_basis_and_keeps_missing_separate():
     registry = FeatureRegistry((FeatureDefinition("basis", "1", "basis", "basis_bps"),))
     row = {

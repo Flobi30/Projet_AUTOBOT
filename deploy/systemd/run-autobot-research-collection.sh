@@ -103,3 +103,33 @@ docker run --rm \
     --data-roots data/research \
     --memory-path data/research/alpha_research_memory.sqlite3 \
     --output-dir reports/research/daily_data_collection
+
+# Rank the next bounded research hypothesis after data collection.  This is a
+# read-only planning step: it cannot run a strategy, mutate the research
+# memory, or reach any execution surface.  The scheduler's recommendations
+# remain reports for human review and the existing research gates.
+docker run --rm \
+  --name "autobot-research-scheduler-${RUN_ID}" \
+  --label "autobot.component=research-hypothesis-scheduler" \
+  --network none \
+  --no-healthcheck \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --security-opt no-new-privileges \
+  --cap-drop ALL \
+  --memory "${MEMORY_LIMIT}" \
+  --cpus "${CPU_LIMIT}" \
+  --env PYTHONPATH=/app/src \
+  --env PYTHONUNBUFFERED=1 \
+  --env PYTHONDONTWRITEBYTECODE=1 \
+  --env HOME=/tmp \
+  --env TZ=Europe/Paris \
+  --volume "${REPO_DIR}/data/research:/app/data/research:ro" \
+  --volume "${REPORT_DIR}:/app/reports/research/daily_data_collection" \
+  "${IMAGE}" \
+  python -m autobot.v2.cli alpha-hypothesis-scheduler \
+    --run-id "${RUN_ID}_scheduler" \
+    --data-paths data/research/canonical/ohlcv \
+    --memory-path data/research/alpha_research_memory.sqlite3 \
+    --output-dir reports/research/daily_data_collection \
+    --no-memory-backfill

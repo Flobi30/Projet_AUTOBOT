@@ -19,7 +19,7 @@ from autobot.v2.research.canonical_ohlcv_store import CanonicalOHLCVConfig, buil
 pytestmark = pytest.mark.unit
 
 
-def _canonical_manifest(tmp_path: Path, *, explicit_mapping: bool) -> Path:
+def _canonical_manifest(tmp_path: Path, *, explicit_mapping: bool, row_count: int = 25) -> Path:
     raw = tmp_path / "raw"
     raw.mkdir()
     path = raw / "BTCZEUR_5m.csv"
@@ -27,7 +27,7 @@ def _canonical_manifest(tmp_path: Path, *, explicit_mapping: bool) -> Path:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=("timestamp", "symbol", "timeframe", "open", "high", "low", "close", "volume"))
         writer.writeheader()
-        for index in range(25):
+        for index in range(row_count):
             price = 100.0 + index
             writer.writerow(
                 {
@@ -103,6 +103,26 @@ def test_materialized_feature_snapshot_excludes_unverified_market_mappings(tmp_p
     assert snapshot.feature_count == 0
     assert snapshot.rejected_unverified_mapping_count == 25
     assert "UNVERIFIED_MARKET_MAPPING_ROWS_EXCLUDED" in snapshot.blockers
+
+
+def test_feature_snapshot_streams_full_history_with_bounded_parity_replay(tmp_path):
+    manifest = _canonical_manifest(tmp_path, explicit_mapping=True, row_count=2_500)
+
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="features_bounded_parity",
+            canonical_manifest_path=manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+
+    assert snapshot.canonical_row_count == 2_500
+    assert snapshot.feature_count == 2_500 * 4
+    assert snapshot.parity_sample_row_count == 2_048
+    assert snapshot.parity_validation_scope == "bounded_deterministic_sample"
+    assert snapshot.parity_ok is True
+    assert not list((tmp_path / "features").glob(".autobot_features_*"))
 
 
 def test_legacy_feature_manifest_upgrade_requires_matching_registry_fingerprint(tmp_path):

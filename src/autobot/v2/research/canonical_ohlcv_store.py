@@ -10,6 +10,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import sqlite3
+import tempfile
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -164,86 +167,70 @@ class CanonicalOHLCVSnapshot:
 
 
 def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHLCVSnapshot:
-    """Build and write one deterministic canonical OHLCV snapshot."""
+    """Build and write one deterministic canonical OHLCV snapshot.
+
+    The raw research archive grows every day.  Keeping a Python dictionary for
+    every bar made the daily public-data job exceed its isolated memory budget.
+    Deduplication is therefore spooled to a disposable SQLite file below the
+    research output boundary.  The canonical CSVs are emitted in sorted order
+    directly from that store, so the public-data job remains deterministic
+    without retaining the full history in RAM.
+    """
 
     raw_files = _iter_raw_ohlcv_files(config.raw_paths)
     if config.max_files is not None:
         raw_files = raw_files[: max(0, config.max_files)]
 
+    config.output_dir.mkdir(parents=True, exist_ok=True)
     raw_rows = 0
     quarantine: list[dict[str, Any]] = []
-    by_key: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     duplicate_count = 0
+    with tempfile.TemporaryDirectory(prefix=".autobot_canonical_", dir=config.output_dir) as temporary_dir:
+        store_path = Path(temporary_dir) / "canonical_rows.sqlite3"
+        with closing(sqlite3.connect(store_path)) as connection:
+            _configure_canonical_spool(connection)
+            for path in raw_files:
+                for row_number, row in _read_csv_rows(path):
+                    if config.max_rows is not None and raw_rows >= config.max_rows:
+                        break
+                    raw_rows += 1
+                    try:
+                        canonical = _canonical_row(
+                            row,
+                            path=path,
+                            row_number=row_number,
+                            exchange=config.exchange,
+                            market_type=config.market_type,
+                            market_mappings=config.market_mappings or {},
+                        )
+                    except ValueError as exc:
+                        quarantine.append(
+                            {
+                                "path": str(path),
+                                "row_number": row_number,
+                                "reason": str(exc),
+                            }
+                        )
+                        continue
+                    if _spool_canonical_row(connection, canonical):
+                        duplicate_count += 1
+                    if raw_rows % 10_000 == 0:
+                        connection.commit()
+                if config.max_rows is not None and raw_rows >= config.max_rows:
+                    break
+            connection.commit()
 
-    for path in raw_files:
-        for row_number, row in _read_csv_rows(path):
-            if config.max_rows is not None and raw_rows >= config.max_rows:
-                break
-            raw_rows += 1
-            try:
-                canonical = _canonical_row(
-                    row,
-                    path=path,
-                    row_number=row_number,
-                    exchange=config.exchange,
-                    market_type=config.market_type,
-                    market_mappings=config.market_mappings or {},
-                )
-            except ValueError as exc:
-                quarantine.append(
-                    {
-                        "path": str(path),
-                        "row_number": row_number,
-                        "reason": str(exc),
-                    }
-                )
-                continue
-            key = (
-                canonical["exchange"],
-                canonical["market_type"],
-                canonical["symbol"],
-                canonical["timeframe"],
-                canonical["open_timestamp"],
-            )
-            if key in by_key:
-                duplicate_count += 1
-                winner = _deterministic_winner(by_key[key], canonical)
-                by_key[key] = winner
-            else:
-                by_key[key] = canonical
-        if config.max_rows is not None and raw_rows >= config.max_rows:
-            break
-
-    rows = sorted(by_key.values(), key=lambda item: _sort_key(item))
-    fingerprint = fingerprint_canonical_rows(rows)
-    snapshot_id = f"ohlcv_v{CANONICAL_OHLCV_SCHEMA_VERSION}_{fingerprint[:16]}"
-    snapshot_dir = config.output_dir / snapshot_id
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-
-    files: list[CanonicalOHLCVFile] = []
-    storage_size = 0
-    gap_count = 0
-    for (symbol, timeframe), group in _group_by_symbol_timeframe(rows).items():
-        output_path = snapshot_dir / f"{config.exchange}_{config.market_type}_{symbol}_{timeframe}.csv"
-        _write_canonical_csv(group, output_path)
-        storage_size += output_path.stat().st_size
-        group_gaps = _gap_count(group, timeframe)
-        gap_count += group_gaps
-        files.append(
-            CanonicalOHLCVFile(
+            summary = _summarize_canonical_spool(connection)
+            fingerprint = summary["fingerprint"]
+            snapshot_id = f"ohlcv_v{CANONICAL_OHLCV_SCHEMA_VERSION}_{fingerprint[:16]}"
+            snapshot_dir = config.output_dir / snapshot_id
+            snapshot_dir.mkdir(parents=True, exist_ok=True)
+            files, storage_size, gap_count = _write_canonical_spool_files(
+                connection,
+                snapshot_dir=snapshot_dir,
                 exchange=config.exchange,
                 market_type=config.market_type,
-                symbol=symbol,
-                timeframe=timeframe,
-                row_count=len(group),
-                duplicate_count=0,
-                gap_count=group_gaps,
-                start_at=group[0]["open_timestamp"] if group else None,
-                end_at=group[-1]["open_timestamp"] if group else None,
-                csv_path=str(output_path),
-                source_paths=tuple(sorted({item["source_path"] for item in group})),
             )
-        )
 
     quarantine_manifest_path = None
     if quarantine:
@@ -253,10 +240,6 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
         quarantine_manifest_path = str(quarantine_path)
 
     latest_previous = load_latest_canonical_snapshot_manifest(config.manifest_dir)
-    start_at = min((item["open_timestamp"] for item in rows), default=None)
-    end_at = max((item["open_timestamp"] for item in rows), default=None)
-    available_start_at = min((item["available_time"] for item in rows), default=None)
-    available_end_at = max((item["available_time"] for item in rows), default=None)
     snapshot = CanonicalOHLCVSnapshot(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -266,18 +249,18 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
         market_type=config.market_type,
         raw_file_count=len(raw_files),
         raw_row_count=raw_rows,
-        canonical_row_count=len(rows),
+        canonical_row_count=summary["canonical_row_count"],
         duplicate_count=duplicate_count,
         gap_count=gap_count,
         quarantine_count=len(quarantine),
         storage_size_bytes=storage_size,
-        start_at=start_at,
-        end_at=end_at,
-        symbols=tuple(sorted({item["symbol"] for item in rows})),
-        timeframes=tuple(sorted({item["timeframe"] for item in rows})),
+        start_at=summary["start_at"],
+        end_at=summary["end_at"],
+        symbols=summary["symbols"],
+        timeframes=summary["timeframes"],
         files=tuple(sorted(files, key=lambda item: (item.symbol, item.timeframe))),
-        available_start_at=available_start_at,
-        available_end_at=available_end_at,
+        available_start_at=summary["available_start_at"],
+        available_end_at=summary["available_end_at"],
         quarantine_manifest_path=quarantine_manifest_path,
         new_data_significance=classify_snapshot_significance(latest_previous, None),
     )
@@ -286,6 +269,212 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
         snapshot = _replace_significance(snapshot, classify_snapshot_significance(latest_previous, snapshot.to_dict()))
     _write_snapshot_manifest(snapshot, config.manifest_dir, snapshot_dir)
     return snapshot
+
+
+def _configure_canonical_spool(connection: sqlite3.Connection) -> None:
+    """Configure a short-lived, bounded-memory deduplication store."""
+
+    connection.execute("PRAGMA journal_mode=OFF")
+    connection.execute("PRAGMA synchronous=OFF")
+    connection.execute("PRAGMA temp_store=FILE")
+    connection.execute("PRAGMA cache_size=-8192")
+    connection.execute(
+        """
+        CREATE TABLE canonical_rows (
+            exchange TEXT NOT NULL,
+            market_type TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            timeframe TEXT NOT NULL,
+            open_timestamp TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_row_number INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            PRIMARY KEY (exchange, market_type, symbol, timeframe, open_timestamp)
+        )
+        """
+    )
+
+
+def _spool_canonical_row(connection: sqlite3.Connection, row: Mapping[str, Any]) -> bool:
+    """Insert a row or deterministically retain the existing duplicate winner.
+
+    Returns ``True`` when an economic duplicate was observed.  The winner rule
+    is intentionally identical to :func:`_deterministic_winner`.
+    """
+
+    key = (
+        str(row["exchange"]),
+        str(row["market_type"]),
+        str(row["symbol"]),
+        str(row["timeframe"]),
+        str(row["open_timestamp"]),
+    )
+    source_path = str(row.get("source_path") or "")
+    source_row_number = int(row.get("source_row_number") or 0)
+    existing = connection.execute(
+        """
+        SELECT source_path, source_row_number
+        FROM canonical_rows
+        WHERE exchange = ? AND market_type = ? AND symbol = ? AND timeframe = ? AND open_timestamp = ?
+        """,
+        key,
+    ).fetchone()
+    if existing is None:
+        connection.execute(
+            """
+            INSERT INTO canonical_rows (
+                exchange, market_type, symbol, timeframe, open_timestamp,
+                source_path, source_row_number, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*key, source_path, source_row_number, json.dumps(dict(row), sort_keys=True, separators=(",", ":"))),
+        )
+        return False
+    if (source_path, source_row_number) < (str(existing[0]), int(existing[1])):
+        connection.execute(
+            """
+            UPDATE canonical_rows
+            SET source_path = ?, source_row_number = ?, payload = ?
+            WHERE exchange = ? AND market_type = ? AND symbol = ? AND timeframe = ? AND open_timestamp = ?
+            """,
+            (
+                source_path,
+                source_row_number,
+                json.dumps(dict(row), sort_keys=True, separators=(",", ":")),
+                *key,
+            ),
+        )
+    return True
+
+
+def _summarize_canonical_spool(connection: sqlite3.Connection) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    row_count = 0
+    start_at: str | None = None
+    end_at: str | None = None
+    available_start_at: str | None = None
+    available_end_at: str | None = None
+    symbols: set[str] = set()
+    timeframes: set[str] = set()
+    for (payload,) in connection.execute(
+        """
+        SELECT payload FROM canonical_rows
+        ORDER BY exchange, market_type, symbol, timeframe, open_timestamp
+        """
+    ):
+        row = json.loads(str(payload))
+        _update_canonical_fingerprint(digest, row)
+        row_count += 1
+        open_timestamp = str(row["open_timestamp"])
+        available_time = str(row["available_time"])
+        start_at = open_timestamp if start_at is None or open_timestamp < start_at else start_at
+        end_at = open_timestamp if end_at is None or open_timestamp > end_at else end_at
+        available_start_at = available_time if available_start_at is None or available_time < available_start_at else available_start_at
+        available_end_at = available_time if available_end_at is None or available_time > available_end_at else available_end_at
+        symbols.add(str(row["symbol"]))
+        timeframes.add(str(row["timeframe"]))
+    return {
+        "fingerprint": digest.hexdigest(),
+        "canonical_row_count": row_count,
+        "start_at": start_at,
+        "end_at": end_at,
+        "available_start_at": available_start_at,
+        "available_end_at": available_end_at,
+        "symbols": tuple(sorted(symbols)),
+        "timeframes": tuple(sorted(timeframes)),
+    }
+
+
+def _update_canonical_fingerprint(digest: Any, row: Mapping[str, Any]) -> None:
+    stable = {
+        "schema_version": str(row.get("schema_version") or CANONICAL_OHLCV_SCHEMA_VERSION),
+        "exchange": str(row["exchange"]),
+        "market_type": str(row["market_type"]),
+        "symbol": str(row["symbol"]),
+        "base_asset": str(row.get("base_asset") or ""),
+        "quote_asset": str(row.get("quote_asset") or ""),
+        "market_mapping_status": str(row.get("market_mapping_status") or "MAPPING_UNVERIFIED"),
+        "timeframe": str(row["timeframe"]),
+        "event_time": str(row.get("event_time") or row["open_timestamp"]),
+        "available_time": str(row.get("available_time") or row["open_timestamp"]),
+        "bar_close_time": str(row.get("bar_close_time") or row["open_timestamp"]),
+        "open_timestamp": str(row["open_timestamp"]),
+        "open": _stable_number(row["open"]),
+        "high": _stable_number(row["high"]),
+        "low": _stable_number(row["low"]),
+        "close": _stable_number(row["close"]),
+        "volume": _stable_number(row["volume"]),
+    }
+    digest.update(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    digest.update(b"\n")
+
+
+def _write_canonical_spool_files(
+    connection: sqlite3.Connection,
+    *,
+    snapshot_dir: Path,
+    exchange: str,
+    market_type: str,
+) -> tuple[list[CanonicalOHLCVFile], int, int]:
+    files: list[CanonicalOHLCVFile] = []
+    storage_size = 0
+    total_gap_count = 0
+    groups = connection.execute(
+        """
+        SELECT DISTINCT symbol, timeframe
+        FROM canonical_rows
+        ORDER BY symbol, timeframe
+        """
+    ).fetchall()
+    for symbol, timeframe in groups:
+        output_path = snapshot_dir / f"{exchange}_{market_type}_{symbol}_{timeframe}.csv"
+        row_count = 0
+        group_gap_count = 0
+        start_at: str | None = None
+        end_at: str | None = None
+        source_paths: set[str] = set()
+        previous: datetime | None = None
+        with output_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=CANONICAL_FIELDNAMES)
+            writer.writeheader()
+            for (payload,) in connection.execute(
+                """
+                SELECT payload FROM canonical_rows
+                WHERE symbol = ? AND timeframe = ?
+                ORDER BY exchange, market_type, open_timestamp
+                """,
+                (symbol, timeframe),
+            ):
+                row = json.loads(str(payload))
+                writer.writerow({field: row.get(field, "") for field in CANONICAL_FIELDNAMES})
+                row_count += 1
+                timestamp = str(row["open_timestamp"])
+                start_at = timestamp if start_at is None else start_at
+                end_at = timestamp
+                source_paths.add(str(row["source_path"]))
+                current = _parse_iso(timestamp)
+                seconds = TIMEFRAME_SECONDS.get(str(timeframe))
+                if previous and current and seconds and (current - previous).total_seconds() > seconds * 1.5:
+                    group_gap_count += 1
+                previous = current
+        storage_size += output_path.stat().st_size
+        total_gap_count += group_gap_count
+        files.append(
+            CanonicalOHLCVFile(
+                exchange=exchange,
+                market_type=market_type,
+                symbol=str(symbol),
+                timeframe=str(timeframe),
+                row_count=row_count,
+                duplicate_count=0,
+                gap_count=group_gap_count,
+                start_at=start_at,
+                end_at=end_at,
+                csv_path=str(output_path),
+                source_paths=tuple(sorted(source_paths)),
+            )
+        )
+    return files, storage_size, total_gap_count
 
 
 def adapt_legacy_canonical_row(
@@ -323,27 +512,7 @@ def adapt_legacy_canonical_row(
 def fingerprint_canonical_rows(rows: Sequence[Mapping[str, Any]]) -> str:
     digest = hashlib.sha256()
     for row in sorted(rows, key=lambda item: _sort_key(item)):
-        stable = {
-            "schema_version": str(row.get("schema_version") or CANONICAL_OHLCV_SCHEMA_VERSION),
-            "exchange": str(row["exchange"]),
-            "market_type": str(row["market_type"]),
-            "symbol": str(row["symbol"]),
-            "base_asset": str(row.get("base_asset") or ""),
-            "quote_asset": str(row.get("quote_asset") or ""),
-            "market_mapping_status": str(row.get("market_mapping_status") or "MAPPING_UNVERIFIED"),
-            "timeframe": str(row["timeframe"]),
-            "event_time": str(row.get("event_time") or row["open_timestamp"]),
-            "available_time": str(row.get("available_time") or row["open_timestamp"]),
-            "bar_close_time": str(row.get("bar_close_time") or row["open_timestamp"]),
-            "open_timestamp": str(row["open_timestamp"]),
-            "open": _stable_number(row["open"]),
-            "high": _stable_number(row["high"]),
-            "low": _stable_number(row["low"]),
-            "close": _stable_number(row["close"]),
-            "volume": _stable_number(row["volume"]),
-        }
-        digest.update(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-        digest.update(b"\n")
+        _update_canonical_fingerprint(digest, row)
     return digest.hexdigest()
 
 

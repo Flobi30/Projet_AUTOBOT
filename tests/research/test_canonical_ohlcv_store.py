@@ -212,6 +212,32 @@ def test_snapshot_significance_changes_only_for_meaningful_new_period():
     assert classify_snapshot_significance(previous, significant) == "significant_new_period"
 
 
+def test_canonical_snapshot_spools_duplicate_history_without_leaving_runtime_artifacts(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = [start + timedelta(minutes=5 * index) for index in range(2_500)]
+    _write_rows(raw / "BTCZEUR_5m_a.csv", "BTCZEUR", "5m", timestamps)
+    _write_rows(raw / "BTCZEUR_5m_b.csv", "BTCZEUR", "5m", timestamps)
+    output_dir = tmp_path / "canonical" / "ohlcv"
+
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_spooled_history",
+            raw_paths=(raw,),
+            output_dir=output_dir,
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+            market_mappings={"BTCZEUR": {"base_asset": "BTC", "quote_asset": "EUR"}},
+        )
+    )
+
+    assert snapshot.raw_row_count == 5_000
+    assert snapshot.canonical_row_count == 2_500
+    assert snapshot.duplicate_count == 2_500
+    assert not list(output_dir.glob(".autobot_canonical_*"))
+
+
 def test_canonicalize_ohlcv_cli_is_registered():
     parser = _build_parser()
     args = parser.parse_args(

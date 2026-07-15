@@ -110,17 +110,41 @@ class FeatureRegistry:
         feature_ids: Sequence[str] | None = None,
         as_of_time: datetime | None = None,
     ) -> tuple[FeatureValue, ...]:
+        """Return the materialized feature series for callers that need it."""
+
+        return tuple(
+            self.iter_series(
+                rows=rows,
+                market=market,
+                timeframe=timeframe,
+                source_snapshot_id=source_snapshot_id,
+                feature_ids=feature_ids,
+                as_of_time=as_of_time,
+            )
+        )
+
+    def iter_series(
+        self,
+        *,
+        rows: Sequence[Mapping[str, Any]],
+        market: MarketIdentity,
+        timeframe: str,
+        source_snapshot_id: str,
+        feature_ids: Sequence[str] | None = None,
+        as_of_time: datetime | None = None,
+    ) -> Iterable[FeatureValue]:
         """Compute features using only rows available at each target bar.
 
         Rows are sorted by ``available_time`` and every target history is
         bounded by both its event time and availability time.  This guards
         against future-bar leakage even when delayed data arrives out of order.
+        The iterator keeps batch materialization bounded instead of retaining
+        every feature value in memory.
         """
 
         definitions = tuple(self.get(item) for item in (feature_ids or tuple(self._definitions)))
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
-        values: list[FeatureValue] = []
         # Canonical OHLCV is ordered by both event and availability time.  In
         # that ordinary case a target can only observe a bounded prefix, so
         # retain only the largest required feature window.  The fallback keeps
@@ -140,17 +164,14 @@ class FeatureRegistry:
                     if row["event_time"] <= target["event_time"] and row["available_time"] <= target["available_time"]
                 ]
             for definition in definitions:
-                values.append(
-                    _compute_feature(
-                        definition,
-                        observed=observed,
-                        target=target,
-                        market=market,
-                        timeframe=timeframe,
-                        source_snapshot_id=source_snapshot_id,
-                    )
+                yield _compute_feature(
+                    definition,
+                    observed=observed,
+                    target=target,
+                    market=market,
+                    timeframe=timeframe,
+                    source_snapshot_id=source_snapshot_id,
                 )
-        return tuple(values)
 
 
 def default_feature_registry() -> FeatureRegistry:

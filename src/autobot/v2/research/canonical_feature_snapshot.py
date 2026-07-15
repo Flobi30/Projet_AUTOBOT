@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
+import tempfile
 from typing import Any, Mapping, Sequence
 
 from autobot.v2.contracts import MarketIdentity, contract_to_dict
@@ -44,6 +45,7 @@ FEATURE_CSV_FIELDS = (
     "status",
     "metadata_json",
 )
+FEATURE_PARITY_MAX_ROWS = 2_048
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,8 @@ class CanonicalFeatureSnapshot:
     status: str
     blockers: tuple[str, ...]
     files: tuple[CanonicalFeatureFile, ...]
+    parity_sample_row_count: int = 0
+    parity_validation_scope: str = "bounded_deterministic_sample"
     manifest_path: str | None = None
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -119,6 +123,8 @@ class CanonicalFeatureSnapshot:
             "waiting_count": self.waiting_count,
             "missing_count": self.missing_count,
             "parity_ok": self.parity_ok,
+            "parity_sample_row_count": self.parity_sample_row_count,
+            "parity_validation_scope": self.parity_validation_scope,
             "status": self.status,
             "blockers": list(self.blockers),
             "files": [item.to_dict() for item in self.files],
@@ -152,97 +158,139 @@ def build_canonical_feature_snapshot(
     for feature_id in feature_ids:
         active_registry.get(feature_id)
 
-    canonical_rows: list[dict[str, Any]] = []
-    eligible_groups: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
+    # A complete canonical history may contain millions of bars.  Materialize
+    # one canonical market/timeframe at a time and spool its feature CSV while
+    # calculating the snapshot fingerprint.  This keeps the public research
+    # collector inside its cgroup budget without changing the feature contract.
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+    canonical_row_count = 0
+    eligible_row_count = 0
     rejected_unverified_mapping_count = 0
     ingestion_time_unknown_count = 0
-    for file_payload in manifest.get("files") or []:
-        if not isinstance(file_payload, Mapping):
-            continue
-        csv_path = Path(str(file_payload.get("csv_path") or ""))
-        if not csv_path.exists():
-            raise FileNotFoundError(f"canonical file missing: {csv_path}")
-        for row in _read_csv(csv_path):
-            canonical_rows.append(row)
-            if str(row.get("market_mapping_status") or "").upper() != "EXPLICIT":
-                rejected_unverified_mapping_count += 1
+    parity_ok = True
+    parity_sample_row_count = 0
+    feature_count = 0
+    ready_count = 0
+    waiting_count = 0
+    missing_count = 0
+    digest = _feature_fingerprint_digest(
+        source_snapshot_id=source_snapshot_id,
+        source_fingerprint=source_fingerprint,
+        registry_fingerprint=active_registry.fingerprint,
+        feature_ids=feature_ids,
+    )
+    intermediate_files: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str, str, str, str]] = set()
+    file_payloads = sorted(
+        (item for item in manifest.get("files") or () if isinstance(item, Mapping)),
+        key=lambda item: str(item.get("csv_path") or ""),
+    )
+    with tempfile.TemporaryDirectory(prefix=".autobot_features_", dir=config.output_dir) as temporary_dir:
+        temporary_root = Path(temporary_dir)
+        for file_index, file_payload in enumerate(file_payloads):
+            csv_path = Path(str(file_payload.get("csv_path") or ""))
+            if not csv_path.exists():
+                raise FileNotFoundError(f"canonical file missing: {csv_path}")
+            source_rows = _read_csv(csv_path)
+            canonical_row_count += len(source_rows)
+            eligible_rows = [
+                row for row in source_rows if str(row.get("market_mapping_status") or "").upper() == "EXPLICIT"
+            ]
+            rejected_unverified_mapping_count += len(source_rows) - len(eligible_rows)
+            if not eligible_rows:
                 continue
-            if not str(row.get("ingestion_time") or "").strip():
-                ingestion_time_unknown_count += 1
-            market = _market_from_row(row)
+            eligible_row_count += len(eligible_rows)
+            ingestion_time_unknown_count += sum(
+                not str(row.get("ingestion_time") or "").strip() for row in eligible_rows
+            )
+            market = _market_from_row(eligible_rows[0])
+            timeframe = str(eligible_rows[0].get("timeframe") or "")
             key = (
                 market.exchange,
                 market.market_type,
                 market.symbol,
                 market.base_asset,
                 market.quote_asset,
-                str(row.get("timeframe") or ""),
+                timeframe,
             )
-            eligible_groups.setdefault(key, []).append(row)
-
-    group_payloads: list[tuple[tuple[str, str, str, str, str, str], list[dict[str, Any]], list[dict[str, Any]]]] = []
-    parity_ok = True
-    for key in sorted(eligible_groups):
-        exchange, market_type, symbol, base_asset, quote_asset, timeframe = key
-        market = MarketIdentity(
-            exchange=exchange,
-            market_type=market_type,
-            symbol=symbol,
-            base_asset=base_asset,
-            quote_asset=quote_asset,
-        )
-        rows = sorted(eligible_groups[key], key=lambda item: (str(item.get("available_time")), str(item.get("event_time"))))
-        parity = validate_historical_shadow_parity(
-            rows=rows,
-            market=market,
-            timeframe=timeframe,
-            source_snapshot_id=source_snapshot_id,
-            registry=active_registry,
-            feature_ids=feature_ids,
-        )
-        parity_ok = parity_ok and parity.parity_ok
-        values = active_registry.compute_series(
-            rows=rows,
-            market=market,
-            timeframe=timeframe,
-            source_snapshot_id=source_snapshot_id,
-            feature_ids=feature_ids,
-        )
-        payloads = [_feature_row(contract_to_dict(value)) for value in values]
-        group_payloads.append((key, rows, payloads))
-
-    all_rows = [payload for _, _, payloads in group_payloads for payload in payloads]
-    fingerprint = _fingerprint(
-        {
-            "source_snapshot_id": source_snapshot_id,
-            "source_snapshot_fingerprint": source_fingerprint,
-            "feature_registry_fingerprint": active_registry.fingerprint,
-            "feature_ids": feature_ids,
-            "rows": all_rows,
-        }
-    )
-    feature_snapshot_id = f"features_v{CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION}_{fingerprint[:16]}"
-    snapshot_dir = config.output_dir / feature_snapshot_id
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-    files: list[CanonicalFeatureFile] = []
-    for key, _, payloads in group_payloads:
-        _, _, symbol, _, _, timeframe = key
-        path = snapshot_dir / f"{symbol}_{timeframe}_features.csv"
-        _write_feature_csv(path, payloads)
-        files.append(
-            CanonicalFeatureFile(
-                symbol=symbol,
+            if key in seen_keys:
+                raise ValueError(f"canonical manifest contains duplicate market/timeframe file: {market.symbol} {timeframe}")
+            seen_keys.add(key)
+            rows = sorted(eligible_rows, key=lambda item: (str(item.get("available_time")), str(item.get("event_time"))))
+            parity_rows = _bounded_parity_rows(rows)
+            parity_sample_row_count += len(parity_rows)
+            parity = validate_historical_shadow_parity(
+                rows=parity_rows,
+                market=market,
                 timeframe=timeframe,
-                feature_count=len(payloads),
-                ready_count=sum(item["status"] == "READY" for item in payloads),
-                waiting_count=sum(item["status"] == "WAITING_FOR_MORE_DATA" for item in payloads),
-                missing_count=sum(item["status"] == "DATA_MISSING" for item in payloads),
-                csv_path=str(path),
+                source_snapshot_id=source_snapshot_id,
+                registry=active_registry,
+                feature_ids=feature_ids,
             )
-        )
+            parity_ok = parity_ok and parity.parity_ok
+            temporary_csv = temporary_root / f"{file_index:04d}_{market.symbol}_{timeframe}_features.csv"
+            group_feature_count = 0
+            group_ready_count = 0
+            group_waiting_count = 0
+            group_missing_count = 0
+            with temporary_csv.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=FEATURE_CSV_FIELDS)
+                writer.writeheader()
+                for value in active_registry.iter_series(
+                    rows=rows,
+                    market=market,
+                    timeframe=timeframe,
+                    source_snapshot_id=source_snapshot_id,
+                    feature_ids=feature_ids,
+                ):
+                    payload = _feature_row(contract_to_dict(value))
+                    writer.writerow({field: payload.get(field, "") for field in FEATURE_CSV_FIELDS})
+                    _update_feature_fingerprint(digest, payload)
+                    group_feature_count += 1
+                    if payload["status"] == "READY":
+                        group_ready_count += 1
+                    elif payload["status"] == "WAITING_FOR_MORE_DATA":
+                        group_waiting_count += 1
+                    else:
+                        group_missing_count += 1
+            feature_count += group_feature_count
+            ready_count += group_ready_count
+            waiting_count += group_waiting_count
+            missing_count += group_missing_count
+            intermediate_files.append(
+                {
+                    "symbol": market.symbol,
+                    "timeframe": timeframe,
+                    "feature_count": group_feature_count,
+                    "ready_count": group_ready_count,
+                    "waiting_count": group_waiting_count,
+                    "missing_count": group_missing_count,
+                    "temporary_csv": temporary_csv,
+                }
+            )
+
+        fingerprint = digest.hexdigest()
+        feature_snapshot_id = f"features_v{CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION}_{fingerprint[:16]}"
+        snapshot_dir = config.output_dir / feature_snapshot_id
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        files: list[CanonicalFeatureFile] = []
+        for item in intermediate_files:
+            path = snapshot_dir / f"{item['symbol']}_{item['timeframe']}_features.csv"
+            item["temporary_csv"].replace(path)
+            files.append(
+                CanonicalFeatureFile(
+                    symbol=item["symbol"],
+                    timeframe=item["timeframe"],
+                    feature_count=item["feature_count"],
+                    ready_count=item["ready_count"],
+                    waiting_count=item["waiting_count"],
+                    missing_count=item["missing_count"],
+                    csv_path=str(path),
+                )
+            )
 
     blockers: list[str] = []
-    if not all_rows:
+    if not feature_count:
         blockers.append("DATA_MISSING")
     if rejected_unverified_mapping_count:
         blockers.append("UNVERIFIED_MARKET_MAPPING_ROWS_EXCLUDED")
@@ -250,7 +298,7 @@ def build_canonical_feature_snapshot(
         blockers.append("INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN")
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
-    status = "READY" if all_rows and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
+    status = "READY" if feature_count and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
     snapshot = CanonicalFeatureSnapshot(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -262,18 +310,19 @@ def build_canonical_feature_snapshot(
         schema_version=CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION,
         feature_ids=feature_ids,
         feature_versions={feature_id: active_registry.get(feature_id).version for feature_id in feature_ids},
-        canonical_row_count=len(canonical_rows),
-        eligible_row_count=sum(len(rows) for rows in eligible_groups.values()),
+        canonical_row_count=canonical_row_count,
+        eligible_row_count=eligible_row_count,
         rejected_unverified_mapping_count=rejected_unverified_mapping_count,
         ingestion_time_unknown_count=ingestion_time_unknown_count,
-        feature_count=len(all_rows),
-        ready_count=sum(item["status"] == "READY" for item in all_rows),
-        waiting_count=sum(item["status"] == "WAITING_FOR_MORE_DATA" for item in all_rows),
-        missing_count=sum(item["status"] == "DATA_MISSING" for item in all_rows),
+        feature_count=feature_count,
+        ready_count=ready_count,
+        waiting_count=waiting_count,
+        missing_count=missing_count,
         parity_ok=parity_ok,
         status=status,
         blockers=tuple(blockers),
         files=tuple(files),
+        parity_sample_row_count=parity_sample_row_count,
     )
     manifest_path = config.manifest_dir / f"{config.run_id}_feature_snapshot.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -292,6 +341,7 @@ def render_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot)
         f"- Source snapshot: `{snapshot.source_snapshot_id}`",
         f"- Status: `{snapshot.status}`",
         f"- Parity: `{snapshot.parity_ok}`",
+        f"- Parity validation: `{snapshot.parity_validation_scope}` ({snapshot.parity_sample_row_count} sampled canonical rows)",
         f"- Canonical rows: `{snapshot.canonical_row_count}`",
         f"- Eligible explicit-mapping rows: `{snapshot.eligible_row_count}`",
         f"- Feature rows: `{snapshot.feature_count}` (ready `{snapshot.ready_count}`, waiting `{snapshot.waiting_count}`, missing `{snapshot.missing_count}`)",
@@ -403,6 +453,50 @@ def _feature_row(payload: Mapping[str, Any]) -> dict[str, Any]:
         "status": str(payload["status"]),
         "metadata_json": json.dumps(payload.get("metadata") or {}, sort_keys=True, separators=(",", ":")),
     }
+
+
+def _bounded_parity_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Return a deterministic parity sample without weakening feature output.
+
+    The full feature bundle is still computed and written.  Only the duplicate
+    historical-vs-shadow parity replay is bounded, because replaying an entire
+    multi-million-row archive twice can exhaust the isolated collection job.
+    """
+
+    normalized = [dict(row) for row in rows]
+    if len(normalized) <= FEATURE_PARITY_MAX_ROWS:
+        return normalized
+    last_index = len(normalized) - 1
+    indices = {
+        round(index * last_index / (FEATURE_PARITY_MAX_ROWS - 1))
+        for index in range(FEATURE_PARITY_MAX_ROWS)
+    }
+    return [normalized[index] for index in sorted(indices)]
+
+
+def _feature_fingerprint_digest(
+    *,
+    source_snapshot_id: str,
+    source_fingerprint: str,
+    registry_fingerprint: str,
+    feature_ids: Sequence[str],
+) -> Any:
+    digest = sha256()
+    header = {
+        "source_snapshot_id": source_snapshot_id,
+        "source_snapshot_fingerprint": source_fingerprint,
+        "feature_registry_fingerprint": registry_fingerprint,
+        "feature_ids": list(feature_ids),
+        "schema_version": CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION,
+    }
+    digest.update(json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    digest.update(b"\n")
+    return digest
+
+
+def _update_feature_fingerprint(digest: Any, payload: Mapping[str, Any]) -> None:
+    digest.update(json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
+    digest.update(b"\n")
 
 
 def _write_feature_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
