@@ -35,6 +35,7 @@ ARTIFACT_STATUSES = frozenset(
 SHADOW_ACTIONS = ("NORMAL", "WATCH", "REDUCE", "DISABLE_NEW_ENTRIES", "QUARANTINE")
 GRID_ALIASES = frozenset({"grid", "grid_async", "grid_core", "dynamic_grid"})
 EXPERIMENT_BOUND_SHADOW_STATUSES = frozenset({"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED", "QUARANTINED"})
+ORDER_INTENT_SHADOW_ARTIFACT_STATUSES = frozenset({"SHADOW_ELIGIBLE", "SHADOW"})
 DEFAULT_STRATEGY_ARTIFACT_REGISTRY_PATH = Path("data/research/strategy_artifacts.sqlite3")
 
 
@@ -438,6 +439,40 @@ class StrategyArtifactRegistry:
             "live_allowed": False,
             "automatic_promotion_allowed": False,
         }
+
+    def resolve_shadow_order_intent_reference(self, artifact_id: str) -> StrategyArtifactReference:
+        """Resolve one registered shadow artifact without mutating its registry.
+
+        This method is deliberately intended for an offline/batch binding step,
+        not the hot signal handler. It opens the append-only registry through a
+        SQLite read-only URI, verifies the stored artifact identity and returns
+        only a non-executable contract reference.
+        """
+
+        requested_id = str(artifact_id or "").strip()
+        if not requested_id:
+            raise ShadowGovernanceError("artifact_id is required")
+        path = self.path.resolve()
+        if not path.is_file():
+            raise ShadowGovernanceError("strategy artifact registry is unavailable")
+        try:
+            with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30.0) as connection:
+                connection.execute("PRAGMA query_only = ON")
+                row = connection.execute(
+                    "SELECT artifact_json FROM strategy_artifacts WHERE artifact_id = ?",
+                    (requested_id,),
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise ShadowGovernanceError("strategy artifact registry read failed") from exc
+        if not row:
+            raise ShadowGovernanceError("unknown strategy artifact")
+        try:
+            reference = strategy_artifact_reference_from_mapping(json.loads(str(row[0])))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ShadowGovernanceError("strategy artifact registry record is invalid") from exc
+        if reference.status not in ORDER_INTENT_SHADOW_ARTIFACT_STATUSES:
+            raise ShadowGovernanceError("strategy artifact is not eligible for a new shadow order intent")
+        return reference
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30.0)

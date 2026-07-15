@@ -71,6 +71,22 @@ def test_strategy_artifact_cli_registers_only_bound_non_executable_shadow_artifa
         experiment_registry_path=experiment_registry.path,
     ).export_manifest(payload["artifact_id"])["artifact"]["human_approval_reference"] == "human-review-pytest-1"
 
+    exit_code = cli.main(
+        [
+            "strategy-artifact-resolve-reference",
+            "--artifact-registry-path",
+            str(artifact_path),
+            "--artifact-id",
+            payload["artifact_id"],
+        ]
+    )
+    resolved = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert resolved["strategy_artifact_reference"]["artifact_id"] == payload["artifact_id"]
+    assert resolved["shadow_runtime_started"] is False
+    assert resolved["paper_capital_allowed"] is False
+    assert resolved["live_allowed"] is False
+
 
 def test_strategy_artifact_cli_requires_human_reference_for_shadow_status(tmp_path):
     experiment_registry, state = _passed_experiment(tmp_path / "experiments.sqlite3")

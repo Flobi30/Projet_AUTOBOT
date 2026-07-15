@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
@@ -293,6 +294,35 @@ def test_strategy_artifact_reference_requires_a_self_consistent_serialized_artif
     tampered["fingerprint"] = "tampered"
     with pytest.raises(ShadowGovernanceError, match="fingerprint_mismatch"):
         strategy_artifact_reference_from_mapping(tampered)
+
+
+def test_strategy_artifact_registry_resolves_only_registered_shadow_references_read_only(tmp_path):
+    experiment_registry, experiment_id = _passed_experiment_registry(tmp_path)
+    artifact = build_strategy_artifact_from_experiment(
+        experiment_registry=experiment_registry,
+        experiment_id=experiment_id,
+        strategy_version="v1",
+        risk_mandate_fingerprint="mandate-1",
+        validation_manifest_fingerprint="validation-1",
+        requested_status="SHADOW_ELIGIBLE",
+        human_approval_reference="human-review-1",
+    )
+    path = tmp_path / "strategy_artifacts.sqlite3"
+    registry = StrategyArtifactRegistry(path, experiment_registry_path=experiment_registry.path)
+    artifact_id = registry.register(artifact)
+    before = sha256(path.read_bytes()).hexdigest()
+
+    reference = registry.resolve_shadow_order_intent_reference(artifact_id)
+
+    assert reference.artifact_id == artifact_id
+    assert reference.fingerprint == artifact.fingerprint
+    assert sha256(path.read_bytes()).hexdigest() == before
+    with pytest.raises(ShadowGovernanceError, match="unknown strategy artifact"):
+        registry.resolve_shadow_order_intent_reference("unknown")
+
+    research_artifact_id = registry.register(_artifact(status="RESEARCH"))
+    with pytest.raises(ShadowGovernanceError, match="not eligible"):
+        registry.resolve_shadow_order_intent_reference(research_artifact_id)
 
 
 def test_shadow_governance_module_does_not_import_runtime_execution_paths():

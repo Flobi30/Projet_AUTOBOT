@@ -391,6 +391,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     strategy_artifact_register.set_defaults(handler=_cmd_strategy_artifact_register)
 
+    strategy_artifact_resolve = subparsers.add_parser(
+        "strategy-artifact-resolve-reference",
+        help="Read one registered shadow artifact into a non-executable order-intent reference",
+    )
+    strategy_artifact_resolve.add_argument(
+        "--artifact-registry-path",
+        default="data/research/strategy_artifacts.sqlite3",
+    )
+    strategy_artifact_resolve.add_argument("--artifact-id", required=True)
+    strategy_artifact_resolve.set_defaults(handler=_cmd_strategy_artifact_resolve_reference)
+
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
         help="Rank bounded alpha hypotheses from the knowledge base, templates, data readiness and research memory",
@@ -2424,6 +2435,28 @@ def _cmd_strategy_artifact_register(args: argparse.Namespace) -> int:
             "artifact": artifact.to_dict(),
             "experiment_registry_path": str(experiment_registry.path),
             "artifact_registry_path": str(artifact_registry.path),
+            "research_only": True,
+            "shadow_runtime_started": False,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "automatic_promotion_allowed": False,
+        }
+    )
+    return 0
+
+
+def _cmd_strategy_artifact_resolve_reference(args: argparse.Namespace) -> int:
+    """Resolve immutable shadow provenance for offline/batch binding only."""
+
+    from autobot.v2.contracts import contract_to_dict
+    from autobot.v2.research.shadow_governance import StrategyArtifactRegistry
+
+    registry = StrategyArtifactRegistry(Path(args.artifact_registry_path))
+    reference = registry.resolve_shadow_order_intent_reference(args.artifact_id)
+    _print_json(
+        {
+            "artifact_registry_path": str(registry.path),
+            "strategy_artifact_reference": contract_to_dict(reference),
             "research_only": True,
             "shadow_runtime_started": False,
             "paper_capital_allowed": False,

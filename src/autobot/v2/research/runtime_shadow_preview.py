@@ -225,7 +225,7 @@ def _strategy_artifact_reference(
         raise ValueError("strategy_artifact_snapshot_mismatch")
     if dict(artifact.feature_versions) != dict(feature_versions):
         raise ValueError("strategy_artifact_feature_versions_mismatch")
-    if artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW", "THROTTLED"}:
+    if artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW"}:
         raise ValueError("strategy_artifact_not_shadow_eligible")
     return artifact
 

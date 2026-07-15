@@ -31,7 +31,7 @@ def _metadata(**overrides):
     return payload
 
 
-def _artifact_payload(*, strategy_version: str = "trend-v3") -> dict:
+def _artifact_payload(*, strategy_version: str = "trend-v3", status: str = "SHADOW") -> dict:
     return StrategyArtifact(
         strategy_id="trend_momentum",
         strategy_version=strategy_version,
@@ -41,7 +41,7 @@ def _artifact_payload(*, strategy_version: str = "trend-v3") -> dict:
         parameters={"fixture": True},
         risk_mandate_fingerprint="preview-mandate-fixture",
         validation_manifest_fingerprint="preview-validation-fixture",
-        status="SHADOW",
+        status=status,
         experiment_id="preview-experiment-fixture",
         experiment_fingerprint="preview-experiment-fingerprint",
         human_approval_reference="preview-human-approval",
@@ -109,3 +109,10 @@ def test_shadow_preview_rejects_an_artifact_mismatch():
 
     assert preview.status == "SHADOW_PREVIEW_REJECTED"
     assert preview.reason == "strategy_artifact_version_mismatch"
+
+
+def test_shadow_preview_does_not_create_a_new_intent_for_a_throttled_artifact():
+    preview = _preview(strategy_artifact=_artifact_payload(status="THROTTLED"))
+
+    assert preview.status == "SHADOW_PREVIEW_REJECTED"
+    assert preview.reason == "strategy_artifact_not_shadow_eligible"
