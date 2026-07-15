@@ -190,6 +190,9 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
     assert canonical_ops[0]["status"] == "ok"
     assert len(feature_ops) == 1
     assert feature_ops[0]["status"] == "ok"
+    operation_types = [op["operation_type"] for op in payload["operations"]]
+    assert operation_types.index("canonical_ohlcv") < operation_types.index("spread_depth")
+    assert operation_types.index("canonical_feature_snapshot") < operation_types.index("spread_depth")
     assert payload["canonical_manifest_path"]
     assert payload["feature_snapshot_manifest_path"]
     assert Path(payload["canonical_manifest_path"]).exists()

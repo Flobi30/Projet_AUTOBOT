@@ -466,6 +466,19 @@ def run_daily_research_data_collection(
             if op.status == "ok" and op.output_path:
                 ohlcv_csv_paths.append(op.output_path)
 
+    # Canonical OHLCV and its point-in-time feature bundle are the critical
+    # output of this daily job.  Materialize them before the deliberately
+    # long-running microstructure recorder so a later depth timeout, API
+    # issue, or resource failure cannot discard the already-collected market
+    # bars or defer their research evidence by an hour.
+    canonical_manifest_path, feature_snapshot_manifest_path = _materialize_daily_canonical_features(
+        config=config,
+        run_id=run_id,
+        ohlcv_csv_paths=tuple(ohlcv_csv_paths),
+        symbol_mappings=symbol_mappings,
+        operations=operations,
+    )
+
     micro_result: SpreadDepthRecorderResult | None = None
     micro_profile_path: str | None = None
     try:
@@ -526,14 +539,6 @@ def run_daily_research_data_collection(
             run_report_dir,
         )
         dashboard_path = dashboard.markdown_report_path
-
-    canonical_manifest_path, feature_snapshot_manifest_path = _materialize_daily_canonical_features(
-        config=config,
-        run_id=run_id,
-        ohlcv_csv_paths=tuple(ohlcv_csv_paths),
-        symbol_mappings=symbol_mappings,
-        operations=operations,
-    )
 
     high_conviction_path = _run_high_conviction_walk_forward(
         config=config,
