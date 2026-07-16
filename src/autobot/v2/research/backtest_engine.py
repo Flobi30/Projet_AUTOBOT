@@ -17,6 +17,11 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol, Sequence
 
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
+from .backtest_alpha_adapter import (
+    BacktestAlphaAdapterError,
+    BacktestSignalProvenance,
+    adapt_backtest_signal_to_alpha,
+)
 from .market_data_repository import MarketBar, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
 from .trade_journal import TradeJournal, TradeRecord
@@ -89,6 +94,8 @@ class BacktestResult:
     hypothesis: str
     event_count: int
     signal_count: int
+    contract_adapted_signal_count: int
+    contract_rejected_signal_count: int
     fill_count: int
     rejected_fill_count: int
     unexecuted_signal_count: int
@@ -96,6 +103,8 @@ class BacktestResult:
     metrics: MetricsResult
     baselines: tuple[BaselineResult, ...]
     decision: BacktestDecision
+    contract_signal_boundary_enforced: bool = False
+    execution_path: str = "legacy_research_fill_model"
     cost_config: dict[str, Any] = field(default_factory=dict)
     journal_path: str | None = None
     json_report_path: str | None = None
@@ -109,6 +118,8 @@ class BacktestResult:
             "hypothesis": self.hypothesis,
             "event_count": self.event_count,
             "signal_count": self.signal_count,
+            "contract_adapted_signal_count": self.contract_adapted_signal_count,
+            "contract_rejected_signal_count": self.contract_rejected_signal_count,
             "fill_count": self.fill_count,
             "rejected_fill_count": self.rejected_fill_count,
             "unexecuted_signal_count": self.unexecuted_signal_count,
@@ -116,6 +127,8 @@ class BacktestResult:
             "metrics": self.metrics.to_dict(),
             "baselines": [baseline.to_dict() for baseline in self.baselines],
             "decision": self.decision.to_dict(),
+            "contract_signal_boundary_enforced": self.contract_signal_boundary_enforced,
+            "execution_path": self.execution_path,
             "cost_config": dict(self.cost_config),
             "journal_path": self.journal_path,
             "json_report_path": self.json_report_path,
@@ -143,6 +156,7 @@ class BacktestEngine:
         market_data_repository: MarketDataRepository | None = None,
         cost_model: ExecutionCostModel | None = None,
         metrics_engine: MetricsEngine | None = None,
+        alpha_provenance: BacktestSignalProvenance | None = None,
     ) -> None:
         if config.initial_capital_eur <= 0.0:
             raise ValueError("initial_capital_eur must be positive")
@@ -154,6 +168,7 @@ class BacktestEngine:
         self.market_data_repository = market_data_repository or MarketDataRepository()
         self.cost_model = cost_model or ExecutionCostModel(config.cost_config)
         self.metrics_engine = metrics_engine or MetricsEngine()
+        self.alpha_provenance = alpha_provenance
 
     def run(
         self,
@@ -169,6 +184,8 @@ class BacktestEngine:
         journal = TradeJournal()
         available_cash_eur = float(self.config.initial_capital_eur)
         signal_count = 0
+        contract_adapted_signal_count = 0
+        contract_rejected_signal_count = 0
         fill_count = 0
         rejected_fill_count = 0
         unexecuted_signal_count = 0
@@ -241,6 +258,14 @@ class BacktestEngine:
                 if signal.side.lower() not in {"buy", "sell"}:
                     rejected_fill_count += 1
                     continue
+                contract_signal = self._apply_alpha_contract_boundary(signal)
+                if contract_signal is None:
+                    contract_rejected_signal_count += 1
+                    rejected_fill_count += 1
+                    continue
+                if self.alpha_provenance is not None:
+                    contract_adapted_signal_count += 1
+                signal = contract_signal
                 pending_by_symbol.setdefault(symbol, []).append(signal)
 
         # A decision on the final closed bar has no next market open at which
@@ -292,6 +317,8 @@ class BacktestEngine:
             hypothesis=self.config.hypothesis,
             event_count=len(ordered_bars),
             signal_count=signal_count,
+            contract_adapted_signal_count=contract_adapted_signal_count,
+            contract_rejected_signal_count=contract_rejected_signal_count,
             fill_count=fill_count,
             rejected_fill_count=rejected_fill_count,
             unexecuted_signal_count=unexecuted_signal_count,
@@ -299,6 +326,7 @@ class BacktestEngine:
             metrics=metrics,
             baselines=baselines,
             decision=decision,
+            contract_signal_boundary_enforced=self.alpha_provenance is not None,
             cost_config=self.config.cost_config.to_dict(),
         )
         if write_reports:
@@ -307,6 +335,42 @@ class BacktestEngine:
 
     def _simulate_signal(self, signal: BacktestSignal) -> FillResult:
         return self.cost_model.simulate_fill(self._fill_request_for_signal(signal))
+
+    def _apply_alpha_contract_boundary(self, signal: BacktestSignal) -> BacktestSignal | None:
+        """Require a stable alpha contract when provenance is explicitly supplied.
+
+        Legacy validation remains available for historical comparison until each
+        strategy generator is migrated. A caller that supplies provenance opts
+        into fail-closed adaptation: an entry without an explicit net expected
+        edge or market identity is not filled. This historical fill model stays
+        research-only and cannot authorize shadow, paper or live trading.
+        """
+
+        if self.alpha_provenance is None:
+            return signal
+        try:
+            adaptation = adapt_backtest_signal_to_alpha(signal, provenance=self.alpha_provenance)
+        except BacktestAlphaAdapterError:
+            return None
+        return replace(
+            signal,
+            metadata={
+                **dict(signal.metadata),
+                "alpha_contract": {
+                    "signal_id": adaptation.alpha_signal.signal_id,
+                    "direction": adaptation.alpha_signal.direction,
+                    "portfolio_action": adaptation.portfolio_action,
+                    "strategy_id": adaptation.alpha_signal.strategy_id,
+                    "strategy_version": adaptation.alpha_signal.strategy_version,
+                    "data_snapshot_id": adaptation.alpha_signal.data_snapshot_id,
+                    "feature_versions": dict(adaptation.alpha_signal.feature_versions),
+                    "expected_edge_bps": adaptation.alpha_signal.expected_edge_bps,
+                    "research_only": True,
+                    "paper_capital_allowed": False,
+                    "live_allowed": False,
+                },
+            },
+        )
 
     @staticmethod
     def _execution_signal_for_next_bar(signal: BacktestSignal, bar: MarketBar) -> BacktestSignal:
@@ -661,6 +725,8 @@ def render_backtest_report(result: BacktestResult) -> str:
         "",
         f"- Events: {result.event_count}",
         f"- Signals: {result.signal_count}",
+        f"- Signals adapted to AlphaSignal: {result.contract_adapted_signal_count}",
+        f"- Signals rejected by AlphaSignal boundary: {result.contract_rejected_signal_count}",
         f"- Fills: {result.fill_count}",
         f"- Rejected fills/signals: {result.rejected_fill_count}",
         f"- Signals without a following market open: {result.unexecuted_signal_count}",
@@ -712,6 +778,8 @@ def render_backtest_report(result: BacktestResult) -> str:
             f"Registry proposal: `{result.decision.proposed_registry_status}`",
             f"Reason: `{result.decision.reason}`",
             f"Live promotion allowed: `{result.decision.live_promotion_allowed}`",
+            f"AlphaSignal boundary enforced: `{result.contract_signal_boundary_enforced}`",
+            f"Execution path: `{result.execution_path}` (research-only; not a shadow/paper authorization)",
             "",
         ]
     )

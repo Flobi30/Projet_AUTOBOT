@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from autobot.v2.contracts import MarketIdentity
+from autobot.v2.research.backtest_alpha_adapter import BacktestSignalProvenance
 from autobot.v2.research.backtest_engine import BacktestConfig, BacktestEngine, BacktestSignal
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.market_data_repository import MarketBar
@@ -59,6 +61,16 @@ def _config(tmp_path, *, min_closed_trades=1):
     )
 
 
+def _alpha_provenance():
+    return BacktestSignalProvenance(
+        strategy_id="example_strategy",
+        strategy_version="v1",
+        data_snapshot_id="inline_bars",
+        feature_versions={"momentum": "1"},
+        markets={"TRXEUR": MarketIdentity("kraken", "spot", "TRXEUR", "TRX", "EUR")},
+    )
+
+
 def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path):
     seen = []
 
@@ -93,6 +105,60 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
     markdown = (tmp_path / "pytest_backtest.md").read_text(encoding="utf-8")
     assert "Cost Assumptions" in markdown
     assert "fallback_spread_bps" in markdown
+
+
+def test_backtest_engine_can_enforce_alpha_contracts_without_changing_legacy_fill_model(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="entry",
+                    metadata={"expected_edge_bps": 100.0},
+                )
+            ]
+        if len(history) == 2:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    result = BacktestEngine(_config(tmp_path), alpha_provenance=_alpha_provenance()).run(
+        [_bar(0, 1.0), _bar(1, 1.1), _bar(2, 1.2)], strategy, write_reports=False
+    )
+
+    assert result.contract_signal_boundary_enforced is True
+    assert result.contract_adapted_signal_count == 2
+    assert result.contract_rejected_signal_count == 0
+    assert result.fill_count == 2
+    assert result.execution_path == "legacy_research_fill_model"
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_backtest_engine_contract_boundary_rejects_entry_without_explicit_expected_edge(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="entry",
+                    metadata={"gross_edge_bps": 100.0},
+                )
+            ]
+        return []
+
+    result = BacktestEngine(_config(tmp_path), alpha_provenance=_alpha_provenance()).run(
+        [_bar(0, 1.0), _bar(1, 1.1)], strategy, write_reports=False
+    )
+
+    assert result.signal_count == 1
+    assert result.contract_adapted_signal_count == 0
+    assert result.contract_rejected_signal_count == 1
+    assert result.fill_count == 0
 
 
 def test_backtest_engine_does_not_use_future_history(tmp_path):
