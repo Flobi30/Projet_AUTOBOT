@@ -10,6 +10,7 @@ from autobot.v2.research.portfolio_construction import (
     PortfolioConstructionConfig,
     build_target_portfolio,
     estimate_capacity,
+    estimate_capacity_curve,
 )
 
 
@@ -104,3 +105,29 @@ def test_capacity_requires_observed_liquidity_and_enforces_participation_limit()
     assert blocked.status == "CAPACITY_EXCEEDED"
     assert blocked.paper_capital_allowed is False
     assert blocked.live_allowed is False
+
+
+def test_capacity_curve_is_deterministic_and_never_invents_unobserved_depth():
+    request = CapacityInput("BTCEUR", 1.0, observed_liquidity_eur=4_000.0)
+    curve = estimate_capacity_curve(
+        request,
+        desired_notionals_eur=(250.0, 50.0, 200.0),
+        max_liquidity_participation=0.05,
+    )
+
+    assert curve.status == "CAPACITY_EXCEEDED"
+    assert curve.observed_capacity_source == "observed_liquidity_eur"
+    assert [point.desired_notional_eur for point in curve.points] == [50.0, 200.0, 250.0]
+    assert curve.points[0].utilization_ratio == pytest.approx(0.25)
+    assert curve.points[1].status == "CAPACITY_OK"
+    assert curve.points[2].status == "CAPACITY_EXCEEDED"
+    assert curve.paper_capital_allowed is False
+    assert curve.live_allowed is False
+
+    missing = estimate_capacity_curve(
+        CapacityInput("BTCEUR", 1.0),
+        desired_notionals_eur=(10.0, 100.0),
+        max_liquidity_participation=0.05,
+    )
+    assert missing.status == "WAITING_FOR_MORE_DATA"
+    assert all(point.maximum_capacity_eur is None for point in missing.points)

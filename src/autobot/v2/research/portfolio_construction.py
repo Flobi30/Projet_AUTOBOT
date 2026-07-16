@@ -101,6 +101,33 @@ class CapacityEstimate:
     live_allowed: bool = False
 
 
+@dataclass(frozen=True)
+class CapacityCurvePoint:
+    """One conservative capacity observation at a proposed capital level."""
+
+    desired_notional_eur: float
+    maximum_capacity_eur: float | None
+    utilization_ratio: float | None
+    status: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CapacityCurve:
+    """Deterministic research-only capacity curve from observed liquidity."""
+
+    symbol: str
+    observed_capacity_source: str | None
+    observed_liquidity_eur: float | None
+    participation_limit: float
+    points: tuple[CapacityCurvePoint, ...]
+    status: str
+    reason: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+
 def build_target_portfolio(
     signals: Sequence[AlphaSignal],
     *,
@@ -203,6 +230,76 @@ def estimate_capacity(
         maximum_capacity_eur=maximum,
         status=status,
         reason="within_observed_participation_limit" if status == "CAPACITY_OK" else "desired_notional_exceeds_observed_participation_limit",
+    )
+
+
+def estimate_capacity_curve(
+    request: CapacityInput,
+    *,
+    desired_notionals_eur: Sequence[float],
+    max_liquidity_participation: float,
+) -> CapacityCurve:
+    """Evaluate a bounded capital grid against the same observed capacity.
+
+    This deliberately produces ``WAITING_FOR_MORE_DATA`` instead of estimating
+    market depth when neither a depth nor a volume observation exists.  The
+    curve is research-only evidence; callers must not use it to size an order.
+    """
+
+    notionals = tuple(sorted({float(value) for value in desired_notionals_eur}))
+    if not notionals:
+        raise PortfolioConstructionError("desired_notionals_eur must not be empty")
+    if any(not math.isfinite(value) or value <= 0.0 for value in notionals):
+        raise PortfolioConstructionError("desired_notionals_eur must be positive and finite")
+
+    source = (
+        "observed_liquidity_eur"
+        if request.observed_liquidity_eur is not None
+        else "observed_volume_eur"
+        if request.observed_volume_eur is not None
+        else None
+    )
+    points: list[CapacityCurvePoint] = []
+    for notional in notionals:
+        estimate = estimate_capacity(
+            CapacityInput(
+                symbol=request.symbol,
+                desired_notional_eur=notional,
+                observed_liquidity_eur=request.observed_liquidity_eur,
+                observed_volume_eur=request.observed_volume_eur,
+                observed_at=request.observed_at,
+            ),
+            max_liquidity_participation=max_liquidity_participation,
+        )
+        maximum = estimate.maximum_capacity_eur
+        points.append(
+            CapacityCurvePoint(
+                desired_notional_eur=notional,
+                maximum_capacity_eur=maximum,
+                utilization_ratio=(notional / maximum) if maximum and maximum > 0.0 else None,
+                status=estimate.status,
+                reason=estimate.reason,
+            )
+        )
+
+    if source is None:
+        status = "WAITING_FOR_MORE_DATA"
+        reason = "observed_liquidity_missing"
+    elif any(point.status == "CAPACITY_EXCEEDED" for point in points):
+        status = "CAPACITY_EXCEEDED"
+        reason = "one_or_more_capital_levels_exceed_observed_participation_limit"
+    else:
+        status = "CAPACITY_OK"
+        reason = "all_capital_levels_within_observed_participation_limit"
+    observed = request.observed_liquidity_eur if request.observed_liquidity_eur is not None else request.observed_volume_eur
+    return CapacityCurve(
+        symbol=request.symbol.upper(),
+        observed_capacity_source=source,
+        observed_liquidity_eur=float(observed) if observed is not None else None,
+        participation_limit=float(max_liquidity_participation),
+        points=tuple(points),
+        status=status,
+        reason=reason,
     )
 
 
