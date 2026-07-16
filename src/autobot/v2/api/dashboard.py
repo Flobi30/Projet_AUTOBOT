@@ -946,8 +946,9 @@ def _round_optional(value: Optional[float], digits: int = 2) -> Optional[float]:
 def _paper_realized_performance_from_state_db(db_path: Any) -> Dict[str, Any]:
     """Build traceable paper PnL metrics from the state database.
 
-    The trade ledger is preferred because it carries symbol attribution and fees.
-    The legacy trades table is kept only as an audit fallback/source comparison.
+    The trade ledger is the only official source because it carries strategy
+    attribution and fees.  The legacy trades table is returned solely as an
+    audit comparison and can never become the displayed official performance.
     """
     path = str(db_path) if db_path else ""
     empty_global = {
@@ -1073,11 +1074,7 @@ def _paper_realized_performance_from_state_db(db_path: Any) -> Dict[str, Any]:
             if "trade_ledger" not in table_names:
                 result["status"] = "trade_ledger_missing"
                 if result["legacy"] and result["legacy"]["global"]["closed_trades"] > 0:
-                    result["available"] = True
-                    result["source"] = "state_trades_legacy"
-                    result["global"] = result["legacy"]["global"]
-                    result["by_symbol"] = result["legacy"]["by_symbol"]
-                    result["status"] = "legacy_only"
+                    result["status"] = "legacy_only_excluded"
                 return result
 
             ledger_global = conn.execute(

@@ -528,6 +528,24 @@ def test_paper_summary_uses_paper_db_realized_pnl_after_restart(monkeypatch, tmp
     assert pair["recommendation"] == "continue_paper"
 
 
+def test_legacy_state_trades_are_audit_only_not_official_performance(tmp_path):
+    db_path = tmp_path / "legacy_state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, profit REAL, timestamp TEXT, position_id TEXT)")
+        conn.execute(
+            "INSERT INTO trades (profit, timestamp, position_id) VALUES (?, ?, ?)",
+            (12.0, "2026-07-16T00:00:00+00:00", "legacy-position"),
+        )
+
+    performance = dashboard._paper_realized_performance_from_state_db(db_path)
+
+    assert performance["status"] == "legacy_only_excluded"
+    assert performance["available"] is False
+    assert performance["source"] == "none"
+    assert performance["global"]["closed_trades"] == 0
+    assert performance["legacy"]["global"]["closed_trades"] == 1
+
+
 def test_performance_endpoints_use_traceable_trade_ledger(tmp_path, monkeypatch):
     db_path = tmp_path / "autobot_state.db"
     with sqlite3.connect(db_path) as conn:
