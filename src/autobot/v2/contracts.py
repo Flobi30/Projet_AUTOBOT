@@ -212,8 +212,8 @@ class RiskMandateReference:
         for field_name in ("mandate_id", "strategy_id", "fingerprint", "mode_allowed", "expires_at"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
         capital_max_eur = float(self.capital_max_eur)
-        if capital_max_eur < 0:
-            raise ValueError("risk mandate capital_max_eur must be non-negative")
+        if not math.isfinite(capital_max_eur) or capital_max_eur < 0:
+            raise ValueError("risk mandate capital_max_eur must be non-negative and finite")
         try:
             expires_at = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
         except ValueError as exc:
@@ -370,8 +370,9 @@ class OrderIntent:
         side = _required(self.side, "side").lower()
         if side not in {"buy", "sell"}:
             raise ValueError("side must be buy or sell")
-        if float(self.target_notional) <= 0:
-            raise ValueError("target_notional must be positive")
+        target_notional = float(self.target_notional)
+        if not math.isfinite(target_notional) or target_notional <= 0:
+            raise ValueError("target_notional must be positive and finite")
         mode = _required(self.execution_mode, "execution_mode").lower()
         if mode not in {"shadow", "paper", "live"}:
             raise ValueError("execution_mode must be shadow, paper or live")
@@ -385,10 +386,16 @@ class OrderIntent:
             raise ValueError("strategy_artifact feature snapshot evidence is required")
         if not all(snapshot.runtime_parity_proven for snapshot in self.strategy_artifact.feature_snapshots):
             raise ValueError("strategy_artifact feature snapshot runtime parity is required")
-        if mode == "shadow" and self.strategy_artifact.risk_mandate is None:
-            raise ValueError("strategy_artifact risk mandate evidence is required")
-        if mode == "shadow" and not self.strategy_artifact.risk_mandate.is_current(created_at):
-            raise ValueError("strategy_artifact risk mandate is expired")
+        if mode == "shadow":
+            mandate = self.strategy_artifact.risk_mandate
+            if mandate is None:
+                raise ValueError("strategy_artifact risk mandate evidence is required")
+            if self.strategy_artifact.status not in {"SHADOW_ELIGIBLE", "SHADOW"}:
+                raise ValueError("strategy_artifact status is not shadow eligible")
+            if mandate.mode_allowed != "shadow":
+                raise ValueError("strategy_artifact risk mandate does not allow shadow")
+            if not mandate.is_current(created_at):
+                raise ValueError("strategy_artifact risk mandate is expired")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)
@@ -413,8 +420,9 @@ class ExecutionCommand:
         mode = _required(self.execution_mode, "execution_mode").lower()
         if mode not in {"paper", "live"}:
             raise ValueError("execution command mode must be paper or live")
-        if float(self.approved_notional) <= 0:
-            raise ValueError("approved_notional must be positive")
+        approved_notional = float(self.approved_notional)
+        if not math.isfinite(approved_notional) or approved_notional <= 0:
+            raise ValueError("approved_notional must be positive and finite")
         for field_name in ("command_id", "decision_id", "client_order_id", "risk_decision_id"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
         object.__setattr__(self, "issued_at", _utc(self.issued_at, "issued_at"))
@@ -495,8 +503,18 @@ class FillEvent:
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if float(self.quantity) <= 0 or float(self.average_price) <= 0 or float(self.fees) < 0:
-            raise ValueError("fill quantity/price must be positive and fees non-negative")
+        quantity = float(self.quantity)
+        average_price = float(self.average_price)
+        fees = float(self.fees)
+        if (
+            not math.isfinite(quantity)
+            or not math.isfinite(average_price)
+            or not math.isfinite(fees)
+            or quantity <= 0
+            or average_price <= 0
+            or fees < 0
+        ):
+            raise ValueError("fill quantity/price must be positive and fees non-negative finite values")
         object.__setattr__(self, "client_order_id", _required(self.client_order_id, "client_order_id"))
         object.__setattr__(self, "fill_id", _required(self.fill_id, "fill_id"))
         object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))
@@ -513,8 +531,13 @@ class PositionSnapshot:
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.average_entry_price is not None and float(self.average_entry_price) <= 0:
-            raise ValueError("average_entry_price must be positive when present")
+        quantity = float(self.quantity)
+        if not math.isfinite(quantity):
+            raise ValueError("position quantity must be finite")
+        if self.average_entry_price is not None:
+            average_entry_price = float(self.average_entry_price)
+            if not math.isfinite(average_entry_price) or average_entry_price <= 0:
+                raise ValueError("average_entry_price must be positive and finite when present")
         object.__setattr__(self, "position_id", _required(self.position_id, "position_id"))
         object.__setattr__(self, "source", _required(self.source, "source"))
         object.__setattr__(self, "observed_at", _utc(self.observed_at, "observed_at"))

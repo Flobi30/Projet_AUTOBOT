@@ -168,6 +168,50 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
             client_order_id="client-mismatch",
         )
 
+    research_only_mandate = replace(_risk_mandate(), mode_allowed="research")
+    research_only_artifact = replace(_artifact_reference(), risk_mandate=research_only_mandate)
+    with pytest.raises(ValueError, match="does not allow shadow"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="research_strategy",
+            strategy_artifact=research_only_artifact,
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-research-only-mandate",
+        )
+
+    with pytest.raises(ValueError, match="not shadow eligible"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="research_strategy",
+            strategy_artifact=replace(_artifact_reference(), status="RESEARCH"),
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-non-shadow-artifact",
+        )
+
+    with pytest.raises(ValueError, match="positive and finite"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="research_strategy",
+            strategy_artifact=_artifact_reference(),
+            market=_market(),
+            side="buy",
+            target_notional=float("nan"),
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-nan-notional",
+        )
+
     missing_feature_evidence = StrategyArtifactReference(
         artifact_id="strategy_artifact_missing_feature_evidence",
         fingerprint="artifact-fingerprint-missing-feature-evidence",
@@ -246,6 +290,16 @@ def test_execution_command_requires_a_risk_boundary_and_contracts_are_stable():
             execution_mode="paper",
             approved_notional=25,
         )
+    with pytest.raises(ValueError, match="positive and finite"):
+        ExecutionCommand(
+            command_id="command-nan",
+            decision_id="decision-1",
+            client_order_id="client-1",
+            risk_decision_id="risk-1",
+            issued_at=now,
+            execution_mode="paper",
+            approved_notional=float("nan"),
+        )
 
 
 def test_shadow_contracts_require_immutable_non_authorizing_risk_evidence():
@@ -272,6 +326,16 @@ def test_shadow_contracts_require_immutable_non_authorizing_risk_evidence():
             expires_at="2026-12-31T23:59:59+00:00",
             human_approved_required_for_risk_increase=True,
             paper_capital_allowed=True,
+        )
+    with pytest.raises(ValueError, match="non-negative and finite"):
+        RiskMandateReference(
+            mandate_id="invalid-capital-mandate",
+            strategy_id="research_strategy",
+            fingerprint="invalid-capital-fingerprint",
+            mode_allowed="shadow",
+            capital_max_eur=float("nan"),
+            expires_at="2026-12-31T23:59:59+00:00",
+            human_approved_required_for_risk_increase=True,
         )
     with pytest.raises(ValueError, match="expires_at must be ISO-8601"):
         RiskMandateReference(

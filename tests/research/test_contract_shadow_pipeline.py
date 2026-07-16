@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import ast
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+from autobot.v2.contracts import (
+    AlphaSignal,
+    FeatureSnapshotReference,
+    MarketIdentity,
+    RiskDecision,
+    RiskMandateReference,
+    StrategyArtifactReference,
+)
+from autobot.v2.research.contract_shadow_pipeline import evaluate_alpha_signal_in_shadow
+from autobot.v2.research.execution_cost_model import ExecutionCostConfig
+from autobot.v2.research.execution_simulator import (
+    MarketExecutionRules,
+    ResearchExecutionSimulator,
+    ShadowMarketSnapshot,
+)
+from autobot.v2.research.portfolio_construction import CapacityObservation
+
+
+pytestmark = pytest.mark.integration
+
+
+def _timestamp() -> datetime:
+    return datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
+
+
+def _signal() -> AlphaSignal:
+    at = _timestamp()
+    return AlphaSignal(
+        strategy_id="funding_basis",
+        strategy_version="v1",
+        signal_id="signal-contract-shadow",
+        market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
+        direction="long",
+        generated_at=at,
+        available_at=at,
+        feature_versions={"basis_bps": "1"},
+        data_snapshot_id="snapshot-contract-shadow",
+        expected_edge_bps=25.0,
+    )
+
+
+def _artifact() -> StrategyArtifactReference:
+    return StrategyArtifactReference(
+        artifact_id="artifact-contract-shadow",
+        fingerprint="artifact-fingerprint-contract-shadow",
+        strategy_id="funding_basis",
+        strategy_version="v1",
+        code_commit="contract-shadow-fixture",
+        data_snapshot_id="snapshot-contract-shadow",
+        feature_versions={"basis_bps": "1"},
+        status="SHADOW",
+        feature_snapshots=(
+            FeatureSnapshotReference(
+                feature_snapshot_id="features-contract-shadow",
+                fingerprint="feature-fingerprint-contract-shadow",
+                snapshot_kind="FEATURE_SNAPSHOT",
+                source_snapshot_id="snapshot-contract-shadow",
+                source_snapshot_fingerprint="source-fingerprint-contract-shadow",
+                feature_registry_fingerprint="registry-fingerprint-contract-shadow",
+                feature_versions={"basis_bps": "1"},
+                runtime_parity_proven=True,
+            ),
+        ),
+        risk_mandate=RiskMandateReference(
+            mandate_id="mandate-contract-shadow",
+            strategy_id="funding_basis",
+            fingerprint="mandate-fingerprint-contract-shadow",
+            mode_allowed="shadow",
+            capital_max_eur=0.0,
+            expires_at="2026-12-31T23:59:59+00:00",
+            human_approved_required_for_risk_increase=True,
+        ),
+    )
+
+
+def _simulator() -> ResearchExecutionSimulator:
+    return ResearchExecutionSimulator(
+        cost_config=ExecutionCostConfig(
+            taker_fee_bps=10.0,
+            fallback_spread_bps=8.0,
+            slippage_bps=4.0,
+            latency_buffer_bps=1.0,
+            max_liquidity_participation=0.05,
+        ),
+        market_rules={"BTCEUR": MarketExecutionRules("BTCEUR", 0.0001, 5.0, 8, 1)},
+    )
+
+
+def _risk_decision(*, approved: bool = True) -> RiskDecision:
+    return RiskDecision(
+        decision_id="decision-contract-shadow",
+        approved=approved,
+        decided_at=_timestamp(),
+        reasons=() if approved else ("fixture_risk_block",),
+    )
+
+
+def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
+    signal = _signal()
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={
+            "BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=20_000.0, observed_at=_timestamp())
+        },
+        max_liquidity_participation=0.05,
+        simulator=_simulator(),
+        snapshots=(
+            ShadowMarketSnapshot(
+                timestamp=_timestamp() + timedelta(seconds=2),
+                price=100.0,
+                bid=99.95,
+                ask=100.05,
+                liquidity_eur=20_000.0,
+            ),
+        ),
+        risk_decision=_risk_decision(),
+    )
+
+    assert review.status == "SHADOW_FILLED"
+    assert review.target_result is not None
+    assert review.capacity_review is not None and review.capacity_review.status == "CAPACITY_OK"
+    assert review.order_intent is not None and review.order_intent.execution_mode == "shadow"
+    assert review.outcome is not None and review.outcome.status == "FILLED"
+    assert review.execution_command_created is False
+    assert review.paper_capital_allowed is False
+    assert review.live_allowed is False
+
+
+def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_mismatch():
+    signal = _signal()
+    stale = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={
+            "BTCEUR": CapacityObservation(
+                "BTCEUR", observed_liquidity_eur=20_000.0, observed_at=_timestamp() - timedelta(minutes=3)
+            )
+        },
+        max_liquidity_participation=0.05,
+        simulator=_simulator(),
+        snapshots=(),
+        risk_decision=_risk_decision(),
+    )
+    mismatch = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=replace(_artifact(), data_snapshot_id="wrong-snapshot"),
+        capital_eur=1_000.0,
+        capacity_observations={},
+        max_liquidity_participation=0.05,
+        simulator=_simulator(),
+        snapshots=(),
+        risk_decision=_risk_decision(),
+    )
+
+    assert stale.status == "CAPACITY_BLOCKED"
+    assert stale.order_intent is None
+    assert stale.outcome is None
+    assert mismatch.status == "CONTRACT_REJECTED"
+    assert mismatch.reason == "strategy_artifact_data_snapshot_mismatch"
+    assert mismatch.order_intent is None
+
+
+def test_contract_shadow_pipeline_does_not_import_runtime_execution_paths():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "src/autobot/v2/research/contract_shadow_pipeline.py").read_text(encoding="utf-8"))
+    forbidden = {"autobot.v2.order_router", "autobot.v2.signal_handler_async", "autobot.v2.paper_trading"}
+    imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
+    assert imports.isdisjoint(forbidden)
