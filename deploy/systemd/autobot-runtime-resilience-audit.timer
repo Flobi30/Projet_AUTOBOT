@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule AUTOBOT isolated runtime resilience evidence every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=30s
+AccuracySec=30s
+Unit=autobot-runtime-resilience-audit.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=AUTOBOT isolated runtime resilience evidence
+Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/runtime_resilience_audit.py
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED=true
+Environment=AUTOBOT_RUNTIME_RESILIENCE_MAX_DATA_AGE_SECONDS=300
+Environment=AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES=2147483648
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh
+TimeoutStartSec=2min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

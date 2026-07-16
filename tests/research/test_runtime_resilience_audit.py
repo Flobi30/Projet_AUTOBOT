@@ -40,6 +40,7 @@ def test_runtime_resilience_audit_reports_healthy_only_with_explicit_websocket_p
     )
 
     assert report.status == "RESILIENCE_HEALTHY"
+    assert report.evaluated_at == now.isoformat()
     assert report.sqlite_integrity_check == "ok"
     assert report.incident_types == ()
     assert report.fail_closed.action == "NORMAL"

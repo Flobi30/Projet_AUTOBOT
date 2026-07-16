@@ -33,6 +33,7 @@ class RuntimeResilienceAuditError(ValueError):
 @dataclass(frozen=True)
 class RuntimeResilienceAudit:
     status: str
+    evaluated_at: str
     state_db_path: str
     database_exists: bool
     sqlite_integrity_check: str | None
@@ -139,6 +140,7 @@ def audit_runtime_resilience(
         status = "RESILIENCE_HEALTHY"
     return RuntimeResilienceAudit(
         status=status,
+        evaluated_at=now.isoformat(),
         state_db_path=str(path),
         database_exists=path.is_file(),
         sqlite_integrity_check=integrity,
