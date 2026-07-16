@@ -33,7 +33,7 @@ DEFAULT_DERIVATIVES_FEATURE_IDS = (
 FEATURE_DATASET_BY_ID = {
     "funding_rate_relative": "funding",
     "basis_bps": "basis",
-    "open_interest_change_24_pct": "tickers",
+    "open_interest_change_24_pct": "open_interest",
 }
 FEATURE_CSV_FIELDS = (
     "source_snapshot_id",
@@ -482,7 +482,7 @@ def _history_paths(manifest: Mapping[str, Any]) -> dict[str, Path]:
     required = {
         "funding": "funding_history_path",
         "basis": "basis_history_path",
-        "tickers": "open_interest_history_path",
+        "open_interest": "open_interest_history_path",
     }
     paths: dict[str, Path] = {}
     for dataset, key in required.items():
@@ -650,7 +650,11 @@ def _market_from_derivatives_rows(futures_symbol: str, rows: Sequence[Mapping[st
 
 
 def _timeframe_for_dataset(dataset: str) -> str:
-    return "funding_interval" if dataset == "funding" else "snapshot"
+    if dataset == "funding":
+        return "funding_interval"
+    if dataset == "open_interest":
+        return "analytics_bucket"
+    return "snapshot"
 
 
 def _row_time(
@@ -694,6 +698,7 @@ def _runtime_parity_proven(source_rows: Mapping[str, Sequence[Mapping[str, Any]]
             if str(row.get("temporal_status") or "") not in {
                 "AVAILABLE_AT_EVENT",
                 "AVAILABLE_AFTER_BAR_CLOSE",
+                "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
             }:
                 return False
     return True

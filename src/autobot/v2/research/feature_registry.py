@@ -186,7 +186,7 @@ def default_feature_registry() -> FeatureRegistry:
             FeatureDefinition("spread_bps", "1.0.0", "ticker_snapshots", "spread_bps"),
             FeatureDefinition("funding_rate_relative", "1.0.0", "funding_rates", "funding_rate_relative"),
             FeatureDefinition("basis_bps", "1.0.0", "basis", "basis_bps"),
-            FeatureDefinition("open_interest_change_24_pct", "1.0.0", "ticker_snapshots", "open_interest_change_pct", lookback=24),
+            FeatureDefinition("open_interest_change_24_pct", "2.0.0", "open_interest_history", "open_interest_change_pct", lookback=24),
         )
     )
 

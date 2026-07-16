@@ -27,7 +27,9 @@ TICKERS_ENDPOINT = "/derivatives/api/v3/tickers"
 INSTRUMENTS_ENDPOINT = "/derivatives/api/v3/instruments"
 HISTORICAL_FUNDING_ENDPOINT = "/derivatives/api/v3/historical-funding-rates"
 CHARTS_ENDPOINT_PREFIX = "/api/charts/v1"
+ANALYTICS_ENDPOINT_PREFIX = f"{CHARTS_ENDPOINT_PREFIX}/analytics"
 ALLOWED_CHART_TICK_TYPES = {"trade", "mark", "spot"}
+ALLOWED_ANALYTICS_INTERVAL_SECONDS = {60, 300, 900, 1_800, 3_600, 14_400, 43_200, 86_400, 604_800}
 ORDER_ENDPOINT_TOKENS = ("sendorder", "cancel", "editorder", "batchorder", "order", "private")
 BASE_ALIASES = {"XBT": "BTC"}
 AUTOBOT_SPOT_SYMBOLS = {
@@ -76,6 +78,15 @@ class KrakenFuturesCollectorConfig:
     collect_funding: bool = True
     collect_tickers: bool = True
     collect_candles: bool = True
+    # Kraken exposes historical open interest through its public market
+    # analytics endpoint.  It is deliberately opt-in so the ordinary forward
+    # collector remains bounded and a ticker snapshot is never silently
+    # mistaken for an exchange-provided history.
+    collect_open_interest_history: bool = False
+    open_interest_interval_seconds: int = 3_600
+    open_interest_backfill_start_at: datetime | None = None
+    open_interest_backfill_end_at: datetime | None = None
+    open_interest_max_pages_per_symbol: int = 1
     sleep_seconds: float = 0.0
     timeout_seconds: float = 20.0
     continue_on_error: bool = False
@@ -108,6 +119,8 @@ class KrakenFuturesCollectorConfig:
         for label, timestamp in (
             ("candle_backfill_start_at", self.candle_backfill_start_at),
             ("candle_backfill_end_at", self.candle_backfill_end_at),
+            ("open_interest_backfill_start_at", self.open_interest_backfill_start_at),
+            ("open_interest_backfill_end_at", self.open_interest_backfill_end_at),
         ):
             if timestamp is not None and (timestamp.tzinfo is None or timestamp.utcoffset() is None):
                 raise ValueError(f"{label} must be timezone-aware when provided")
@@ -121,6 +134,20 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("candle_backfill_end_at must be after candle_backfill_start_at")
         if self.candle_max_pages_per_series <= 0 or self.candle_max_pages_per_series > 50:
             raise ValueError("candle_max_pages_per_series must be between 1 and 50")
+        if self.open_interest_backfill_end_at is not None and self.open_interest_backfill_start_at is None:
+            raise ValueError("open_interest_backfill_end_at requires open_interest_backfill_start_at")
+        if (
+            self.open_interest_backfill_start_at is not None
+            and self.open_interest_backfill_end_at is not None
+            and self.open_interest_backfill_end_at <= self.open_interest_backfill_start_at
+        ):
+            raise ValueError("open_interest_backfill_end_at must be after open_interest_backfill_start_at")
+        if self.collect_open_interest_history and self.open_interest_backfill_start_at is None:
+            raise ValueError("collect_open_interest_history requires open_interest_backfill_start_at")
+        if self.open_interest_interval_seconds not in ALLOWED_ANALYTICS_INTERVAL_SECONDS:
+            raise ValueError("open_interest_interval_seconds must be an official Kraken analytics interval")
+        if self.open_interest_max_pages_per_symbol <= 0 or self.open_interest_max_pages_per_symbol > 50:
+            raise ValueError("open_interest_max_pages_per_symbol must be between 1 and 50")
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
         if unknown_ticks:
             raise ValueError(f"unsupported Kraken Futures tick types: {', '.join(unknown_ticks)}")
@@ -128,6 +155,10 @@ class KrakenFuturesCollectorConfig:
     @property
     def candle_backfill_enabled(self) -> bool:
         return self.candle_backfill_start_at is not None
+
+    @property
+    def open_interest_backfill_enabled(self) -> bool:
+        return self.open_interest_backfill_start_at is not None
 
 
 @dataclass(frozen=True)
@@ -182,6 +213,7 @@ class KrakenFuturesCollectionResult:
     open_interest_history_start: str | None = None
     open_interest_history_end: str | None = None
     open_interest_history_path: str | None = None
+    open_interest_history_source: str = "missing"
     raw_retention_deleted_run_count: int = 0
     raw_retention_reclaimed_bytes: int = 0
     manifest_path: str | None = None
@@ -233,6 +265,7 @@ class KrakenFuturesCollectionResult:
             "open_interest_history_start": self.open_interest_history_start,
             "open_interest_history_end": self.open_interest_history_end,
             "open_interest_history_path": self.open_interest_history_path,
+            "open_interest_history_source": self.open_interest_history_source,
             "raw_retention_deleted_run_count": self.raw_retention_deleted_run_count,
             "raw_retention_reclaimed_bytes": self.raw_retention_reclaimed_bytes,
             "manifest_path": self.manifest_path,
@@ -309,6 +342,7 @@ def collect_kraken_futures_derivatives(
     ticker_rows: list[dict[str, Any]] = []
     candle_rows: list[dict[str, Any]] = []
     basis_rows: list[dict[str, Any]] = []
+    open_interest_rows: list[dict[str, Any]] = []
     invalid_rows: list[dict[str, Any]] = []
 
     if config.collect_tickers and ticker_payload:
@@ -385,6 +419,40 @@ def collect_kraken_futures_derivatives(
                     if candle_page_params is None:
                         break
 
+        if config.collect_open_interest_history:
+            endpoint = f"{ANALYTICS_ENDPOINT_PREFIX}/{mapping.futures_symbol}/open-interest"
+            analytics_page_params = _initial_open_interest_page_params(config, collection_time=collection_time)
+            for page_index in range(config.open_interest_max_pages_per_symbol):
+                payload = _safe_fetch(
+                    api,
+                    endpoint,
+                    raw_run_dir / f"{mapping.futures_symbol}_open_interest_page_{page_index + 1}.json",
+                    errors,
+                    config.continue_on_error,
+                    params=analytics_page_params,
+                )
+                raw_response_count += 1 if payload is not None else 0
+                if payload:
+                    open_interest_rows.extend(
+                        _open_interest_rows_from_analytics_payload(
+                            payload,
+                            mapping,
+                            interval_seconds=config.open_interest_interval_seconds,
+                            invalid_rows=invalid_rows,
+                            ingestion_time=collection_time,
+                        )
+                    )
+                _sleep(config.sleep_seconds)
+                analytics_page_params = _next_open_interest_page_params(
+                    payload,
+                    current_params=analytics_page_params,
+                    config=config,
+                    mapping=mapping,
+                    errors=errors,
+                )
+                if analytics_page_params is None:
+                    break
+
     # A candle-derived basis is historical only when mark and reference close
     # values are aligned at the same timestamp and share an explicit quote
     # currency.  This deliberately rejects any implicit USD/EUR comparison.
@@ -394,6 +462,10 @@ def collect_kraken_futures_derivatives(
     ticker_rows, ticker_dupes = _dedupe_rows(ticker_rows, ("exchange", "futures_symbol", "timestamp"))
     candle_rows, candle_dupes = _dedupe_rows(candle_rows, ("exchange", "futures_symbol", "tick_type", "timeframe", "timestamp"))
     basis_rows, basis_dupes = _dedupe_rows(basis_rows, ("exchange", "futures_symbol", "timestamp", "calculation_method"))
+    open_interest_rows, open_interest_dupes = _dedupe_rows(
+        open_interest_rows,
+        ("exchange", "futures_symbol", "analytics_type", "interval_seconds", "timestamp"),
+    )
 
     funding_path = _write_csv(
         funding_rows,
@@ -463,6 +535,16 @@ def collect_kraken_futures_derivatives(
             "source", "source_endpoint",
         ),
     )
+    open_interest_path = _write_csv(
+        open_interest_rows,
+        config.canonical_dir / "open_interest" / f"{config.run_id}_open_interest_history.csv",
+        (
+            "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status",
+            "exchange", "futures_symbol", "base_asset", "quote_asset", "analytics_type", "interval_seconds",
+            "open_interest", "open_interest_open", "open_interest_high", "open_interest_low", "open_interest_close",
+            "source", "source_endpoint",
+        ),
+    )
 
     # The collector writes one immutable file per run.  Read the canonical
     # archive after the current rows have been persisted so readiness reflects
@@ -513,11 +595,36 @@ def collect_kraken_futures_derivatives(
         ),
         incremental_paths=(basis_path,) if (config.collect_tickers or config.collect_candles) else (),
     )
-    open_interest_history_rows = [
+    analytics_open_interest_history_path = config.canonical_dir / "open_interest" / "open_interest_history.csv"
+    if config.collect_open_interest_history or analytics_open_interest_history_path.exists():
+        analytics_open_interest_rows, analytics_open_interest_history_path, _analytics_open_interest_duplicates = _load_or_compact_canonical_history(
+            config.canonical_dir / "open_interest",
+            history_filename="open_interest_history.csv",
+            key_fields=("exchange", "futures_symbol", "analytics_type", "interval_seconds", "timestamp"),
+            fieldnames=(
+                "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status",
+                "exchange", "futures_symbol", "base_asset", "quote_asset", "analytics_type", "interval_seconds",
+                "open_interest", "open_interest_open", "open_interest_high", "open_interest_low", "open_interest_close",
+                "source", "source_endpoint",
+            ),
+            compact=config.collect_open_interest_history,
+            incremental_paths=(open_interest_path,) if config.collect_open_interest_history else (),
+        )
+    else:
+        analytics_open_interest_rows = []
+    ticker_open_interest_history_rows = [
         row
         for row in ticker_history_rows
         if _safe_float(row.get("open_interest")) is not None and _safe_float(row.get("open_interest")) >= 0.0
     ]
+    if analytics_open_interest_rows:
+        open_interest_history_rows = analytics_open_interest_rows
+        open_interest_history_path = analytics_open_interest_history_path
+        open_interest_history_source = "kraken_futures_market_analytics"
+    else:
+        open_interest_history_rows = ticker_open_interest_history_rows
+        open_interest_history_path = ticker_history_path
+        open_interest_history_source = "ticker_snapshots_forward_only" if ticker_open_interest_history_rows else "missing"
     valid_basis_history_rows = [
         row
         for row in basis_history_rows
@@ -533,12 +640,21 @@ def collect_kraken_futures_derivatives(
         _dataset_summary("ticker_snapshots", ticker_rows, ticker_dupes, _invalid_count(invalid_rows, "ticker_snapshots"), ticker_path, "current_snapshot_ready" if ticker_rows else "missing"),
         _dataset_summary("derivatives_candles", candle_rows, candle_dupes, _invalid_count(invalid_rows, "derivatives_candles"), candle_path, "bounded_candle_sample_ready" if candle_rows else "missing"),
         _dataset_summary("basis", basis_rows, basis_dupes, _invalid_count(invalid_rows, "basis"), basis_path, _basis_quality(basis_rows)),
+        _dataset_summary(
+            "open_interest_history",
+            open_interest_rows,
+            open_interest_dupes,
+            _invalid_count(invalid_rows, "open_interest_history"),
+            open_interest_path,
+            "bounded_official_analytics_history_ready" if open_interest_rows else "missing",
+        ),
     )
     all_datasets = {
         "funding_rates": funding_rows,
         "ticker_snapshots": ticker_rows,
         "derivatives_candles": candle_rows,
         "basis": basis_rows,
+        "open_interest_history": open_interest_rows,
     }
     fingerprint = fingerprint_derivatives_rows(all_datasets)
     provenance_fingerprint = fingerprint_derivatives_rows(all_datasets, include_provenance=True)
@@ -591,7 +707,8 @@ def collect_kraken_futures_derivatives(
         open_interest_history_row_count=len(open_interest_history_rows),
         open_interest_history_start=_min_timestamp(open_interest_history_rows),
         open_interest_history_end=_max_timestamp(open_interest_history_rows),
-        open_interest_history_path=str(ticker_history_path),
+        open_interest_history_path=str(open_interest_history_path),
+        open_interest_history_source=open_interest_history_source,
     )
     persisted = write_kraken_futures_derivatives_report(result, config)
     if config.raw_retention_days is None or persisted.errors:
@@ -771,6 +888,7 @@ def render_kraken_futures_derivatives_report(result: KrakenFuturesCollectionResu
             f"- open_interest_history_rows: `{result.open_interest_history_row_count}`",
             f"- open_interest_history_period: `{result.open_interest_history_start or '-'} -> {result.open_interest_history_end or '-'}`",
             f"- open_interest_history_path: `{result.open_interest_history_path or '-'}`",
+            f"- open_interest_history_source: `{result.open_interest_history_source}`",
             f"- forward_history_policy: `{FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL} observations per symbol across at least {FORWARD_HISTORY_MIN_COVERAGE_SECONDS // 86400} days`",
             f"- derivatives_data_quality: `{result.derivatives_data_quality}`",
             f"- errors: `{len(result.errors)}`",
@@ -848,7 +966,7 @@ def _safe_fetch(
     try:
         payload = client.get_json(endpoint, params)
         result = payload.get("result")
-        if result not in (None, "success"):
+        if result not in (None, "success") and not isinstance(result, Mapping):
             raise ValueError(f"Kraken Futures returned result={result!r}")
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -944,6 +1062,192 @@ def _next_candle_page_params(
     params = dict(current_params)
     params["from"] = next_from
     return params
+
+
+def _initial_open_interest_page_params(
+    config: KrakenFuturesCollectorConfig,
+    *,
+    collection_time: datetime,
+) -> dict[str, int]:
+    """Build a bounded public Kraken market-analytics request.
+
+    ``to`` is always fixed at collection time unless the caller supplied an
+    earlier explicit end.  This keeps one run reproducible and prevents an
+    unfinished live analytics bucket from entering a historical feature set.
+    """
+
+    if not config.open_interest_backfill_enabled:
+        raise ValueError("open interest collection requires an explicit start timestamp")
+    assert config.open_interest_backfill_start_at is not None
+    end_at = config.open_interest_backfill_end_at or collection_time
+    if end_at <= config.open_interest_backfill_start_at:
+        raise ValueError("open interest collection end must be after its start")
+    return {
+        "since": int(config.open_interest_backfill_start_at.timestamp()),
+        "to": int(end_at.timestamp()),
+        "interval": config.open_interest_interval_seconds,
+    }
+
+
+def _next_open_interest_page_params(
+    payload: Mapping[str, Any] | None,
+    *,
+    current_params: Mapping[str, int] | None,
+    config: KrakenFuturesCollectorConfig,
+    mapping: KrakenFuturesInstrumentMapping,
+    errors: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    """Advance a documented analytics history page without duplicate buckets."""
+
+    if not payload or current_params is None:
+        return None
+    result = payload.get("result")
+    if not isinstance(result, Mapping) or not bool(result.get("more")):
+        return None
+    timestamps = result.get("timestamp")
+    if not isinstance(timestamps, Sequence) or isinstance(timestamps, (str, bytes)):
+        errors.append(
+            {
+                "dataset": "open_interest_history",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_pagination_missing_timestamps",
+            }
+        )
+        return None
+    parsed_timestamps = [_parse_timestamp(value) for value in timestamps]
+    latest = max((value for value in parsed_timestamps if value is not None), default=None)
+    if latest is None:
+        errors.append(
+            {
+                "dataset": "open_interest_history",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_pagination_invalid_timestamp",
+            }
+        )
+        return None
+    next_since = int(latest.timestamp()) + config.open_interest_interval_seconds
+    current_since = int(current_params.get("since", 0))
+    end_at = int(current_params.get("to", 0))
+    if next_since <= current_since:
+        errors.append(
+            {
+                "dataset": "open_interest_history",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_pagination_non_advancing",
+            }
+        )
+        return None
+    if end_at and next_since >= end_at:
+        return None
+    params = dict(current_params)
+    params["since"] = next_since
+    return params
+
+
+def _open_interest_rows_from_analytics_payload(
+    payload: Mapping[str, Any],
+    mapping: KrakenFuturesInstrumentMapping,
+    *,
+    interval_seconds: int,
+    invalid_rows: list[dict[str, Any]],
+    ingestion_time: datetime,
+) -> list[dict[str, Any]]:
+    """Normalize Kraken's public open-interest analytics OHLC buckets.
+
+    The endpoint returns aligned ``result.timestamp`` and ``result.data``
+    arrays.  Each data element is the open/high/low/close open-interest bucket.
+    Rows are usable only after the bucket closes; malformed or unfinished
+    buckets are retained as invalid evidence, never coerced into a feature.
+    """
+
+    result = payload.get("result")
+    if not isinstance(result, Mapping):
+        invalid_rows.append(
+            {
+                "dataset": "open_interest_history",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_result_missing",
+            }
+        )
+        return []
+    timestamps = result.get("timestamp")
+    values = result.get("data")
+    if (
+        not isinstance(timestamps, Sequence)
+        or isinstance(timestamps, (str, bytes))
+        or not isinstance(values, Sequence)
+        or isinstance(values, (str, bytes))
+        or len(timestamps) != len(values)
+    ):
+        invalid_rows.append(
+            {
+                "dataset": "open_interest_history",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_timestamp_data_mismatch",
+            }
+        )
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for timestamp_value, value in zip(timestamps, values):
+        timestamp = _parse_timestamp(timestamp_value)
+        bucket = value.get("value") if isinstance(value, Mapping) else value
+        if not isinstance(bucket, Sequence) or isinstance(bucket, (str, bytes)) or len(bucket) != 4:
+            invalid_rows.append(
+                {
+                    "dataset": "open_interest_history",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_open_interest_ohlc_invalid",
+                }
+            )
+            continue
+        open_interest_open, open_interest_high, open_interest_low, open_interest_close = (
+            _safe_float(item) for item in bucket
+        )
+        numbers = (open_interest_open, open_interest_high, open_interest_low, open_interest_close)
+        if timestamp is None or any(item is None or item < 0.0 for item in numbers):
+            invalid_rows.append(
+                {
+                    "dataset": "open_interest_history",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_open_interest_values_invalid",
+                }
+            )
+            continue
+        available_time = timestamp + timedelta(seconds=interval_seconds)
+        if available_time > ingestion_time:
+            invalid_rows.append(
+                {
+                    "dataset": "open_interest_history",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_open_interest_unclosed_bucket",
+                }
+            )
+            continue
+        rows.append(
+            {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
+                "timestamp": timestamp.isoformat(),
+                "event_time": timestamp.isoformat(),
+                "available_time": available_time.isoformat(),
+                "ingestion_time": ingestion_time.isoformat(),
+                "temporal_status": "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
+                "exchange": "kraken_futures",
+                "futures_symbol": mapping.futures_symbol,
+                "base_asset": mapping.base_asset,
+                "quote_asset": mapping.quote_asset,
+                "analytics_type": "open-interest",
+                "interval_seconds": str(interval_seconds),
+                "open_interest": _stable_number(open_interest_close),
+                "open_interest_open": _stable_number(open_interest_open),
+                "open_interest_high": _stable_number(open_interest_high),
+                "open_interest_low": _stable_number(open_interest_low),
+                "open_interest_close": _stable_number(open_interest_close),
+                "source": "kraken_futures_market_analytics",
+                "source_endpoint": f"{ANALYTICS_ENDPOINT_PREFIX}/{{symbol}}/open-interest",
+            }
+        )
+    return rows
 
 
 def _funding_rows_from_payload(

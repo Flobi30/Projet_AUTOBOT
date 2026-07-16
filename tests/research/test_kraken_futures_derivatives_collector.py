@@ -12,7 +12,12 @@ import pytest
 
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.data_capability_scanner import build_data_capability_scan_report
+from autobot.v2.research.derivatives_feature_snapshot import (
+    DerivativesFeatureSnapshotConfig,
+    build_derivatives_feature_snapshot,
+)
 from autobot.v2.research.kraken_futures_derivatives_collector import (
+    ANALYTICS_ENDPOINT_PREFIX,
     HISTORICAL_FUNDING_ENDPOINT,
     INSTRUMENTS_ENDPOINT,
     TICKERS_ENDPOINT,
@@ -223,6 +228,15 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
             "2026-07-02T00:00:00+00:00",
             "--candle-max-pages-per-series",
             "2",
+            "--collect-open-interest-history",
+            "--open-interest-backfill-start-at",
+            "2026-07-01T00:00:00+00:00",
+            "--open-interest-backfill-end-at",
+            "2026-07-02T00:00:00+00:00",
+            "--open-interest-interval-seconds",
+            "3600",
+            "--open-interest-max-pages-per-symbol",
+            "2",
             "--raw-retention-days",
             "7",
         ]
@@ -234,6 +248,11 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.candle_backfill_start_at == "2026-07-01T00:00:00+00:00"
     assert args.candle_backfill_end_at == "2026-07-02T00:00:00+00:00"
     assert args.candle_max_pages_per_series == 2
+    assert args.collect_open_interest_history is True
+    assert args.open_interest_backfill_start_at == "2026-07-01T00:00:00+00:00"
+    assert args.open_interest_backfill_end_at == "2026-07-02T00:00:00+00:00"
+    assert args.open_interest_interval_seconds == 3600
+    assert args.open_interest_max_pages_per_symbol == 2
     assert args.raw_retention_days == 7
 
 
@@ -307,6 +326,146 @@ def test_bounded_mark_spot_candle_backfill_derives_same_quote_history_without_or
     assert result.live_allowed is False
     assert result.promotable is False
     assert not any("order" in endpoint.lower() for endpoint, _params in client.calls)
+
+
+def test_public_open_interest_analytics_history_is_explicit_opt_in_and_not_a_ticker_proxy(tmp_path):
+    class _AnalyticsClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/open-interest":
+                assert params == {
+                    "since": int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
+                    "to": int(datetime(2026, 7, 10, tzinfo=timezone.utc).timestamp()),
+                    "interval": 3_600,
+                }
+                self.calls.append((endpoint, params))
+                timestamps = [
+                    int((datetime(2026, 7, 1, tzinfo=timezone.utc) + timedelta(hours=index)).timestamp())
+                    for index in range(200)
+                ]
+                return {
+                    "result": {
+                        "timestamp": timestamps,
+                        "data": [
+                            [str(100 + index), str(102 + index), str(99 + index), str(101 + index)]
+                            for index in range(200)
+                        ],
+                        "more": False,
+                    }
+                }
+            return super().get_json(endpoint, params)
+
+    client = _AnalyticsClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_open_interest_analytics",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical" / "derivatives",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            collect_candles=False,
+            collect_open_interest_history=True,
+            open_interest_backfill_start_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            open_interest_backfill_end_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            open_interest_interval_seconds=3_600,
+            observed_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    dataset = next(item for item in result.datasets if item.dataset_id == "open_interest_history")
+    with Path(str(dataset.csv_path)).open("r", encoding="utf-8", newline="") as handle:
+        first_row = next(csv.DictReader(handle))
+    scan = build_data_capability_scan_report(
+        run_id="pytest_open_interest_analytics_scan",
+        data_roots=(tmp_path,),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    feature_snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="pytest_open_interest_analytics_features",
+            derivatives_manifest_path=Path(str(result.manifest_path)),
+            as_of_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+            feature_ids=("open_interest_change_24_pct",),
+        )
+    )
+
+    assert dataset.row_count == 200
+    assert first_row["temporal_status"] == "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE"
+    assert first_row["open_interest"] == "101"
+    assert result.open_interest_history_ready is True
+    assert result.open_interest_history_source == "kraken_futures_market_analytics"
+    assert result.open_interest_history_row_count == 200
+    assert Path(str(result.open_interest_history_path)).exists()
+    assert feature_snapshot.status == "READY"
+    assert feature_snapshot.runtime_parity_proven is True
+    assert feature_snapshot.feature_versions["open_interest_change_24_pct"] == "2.0.0"
+    open_interest_capability = next(item for item in scan.capabilities if item.capability_id == "open_interest")
+    assert open_interest_capability.available is True
+    assert any("history_source=kraken_futures_market_analytics" in note for note in open_interest_capability.notes)
+    assert any(endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/open-interest" for endpoint, _params in client.calls)
+    assert not any("order" in endpoint.lower() for endpoint, _params in client.calls)
+    assert result.paper_capital_allowed is False
+    assert result.live_allowed is False
+    assert result.promotable is False
+
+
+def test_open_interest_analytics_pagination_advances_without_duplicate_buckets(tmp_path):
+    class _PaginatedAnalyticsClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/open-interest":
+                assert params is not None
+                self.calls.append((endpoint, params))
+                start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                first_page = params["since"] == int(start.timestamp())
+                page_start = start if first_page else start + timedelta(hours=2)
+                return {
+                    "result": {
+                        "timestamp": [
+                            int(page_start.timestamp()),
+                            int((page_start + timedelta(hours=1)).timestamp()),
+                        ],
+                        "data": [["10", "12", "9", "11"], ["11", "13", "10", "12"]],
+                        "more": first_page,
+                    }
+                }
+            return super().get_json(endpoint, params)
+
+    client = _PaginatedAnalyticsClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_open_interest_pagination",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            collect_candles=False,
+            collect_open_interest_history=True,
+            open_interest_backfill_start_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            open_interest_backfill_end_at=datetime(2026, 7, 1, 5, tzinfo=timezone.utc),
+            open_interest_interval_seconds=3_600,
+            open_interest_max_pages_per_symbol=2,
+            observed_at=datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    analytics_calls = [params for endpoint, params in client.calls if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/open-interest"]
+    assert [item["since"] for item in analytics_calls] == [
+        int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
+        int(datetime(2026, 7, 1, 2, tzinfo=timezone.utc).timestamp()),
+    ]
+    assert result.open_interest_history_row_count == 4
+    assert not any(item.get("reason") == "analytics_pagination_non_advancing" for item in result.errors)
 
 
 def test_aligned_candle_basis_rejects_quote_currency_mismatch():

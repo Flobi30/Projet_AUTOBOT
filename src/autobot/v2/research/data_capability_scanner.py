@@ -584,6 +584,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
     tickers = datasets.get("ticker_snapshots", {})
     candles = datasets.get("derivatives_candles", {})
     basis = datasets.get("basis", {})
+    open_interest = datasets.get("open_interest_history", {})
     funding_available = bool(manifest.get("funding_history_ready"))
     perp_available = bool(manifest.get("mark_candles_ready") or manifest.get("trade_candles_ready") or int(tickers.get("row_count") or 0) > 0)
     basis_history_ready = bool(manifest.get("basis_history_ready"))
@@ -665,14 +666,20 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
         "open_interest": DataCapability(
             capability_id="open_interest",
             available=oi_history_ready,
-            source_paths=tuple(path for path in (manifest.get("open_interest_history_path"), tickers.get("csv_path"), manifest.get("manifest_path")) if path),
+            source_paths=tuple(path for path in (manifest.get("open_interest_history_path"), open_interest.get("csv_path"), tickers.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
-            start_at=tickers.get("start_at"),
-            end_at=tickers.get("end_at"),
-            row_count=int(tickers.get("row_count") or 0),
-            duplicate_count=int(tickers.get("duplicate_count") or 0),
-            storage_size_bytes=int(tickers.get("storage_size_bytes") or 0),
+            start_at=manifest.get("open_interest_history_start") or open_interest.get("start_at") or tickers.get("start_at"),
+            end_at=manifest.get("open_interest_history_end") or open_interest.get("end_at") or tickers.get("end_at"),
+            row_count=int(manifest.get("open_interest_history_row_count") or open_interest.get("row_count") or tickers.get("row_count") or 0),
+            duplicate_count=int(open_interest.get("duplicate_count") or tickers.get("duplicate_count") or 0),
+            storage_size_bytes=_storage_size(
+                tuple(
+                    Path(path)
+                    for path in (manifest.get("open_interest_history_path"), open_interest.get("csv_path"), tickers.get("csv_path"))
+                    if path
+                )
+            ),
             freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
             quality_status="open_interest_history_ready" if oi_history_ready else ("current_open_interest_only" if current_oi_ready else "missing"),
             alpha_families_unlocked=ALPHA_UNLOCKS["open_interest"] if oi_history_ready else (),
@@ -680,6 +687,7 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             proxy_status="not_proxy",
             notes=(
                 "current_open_interest_does_not_equal_history",
+                f"history_source={manifest.get('open_interest_history_source') or 'unknown'}",
                 f"history_rows={manifest.get('open_interest_history_row_count') or 0}",
                 f"history_start={manifest.get('open_interest_history_start') or '-'}",
                 f"history_end={manifest.get('open_interest_history_end') or '-'}",

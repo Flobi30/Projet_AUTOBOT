@@ -646,6 +646,33 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Hard maximum public Charts pages per symbol/tick type (default: 1)",
     )
+    futures_derivatives.add_argument(
+        "--collect-open-interest-history",
+        action="store_true",
+        help="Opt in to bounded public Kraken Futures open-interest analytics history; remains research-only",
+    )
+    futures_derivatives.add_argument(
+        "--open-interest-backfill-start-at",
+        default=None,
+        help="UTC ISO-8601 start required for the opt-in open-interest analytics backfill",
+    )
+    futures_derivatives.add_argument(
+        "--open-interest-backfill-end-at",
+        default=None,
+        help="UTC ISO-8601 exclusive end for the open-interest analytics backfill",
+    )
+    futures_derivatives.add_argument(
+        "--open-interest-interval-seconds",
+        type=int,
+        default=3600,
+        help="Official Kraken analytics bucket interval in seconds (default: 3600)",
+    )
+    futures_derivatives.add_argument(
+        "--open-interest-max-pages-per-symbol",
+        type=int,
+        default=1,
+        help="Hard maximum analytics pages per futures symbol (default: 1)",
+    )
     futures_derivatives.add_argument("--raw-dir", default="data/research/raw/kraken_futures")
     futures_derivatives.add_argument("--canonical-dir", default="data/research/canonical/derivatives")
     futures_derivatives.add_argument("--manifest-dir", default="data/research/manifests")
@@ -2943,6 +2970,15 @@ def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
             collect_funding=not args.skip_funding,
             collect_tickers=not args.skip_tickers,
             collect_candles=not args.skip_candles,
+            collect_open_interest_history=args.collect_open_interest_history,
+            open_interest_backfill_start_at=(
+                _parse_datetime(args.open_interest_backfill_start_at) if args.open_interest_backfill_start_at else None
+            ),
+            open_interest_backfill_end_at=(
+                _parse_datetime(args.open_interest_backfill_end_at) if args.open_interest_backfill_end_at else None
+            ),
+            open_interest_interval_seconds=args.open_interest_interval_seconds,
+            open_interest_max_pages_per_symbol=args.open_interest_max_pages_per_symbol,
             sleep_seconds=args.sleep_seconds,
             timeout_seconds=args.timeout_seconds,
             continue_on_error=args.continue_on_error,
