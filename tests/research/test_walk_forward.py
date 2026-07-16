@@ -113,15 +113,15 @@ def test_walk_forward_can_pass_only_after_enough_passing_folds(tmp_path):
         bars.extend(
             [
                 _bar(offset + 0, 0.9),
-                _bar(offset + 1, 1.0),
-                _bar(offset + 2, 1.2),
-                _bar(offset + 3, 1.2),
-                _bar(offset + 4, 1.19),
-                _bar(offset + 5, 0.8),
+                _bar(offset + 1, 1.5),
+                _bar(offset + 2, 1.0),
+                _bar(offset + 3, 2.0),
+                _bar(offset + 4, 2.0),
+                _bar(offset + 5, 1.9),
             ]
         )
     config = WalkForwardConfig(
-        run_id="pytest_wf_pass",
+        run_id="pytest_wf_pass_1",
         base_backtest_config=_base_config(tmp_path),
         train_window_bars=1,
         test_window_bars=5,

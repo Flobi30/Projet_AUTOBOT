@@ -237,7 +237,14 @@ def test_backtest_engine_uses_quantity_based_notional_for_fees_and_pnl(tmp_path)
             ),
         }
     )
-    result = BacktestEngine(config).run([_bar(0, 2.0), _bar(1, 3.0)], strategy)
+    result = BacktestEngine(config).run(
+        [
+            _custom_bar(0, open_=2.0, high=2.0, low=2.0, close=2.0),
+            _custom_bar(1, open_=2.0, high=3.0, low=2.0, close=3.0),
+            _custom_bar(2, open_=3.0, high=3.0, low=3.0, close=3.0),
+        ],
+        strategy,
+    )
     journal = TradeJournal.from_json(result.journal_path)
     trade = journal.records[0]
 
@@ -278,7 +285,8 @@ def test_backtest_engine_records_trade_path_without_entry_bar_lookahead(tmp_path
     bars = [
         _custom_bar(0, open_=100.0, high=150.0, low=50.0, close=100.0),
         _custom_bar(1, open_=101.0, high=106.0, low=96.0, close=102.0),
-        _custom_bar(2, open_=102.0, high=104.0, low=98.0, close=103.0),
+        _custom_bar(2, open_=102.0, high=106.0, low=96.0, close=103.0),
+        _custom_bar(3, open_=103.0, high=104.0, low=98.0, close=103.0),
     ]
 
     engine = BacktestEngine(_config(tmp_path))
@@ -298,3 +306,89 @@ def test_backtest_engine_records_trade_path_without_entry_bar_lookahead(tmp_path
     assert path["mfe_to_cost_ratio"] is not None
     assert path["highest_price"] != 150.0
     assert path["lowest_price"] != 50.0
+
+
+def test_backtest_engine_fills_close_based_decision_at_next_bar_open(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="entry")]
+        if len(history) == 2:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    config = BacktestConfig(
+        **{
+            **_config(tmp_path).__dict__,
+            "cost_config": ExecutionCostConfig(
+                taker_fee_bps=0.0,
+                fallback_spread_bps=0.0,
+                slippage_bps=0.0,
+                latency_buffer_bps=0.0,
+            ),
+        }
+    )
+    bars = [
+        _custom_bar(0, open_=100.0, high=100.0, low=100.0, close=100.0),
+        _custom_bar(1, open_=110.0, high=110.0, low=110.0, close=110.0),
+        _custom_bar(2, open_=120.0, high=120.0, low=120.0, close=120.0),
+    ]
+
+    result = BacktestEngine(config).run(bars, strategy)
+    trade = TradeJournal.from_json(result.journal_path).records[0]
+
+    assert trade.opened_at == bars[1].timestamp
+    assert trade.closed_at == bars[2].timestamp
+    assert trade.entry_price == pytest.approx(110.0)
+    assert trade.exit_price == pytest.approx(120.0)
+    assert trade.metadata["entry"]["decision_price"] == pytest.approx(100.0)
+    assert trade.metadata["entry"]["execution_timing"] == "next_bar_open"
+    assert result.unexecuted_signal_count == 0
+
+
+def test_backtest_engine_counts_final_bar_signal_without_future_fill(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="last_bar")]
+        return []
+
+    result = BacktestEngine(_config(tmp_path)).run([_bar(0, 1.0)], strategy, write_reports=False)
+
+    assert result.signal_count == 1
+    assert result.fill_count == 0
+    assert result.unexecuted_signal_count == 1
+    assert result.rejected_fill_count == 1
+
+
+def test_backtest_engine_rejects_simultaneous_entries_that_exceed_available_cash(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="entry")]
+        return []
+
+    config = BacktestConfig(
+        **{
+            **_config(tmp_path).__dict__,
+            "initial_capital_eur": 100.0,
+            "default_order_notional_eur": 80.0,
+            "close_open_positions_at_end": False,
+            "cost_config": ExecutionCostConfig(
+                taker_fee_bps=0.0,
+                fallback_spread_bps=0.0,
+                slippage_bps=0.0,
+                latency_buffer_bps=0.0,
+            ),
+        }
+    )
+    bars = [
+        _bar(0, 10.0, symbol="BTCEUR"),
+        _bar(0, 10.0, symbol="ETHEUR"),
+        _bar(1, 10.0, symbol="BTCEUR"),
+        _bar(1, 10.0, symbol="ETHEUR"),
+    ]
+
+    result = BacktestEngine(config).run(bars, strategy, write_reports=False)
+
+    assert result.signal_count == 2
+    assert result.fill_count == 1
+    assert result.rejected_fill_count == 1
+    assert result.trade_count == 0

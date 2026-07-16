@@ -308,6 +308,8 @@ class TargetPortfolio:
     cash_asset: str = "EUR"
     source_signal_ids: tuple[str, ...] = ()
     source_strategy_ids: tuple[str, ...] = ()
+    source_data_snapshot_ids: tuple[str, ...] = ()
+    source_feature_versions: Mapping[str, str] = field(default_factory=dict)
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -322,7 +324,15 @@ class TargetPortfolio:
             raise ValueError("target weights plus reserve cannot exceed 1")
         signal_ids = tuple(_required(value, "source signal id") for value in self.source_signal_ids)
         strategy_ids = tuple(_required(value, "source strategy id").lower() for value in self.source_strategy_ids)
-        if len(signal_ids) != len(set(signal_ids)) or len(strategy_ids) != len(set(strategy_ids)):
+        snapshot_ids = tuple(_required(value, "source data snapshot id") for value in self.source_data_snapshot_ids)
+        feature_versions = {str(key).strip(): str(value).strip() for key, value in self.source_feature_versions.items()}
+        if not all(feature_versions.keys()) or not all(feature_versions.values()):
+            raise ValueError("target portfolio source feature versions must be non-empty")
+        if (
+            len(signal_ids) != len(set(signal_ids))
+            or len(strategy_ids) != len(set(strategy_ids))
+            or len(snapshot_ids) != len(set(snapshot_ids))
+        ):
             raise ValueError("target portfolio source identifiers must be unique")
         object.__setattr__(self, "decision_id", _required(self.decision_id, "decision_id"))
         object.__setattr__(self, "generated_at", generated_at)
@@ -332,6 +342,8 @@ class TargetPortfolio:
         object.__setattr__(self, "cash_asset", _required(self.cash_asset, "cash_asset").upper())
         object.__setattr__(self, "source_signal_ids", signal_ids)
         object.__setattr__(self, "source_strategy_ids", strategy_ids)
+        object.__setattr__(self, "source_data_snapshot_ids", snapshot_ids)
+        object.__setattr__(self, "source_feature_versions", feature_versions)
 
 
 @dataclass(frozen=True)

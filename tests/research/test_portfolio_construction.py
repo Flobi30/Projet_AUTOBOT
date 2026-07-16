@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -9,6 +10,7 @@ from autobot.v2.research.portfolio_construction import (
     CapacityInput,
     CapacityObservation,
     PortfolioConstructionConfig,
+    SignalRejection,
     build_target_portfolio,
     estimate_capacity,
     estimate_capacity_curve,
@@ -65,6 +67,8 @@ def test_target_portfolio_uses_only_available_long_only_spot_eur_signals():
     assert result.target.cash_asset == "EUR"
     assert result.target.source_signal_ids == ("good",)
     assert result.target.source_strategy_ids == ("funding_basis",)
+    assert result.target.source_data_snapshot_ids == ("ohlcv_snapshot",)
+    assert result.target.source_feature_versions == {"basis_bps": "1.0.0"}
     assert {item.reason for item in result.rejected_signals} == {
         "short_not_allowed",
         "signal_not_yet_available",
@@ -95,6 +99,23 @@ def test_target_portfolio_caps_turnover_without_inventing_cash_or_weights():
     assert all(weight >= 0.0 for weight in result.target.target_weights.values())
 
 
+def test_target_portfolio_rejects_conflicting_feature_versions_and_keeps_lineage():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    first = _signal(signal_id="first", edge=20.0)
+    conflicting = replace(
+        _signal(signal_id="second", symbol="ETHEUR", edge=10.0),
+        feature_versions={"basis_bps": "2.0.0"},
+        data_snapshot_id="other_snapshot",
+    )
+
+    result = build_target_portfolio((first, conflicting), decision_id="lineage", decision_at=now)
+
+    assert result.accepted_signal_ids == ("first",)
+    assert result.target.source_data_snapshot_ids == ("ohlcv_snapshot",)
+    assert result.target.source_feature_versions == {"basis_bps": "1.0.0"}
+    assert result.rejected_signals == (SignalRejection("second", "feature_version_conflict:basis_bps"),)
+
+
 def test_capacity_requires_observed_liquidity_and_enforces_participation_limit():
     waiting = estimate_capacity(CapacityInput("BTCEUR", 100.0), max_liquidity_participation=0.05)
     accepted = estimate_capacity(
@@ -110,6 +131,25 @@ def test_capacity_requires_observed_liquidity_and_enforces_participation_limit()
     assert blocked.status == "CAPACITY_EXCEEDED"
     assert blocked.paper_capital_allowed is False
     assert blocked.live_allowed is False
+
+
+def test_capacity_never_treats_historical_volume_as_executable_depth():
+    estimate = estimate_capacity(
+        CapacityInput("BTCEUR", 100.0, observed_volume_eur=100_000.0),
+        max_liquidity_participation=0.05,
+    )
+    curve = estimate_capacity_curve(
+        CapacityInput("BTCEUR", 1.0, observed_volume_eur=100_000.0),
+        desired_notionals_eur=(10.0, 100.0),
+        max_liquidity_participation=0.05,
+    )
+
+    assert estimate.status == "WAITING_FOR_MORE_DATA"
+    assert estimate.maximum_capacity_eur is None
+    assert estimate.reason == "observed_liquidity_missing_volume_not_executable_depth"
+    assert curve.status == "WAITING_FOR_MORE_DATA"
+    assert curve.observed_capacity_source is None
+    assert all(point.maximum_capacity_eur is None for point in curve.points)
 
 
 def test_capacity_curve_is_deterministic_and_never_invents_unobserved_depth():

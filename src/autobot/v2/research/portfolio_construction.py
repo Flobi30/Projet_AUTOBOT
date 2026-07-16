@@ -71,6 +71,8 @@ class CapacityInput:
     symbol: str
     desired_notional_eur: float
     observed_liquidity_eur: float | None = None
+    # Volume is retained as diagnostics, but it is not interchangeable with
+    # immediately executable depth and therefore cannot authorize capacity.
     observed_volume_eur: float | None = None
     observed_at: datetime | None = None
 
@@ -203,6 +205,8 @@ def build_target_portfolio(
     cash_asset = config.cash_asset.upper()
     scores: dict[str, float] = {}
     strategy_ids: dict[str, set[str]] = {}
+    data_snapshot_ids: set[str] = set()
+    feature_versions: dict[str, str] = {}
     accepted: list[str] = []
     rejected: list[SignalRejection] = []
 
@@ -211,10 +215,23 @@ def build_target_portfolio(
         if reason is not None:
             rejected.append(SignalRejection(signal.signal_id, reason))
             continue
+        conflicting_feature = next(
+            (
+                feature_id
+                for feature_id, version in signal.feature_versions.items()
+                if feature_id in feature_versions and feature_versions[feature_id] != version
+            ),
+            None,
+        )
+        if conflicting_feature is not None:
+            rejected.append(SignalRejection(signal.signal_id, f"feature_version_conflict:{conflicting_feature}"))
+            continue
         expected_edge = float(signal.expected_edge_bps or 0.0)
         symbol = signal.market.symbol.upper()
         scores[symbol] = scores.get(symbol, 0.0) + expected_edge
         strategy_ids.setdefault(symbol, set()).add(signal.strategy_id)
+        data_snapshot_ids.add(signal.data_snapshot_id)
+        feature_versions.update(signal.feature_versions)
         accepted.append(signal.signal_id)
 
     target_weights = _capped_score_weights(scores, investable_weight=1.0 - config.reserve_cash_weight, cap=config.max_symbol_weight)
@@ -244,6 +261,8 @@ def build_target_portfolio(
         cash_asset=cash_asset,
         source_signal_ids=tuple(accepted),
         source_strategy_ids=tuple(sorted({strategy_id for values in strategy_ids.values() for strategy_id in values})),
+        source_data_snapshot_ids=tuple(sorted(data_snapshot_ids)),
+        source_feature_versions=dict(sorted(feature_versions.items())),
     )
     return PortfolioConstructionResult(
         target=target,
@@ -258,15 +277,23 @@ def estimate_capacity(
     *,
     max_liquidity_participation: float,
 ) -> CapacityEstimate:
-    """Estimate whether a notional fits observed liquidity without inventing depth."""
+    """Estimate whether a notional fits observed executable liquidity.
+
+    Historical traded volume is not a substitute for point-in-time order-book
+    depth.  It remains useful to describe market activity, but it cannot turn
+    an otherwise unknown capacity into a tradable conclusion.
+    """
 
     participation = float(max_liquidity_participation)
     if not math.isfinite(participation) or not 0.0 < participation <= 1.0:
         raise PortfolioConstructionError("max_liquidity_participation must be in (0, 1]")
     observed = request.observed_liquidity_eur
-    if observed is None:
-        observed = request.observed_volume_eur
     if observed is None or observed <= 0.0:
+        reason = (
+            "observed_liquidity_missing_volume_not_executable_depth"
+            if request.observed_volume_eur is not None
+            else "observed_liquidity_missing"
+        )
         return CapacityEstimate(
             symbol=request.symbol.upper(),
             desired_notional_eur=float(request.desired_notional_eur),
@@ -274,7 +301,7 @@ def estimate_capacity(
             participation_limit=participation,
             maximum_capacity_eur=None,
             status="WAITING_FOR_MORE_DATA",
-            reason="observed_liquidity_missing",
+            reason=reason,
         )
     maximum = float(observed) * participation
     status = "CAPACITY_OK" if float(request.desired_notional_eur) <= maximum else "CAPACITY_EXCEEDED"
@@ -298,8 +325,8 @@ def estimate_capacity_curve(
     """Evaluate a bounded capital grid against the same observed capacity.
 
     This deliberately produces ``WAITING_FOR_MORE_DATA`` instead of estimating
-    market depth when neither a depth nor a volume observation exists.  The
-    curve is research-only evidence; callers must not use it to size an order.
+    market depth from historical traded volume.  The curve is research-only
+    evidence; callers must not use it to size an order.
     """
 
     notionals = tuple(sorted({float(value) for value in desired_notionals_eur}))
@@ -308,13 +335,7 @@ def estimate_capacity_curve(
     if any(not math.isfinite(value) or value <= 0.0 for value in notionals):
         raise PortfolioConstructionError("desired_notionals_eur must be positive and finite")
 
-    source = (
-        "observed_liquidity_eur"
-        if request.observed_liquidity_eur is not None
-        else "observed_volume_eur"
-        if request.observed_volume_eur is not None
-        else None
-    )
+    source = "observed_liquidity_eur" if request.observed_liquidity_eur is not None else None
     points: list[CapacityCurvePoint] = []
     for notional in notionals:
         estimate = estimate_capacity(
@@ -340,18 +361,21 @@ def estimate_capacity_curve(
 
     if source is None:
         status = "WAITING_FOR_MORE_DATA"
-        reason = "observed_liquidity_missing"
+        reason = (
+            "observed_liquidity_missing_volume_not_executable_depth"
+            if request.observed_volume_eur is not None
+            else "observed_liquidity_missing"
+        )
     elif any(point.status == "CAPACITY_EXCEEDED" for point in points):
         status = "CAPACITY_EXCEEDED"
         reason = "one_or_more_capital_levels_exceed_observed_participation_limit"
     else:
         status = "CAPACITY_OK"
         reason = "all_capital_levels_within_observed_participation_limit"
-    observed = request.observed_liquidity_eur if request.observed_liquidity_eur is not None else request.observed_volume_eur
     return CapacityCurve(
         symbol=request.symbol.upper(),
         observed_capacity_source=source,
-        observed_liquidity_eur=float(observed) if observed is not None else None,
+        observed_liquidity_eur=float(request.observed_liquidity_eur) if request.observed_liquidity_eur is not None else None,
         participation_limit=float(max_liquidity_participation),
         points=tuple(points),
         status=status,

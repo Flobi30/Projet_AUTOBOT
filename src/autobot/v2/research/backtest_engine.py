@@ -56,6 +56,7 @@ class BacktestConfig:
     max_drawdown_pct: float = 15.0
     close_open_positions_at_end: bool = True
     min_signal_net_edge_bps: float | None = None
+    execution_timing: str = "next_bar_open"
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ class BacktestResult:
     signal_count: int
     fill_count: int
     rejected_fill_count: int
+    unexecuted_signal_count: int
     trade_count: int
     metrics: MetricsResult
     baselines: tuple[BaselineResult, ...]
@@ -109,6 +111,7 @@ class BacktestResult:
             "signal_count": self.signal_count,
             "fill_count": self.fill_count,
             "rejected_fill_count": self.rejected_fill_count,
+            "unexecuted_signal_count": self.unexecuted_signal_count,
             "trade_count": self.trade_count,
             "metrics": self.metrics.to_dict(),
             "baselines": [baseline.to_dict() for baseline in self.baselines],
@@ -124,6 +127,7 @@ class BacktestResult:
 class _OpenPosition:
     signal: BacktestSignal
     fill: FillResult
+    cash_debit_eur: float
     highest_price: float
     lowest_price: float
     bars_held: int = 0
@@ -144,6 +148,8 @@ class BacktestEngine:
             raise ValueError("initial_capital_eur must be positive")
         if config.default_order_notional_eur <= 0.0:
             raise ValueError("default_order_notional_eur must be positive")
+        if config.execution_timing != "next_bar_open":
+            raise ValueError("research backtests require execution_timing='next_bar_open'")
         self.config = config
         self.market_data_repository = market_data_repository or MarketDataRepository()
         self.cost_model = cost_model or ExecutionCostModel(config.cost_config)
@@ -161,26 +167,29 @@ class BacktestEngine:
         history_by_symbol: dict[str, list[MarketBar]] = {}
         positions: dict[str, _OpenPosition] = {}
         journal = TradeJournal()
+        available_cash_eur = float(self.config.initial_capital_eur)
         signal_count = 0
         fill_count = 0
         rejected_fill_count = 0
+        unexecuted_signal_count = 0
         latest_by_symbol: dict[str, MarketBar] = {}
+        pending_by_symbol: dict[str, list[BacktestSignal]] = {}
 
         for bar in ordered_bars:
-            latest_by_symbol[bar.symbol] = bar
-            current_position = positions.get(bar.symbol)
+            symbol = bar.symbol.upper()
+            latest_by_symbol[symbol] = bar
+            current_position = positions.get(symbol)
             if current_position is not None:
-                positions[bar.symbol] = self._update_position_path(current_position, bar)
-            history = history_by_symbol.setdefault(bar.symbol, [])
-            history.append(bar)
-            signals = list(signal_generator(bar, tuple(history)))
-            signal_count += len(signals)
-            for signal in signals:
-                if signal.symbol.upper() != bar.symbol.upper():
-                    rejected_fill_count += 1
-                    continue
+                positions[symbol] = self._update_position_path(current_position, bar)
+
+            # Signals are produced only after a bar has closed.  They can
+            # therefore be filled no earlier than the open of the next bar.
+            # This removes the otherwise optimistic "know the close, fill at
+            # that close" assumption from research validation.
+            for pending_signal in pending_by_symbol.pop(symbol, []):
+                signal = self._execution_signal_for_next_bar(pending_signal, bar)
                 if signal.side.lower() == "buy":
-                    if signal.symbol in positions:
+                    if symbol in positions:
                         rejected_fill_count += 1
                         continue
                     gated_signal = self._apply_signal_edge_gate(signal)
@@ -189,17 +198,23 @@ class BacktestEngine:
                         continue
                     fill = self._simulate_signal(gated_signal)
                     if fill.accepted:
+                        cash_debit = _buy_cash_debit(fill)
+                        if cash_debit > available_cash_eur + 1e-9:
+                            rejected_fill_count += 1
+                            continue
                         fill_count += 1
-                        positions[gated_signal.symbol] = _OpenPosition(
+                        available_cash_eur -= cash_debit
+                        positions[symbol] = _OpenPosition(
                             signal=gated_signal,
                             fill=fill,
+                            cash_debit_eur=cash_debit,
                             highest_price=fill.execution_price,
                             lowest_price=fill.execution_price,
                         )
                     else:
                         rejected_fill_count += 1
                 elif signal.side.lower() == "sell":
-                    position = positions.pop(signal.symbol, None)
+                    position = positions.pop(symbol, None)
                     if position is None:
                         rejected_fill_count += 1
                         continue
@@ -207,12 +222,32 @@ class BacktestEngine:
                     fill = self._simulate_signal(exit_signal)
                     if fill.accepted:
                         fill_count += 1
+                        available_cash_eur += _sell_cash_credit(fill)
                         journal.add(self._trade_record(position, exit_signal, fill))
                     else:
                         rejected_fill_count += 1
-                        positions[signal.symbol] = position
+                        positions[symbol] = position
                 else:
                     rejected_fill_count += 1
+
+            history = history_by_symbol.setdefault(symbol, [])
+            history.append(bar)
+            signals = list(signal_generator(bar, tuple(history)))
+            signal_count += len(signals)
+            for signal in signals:
+                if signal.symbol.upper() != symbol:
+                    rejected_fill_count += 1
+                    continue
+                if signal.side.lower() not in {"buy", "sell"}:
+                    rejected_fill_count += 1
+                    continue
+                pending_by_symbol.setdefault(symbol, []).append(signal)
+
+        # A decision on the final closed bar has no next market open at which
+        # it could honestly be executed.  Count it explicitly rather than
+        # manufacturing a fill from unavailable future data.
+        unexecuted_signal_count = sum(len(signals) for signals in pending_by_symbol.values())
+        rejected_fill_count += unexecuted_signal_count
 
         if self.config.close_open_positions_at_end:
             for symbol, position in list(positions.items()):
@@ -226,11 +261,17 @@ class BacktestEngine:
                     timestamp=final_bar.timestamp,
                     reason="end_of_run_close",
                     quantity=position.fill.quantity,
-                    metadata={"forced_close": True, **dict(position.signal.metadata)},
+                    metadata={
+                        "forced_close": True,
+                        "execution_timing": "terminal_bar_close",
+                        "terminal_close_assumption": True,
+                        **dict(position.signal.metadata),
+                    },
                 )
                 fill = self._simulate_signal(exit_signal)
                 if fill.accepted:
                     fill_count += 1
+                    available_cash_eur += _sell_cash_credit(fill)
                     journal.add(self._trade_record(position, exit_signal, fill))
                 else:
                     rejected_fill_count += 1
@@ -253,6 +294,7 @@ class BacktestEngine:
             signal_count=signal_count,
             fill_count=fill_count,
             rejected_fill_count=rejected_fill_count,
+            unexecuted_signal_count=unexecuted_signal_count,
             trade_count=len(journal.records),
             metrics=metrics,
             baselines=baselines,
@@ -265,6 +307,31 @@ class BacktestEngine:
 
     def _simulate_signal(self, signal: BacktestSignal) -> FillResult:
         return self.cost_model.simulate_fill(self._fill_request_for_signal(signal))
+
+    @staticmethod
+    def _execution_signal_for_next_bar(signal: BacktestSignal, bar: MarketBar) -> BacktestSignal:
+        """Materialize a close-based decision at the next bar's opening price.
+
+        Signal metadata remains the audit record of the decision. Market
+        metadata from the execution bar wins for execution-sensitive fields
+        when it is actually available; volume is intentionally not treated as
+        executable liquidity.
+        """
+
+        metadata = dict(signal.metadata)
+        metadata.update(
+            {
+                "decision_price": float(signal.price),
+                "decision_timestamp": _timestamp_text(signal.timestamp),
+                "execution_reference_price": float(bar.open),
+                "execution_timestamp": bar.timestamp.isoformat(),
+                "execution_timing": "next_bar_open",
+            }
+        )
+        for key in ("liquidity_eur", "bid", "ask"):
+            if bar.metadata.get(key) is not None:
+                metadata[key] = bar.metadata[key]
+        return replace(signal, price=float(bar.open), timestamp=bar.timestamp, metadata=metadata)
 
     def _apply_signal_edge_gate(self, signal: BacktestSignal) -> BacktestSignal | None:
         """Apply optional cost-aware signal gate before simulated execution.
@@ -588,6 +655,7 @@ def render_backtest_report(result: BacktestResult) -> str:
         f"- Signals: {result.signal_count}",
         f"- Fills: {result.fill_count}",
         f"- Rejected fills/signals: {result.rejected_fill_count}",
+        f"- Signals without a following market open: {result.unexecuted_signal_count}",
         f"- Closed trades: {result.trade_count}",
         "",
         "## Metrics",
@@ -654,3 +722,21 @@ def _optional_float(value) -> float | None:
     except (TypeError, ValueError):
         return None
     return result if math.isfinite(result) else None
+
+
+def _timestamp_text(value: Any) -> str:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _buy_cash_debit(fill: FillResult) -> float:
+    """Cash required by a long-only simulated entry at its adverse fill price."""
+
+    return (float(fill.execution_price) * float(fill.quantity)) + float(fill.fee_eur)
+
+
+def _sell_cash_credit(fill: FillResult) -> float:
+    """Cash returned by a long-only simulated exit after its commission."""
+
+    return (float(fill.execution_price) * float(fill.quantity)) - float(fill.fee_eur)
