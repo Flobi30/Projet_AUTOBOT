@@ -81,6 +81,12 @@ class KrakenFuturesCollectorConfig:
     continue_on_error: bool = False
     observed_at: datetime | None = None
     raw_retention_days: int | None = None
+    # Historical chart pagination is deliberately opt-in.  The scheduled
+    # forward collector remains a small current snapshot job unless a bounded
+    # research backfill explicitly supplies a start timestamp.
+    candle_backfill_start_at: datetime | None = None
+    candle_backfill_end_at: datetime | None = None
+    candle_max_pages_per_series: int = 1
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
@@ -99,9 +105,29 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("raw_retention_days must be non-negative when provided")
         if self.observed_at is not None and (self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None):
             raise ValueError("observed_at must be timezone-aware when provided")
+        for label, timestamp in (
+            ("candle_backfill_start_at", self.candle_backfill_start_at),
+            ("candle_backfill_end_at", self.candle_backfill_end_at),
+        ):
+            if timestamp is not None and (timestamp.tzinfo is None or timestamp.utcoffset() is None):
+                raise ValueError(f"{label} must be timezone-aware when provided")
+        if self.candle_backfill_end_at is not None and self.candle_backfill_start_at is None:
+            raise ValueError("candle_backfill_end_at requires candle_backfill_start_at")
+        if (
+            self.candle_backfill_start_at is not None
+            and self.candle_backfill_end_at is not None
+            and self.candle_backfill_end_at <= self.candle_backfill_start_at
+        ):
+            raise ValueError("candle_backfill_end_at must be after candle_backfill_start_at")
+        if self.candle_max_pages_per_series <= 0 or self.candle_max_pages_per_series > 50:
+            raise ValueError("candle_max_pages_per_series must be between 1 and 50")
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
         if unknown_ticks:
             raise ValueError(f"unsupported Kraken Futures tick types: {', '.join(unknown_ticks)}")
+
+    @property
+    def candle_backfill_enabled(self) -> bool:
+        return self.candle_backfill_start_at is not None
 
 
 @dataclass(frozen=True)
@@ -320,27 +346,49 @@ def collect_kraken_futures_derivatives(
         if config.collect_candles:
             for tick_type in config.tick_types:
                 endpoint = f"{CHARTS_ENDPOINT_PREFIX}/{tick_type}/{mapping.futures_symbol}/{config.resolution}"
-                payload = _safe_fetch(
-                    api,
-                    endpoint,
-                    raw_run_dir / f"{mapping.futures_symbol}_{tick_type}_{config.resolution}_candles.json",
-                    errors,
-                    config.continue_on_error,
-                )
-                raw_response_count += 1 if payload is not None else 0
-                if payload:
-                    candle_rows.extend(
-                        _candle_rows_from_payload(
-                            payload,
-                            mapping,
-                            tick_type=tick_type,
-                            timeframe=config.resolution,
-                            max_candles=config.max_candles,
-                            invalid_rows=invalid_rows,
-                            ingestion_time=collection_time,
-                        )
+                candle_page_params = _initial_candle_page_params(config)
+                for page_index in range(config.candle_max_pages_per_series):
+                    page_suffix = f"_page_{page_index + 1}" if config.candle_backfill_enabled else ""
+                    payload = _safe_fetch(
+                        api,
+                        endpoint,
+                        raw_run_dir / f"{mapping.futures_symbol}_{tick_type}_{config.resolution}_candles{page_suffix}.json",
+                        errors,
+                        config.continue_on_error,
+                        params=candle_page_params,
                     )
-                _sleep(config.sleep_seconds)
+                    raw_response_count += 1 if payload is not None else 0
+                    if payload:
+                        candle_rows.extend(
+                            _candle_rows_from_payload(
+                                payload,
+                                mapping,
+                                tick_type=tick_type,
+                                timeframe=config.resolution,
+                                max_candles=config.max_candles,
+                                invalid_rows=invalid_rows,
+                                ingestion_time=collection_time,
+                            )
+                        )
+                    _sleep(config.sleep_seconds)
+                    if not config.candle_backfill_enabled:
+                        break
+                    candle_page_params = _next_candle_page_params(
+                        payload,
+                        current_params=candle_page_params,
+                        timeframe=config.resolution,
+                        config=config,
+                        mapping=mapping,
+                        tick_type=tick_type,
+                        errors=errors,
+                    )
+                    if candle_page_params is None:
+                        break
+
+    # A candle-derived basis is historical only when mark and reference close
+    # values are aligned at the same timestamp and share an explicit quote
+    # currency.  This deliberately rejects any implicit USD/EUR comparison.
+    basis_rows.extend(_basis_rows_from_aligned_candles(candle_rows, invalid_rows=invalid_rows))
 
     funding_rows, funding_dupes = _dedupe_rows(funding_rows, ("exchange", "futures_symbol", "timestamp"))
     ticker_rows, ticker_dupes = _dedupe_rows(ticker_rows, ("exchange", "futures_symbol", "timestamp"))
@@ -808,6 +856,91 @@ def _safe_fetch(
         return None
 
 
+def _initial_candle_page_params(config: KrakenFuturesCollectorConfig) -> dict[str, int] | None:
+    """Build the documented bounded Charts query for an explicit backfill.
+
+    The ordinary forward job intentionally preserves the endpoint's current
+    snapshot behaviour.  Historical pagination only occurs when a caller has
+    supplied a timezone-aware research start bound.
+    """
+
+    if not config.candle_backfill_enabled:
+        return None
+    assert config.candle_backfill_start_at is not None
+    params = {
+        "from": int(config.candle_backfill_start_at.timestamp()),
+        "count": config.max_candles,
+    }
+    if config.candle_backfill_end_at is not None:
+        params["to"] = int(config.candle_backfill_end_at.timestamp())
+    return params
+
+
+def _next_candle_page_params(
+    payload: Mapping[str, Any] | None,
+    *,
+    current_params: Mapping[str, int] | None,
+    timeframe: str,
+    config: KrakenFuturesCollectorConfig,
+    mapping: KrakenFuturesInstrumentMapping,
+    tick_type: str,
+    errors: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    """Return the next bounded Charts page or stop safely.
+
+    Kraken returns ``more_candles`` when its response has another page.  The
+    next request advances by exactly one complete bar after the latest candle
+    timestamp, which prevents duplicate economic observations.  An invalid or
+    non-advancing response stops collection rather than retrying indefinitely.
+    """
+
+    if not payload or not bool(payload.get("more_candles")):
+        return None
+    if current_params is None:
+        return None
+    candles = payload.get("candles") or ()
+    timestamps = [_parse_timestamp(item.get("time")) for item in candles if isinstance(item, Mapping)]
+    latest = max((timestamp for timestamp in timestamps if timestamp is not None), default=None)
+    if latest is None:
+        errors.append(
+            {
+                "dataset": "derivatives_candles",
+                "futures_symbol": mapping.futures_symbol,
+                "tick_type": tick_type,
+                "reason": "backfill_pagination_missing_candle_timestamp",
+            }
+        )
+        return None
+    try:
+        next_from = int(latest.timestamp()) + TIMEFRAME_SECONDS[timeframe]
+    except KeyError:
+        errors.append(
+            {
+                "dataset": "derivatives_candles",
+                "futures_symbol": mapping.futures_symbol,
+                "tick_type": tick_type,
+                "reason": "backfill_pagination_unknown_timeframe",
+            }
+        )
+        return None
+    current_from = int(current_params.get("from", 0))
+    if next_from <= current_from:
+        errors.append(
+            {
+                "dataset": "derivatives_candles",
+                "futures_symbol": mapping.futures_symbol,
+                "tick_type": tick_type,
+                "reason": "backfill_pagination_non_advancing",
+            }
+        )
+        return None
+    if config.candle_backfill_end_at is not None and next_from >= int(config.candle_backfill_end_at.timestamp()):
+        return None
+    params = dict(current_params)
+    params["from"] = next_from
+    return params
+
+
 def _funding_rows_from_payload(
     payload: Mapping[str, Any],
     mapping: KrakenFuturesInstrumentMapping,
@@ -951,6 +1084,110 @@ def _basis_rows_from_tickers(rows: Sequence[Mapping[str, Any]], *, invalid_rows:
                 "confidence_status": status,
                 "source": TICKERS_ENDPOINT,
                 "source_endpoint": TICKERS_ENDPOINT,
+            }
+        )
+    return basis_rows
+
+
+def _basis_rows_from_aligned_candles(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    invalid_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive historical same-quote basis from closed mark and spot candles.
+
+    A raw current ticker is not an historical basis series.  This function
+    only creates a row when Kraken Futures mark and spot-reference candles are
+    aligned on symbol, timeframe and close timestamp.  The mapping quote is
+    explicit and passed through ``calculate_basis_bps`` so a USD future can
+    never be silently compared with a EUR execution pair.
+    """
+
+    by_key: dict[tuple[str, str, str, str], dict[str, Mapping[str, Any]]] = {}
+    for row in rows:
+        tick_type = str(row.get("tick_type") or "")
+        if tick_type not in {"mark", "spot"}:
+            continue
+        key = (
+            str(row.get("exchange") or ""),
+            str(row.get("futures_symbol") or ""),
+            str(row.get("timeframe") or ""),
+            str(row.get("timestamp") or ""),
+        )
+        if not all(key):
+            continue
+        by_key.setdefault(key, {})[tick_type] = row
+
+    basis_rows: list[dict[str, Any]] = []
+    for (_exchange, futures_symbol, timeframe, _timestamp), candle_pair in sorted(by_key.items()):
+        mark_row = candle_pair.get("mark")
+        spot_row = candle_pair.get("spot")
+        if mark_row is None or spot_row is None:
+            continue
+        mark = _safe_float(mark_row.get("close"))
+        reference = _safe_float(spot_row.get("close"))
+        mark_quote = str(mark_row.get("quote_asset") or "")
+        reference_quote = str(spot_row.get("quote_asset") or "")
+        basis, status = calculate_basis_bps(
+            mark_price=mark,
+            reference_price=reference,
+            mark_quote=mark_quote,
+            reference_quote=reference_quote,
+        )
+        if basis is None:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": futures_symbol,
+                    "reason": status,
+                    "calculation_method": f"mark_candle_{timeframe}_close_over_spot_candle_close",
+                }
+            )
+            continue
+        if abs(basis) > 5_000:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": futures_symbol,
+                    "reason": "basis_bps_anomaly",
+                    "calculation_method": f"mark_candle_{timeframe}_close_over_spot_candle_close",
+                }
+            )
+            continue
+        mark_available = _parse_timestamp(mark_row.get("available_time"))
+        reference_available = _parse_timestamp(spot_row.get("available_time"))
+        if mark_available is None or reference_available is None:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": futures_symbol,
+                    "reason": "basis_candle_available_time_missing",
+                }
+            )
+            continue
+        available_at = max(mark_available, reference_available)
+        basis_rows.append(
+            {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
+                "timestamp": mark_row["timestamp"],
+                "event_time": mark_row["event_time"],
+                "available_time": available_at.isoformat(),
+                "ingestion_time": max(
+                    _parse_timestamp(mark_row.get("ingestion_time")) or available_at,
+                    _parse_timestamp(spot_row.get("ingestion_time")) or available_at,
+                ).isoformat(),
+                "temporal_status": "AVAILABLE_AFTER_ALIGNED_BAR_CLOSE",
+                "exchange": mark_row["exchange"],
+                "futures_symbol": futures_symbol,
+                "base_asset": mark_row["base_asset"],
+                "quote_asset": mark_quote,
+                "basis_bps": _stable_number(basis),
+                "mark_price": mark_row["close"],
+                "index_or_reference_price": spot_row["close"],
+                "calculation_method": f"mark_candle_{timeframe}_close_over_spot_candle_close",
+                "confidence_status": status,
+                "source": "kraken_futures_aligned_mark_spot_candles",
+                "source_endpoint": f"{CHARTS_ENDPOINT_PREFIX}/mark/{{symbol}}/{{resolution}}+{CHARTS_ENDPOINT_PREFIX}/spot/{{symbol}}/{{resolution}}",
             }
         )
     return basis_rows

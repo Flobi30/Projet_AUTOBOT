@@ -17,6 +17,7 @@ from autobot.v2.research.kraken_futures_derivatives_collector import (
     INSTRUMENTS_ENDPOINT,
     TICKERS_ENDPOINT,
     KrakenFuturesCollectorConfig,
+    _basis_rows_from_aligned_candles,
     assert_public_kraken_futures_endpoint,
     calculate_basis_bps,
     collect_kraken_futures_derivatives,
@@ -135,7 +136,7 @@ def test_invalid_open_interest_does_not_discard_valid_mark_index_or_basis(tmp_pa
     ticker = next(item for item in result.datasets if item.dataset_id == "ticker_snapshots")
     basis = next(item for item in result.datasets if item.dataset_id == "basis")
     assert ticker.row_count == 1
-    assert basis.row_count == 1
+    assert basis.row_count >= 1
     assert result.current_open_interest_ready is False
     assert any(item.get("reason") == "negative_open_interest" for item in result.errors)
 
@@ -214,6 +215,12 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
             "2",
             "--max-candles",
             "5",
+            "--candle-backfill-start-at",
+            "2026-07-01T00:00:00+00:00",
+            "--candle-backfill-end-at",
+            "2026-07-02T00:00:00+00:00",
+            "--candle-max-pages-per-series",
+            "2",
             "--raw-retention-days",
             "7",
         ]
@@ -222,7 +229,108 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.command == "collect-kraken-futures-derivatives"
     assert args.max_symbols == 2
     assert args.max_candles == 5
+    assert args.candle_backfill_start_at == "2026-07-01T00:00:00+00:00"
+    assert args.candle_backfill_end_at == "2026-07-02T00:00:00+00:00"
+    assert args.candle_max_pages_per_series == 2
     assert args.raw_retention_days == 7
+
+
+def test_bounded_mark_spot_candle_backfill_derives_same_quote_history_without_orders(tmp_path):
+    class _PaginatedCandleClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if not endpoint.startswith("/api/charts/v1/"):
+                return super().get_json(endpoint, params)
+            assert params is not None
+            self.calls.append((endpoint, params))
+            start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+            requested_from = int(params["from"])
+            first_page = requested_from == int(start.timestamp())
+            page_start = start if first_page else start + timedelta(hours=2)
+            tick_type = endpoint.split("/")[4]
+            base = 101.0 if tick_type == "mark" else 100.0
+            return {
+                "candles": [
+                    {
+                        "time": int((page_start + timedelta(hours=index)).timestamp() * 1000),
+                        "open": str(base),
+                        "high": str(base + 1.0),
+                        "low": str(base - 1.0),
+                        "close": str(base),
+                        "volume": "1.0",
+                    }
+                    for index in range(2)
+                ],
+                "more_candles": first_page,
+            }
+
+    client = _PaginatedCandleClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="bounded_basis_backfill",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            tick_types=("mark", "spot"),
+            resolution="1h",
+            max_candles=2,
+            candle_backfill_start_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            candle_backfill_end_at=datetime(2026, 7, 2, tzinfo=timezone.utc),
+            candle_max_pages_per_series=2,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            observed_at=datetime(2026, 7, 3, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    chart_calls = [(endpoint, params) for endpoint, params in client.calls if endpoint.startswith("/api/charts/v1/")]
+    assert len(chart_calls) == 4
+    assert all(params["count"] == 2 for _endpoint, params in chart_calls)
+    assert all(params["to"] == int(datetime(2026, 7, 2, tzinfo=timezone.utc).timestamp()) for _endpoint, params in chart_calls)
+    assert {params["from"] for _endpoint, params in chart_calls} == {
+        int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
+        int(datetime(2026, 7, 1, 2, tzinfo=timezone.utc).timestamp()),
+    }
+    basis_dataset = next(item for item in result.datasets if item.dataset_id == "basis")
+    assert basis_dataset.row_count == 4
+    with Path(str(basis_dataset.csv_path)).open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert {row["calculation_method"] for row in rows} == {"mark_candle_1h_close_over_spot_candle_close"}
+    assert {row["confidence_status"] for row in rows} == {"MARK_INDEX_SAME_QUOTE"}
+    assert {row["basis_bps"] for row in rows} == {"100"}
+    assert result.paper_capital_allowed is False
+    assert result.live_allowed is False
+    assert result.promotable is False
+    assert not any("order" in endpoint.lower() for endpoint, _params in client.calls)
+
+
+def test_aligned_candle_basis_rejects_quote_currency_mismatch():
+    base = {
+        "schema_version": "2",
+        "timestamp": "2026-07-01T00:00:00+00:00",
+        "event_time": "2026-07-01T00:00:00+00:00",
+        "available_time": "2026-07-01T01:00:00+00:00",
+        "ingestion_time": "2026-07-01T01:00:00+00:00",
+        "exchange": "kraken_futures",
+        "futures_symbol": "PF_XBTUSD",
+        "base_asset": "BTC",
+        "timeframe": "1h",
+        "close": "101",
+    }
+    invalid_rows: list[dict[str, Any]] = []
+    rows = _basis_rows_from_aligned_candles(
+        (
+            {**base, "tick_type": "mark", "quote_asset": "USD"},
+            {**base, "tick_type": "spot", "quote_asset": "EUR", "close": "100"},
+        ),
+        invalid_rows=invalid_rows,
+    )
+
+    assert rows == []
+    assert invalid_rows[0]["reason"] == "BASIS_REFERENCE_UNVERIFIED"
 
 
 def test_raw_retention_prunes_only_old_completed_raw_runs_after_canonical_write(tmp_path):

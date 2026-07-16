@@ -630,6 +630,22 @@ def _build_parser() -> argparse.ArgumentParser:
     futures_derivatives.add_argument("--tick-types", default="trade,mark,spot")
     futures_derivatives.add_argument("--resolution", default="1m")
     futures_derivatives.add_argument("--max-candles", type=int, default=25)
+    futures_derivatives.add_argument(
+        "--candle-backfill-start-at",
+        default=None,
+        help="UTC ISO-8601 start for an opt-in, bounded public Charts backfill",
+    )
+    futures_derivatives.add_argument(
+        "--candle-backfill-end-at",
+        default=None,
+        help="UTC ISO-8601 exclusive end for an opt-in public Charts backfill",
+    )
+    futures_derivatives.add_argument(
+        "--candle-max-pages-per-series",
+        type=int,
+        default=1,
+        help="Hard maximum public Charts pages per symbol/tick type (default: 1)",
+    )
     futures_derivatives.add_argument("--raw-dir", default="data/research/raw/kraken_futures")
     futures_derivatives.add_argument("--canonical-dir", default="data/research/canonical/derivatives")
     futures_derivatives.add_argument("--manifest-dir", default="data/research/manifests")
@@ -2913,6 +2929,13 @@ def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
             tick_types=tuple(item.strip().lower() for item in _csv_tuple(args.tick_types, "--tick-types")),
             resolution=args.resolution,
             max_candles=args.max_candles,
+            candle_backfill_start_at=(
+                _parse_datetime(args.candle_backfill_start_at) if args.candle_backfill_start_at else None
+            ),
+            candle_backfill_end_at=(
+                _parse_datetime(args.candle_backfill_end_at) if args.candle_backfill_end_at else None
+            ),
+            candle_max_pages_per_series=args.candle_max_pages_per_series,
             raw_dir=Path(args.raw_dir),
             canonical_dir=Path(args.canonical_dir),
             manifest_dir=Path(args.manifest_dir),
