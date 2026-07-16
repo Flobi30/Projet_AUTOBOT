@@ -15,6 +15,12 @@ def test_shadow_paper_adapter_is_disabled_by_default(monkeypatch):
     assert ShadowPaperAdapterConfig.from_env().enabled is False
 
 
+def test_shadow_paper_adapter_stays_disabled_when_legacy_environment_requests_it(monkeypatch):
+    monkeypatch.setenv("PAPER_EXECUTION_ADAPTER_ENABLED", "true")
+
+    assert ShadowPaperAdapterConfig.from_env().enabled is False
+
+
 @pytest.mark.asyncio
 async def test_disabled_adapter_never_calls_the_signal_handler():
     adapter = ShadowPaperExecutionAdapter()
@@ -27,12 +33,15 @@ async def test_disabled_adapter_never_calls_the_signal_handler():
         shadow_symbol_row={},
     )
 
-    assert result == {"handled": False, "reason": "adapter_disabled"}
+    assert result["handled"] is False
+    assert result["reason"] == "legacy_shadow_paper_bridge_retired"
+    assert result["paper_capital_allowed"] is False
+    assert result["live_allowed"] is False
     assert handler.calls == 0
 
 
 @pytest.mark.asyncio
-async def test_enabled_adapter_does_not_claim_a_blocked_entry_was_handled():
+async def test_caller_cannot_reenable_adapter_or_reach_legacy_handler():
     adapter = ShadowPaperExecutionAdapter(ShadowPaperAdapterConfig(enabled=True))
 
     class _Handler:
@@ -72,5 +81,5 @@ async def test_enabled_adapter_does_not_claim_a_blocked_entry_was_handled():
     )
 
     assert result["handled"] is False
-    assert result["reason"] == "legacy_direct_execution_disabled"
-    assert result["shadow_contract_preview"]["status"] == "SHADOW_PREVIEW_REJECTED"
+    assert result["reason"] == "legacy_shadow_paper_bridge_retired"
+    assert adapter.config.enabled is False

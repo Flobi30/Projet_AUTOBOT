@@ -37,4 +37,5 @@ def test_force_enable_all_true_applies_override(monkeypatch):
 
     _apply_force_enable_all_hardening_flags(hardening_flags)
 
-    assert all(value is True for value in hardening_flags.values())
+    assert hardening_flags["enable_shadow_promotion"] is False
+    assert all(value is True for key, value in hardening_flags.items() if key != "enable_shadow_promotion")

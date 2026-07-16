@@ -204,6 +204,7 @@ class RiskMandateReference:
     capital_max_eur: Decimal | float
     expires_at: str
     human_approved_required_for_risk_increase: bool
+    shadow_notional_max_eur: Decimal | float = 0.0
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     contract_version: int = CONTRACT_VERSION
@@ -212,8 +213,11 @@ class RiskMandateReference:
         for field_name in ("mandate_id", "strategy_id", "fingerprint", "mode_allowed", "expires_at"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
         capital_max_eur = float(self.capital_max_eur)
+        shadow_notional_max_eur = float(self.shadow_notional_max_eur)
         if not math.isfinite(capital_max_eur) or capital_max_eur < 0:
             raise ValueError("risk mandate capital_max_eur must be non-negative and finite")
+        if not math.isfinite(shadow_notional_max_eur) or shadow_notional_max_eur < 0:
+            raise ValueError("risk mandate shadow_notional_max_eur must be non-negative and finite")
         try:
             expires_at = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
         except ValueError as exc:
@@ -227,6 +231,7 @@ class RiskMandateReference:
         object.__setattr__(self, "strategy_id", self.strategy_id.lower())
         object.__setattr__(self, "mode_allowed", self.mode_allowed.lower())
         object.__setattr__(self, "capital_max_eur", capital_max_eur)
+        object.__setattr__(self, "shadow_notional_max_eur", shadow_notional_max_eur)
         object.__setattr__(self, "expires_at", expires_at.astimezone(timezone.utc).isoformat())
 
     def is_current(self, at: datetime) -> bool:
@@ -396,6 +401,10 @@ class OrderIntent:
                 raise ValueError("strategy_artifact risk mandate does not allow shadow")
             if not mandate.is_current(created_at):
                 raise ValueError("strategy_artifact risk mandate is expired")
+            if mandate.shadow_notional_max_eur <= 0.0:
+                raise ValueError("strategy_artifact risk mandate shadow notional is disabled")
+            if target_notional > mandate.shadow_notional_max_eur + 1e-12:
+                raise ValueError("order intent exceeds strategy artifact shadow notional limit")
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "execution_mode", mode)
         object.__setattr__(self, "created_at", created_at)

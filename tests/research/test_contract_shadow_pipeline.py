@@ -16,6 +16,7 @@ from autobot.v2.contracts import (
     StrategyArtifactReference,
 )
 from autobot.v2.research.contract_shadow_pipeline import evaluate_alpha_signal_in_shadow
+from autobot.v2.research.backtest_alpha_adapter import cost_model_fingerprint
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.execution_simulator import (
     MarketExecutionRules,
@@ -32,7 +33,17 @@ def _timestamp() -> datetime:
     return datetime(2026, 7, 16, 12, tzinfo=timezone.utc)
 
 
-def _signal() -> AlphaSignal:
+def _base_cost_config() -> ExecutionCostConfig:
+    return ExecutionCostConfig(
+        taker_fee_bps=10.0,
+        fallback_spread_bps=8.0,
+        slippage_bps=4.0,
+        latency_buffer_bps=1.0,
+        max_liquidity_participation=0.05,
+    )
+
+
+def _signal(*, expected_edge_bps: float = 25.0) -> AlphaSignal:
     at = _timestamp()
     return AlphaSignal(
         strategy_id="funding_basis",
@@ -44,7 +55,8 @@ def _signal() -> AlphaSignal:
         available_at=at,
         feature_versions={"basis_bps": "1"},
         data_snapshot_id="snapshot-contract-shadow",
-        expected_edge_bps=25.0,
+        expected_edge_bps=expected_edge_bps,
+        metadata={"cost_model_fingerprint": cost_model_fingerprint(_base_cost_config().to_dict())},
     )
 
 
@@ -76,6 +88,7 @@ def _artifact() -> StrategyArtifactReference:
             fingerprint="mandate-fingerprint-contract-shadow",
             mode_allowed="shadow",
             capital_max_eur=0.0,
+            shadow_notional_max_eur=1_000.0,
             expires_at="2026-12-31T23:59:59+00:00",
             human_approved_required_for_risk_increase=True,
         ),
@@ -84,13 +97,7 @@ def _artifact() -> StrategyArtifactReference:
 
 def _simulator() -> ResearchExecutionSimulator:
     return ResearchExecutionSimulator(
-        cost_config=ExecutionCostConfig(
-            taker_fee_bps=10.0,
-            fallback_spread_bps=8.0,
-            slippage_bps=4.0,
-            latency_buffer_bps=1.0,
-            max_liquidity_participation=0.05,
-        ),
+        cost_config=_base_cost_config(),
         market_rules={"BTCEUR": MarketExecutionRules("BTCEUR", 0.0001, 5.0, 8, 1)},
     )
 
@@ -115,6 +122,7 @@ def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
             "BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=20_000.0, observed_at=_timestamp())
         },
         max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(
             ShadowMarketSnapshot(
@@ -131,6 +139,7 @@ def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
     assert review.status == "SHADOW_FILLED"
     assert review.target_result is not None
     assert review.capacity_review is not None and review.capacity_review.status == "CAPACITY_OK"
+    assert review.scenario_review is not None and review.scenario_review.status == "SCENARIO_EDGE_OK"
     assert review.order_intent is not None and review.order_intent.execution_mode == "shadow"
     assert review.outcome is not None and review.outcome.status == "FILLED"
     assert review.execution_command_created is False
@@ -151,6 +160,7 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
             )
         },
         max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
         risk_decision=_risk_decision(),
@@ -162,6 +172,7 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
         capital_eur=1_000.0,
         capacity_observations={},
         max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
         risk_decision=_risk_decision(),
@@ -173,6 +184,27 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
     assert mismatch.status == "CONTRACT_REJECTED"
     assert mismatch.reason == "strategy_artifact_data_snapshot_mismatch"
     assert mismatch.order_intent is None
+
+
+def test_contract_shadow_pipeline_blocks_missing_or_pessimistic_cost_evidence():
+    weak_signal = _signal(expected_edge_bps=5.0)
+    blocked = evaluate_alpha_signal_in_shadow(
+        weak_signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={},
+        max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
+        simulator=_simulator(),
+        snapshots=(),
+        risk_decision=_risk_decision(),
+    )
+
+    assert blocked.status == "SCENARIO_BLOCKED"
+    assert blocked.reason == "pessimistic_net_edge_not_positive"
+    assert blocked.order_intent is None
+    assert blocked.scenario_review is not None
 
 
 def test_contract_shadow_pipeline_does_not_import_runtime_execution_paths():

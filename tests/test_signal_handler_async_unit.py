@@ -19,8 +19,8 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _enable_legacy_direct_execution_for_isolated_handler_tests(monkeypatch):
-    """Keep legacy-path unit fixtures explicit; production defaults fail closed."""
+def _request_legacy_direct_execution_for_isolated_handler_tests(monkeypatch):
+    """Prove the retired environment switch cannot bypass the contract boundary."""
     monkeypatch.setenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", "true")
 
 
@@ -301,9 +301,10 @@ class _RecoverExecutor(_Executor):
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_and_cost_guard_with_explicit_legacy_test_opt_in(monkeypatch):
+async def test_execute_buy_and_cost_guard_cannot_bypass_contract_boundary(monkeypatch):
     monkeypatch.setenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", "true")
-    handler = SignalHandlerAsync(instance=_Instance(), order_executor=_Executor())
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
     handler.validator = _Validator()
     handler._osm = _OSM()
     handler._post_trade_reconcile = _noop_reconcile
@@ -332,8 +333,9 @@ async def test_execute_buy_and_cost_guard_with_explicit_legacy_test_opt_in(monke
 
     await handler._execute_buy(signal)
 
-    assert len(handler.instance.opened) == 1
-    assert handler.instance.opened[0]["buy_txid"] == "buy-1"
+    assert handler.instance.opened == []
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
+    assert executor.market_calls == 0
 
 
 @pytest.mark.asyncio
@@ -402,6 +404,7 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
                     fingerprint="handler-mandate-fixture",
                     mode_allowed="shadow",
                     capital_max_eur=0.0,
+                    shadow_notional_max_eur=1_000.0,
                     expires_at="2026-12-31T23:59:59+00:00",
                     human_approved_required_for_risk_increase=True,
                 ),
@@ -481,7 +484,7 @@ def test_cost_guard_counts_exit_fee_for_round_trip():
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_rounds_to_minimum_when_budget_and_opportunity_allow():
+async def test_execute_buy_does_not_reach_legacy_rounding_path_when_budget_and_opportunity_allow():
     executor = _Executor()
     osm = _CountingOSM()
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
@@ -502,15 +505,14 @@ async def test_execute_buy_rounds_to_minimum_when_budget_and_opportunity_allow()
 
     await handler._execute_buy(signal)
 
-    assert osm.new_order_calls == 1
-    assert executor.volumes == [0.0001]
-    assert len(handler.instance.opened) == 1
-    assert handler._last_decision_event["reason"] == "all_guards_passed"
-    assert handler._last_decision_event["order_size_adjustment"]["reason"] == "rounded_to_min_order_volume"
+    assert osm.new_order_calls == 0
+    assert executor.volumes == []
+    assert handler.instance.opened == []
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_blocks_symbol_that_monopolizes_official_paper(tmp_path):
+async def test_execute_buy_quarantines_legacy_path_before_paper_concentration_checks(tmp_path):
     db = tmp_path / "state.db"
     with sqlite3.connect(db) as conn:
         conn.execute("CREATE TABLE trade_ledger (symbol TEXT, side TEXT, created_at TEXT)")
@@ -554,12 +556,11 @@ async def test_execute_buy_blocks_symbol_that_monopolizes_official_paper(tmp_pat
 
     assert executor.market_calls == 0
     assert executor.limit_calls == 0
-    assert handler._last_decision_event["reason"] == "paper_symbol_concentration_guard"
-    assert handler._last_decision_event["concentration_guard"]["recent_symbol_buys"] == 3
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_observes_concentration_without_blocking_by_default(tmp_path):
+async def test_execute_buy_quarantines_legacy_path_before_optional_concentration_observation(tmp_path):
     db = tmp_path / "state.db"
     with sqlite3.connect(db) as conn:
         conn.execute("CREATE TABLE trade_ledger (symbol TEXT, side TEXT, created_at TEXT)")
@@ -599,14 +600,12 @@ async def test_execute_buy_observes_concentration_without_blocking_by_default(tm
 
     await handler._execute_buy(signal)
 
-    assert executor.market_calls + executor.limit_calls == 1
-    assert handler._last_decision_event["reason"] == "all_guards_passed"
-    assert handler._last_decision_event["concentration_guard"]["reason"] == "symbol_buy_cap_reached"
-    assert handler._last_decision_event["concentration_guard"]["action"] == "observe"
+    assert executor.market_calls + executor.limit_calls == 0
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_can_upsize_small_paper_signal_to_opportunity_budget():
+async def test_execute_buy_quarantines_legacy_opportunity_budget_upsizing():
     executor = _Executor()
     osm = _CountingOSM()
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
@@ -636,13 +635,13 @@ async def test_execute_buy_can_upsize_small_paper_signal_to_opportunity_budget()
 
     await handler._execute_buy(signal)
 
-    assert osm.new_order_calls == 1
-    assert executor.volumes == [0.4]
-    assert handler._last_decision_event["opportunity_size_adjustment"]["reason"] == "paper_opportunity_upsized"
+    assert osm.new_order_calls == 0
+    assert executor.volumes == []
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
-async def test_buy_signal_persists_canonical_decision_before_order_and_trade():
+async def test_buy_signal_preserves_trace_but_quarantines_legacy_order_creation():
     persistence = _TracePersistence()
     instance = _Instance()
     instance._persistence = persistence
@@ -671,15 +670,14 @@ async def test_buy_signal_persists_canonical_decision_before_order_and_trade():
     decision_id = handler._last_decision_event["decision_id"]
     signal_id = signal.metadata["signal_id"]
     assert any(row.get("event_status") == "signal_received" and row.get("signal_id") == signal_id for row in persistence.decision_events)
-    assert osm.new_order_calls[0]["decision_id"] == decision_id
-    assert osm.new_order_calls[0]["signal_id"] == signal_id
-    assert persistence.ledger_rows[0]["decision_id"] == decision_id
-    assert persistence.ledger_rows[0]["signal_id"] == signal_id
-    assert persistence.ledger_rows[0]["exchange_order_id"] == "buy-1"
+    assert decision_id
+    assert osm.new_order_calls == []
+    assert persistence.ledger_rows == []
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_blocks_order_below_minimum_when_budget_too_small():
+async def test_execute_buy_quarantines_legacy_path_before_minimum_order_checks():
     instance = _Instance()
     instance.get_available_capital = lambda: 4.0
     executor = _Executor()
@@ -705,8 +703,7 @@ async def test_execute_buy_blocks_order_below_minimum_when_budget_too_small():
     assert osm.new_order_calls == 0
     assert executor.volumes == []
     assert handler.instance.opened == []
-    assert handler._last_decision_event["reason"] == "order_size_below_minimum"
-    assert handler._last_decision_event["min_volume"] == 0.0001
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 @pytest.mark.asyncio
@@ -1013,9 +1010,9 @@ async def test_execute_buy_keeps_existing_trace_ids_on_rejection():
 
     await handler._execute_buy(signal)
 
-    assert handler._last_error_event["signal_id"] == "sig-known"
-    assert handler._last_error_event["decision_id"] == "dec-known"
-    assert handler._last_error_event["reason"] == "order_executor_missing"
+    assert handler._last_decision_event["signal_id"] == "sig-known"
+    assert handler._last_decision_event["decision_id"] == "dec-known"
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
 
 
 async def _noop_reconcile():

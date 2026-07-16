@@ -34,6 +34,7 @@ def _risk_mandate() -> RiskMandateReference:
         fingerprint="risk-mandate-fingerprint-contract-fixture",
         mode_allowed="shadow",
         capital_max_eur=0.0,
+        shadow_notional_max_eur=1_000.0,
         expires_at="2026-12-31T23:59:59+00:00",
         human_approved_required_for_risk_increase=True,
     )
@@ -196,6 +197,23 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
             data_available_at=now,
             execution_mode="shadow",
             client_order_id="client-non-shadow-artifact",
+        )
+
+    with pytest.raises(ValueError, match="shadow notional limit"):
+        OrderIntent(
+            decision_id="decision-1",
+            strategy_id="research_strategy",
+            strategy_artifact=replace(
+                _artifact_reference(),
+                risk_mandate=replace(_risk_mandate(), shadow_notional_max_eur=20.0),
+            ),
+            market=_market(),
+            side="buy",
+            target_notional=25.0,
+            created_at=now,
+            data_available_at=now,
+            execution_mode="shadow",
+            client_order_id="client-over-shadow-limit",
         )
 
     with pytest.raises(ValueError, match="positive and finite"):

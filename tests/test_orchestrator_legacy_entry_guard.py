@@ -34,11 +34,26 @@ def test_legacy_ensemble_direct_entries_stay_blocked_in_live_without_explicit_gu
     assert orchestrator._legacy_ensemble_entry_enabled() is False
 
 
-def test_legacy_ensemble_direct_entries_require_both_live_overrides():
+def test_legacy_ensemble_direct_entries_remain_quarantined_even_with_old_overrides():
     orchestrator = _orchestrator_stub(
         paper_mode=False,
         disable_legacy=False,
         allow_live_direct=True,
     )
 
-    assert orchestrator._legacy_ensemble_entry_enabled() is True
+    assert orchestrator._legacy_ensemble_entry_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_shadow_paper_candidate_bridge_is_retired_before_runtime_access():
+    orchestrator = object.__new__(OrchestratorAsync)
+
+    result = await orchestrator._maybe_execute_shadow_paper_candidate(object())
+
+    assert result == {
+        "handled": False,
+        "reason": "legacy_shadow_paper_bridge_retired",
+        "research_only": True,
+        "paper_capital_allowed": False,
+        "live_allowed": False,
+    }

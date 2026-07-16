@@ -214,7 +214,6 @@ def _apply_force_enable_all_hardening_flags(hardening_flags: Dict[str, bool]) ->
             "enable_xgboost",
             "enable_onchain",
             "enable_trading_health_score",
-            "enable_shadow_promotion",
             "enable_shadow_trading",
             "enable_rebalance",
             "enable_auto_evolution",
@@ -394,7 +393,9 @@ class OrchestratorAsync:
             "enable_xgboost": _env_bool("ENABLE_XGBOOST", _env_bool("ENABLE_ML", True)),
             "enable_onchain": _env_bool("ENABLE_ONCHAIN", True),
             "enable_trading_health_score": _env_bool("ENABLE_TRADING_HEALTH_SCORE", True),
-            "enable_shadow_promotion": _env_bool("ENABLE_SHADOW_PROMOTION", True),
+            # Promotion cannot be enabled through process configuration during
+            # the research/shadow programme.
+            "enable_shadow_promotion": False,
             "enable_shadow_trading": _env_bool("ENABLE_SHADOW_TRADING", True),
             "enable_rebalance": _env_bool("ENABLE_REBALANCE", True),
             "enable_auto_evolution": _env_bool("ENABLE_AUTO_EVOLUTION", True),
@@ -1927,45 +1928,15 @@ class OrchestratorAsync:
         return dict(row) if isinstance(row, dict) else {}
 
     async def _maybe_execute_shadow_paper_candidate(self, inst: TradingInstanceAsync) -> Dict[str, Any]:
-        from .pair_strategy_health import symbol_key
-
-        if not getattr(self, "paper_mode", False):
-            return {"handled": False, "reason": "not_paper_mode"}
-        snapshot = await self._build_strategy_governance_snapshot()
-        symbol = symbol_key(getattr(inst.config, "symbol", None))
-        row = (snapshot.get("by_symbol", {}) if isinstance(snapshot, dict) else {}).get(symbol, {})
-        if not isinstance(row, dict) or row.get("execution_mode") != "shadow_signal_mirror":
-            return {"handled": False, "reason": row.get("execution_mode", "observe_only") if isinstance(row, dict) else "no_row"}
-        selected_engine = str(row.get("selected_engine") or "")
-        if selected_engine == "dynamic_grid":
-            return {"handled": False, "reason": GRID_RUNTIME_RETIRED_REASON}
-        shadow_snapshots = snapshot.get("shadow_snapshots", {}) if isinstance(snapshot, dict) else {}
-        shadow_symbol_row = (
-            ((shadow_snapshots.get(selected_engine) or {}).get("by_symbol", {}) or {}).get(symbol)
-            if isinstance(shadow_snapshots, dict)
-            else None
-        )
-        result = await self.shadow_paper_adapter.mirror_if_needed(
-            instance=inst,
-            governance_row=row,
-            shadow_symbol_row=shadow_symbol_row,
-        )
-        if result.get("handled"):
-            persistence = getattr(inst, "_persistence", None)
-            if persistence is not None and hasattr(persistence, "append_decision_ledger_event"):
-                await persistence.append_decision_ledger_event(
-                    event_id=f"gov_{uuid.uuid4().hex}",
-                    instance_id=inst.id,
-                    symbol=symbol,
-                    strategy=getattr(inst.config, "strategy", None),
-                    engine=selected_engine,
-                    event_type="governance",
-                    event_status="shadow_signal_mirror",
-                    reason=result.get("reason"),
-                    source="strategy_governance",
-                    payload=result,
-                )
-        return result
+        # The legacy bridge is permanently retired.  Preserve this explicit
+        # runtime boundary even if a stale governance row requests mirroring.
+        return {
+            "handled": False,
+            "reason": "legacy_shadow_paper_bridge_retired",
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+        }
 
     async def _apply_paper_dynamic_capital_rebalance(self) -> None:
         """Reallocate paper budget toward the strongest running engines."""
@@ -2612,12 +2583,14 @@ class OrchestratorAsync:
         return (now - last_ts) >= self.trade_action_min_interval_s
 
     def _legacy_ensemble_entry_enabled(self) -> bool:
-        """Guard the legacy direct-entry path so official entries go through signal execution."""
-        if self._strategy_governance_disable_legacy_ensemble:
-            return False
-        if not self.paper_mode and not self._strategy_governance_allow_legacy_direct_entry_live:
-            return False
-        return True
+        """Quarantine the legacy ensemble entry path unconditionally.
+
+        It lacks the programme's canonical portfolio, independent risk and
+        contract-backed OMS evidence.  Runtime configuration may not re-enable
+        it; research and shadow observations remain available through their
+        isolated paths.
+        """
+        return False
 
     def _mark_trade_action(self, instance_id: str) -> None:
         self._last_trade_action_ts[instance_id] = perf_counter()
@@ -3110,46 +3083,9 @@ class OrchestratorAsync:
                 logger.warning("Shadow metrics refresh failed for %s: %s", inst.id, exc)
 
     async def _check_shadow_promotions(self) -> None:
-        """Check every hour if shadow PF > 1.5 and promote with 25% transfer."""
-        while self.running:
-            try:
-                await asyncio.sleep(3600)
-                if not self.paper_mode or not self.shadow_manager:
-                    continue
-                if not self.hardening_flags["enable_shadow_promotion"]:
-                    continue
-                status = self.shadow_manager.get_status()
-                instances = status.get("instances", {})
-                for inst_id, meta in instances.items():
-                    pf = float(meta.get("pf", 0.0))
-                    if pf <= 1.5:
-                        continue
-                    if not self.shadow_manager.should_promote_to_live(inst_id):
-                        continue
-                    paper_capital = float(meta.get("paper_capital", 0.0))
-                    transfer_amount = paper_capital * 0.25 if paper_capital > 0 else 0.0
-                    if transfer_amount <= 0:
-                        continue
-                    async with self._capital_ops_lock:
-                        ok = self.shadow_manager.transfer_capital(inst_id, transfer_amount)
-                    if ok:
-                        logger.info(
-                            "🟢 Promotion shadow→live: %s PF=%.2f transfert=%.2f€ (25%% shadow)",
-                            inst_id,
-                            pf,
-                            transfer_amount,
-                        )
-                    else:
-                        logger.warning(
-                            "Promotion shadow refusée: %s PF=%.2f transfert=%.2f€",
-                            inst_id,
-                            pf,
-                            transfer_amount,
-                        )
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.warning("Shadow promotion loop erreur (isolée): %s", exc)
+        """Retired legacy promotion loop; risk may never increase automatically."""
+        logger.info("Legacy shadow promotion loop is retired; no capital transfer is permitted")
+        return
 
     async def _rebalance_loop(self) -> None:
         """Run rebalance checks every 7 days with 10% max transfer rule."""

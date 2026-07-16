@@ -35,6 +35,7 @@ def _risk_mandate() -> RiskMandateReference:
         fingerprint="risk-mandate-fingerprint-execution-fixture",
         mode_allowed="shadow",
         capital_max_eur=0.0,
+        shadow_notional_max_eur=1_000.0,
         expires_at="2026-12-31T23:59:59+00:00",
         human_approved_required_for_risk_increase=True,
     )

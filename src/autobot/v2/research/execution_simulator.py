@@ -14,8 +14,9 @@ from datetime import datetime, timedelta, timezone
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import FillEvent, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
+from autobot.v2.contracts import AlphaSignal, FillEvent, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
 
+from .backtest_alpha_adapter import cost_model_fingerprint
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
 
 
@@ -94,6 +95,127 @@ STRESS_SCENARIO = ExecutionScenario(
     latency_multiplier=3.00,
 )
 DEFAULT_EXECUTION_SCENARIOS = (CENTRAL_SCENARIO, PESSIMISTIC_SCENARIO, STRESS_SCENARIO)
+
+
+@dataclass(frozen=True)
+class ScenarioEdgeProjection:
+    """One conservative projection of an already net-costed alpha edge.
+
+    ``expected_edge_bps`` is the edge reported under the exact central cost
+    profile.  A non-central scenario only deducts its *incremental* modeled
+    round-trip cost, preventing the base costs from being counted twice.
+    """
+
+    scenario: str
+    cost_model_fingerprint: str
+    round_trip_cost_bps: float
+    incremental_cost_bps: float
+    projected_net_edge_bps: float
+    passes: bool
+
+
+@dataclass(frozen=True)
+class ScenarioEdgeReview:
+    """Research-only economic gate for a single immutable ``AlphaSignal``."""
+
+    status: str
+    reason: str
+    signal_id: str
+    data_snapshot_id: str
+    base_cost_model_fingerprint: str
+    projections: tuple[ScenarioEdgeProjection, ...]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    @property
+    def pessimistic_passed(self) -> bool:
+        return any(item.scenario == "pessimistic" and item.passes for item in self.projections)
+
+
+def review_net_edge_scenarios(
+    signal: AlphaSignal,
+    *,
+    base_cost_config: ExecutionCostConfig,
+    scenarios: Sequence[ExecutionScenario] = DEFAULT_EXECUTION_SCENARIOS,
+    min_projected_net_edge_bps: float = 0.0,
+) -> ScenarioEdgeReview:
+    """Check one net edge against central, pessimistic and stress costs.
+
+    This is an evidence gate, not a promotion path.  It requires the signal to
+    declare the exact central-cost fingerprint that produced its net edge and
+    fails closed on missing/changed provenance.  A positive central result is
+    insufficient: the pessimistic projection must also remain positive before
+    the contract shadow pipeline may simulate the signal.
+    """
+
+    base_cost_config.validate()
+    threshold = float(min_projected_net_edge_bps)
+    if not math.isfinite(threshold) or threshold < 0.0:
+        raise ResearchExecutionError("min_projected_net_edge_bps must be finite and non-negative")
+    names = tuple(item.name for item in scenarios)
+    if not names or len(names) != len(set(names)):
+        raise ResearchExecutionError("scenario names must be non-empty and unique")
+    if "central" not in names or "pessimistic" not in names:
+        raise ResearchExecutionError("central and pessimistic scenarios are required")
+
+    base_fingerprint = cost_model_fingerprint(base_cost_config.to_dict())
+    declared_fingerprint = str(signal.metadata.get("cost_model_fingerprint") or "").strip()
+    edge = signal.expected_edge_bps
+    if edge is None or not math.isfinite(float(edge)) or float(edge) <= 0.0:
+        return ScenarioEdgeReview(
+            "SCENARIO_EDGE_BLOCKED",
+            "net_expected_edge_missing",
+            signal.signal_id,
+            signal.data_snapshot_id,
+            base_fingerprint,
+            (),
+        )
+    if declared_fingerprint != base_fingerprint:
+        return ScenarioEdgeReview(
+            "SCENARIO_EDGE_BLOCKED",
+            "cost_model_fingerprint_mismatch",
+            signal.signal_id,
+            signal.data_snapshot_id,
+            base_fingerprint,
+            (),
+        )
+
+    central_cost = base_cost_config.round_trip_cost_estimate_bps()
+    projections: list[ScenarioEdgeProjection] = []
+    for scenario in scenarios:
+        scenario_config = scenario_cost_config(base_cost_config, scenario)
+        scenario_cost = scenario_config.round_trip_cost_estimate_bps()
+        incremental_cost = max(0.0, scenario_cost - central_cost)
+        projected = float(edge) - incremental_cost
+        projections.append(
+            ScenarioEdgeProjection(
+                scenario=scenario.name,
+                cost_model_fingerprint=cost_model_fingerprint(scenario_config.to_dict()),
+                round_trip_cost_bps=scenario_cost,
+                incremental_cost_bps=incremental_cost,
+                projected_net_edge_bps=projected,
+                passes=projected > threshold,
+            )
+        )
+    pessimistic = next(item for item in projections if item.scenario == "pessimistic")
+    if not pessimistic.passes:
+        return ScenarioEdgeReview(
+            "SCENARIO_EDGE_BLOCKED",
+            "pessimistic_net_edge_not_positive",
+            signal.signal_id,
+            signal.data_snapshot_id,
+            base_fingerprint,
+            tuple(projections),
+        )
+    return ScenarioEdgeReview(
+        "SCENARIO_EDGE_OK",
+        "pessimistic_net_edge_positive",
+        signal.signal_id,
+        signal.data_snapshot_id,
+        base_fingerprint,
+        tuple(projections),
+    )
 
 
 @dataclass(frozen=True)

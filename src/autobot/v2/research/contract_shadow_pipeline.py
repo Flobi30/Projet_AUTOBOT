@@ -16,7 +16,14 @@ from typing import Mapping, Sequence
 
 from autobot.v2.contracts import AlphaSignal, OrderIntent, RiskDecision, StrategyArtifactReference, TargetPortfolio
 
-from .execution_simulator import ResearchExecutionOutcome, ResearchExecutionSimulator, ShadowMarketSnapshot
+from .execution_cost_model import ExecutionCostConfig
+from .execution_simulator import (
+    ResearchExecutionOutcome,
+    ResearchExecutionSimulator,
+    ScenarioEdgeReview,
+    ShadowMarketSnapshot,
+    review_net_edge_scenarios,
+)
 from .portfolio_construction import (
     CapacityObservation,
     PortfolioCapacityReview,
@@ -36,6 +43,7 @@ class ContractShadowPipelineReview:
     alpha_signal: AlphaSignal
     target_result: PortfolioConstructionResult | None = None
     capacity_review: PortfolioCapacityReview | None = None
+    scenario_review: ScenarioEdgeReview | None = None
     order_intent: OrderIntent | None = None
     risk_decision: RiskDecision | None = None
     outcome: ResearchExecutionOutcome | None = None
@@ -53,6 +61,7 @@ def evaluate_alpha_signal_in_shadow(
     capital_eur: float,
     capacity_observations: Mapping[str, CapacityObservation],
     max_liquidity_participation: float,
+    base_cost_config: ExecutionCostConfig,
     simulator: ResearchExecutionSimulator,
     snapshots: Sequence[ShadowMarketSnapshot],
     risk_decision: RiskDecision | None,
@@ -68,6 +77,15 @@ def evaluate_alpha_signal_in_shadow(
     reason = _artifact_matches_signal(strategy_artifact, signal)
     if reason is not None:
         return ContractShadowPipelineReview("CONTRACT_REJECTED", reason, signal, risk_decision=risk_decision)
+    scenario_review = review_net_edge_scenarios(signal, base_cost_config=base_cost_config)
+    if scenario_review.status != "SCENARIO_EDGE_OK":
+        return ContractShadowPipelineReview(
+            "SCENARIO_BLOCKED",
+            scenario_review.reason,
+            signal,
+            scenario_review=scenario_review,
+            risk_decision=risk_decision,
+        )
     if not math.isclose(
         float(max_liquidity_participation),
         float(simulator.cost_config.max_liquidity_participation),
@@ -78,6 +96,7 @@ def evaluate_alpha_signal_in_shadow(
             "CONTRACT_REJECTED",
             "capacity_participation_limit_mismatch",
             signal,
+            scenario_review=scenario_review,
             risk_decision=risk_decision,
         )
 
@@ -94,6 +113,7 @@ def evaluate_alpha_signal_in_shadow(
             reason,
             signal,
             target_result=target_result,
+            scenario_review=scenario_review,
             risk_decision=risk_decision,
         )
 
@@ -110,6 +130,7 @@ def evaluate_alpha_signal_in_shadow(
             signal,
             target_result=target_result,
             capacity_review=capacity_review,
+            scenario_review=scenario_review,
             risk_decision=risk_decision,
         )
 
@@ -122,6 +143,19 @@ def evaluate_alpha_signal_in_shadow(
             signal,
             target_result=target_result,
             capacity_review=capacity_review,
+            scenario_review=scenario_review,
+            risk_decision=risk_decision,
+        )
+
+    mandate = strategy_artifact.risk_mandate
+    if mandate is None or target_notional > mandate.shadow_notional_max_eur + 1e-12:
+        return ContractShadowPipelineReview(
+            "SHADOW_NOTIONAL_BLOCKED",
+            "shadow_notional_limit_exceeded",
+            signal,
+            target_result=target_result,
+            capacity_review=capacity_review,
+            scenario_review=scenario_review,
             risk_decision=risk_decision,
         )
 
@@ -142,6 +176,8 @@ def evaluate_alpha_signal_in_shadow(
             "target_weight": target_result.target.target_weights[symbol],
             "capacity_status": capacity_review.status,
             "expected_edge_bps": signal.expected_edge_bps,
+            "cost_model_fingerprint": scenario_review.base_cost_model_fingerprint,
+            "scenario_status": scenario_review.status,
             "paper_capital_allowed": False,
             "live_allowed": False,
         },
@@ -153,6 +189,7 @@ def evaluate_alpha_signal_in_shadow(
         signal,
         target_result=target_result,
         capacity_review=capacity_review,
+        scenario_review=scenario_review,
         order_intent=intent,
         risk_decision=risk_decision,
         outcome=outcome,

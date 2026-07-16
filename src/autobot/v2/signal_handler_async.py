@@ -662,18 +662,15 @@ class SignalHandlerAsync:
         return str(candidate).strip().lower() in {"1", "true", "yes", "on"}
 
     def _legacy_direct_execution_enabled(self) -> bool:
-        """Return whether the unintegrated direct-entry path was explicitly enabled.
+        """Keep legacy direct BUY entries quarantined during the programme.
 
-        The default is deliberately ``False``. This switch is temporary until
-        every runtime entry has crossed the canonical portfolio, independent
-        risk, and OMS boundaries. It is intentionally checked only for BUY
-        entries so that protective exits stay available during remediation.
+        The former opt-in switch bypassed the canonical
+        ``AlphaSignal -> TargetPortfolio -> RiskDecision -> OrderIntent``
+        boundary.  It is now ignored in every environment.  Protective exits
+        remain outside this check so the quarantine never strands historical
+        positions.
         """
-        return self._load_bool(
-            "legacy_direct_execution_enabled",
-            "AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED",
-            False,
-        )
+        return False
 
     def _load_positive_float(self, config_key: str, env_key: str, default: float) -> float:
         """Read config then env value and fallback to default on invalid input."""

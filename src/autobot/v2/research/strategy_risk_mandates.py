@@ -68,6 +68,7 @@ class StrategyRiskMandate:
     min_edge_to_cost_ratio: float
     data_freshness_max_seconds: int
     expires_at: str
+    shadow_notional_max_eur: float = 0.0
     human_approved_required_for_risk_increase: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -126,6 +127,7 @@ class StrategyRiskMandate:
             min_edge_to_cost_ratio=_float(payload["min_edge_to_cost_ratio"]),
             data_freshness_max_seconds=_int(payload["data_freshness_max_seconds"]),
             expires_at=str(payload["expires_at"]).strip(),
+            shadow_notional_max_eur=_float(payload.get("shadow_notional_max_eur", 0.0)),
             human_approved_required_for_risk_increase=bool(
                 payload.get("human_approved_required_for_risk_increase", True)
             ),
@@ -150,6 +152,7 @@ class StrategyRiskMandate:
             raise StrategyRiskMandateError("risk increases must require human approval")
         numeric_fields = (
             self.capital_max_eur,
+            self.shadow_notional_max_eur,
             self.max_daily_loss_eur,
             self.max_drawdown_pct,
             self.max_position_eur,
@@ -303,6 +306,7 @@ def risk_mandate_reference(mandate: StrategyRiskMandate) -> RiskMandateReference
         capital_max_eur=mandate.capital_max_eur,
         expires_at=mandate.expires_at,
         human_approved_required_for_risk_increase=mandate.human_approved_required_for_risk_increase,
+        shadow_notional_max_eur=mandate.shadow_notional_max_eur,
         paper_capital_allowed=False,
         live_allowed=False,
     )

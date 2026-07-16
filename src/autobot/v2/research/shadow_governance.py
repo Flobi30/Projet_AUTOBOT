@@ -255,6 +255,7 @@ def risk_mandate_reference_from_mapping(value: Mapping[str, Any]) -> RiskMandate
             capital_max_eur=value.get("capital_max_eur"),
             expires_at=str(value.get("expires_at") or ""),
             human_approved_required_for_risk_increase=value.get("human_approved_required_for_risk_increase") is True,
+            shadow_notional_max_eur=value.get("shadow_notional_max_eur", 0.0),
             paper_capital_allowed=value.get("paper_capital_allowed") is True,
             live_allowed=value.get("live_allowed") is True,
         )
