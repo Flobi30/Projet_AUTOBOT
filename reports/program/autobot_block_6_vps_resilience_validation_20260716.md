@@ -27,6 +27,14 @@ deployed together at source commit `bb96493c2f9c007f01163d086c63a939cc8cc6b9`.
 - `COLONY_AUTO_LIVE_PROMOTION=false`.
 - `ENABLE_INSTANCE_SPLIT_EXECUTOR=false`.
 
+## Operational capacity
+
+- Active AUTOBOT timers: derivatives snapshots, daily funding collection and
+  daily research collection.
+- Container snapshot: approximately `10.80%` CPU and `86.65 MiB / 3 GiB`
+  memory.
+- VPS storage: `59 GiB` free of `75 GiB` (`19%` used).
+
 ## Backup safety
 
 - The backup unit and timer were not installed under `/etc/systemd/system`.
