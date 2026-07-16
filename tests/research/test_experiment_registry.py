@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from hashlib import sha256
 import sqlite3
 from types import SimpleNamespace
 from pathlib import Path
@@ -267,6 +268,37 @@ def test_runner_projection_counts_bounded_dimensions_and_normalizes_legacy_stage
     assert state.trial_count == 8
     assert registry.validation_trial_count(hypothesis_id="funding_basis") == 4
     assert state.terminal is True
+
+
+def test_runner_evidence_binds_written_reports_as_content_addressed_artifacts(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    json_report = tmp_path / "runner.json"
+    markdown_report = tmp_path / "runner.md"
+    json_report.write_text('{"result":"fixed"}', encoding="utf-8")
+    markdown_report.write_text("# Fixed runner evidence\n", encoding="utf-8")
+    report = SimpleNamespace(
+        run_id="funding_smoke_written",
+        json_report_path=str(json_report),
+        markdown_report_path=str(markdown_report),
+        gates=(
+            SimpleNamespace(gate="DATA_CHECK", status="PASSED", passed=True, metrics={}, reasons=()),
+            SimpleNamespace(gate="NET_SMOKE", status="REJECTED", passed=False, metrics={}, reasons=("net_pf_below_one",)),
+        ),
+    )
+
+    state = registry.record_runner_evidence(
+        spec=_spec(),
+        report=report,
+        variant_count=1,
+        symbols=("BTCZEUR",),
+    )
+
+    artifacts = registry.export_manifest(state.experiment_id)["artifacts"]
+    assert {(item["metadata"]["kind"], item["fingerprint"]) for item in artifacts} == {
+        ("runner_json_report", sha256(json_report.read_bytes()).hexdigest()),
+        ("runner_markdown_report", sha256(markdown_report.read_bytes()).hexdigest()),
+    }
+    assert all(item["stage"] == "DATA_CHECK" for item in artifacts)
 
 
 def test_block2_research_modules_do_not_import_runtime_order_paths():

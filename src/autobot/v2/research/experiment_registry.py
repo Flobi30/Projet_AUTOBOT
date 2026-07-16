@@ -316,6 +316,7 @@ class ExperimentRegistry:
                 regimes=regimes,
             )
 
+        runner_artifacts = _runner_report_artifacts(report)
         for gate in tuple(getattr(report, "gates", ())):
             try:
                 stage = normalize_research_stage(str(getattr(gate, "gate", "")))
@@ -338,6 +339,10 @@ class ExperimentRegistry:
                 status=status,
                 metrics=dict(getattr(gate, "metrics", {}) or {}),
                 reasons=tuple(str(item) for item in (getattr(gate, "reasons", ()) or ())),
+                # The report is immutable evidence for the whole runner. Bind
+                # it once at the first canonical gate rather than duplicating
+                # the same artifact for every later transition.
+                artifacts=runner_artifacts if stage == STAGES[0] else (),
             )
             if current.terminal:
                 return current
@@ -894,6 +899,37 @@ def _normalized_trial_values(values: Sequence[str], *, uppercase: bool = False) 
 
 def _fingerprint(value: Any) -> str:
     return sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _runner_report_artifacts(report: Any) -> tuple[dict[str, Any], ...]:
+    """Return content-addressed report evidence when the runner persisted it.
+
+    In-memory/unit-test reports may have no files, which remains valid for
+    transition testing. A real written report, however, becomes part of the
+    reproducible experiment record instead of an unbound side file.
+    """
+
+    artifacts: list[dict[str, Any]] = []
+    run_id = str(getattr(report, "run_id", "") or "").strip()
+    for field_name, kind in (
+        ("json_report_path", "runner_json_report"),
+        ("markdown_report_path", "runner_markdown_report"),
+    ):
+        value = str(getattr(report, field_name, "") or "").strip()
+        if not value:
+            continue
+        path = Path(value)
+        if not path.is_file():
+            continue
+        artifacts.append(
+            {
+                "path": str(path),
+                "fingerprint": sha256(path.read_bytes()).hexdigest(),
+                "kind": kind,
+                "runner_run_id": run_id,
+            }
+        )
+    return tuple(artifacts)
 
 
 def _now() -> str:
