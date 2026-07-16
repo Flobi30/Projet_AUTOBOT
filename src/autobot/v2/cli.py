@@ -676,7 +676,11 @@ def _build_parser() -> argparse.ArgumentParser:
     futures_derivatives.add_argument("--raw-dir", default="data/research/raw/kraken_futures")
     futures_derivatives.add_argument("--canonical-dir", default="data/research/canonical/derivatives")
     futures_derivatives.add_argument("--manifest-dir", default="data/research/manifests")
-    futures_derivatives.add_argument("--report-dir", default="reports/research/kraken_futures_derivatives")
+    futures_derivatives.add_argument(
+        "--report-dir",
+        default="data/research/reports/kraken_futures_derivatives",
+        help="Runtime-writable collector report directory; decision reports belong in reports/ separately.",
+    )
     futures_derivatives.add_argument("--sleep-seconds", type=float, default=0.0)
     futures_derivatives.add_argument("--timeout-seconds", type=float, default=20.0)
     futures_derivatives.add_argument("--skip-funding", action="store_true")
