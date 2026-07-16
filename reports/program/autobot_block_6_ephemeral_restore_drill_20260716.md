@@ -26,6 +26,17 @@ completed against the VPS runtime database with a read-only data mount, no
 network and a disposable `512 MiB` temporary filesystem. SQLite integrity,
 schema and all table row counts matched; the temporary container was removed.
 
+The CLI wrapper was subsequently deployed at code commit
+`48fcd711d5ab15c02feb58d344f2db17063d6eff` and passed the same VPS smoke:
+
+- source mount read-only, network disabled and all capabilities dropped;
+- backup and restore integrity checks: `ok`;
+- source/restored schema and all table row counts: equal;
+- `temporary_backup_cleaned=true` and `temporary_restore_cleaned=true`;
+- AUTOBOT health: healthy, orchestrator running, WebSocket connected, 14
+  instances;
+- paper/live/promotion/instance-split safety flags: all `false`.
+
 ## Evidence
 
 - Focused resilience/CLI/deployment tests: `49 passed`.
