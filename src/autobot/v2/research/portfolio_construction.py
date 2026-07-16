@@ -8,7 +8,7 @@ independent risk layer must review later.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import math
 from typing import Mapping, Sequence
@@ -29,6 +29,8 @@ class PortfolioConstructionConfig:
     max_symbol_weight: float = 0.35
     min_expected_edge_bps: float = 0.0
     max_turnover_weight: float = 0.50
+    max_correlation_group_weight: float = 0.50
+    correlation_groups: Mapping[str, str] = field(default_factory=dict)
     allow_short: bool = False
     research_only: bool = True
     paper_capital_allowed: bool = False
@@ -37,7 +39,12 @@ class PortfolioConstructionConfig:
     def __post_init__(self) -> None:
         if not self.cash_asset.strip():
             raise PortfolioConstructionError("cash_asset is required")
-        for field_name in ("reserve_cash_weight", "max_symbol_weight", "max_turnover_weight"):
+        for field_name in (
+            "reserve_cash_weight",
+            "max_symbol_weight",
+            "max_turnover_weight",
+            "max_correlation_group_weight",
+        ):
             value = float(getattr(self, field_name))
             if not math.isfinite(value) or not 0.0 <= value <= 1.0:
                 raise PortfolioConstructionError(f"{field_name} must be in [0, 1]")
@@ -45,6 +52,10 @@ class PortfolioConstructionConfig:
             raise PortfolioConstructionError("max_symbol_weight must be positive")
         if not math.isfinite(float(self.min_expected_edge_bps)):
             raise PortfolioConstructionError("min_expected_edge_bps must be finite")
+        groups = {str(symbol).strip().upper(): str(group).strip() for symbol, group in self.correlation_groups.items()}
+        if not all(groups.keys()) or not all(groups.values()):
+            raise PortfolioConstructionError("correlation_groups require non-empty symbols and group names")
+        object.__setattr__(self, "correlation_groups", groups)
         if self.allow_short or self.paper_capital_allowed or self.live_allowed or not self.research_only:
             raise PortfolioConstructionError("portfolio construction is research-only and spot long-only")
 
@@ -235,16 +246,30 @@ def build_target_portfolio(
         accepted.append(signal.signal_id)
 
     target_weights = _capped_score_weights(scores, investable_weight=1.0 - config.reserve_cash_weight, cap=config.max_symbol_weight)
+    target_weights = _apply_correlation_group_cap(
+        target_weights,
+        correlation_groups=config.correlation_groups,
+        max_group_weight=config.max_correlation_group_weight,
+    )
     target_weights, turnover = _apply_turnover_limit(
         target_weights,
         current_weights=current_weights or {},
         max_turnover_weight=config.max_turnover_weight,
     )
+    # Retained legacy exposure from a turnover limit must obey the same group
+    # ceiling as fresh alpha exposure.  Any released weight remains cash.
+    target_weights = _apply_correlation_group_cap(
+        target_weights,
+        correlation_groups=config.correlation_groups,
+        max_group_weight=config.max_correlation_group_weight,
+    )
+    turnover = _turnover_weight(target_weights, current_weights or {})
     reserve = max(0.0, 1.0 - sum(target_weights.values()))
     rationale = {
         symbol: (
             f"expected_edge_bps={scores[symbol]:.6f};"
             f"strategies={','.join(sorted(strategy_ids[symbol]))};"
+            f"correlation_group={_correlation_group(symbol, config.correlation_groups)};"
             f"research_only"
             if symbol in scores
             else "legacy_exposure_retained_only_to_respect_turnover_limit;research_only"
@@ -583,13 +608,52 @@ def _apply_turnover_limit(
     current = {str(symbol).upper(): float(weight) for symbol, weight in current_weights.items() if float(weight) > 0.0}
     if any(not math.isfinite(weight) or weight < 0.0 for weight in current.values()) or sum(current.values()) > 1.000001:
         raise PortfolioConstructionError("current_weights must be finite, non-negative and sum to at most one")
-    symbols = sorted(set(desired) | set(current))
-    raw_turnover = 0.5 * sum(abs(float(desired.get(symbol, 0.0)) - float(current.get(symbol, 0.0))) for symbol in symbols)
+    raw_turnover = _turnover_weight(desired, current)
     if raw_turnover <= max_turnover_weight + 1e-12 or raw_turnover <= 0.0:
         return dict(desired), raw_turnover
     ratio = max_turnover_weight / raw_turnover
+    symbols = sorted(set(desired) | set(current))
     blended = {
         symbol: float(current.get(symbol, 0.0)) + ratio * (float(desired.get(symbol, 0.0)) - float(current.get(symbol, 0.0)))
         for symbol in symbols
     }
     return {symbol: round(weight, 12) for symbol, weight in blended.items() if weight > 1e-12}, max_turnover_weight
+
+
+def _turnover_weight(desired: Mapping[str, float], current_weights: Mapping[str, float]) -> float:
+    current = {str(symbol).upper(): float(weight) for symbol, weight in current_weights.items() if float(weight) > 0.0}
+    symbols = sorted(set(desired) | set(current))
+    return 0.5 * sum(abs(float(desired.get(symbol, 0.0)) - float(current.get(symbol, 0.0))) for symbol in symbols)
+
+
+def _correlation_group(symbol: str, correlation_groups: Mapping[str, str]) -> str:
+    normalized = str(symbol).upper()
+    return str(correlation_groups.get(normalized) or f"UNGROUPED:{normalized}")
+
+
+def _apply_correlation_group_cap(
+    weights: Mapping[str, float],
+    *,
+    correlation_groups: Mapping[str, str],
+    max_group_weight: float,
+) -> dict[str, float]:
+    """Fail closed by retaining the excess as cash rather than reallocating it.
+
+    A configured group represents assets that may share the same risk factor.
+    The cap does not claim to estimate correlation; it is a deterministic,
+    auditable concentration guard until a validated correlation model exists.
+    """
+
+    normalized = {str(symbol).upper(): float(weight) for symbol, weight in weights.items() if float(weight) > 1e-12}
+    grouped: dict[str, list[str]] = {}
+    for symbol in sorted(normalized):
+        grouped.setdefault(_correlation_group(symbol, correlation_groups), []).append(symbol)
+    capped = dict(normalized)
+    for members in grouped.values():
+        group_weight = sum(normalized[symbol] for symbol in members)
+        if group_weight <= max_group_weight + 1e-12:
+            continue
+        ratio = max_group_weight / group_weight
+        for symbol in members:
+            capped[symbol] = round(normalized[symbol] * ratio, 12)
+    return {symbol: weight for symbol, weight in capped.items() if weight > 1e-12}

@@ -99,6 +99,30 @@ def test_target_portfolio_caps_turnover_without_inventing_cash_or_weights():
     assert all(weight >= 0.0 for weight in result.target.target_weights.values())
 
 
+def test_target_portfolio_caps_configured_correlation_group_and_keeps_excess_as_cash():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    result = build_target_portfolio(
+        (
+            _signal(signal_id="btc", symbol="BTCEUR", edge=20.0),
+            _signal(signal_id="eth", symbol="ETHEUR", edge=20.0),
+            _signal(signal_id="sol", symbol="SOLEUR", edge=20.0),
+        ),
+        decision_id="correlation-cap",
+        decision_at=now,
+        config=PortfolioConstructionConfig(
+            reserve_cash_weight=0.20,
+            max_symbol_weight=0.60,
+            max_correlation_group_weight=0.45,
+            correlation_groups={"BTCEUR": "CRYPTO_BETA", "ETHEUR": "CRYPTO_BETA", "SOLEUR": "SOL"},
+        ),
+    )
+
+    beta_weight = result.target.target_weights["BTCEUR"] + result.target.target_weights["ETHEUR"]
+    assert beta_weight == pytest.approx(0.45)
+    assert result.target.reserve_cash_weight > 0.20
+    assert "correlation_group=CRYPTO_BETA" in result.target.rationale["BTCEUR"]
+
+
 def test_target_portfolio_rejects_conflicting_feature_versions_and_keeps_lineage():
     now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
     first = _signal(signal_id="first", edge=20.0)
