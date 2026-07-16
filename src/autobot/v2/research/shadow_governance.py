@@ -427,6 +427,68 @@ class ShadowParityResult:
 
 
 @dataclass(frozen=True)
+class DataDriftAssessment:
+    """Deterministic distribution drift evidence for research/shadow only.
+
+    ``total_variation_score`` compares a point-in-time baseline distribution to
+    the most recent shadow distribution.  It is deliberately bounded to
+    ``[0, 1]`` and carries no execution or promotion authority.
+    """
+
+    baseline_total: float
+    shadow_total: float
+    categories: tuple[str, ...]
+    total_variation_score: float
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+
+def assess_data_distribution_drift(
+    baseline: Mapping[str, float],
+    shadow: Mapping[str, float],
+) -> DataDriftAssessment:
+    """Return total-variation drift without inventing missing observations.
+
+    Inputs are explicit non-negative category counts or weights from the same
+    data schema.  An empty, invalid or zero-mass distribution fails closed
+    instead of being treated as stable data.
+    """
+
+    if not isinstance(baseline, Mapping) or not isinstance(shadow, Mapping):
+        raise ShadowGovernanceError("data drift inputs must be mappings")
+    categories = tuple(sorted({str(key).strip() for key in baseline} | {str(key).strip() for key in shadow}))
+    if not categories or any(not key for key in categories):
+        raise ShadowGovernanceError("data drift inputs require non-empty categories")
+
+    def _normalise(values: Mapping[str, float], label: str) -> tuple[dict[str, float], float]:
+        normalised: dict[str, float] = {}
+        for raw_key, raw_value in values.items():
+            key = str(raw_key).strip()
+            value = float(raw_value)
+            if not key or not math.isfinite(value) or value < 0.0:
+                raise ShadowGovernanceError(f"{label} distribution contains an invalid value")
+            normalised[key] = normalised.get(key, 0.0) + value
+        total = sum(normalised.values())
+        if not math.isfinite(total) or total <= 0.0:
+            raise ShadowGovernanceError(f"{label} distribution requires positive total mass")
+        return normalised, total
+
+    baseline_values, baseline_total = _normalise(baseline, "baseline")
+    shadow_values, shadow_total = _normalise(shadow, "shadow")
+    score = 0.5 * sum(
+        abs((baseline_values.get(key, 0.0) / baseline_total) - (shadow_values.get(key, 0.0) / shadow_total))
+        for key in categories
+    )
+    return DataDriftAssessment(
+        baseline_total=baseline_total,
+        shadow_total=shadow_total,
+        categories=categories,
+        total_variation_score=score,
+    )
+
+
+@dataclass(frozen=True)
 class ShadowPerformanceWindow:
     trade_count: int
     rolling_profit_factor: float | None
@@ -435,6 +497,7 @@ class ShadowPerformanceWindow:
     feature_drift_score: float | None
     cost_drift_bps: float | None
     data_age: timedelta
+    data_drift_score: float | None = None
 
     def __post_init__(self) -> None:
         if self.trade_count < 0:
@@ -447,12 +510,15 @@ class ShadowPerformanceWindow:
             "max_drawdown_pct",
             "feature_drift_score",
             "cost_drift_bps",
+            "data_drift_score",
         ):
             value = getattr(self, field_name)
             if value is not None and not math.isfinite(float(value)):
                 raise ShadowGovernanceError(f"{field_name} must be finite when supplied")
         if self.feature_drift_score is not None and not 0.0 <= self.feature_drift_score <= 1.0:
             raise ShadowGovernanceError("feature_drift_score must be in [0, 1]")
+        if self.data_drift_score is not None and not 0.0 <= self.data_drift_score <= 1.0:
+            raise ShadowGovernanceError("data_drift_score must be in [0, 1]")
 
 
 @dataclass(frozen=True)
@@ -466,9 +532,14 @@ class ShadowSafetyPolicy:
     reduce_drawdown_pct: float = 10.0
     disable_drawdown_pct: float = 15.0
     quarantine_drawdown_pct: float = 25.0
+    watch_feature_drift: float = 0.15
     reduce_feature_drift: float = 0.30
     disable_feature_drift: float = 0.55
     quarantine_feature_drift: float = 0.80
+    watch_data_drift: float = 0.15
+    reduce_data_drift: float = 0.30
+    disable_data_drift: float = 0.55
+    quarantine_data_drift: float = 0.80
     watch_cost_drift_bps: float = 5.0
     reduce_cost_drift_bps: float = 10.0
     disable_cost_drift_bps: float = 20.0
@@ -483,7 +554,8 @@ class ShadowSafetyPolicy:
             raise ShadowGovernanceError("profit-factor thresholds must become stricter monotonically")
         if not (
             self.reduce_drawdown_pct <= self.disable_drawdown_pct <= self.quarantine_drawdown_pct
-            and self.reduce_feature_drift <= self.disable_feature_drift <= self.quarantine_feature_drift
+            and self.watch_feature_drift <= self.reduce_feature_drift <= self.disable_feature_drift <= self.quarantine_feature_drift
+            and self.watch_data_drift <= self.reduce_data_drift <= self.disable_data_drift <= self.quarantine_data_drift
         ):
             raise ShadowGovernanceError("drawdown and drift thresholds must become stricter monotonically")
         cost_thresholds = (
@@ -816,6 +888,23 @@ def decide_shadow_safety(
         elif drift >= policy.reduce_feature_drift:
             calculated = _more_severe(calculated, "REDUCE")
             reasons.append("feature_drift_reduced")
+        elif drift >= policy.watch_feature_drift:
+            calculated = _more_severe(calculated, "WATCH")
+            reasons.append("feature_drift_watch")
+    if performance.data_drift_score is not None:
+        drift = performance.data_drift_score
+        if drift >= policy.quarantine_data_drift:
+            calculated = _more_severe(calculated, "QUARANTINE")
+            reasons.append("data_drift_quarantine")
+        elif drift >= policy.disable_data_drift:
+            calculated = _more_severe(calculated, "DISABLE_NEW_ENTRIES")
+            reasons.append("data_drift_disabled")
+        elif drift >= policy.reduce_data_drift:
+            calculated = _more_severe(calculated, "REDUCE")
+            reasons.append("data_drift_reduced")
+        elif drift >= policy.watch_data_drift:
+            calculated = _more_severe(calculated, "WATCH")
+            reasons.append("data_drift_watch")
     if performance.cost_drift_bps is not None:
         # Only adverse incremental costs can reduce a shadow envelope.  A
         # favourable execution difference is still recorded, but cannot be

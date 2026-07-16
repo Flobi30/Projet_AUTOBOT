@@ -19,6 +19,7 @@ from autobot.v2.research.shadow_governance import (
     StrategyArtifactRegistry,
     StrategyArtifact,
     apply_shadow_safety,
+    assess_data_distribution_drift,
     build_strategy_artifact_from_experiment,
     decide_shadow_safety,
     evaluate_shadow_parity,
@@ -430,6 +431,43 @@ def test_shadow_cost_drift_can_only_reduce_or_block_the_shadow_envelope():
 
     with pytest.raises(ShadowGovernanceError, match="cost drift thresholds"):
         ShadowSafetyPolicy(reduce_cost_drift_bps=4.0)
+
+
+def test_shadow_data_distribution_drift_is_bounded_and_can_only_reduce_risk():
+    assessment = assess_data_distribution_drift(
+        {"BTC": 60.0, "ETH": 40.0},
+        {"BTC": 40.0, "ETH": 60.0},
+    )
+
+    assert assessment.total_variation_score == pytest.approx(0.20)
+    assert assessment.categories == ("BTC", "ETH")
+    assert assessment.paper_capital_allowed is False
+    assert assessment.live_allowed is False
+
+    def performance(data_drift_score: float) -> ShadowPerformanceWindow:
+        return ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.05,
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=10),
+            data_drift_score=data_drift_score,
+        )
+
+    assert decide_shadow_safety(performance(0.15)).action == "WATCH"
+    assert decide_shadow_safety(performance(0.30)).action == "REDUCE"
+    assert decide_shadow_safety(performance(0.55)).action == "DISABLE_NEW_ENTRIES"
+    quarantined = decide_shadow_safety(performance(0.80))
+    assert quarantined.action == "QUARANTINE"
+    assert "data_drift_quarantine" in quarantined.reasons
+    assert quarantined.risk_increase_allowed is False
+
+    with pytest.raises(ShadowGovernanceError, match="positive total mass"):
+        assess_data_distribution_drift({"BTC": 0.0}, {"BTC": 1.0})
+    with pytest.raises(ShadowGovernanceError, match="drift thresholds"):
+        ShadowSafetyPolicy(reduce_data_drift=0.10)
 
 
 def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation(tmp_path):
