@@ -18,6 +18,7 @@ from autobot.v2.research.kraken_futures_derivatives_collector import (
     TICKERS_ENDPOINT,
     KrakenFuturesCollectorConfig,
     _basis_rows_from_aligned_candles,
+    _compact_canonical_history,
     _quality_label,
     assert_public_kraken_futures_endpoint,
     calculate_basis_bps,
@@ -337,6 +338,46 @@ def test_aligned_candle_basis_rejects_quote_currency_mismatch():
 def test_derivatives_quality_distinguishes_history_from_a_current_only_smoke():
     assert _quality_label([{}], [{}], [{}], [{}], basis_history_ready=False) == "smoke_ready_current_basis_only"
     assert _quality_label([{}], [{}], [{}], [{}], basis_history_ready=True) == "historical_funding_and_same_quote_basis_ready_research_only"
+
+
+def test_incremental_history_compaction_reads_only_history_and_current_run(tmp_path):
+    dataset_dir = tmp_path / "funding"
+    dataset_dir.mkdir()
+    fieldnames = ("timestamp", "value")
+
+    def write_rows(name: str, rows: list[dict[str, str]]) -> Path:
+        path = dataset_dir / name
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        return path
+
+    write_rows("older_a.csv", [{"timestamp": "2026-07-10T00:00:00+00:00", "value": "a"}])
+    write_rows("older_b.csv", [{"timestamp": "2026-07-10T01:00:00+00:00", "value": "b"}])
+    initial_rows, history_path, _ = _compact_canonical_history(
+        dataset_dir,
+        history_filename="funding_history.csv",
+        key_fields=("timestamp",),
+        fieldnames=fieldnames,
+    )
+    assert [row["value"] for row in initial_rows] == ["a", "b"]
+    assert history_path.exists()
+
+    # This immutable artifact appears after the initial backfill but was not
+    # selected as the current run.  A scheduled refresh must not re-read the
+    # whole archive simply because it exists.
+    write_rows("unselected_legacy.csv", [{"timestamp": "2026-07-10T02:00:00+00:00", "value": "legacy"}])
+    current_path = write_rows("current_refresh.csv", [{"timestamp": "2026-07-10T03:00:00+00:00", "value": "current"}])
+    refreshed_rows, _, _ = _compact_canonical_history(
+        dataset_dir,
+        history_filename="funding_history.csv",
+        key_fields=("timestamp",),
+        fieldnames=fieldnames,
+        incremental_paths=(current_path,),
+    )
+
+    assert [row["value"] for row in refreshed_rows] == ["a", "b", "current"]
 
 
 def test_raw_retention_prunes_only_old_completed_raw_runs_after_canonical_write(tmp_path):

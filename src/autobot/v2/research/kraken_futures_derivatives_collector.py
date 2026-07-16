@@ -476,6 +476,7 @@ def collect_kraken_futures_derivatives(
             "ingestion_time", "temporal_status", "funding_rate_absolute", "funding_rate_relative", "source", "source_endpoint",
         ),
         compact=config.collect_funding,
+        incremental_paths=(funding_path,) if config.collect_funding else (),
     )
     candle_history_rows, candle_history_path, _candle_history_duplicates = _load_or_compact_canonical_history(
         config.canonical_dir / "candles",
@@ -487,6 +488,7 @@ def collect_kraken_futures_derivatives(
             "volume", "source", "source_endpoint",
         ),
         compact=config.collect_candles,
+        incremental_paths=(candle_path,) if config.collect_candles else (),
     )
     ticker_history_rows, ticker_history_path, _ticker_history_duplicates = _compact_canonical_history(
         config.canonical_dir / "tickers",
@@ -498,6 +500,7 @@ def collect_kraken_futures_derivatives(
             "current_funding_rate", "predicted_funding_rate", "next_funding_timestamp", "open_interest", "volume", "suspended", "post_only",
             "source", "source_endpoint",
         ),
+        incremental_paths=(ticker_path,) if config.collect_tickers else (),
     )
     basis_history_rows, basis_history_path, _basis_history_duplicates = _compact_canonical_history(
         config.canonical_dir / "basis",
@@ -508,6 +511,7 @@ def collect_kraken_futures_derivatives(
             "futures_symbol", "base_asset", "quote_asset", "basis_bps", "mark_price", "index_or_reference_price",
             "calculation_method", "confidence_status", "source", "source_endpoint",
         ),
+        incremental_paths=(basis_path,) if (config.collect_tickers or config.collect_candles) else (),
     )
     open_interest_history_rows = [
         row
@@ -1277,22 +1281,35 @@ def _compact_canonical_history(
     history_filename: str,
     key_fields: Sequence[str],
     fieldnames: Sequence[str],
+    incremental_paths: Sequence[Path] | None = None,
 ) -> tuple[list[dict[str, Any]], Path, int]:
     """Build one atomically-published, deduplicated forward-history dataset.
 
     Per-run CSVs remain immutable audit artifacts.  The compacted history is
     the only input used for readiness; it excludes itself to prevent a retry
-    or a previous compaction from multiplying observations.
+    or a previous compaction from multiplying observations.  Once a history
+    exists, an incremental run reads only that history and its newly written
+    paths.  This bounds scheduled collector memory as the immutable archive
+    grows.
     """
 
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    run_paths = sorted(path for path in dataset_dir.glob("*.csv") if path.name != history_filename)
+    history_path = dataset_dir / history_filename
+    if history_path.exists() and incremental_paths is not None:
+        run_paths = [history_path]
+        seen_paths = {history_path.resolve()}
+        for path in incremental_paths:
+            resolved = path.resolve()
+            if path.exists() and resolved not in seen_paths:
+                run_paths.append(path)
+                seen_paths.add(resolved)
+    else:
+        run_paths = sorted(path for path in dataset_dir.glob("*.csv") if path.name != history_filename)
     rows: list[dict[str, Any]] = []
     for path in run_paths:
         with path.open("r", encoding="utf-8", newline="") as handle:
             rows.extend(dict(row) for row in csv.DictReader(handle) if row.get("timestamp"))
     deduped_rows, duplicate_count = _dedupe_rows(rows, key_fields)
-    history_path = dataset_dir / history_filename
     _write_csv(deduped_rows, history_path, fieldnames)
     return deduped_rows, history_path, duplicate_count
 
@@ -1304,6 +1321,7 @@ def _load_or_compact_canonical_history(
     key_fields: Sequence[str],
     fieldnames: Sequence[str],
     compact: bool,
+    incremental_paths: Sequence[Path] = (),
 ) -> tuple[list[dict[str, Any]], Path, int]:
     """Reuse an existing immutable-history compaction when a run skips it.
 
@@ -1320,6 +1338,7 @@ def _load_or_compact_canonical_history(
             history_filename=history_filename,
             key_fields=key_fields,
             fieldnames=fieldnames,
+            incremental_paths=incremental_paths if history_path.exists() else None,
         )
     with history_path.open("r", encoding="utf-8", newline="") as handle:
         rows = [dict(row) for row in csv.DictReader(handle) if row.get("timestamp")]
