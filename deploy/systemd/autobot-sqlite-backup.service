@@ -1,0 +1,22 @@
+[Unit]
+Description=AUTOBOT verified local SQLite backup (disabled until storage policy approval)
+Documentation=file:///opt/Projet_AUTOBOT/docs/research/RESILIENCE_RESTORE_DRILL.md
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-sqlite-backup.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_SQLITE_BACKUP_ENABLED=false
+Environment=AUTOBOT_SQLITE_BACKUP_EXTERNAL_POLICY_APPROVED=false
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-sqlite-backup.sh
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

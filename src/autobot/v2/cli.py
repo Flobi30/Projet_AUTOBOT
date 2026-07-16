@@ -504,6 +504,15 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_restore_drill.add_argument("--backup-path", required=True)
     sqlite_restore_drill.set_defaults(handler=_cmd_sqlite_restore_drill)
 
+    sqlite_backup = subparsers.add_parser(
+        "sqlite-backup",
+        help="Create an integrity-checked SQLite backup without writing to its source database",
+    )
+    sqlite_backup.add_argument("--source", required=True)
+    sqlite_backup.add_argument("--backup-path", required=True)
+    sqlite_backup.add_argument("--manifest-path", default=None)
+    sqlite_backup.set_defaults(handler=_cmd_sqlite_backup)
+
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
@@ -2743,6 +2752,24 @@ def _cmd_sqlite_restore_drill(args: argparse.Namespace) -> int:
 
     manifest = verify_sqlite_restore_drill(Path(args.backup_path))
     _print_json(asdict(manifest))
+    return 0
+
+
+def _cmd_sqlite_backup(args: argparse.Namespace) -> int:
+    """Create a local verified backup; external encryption remains separate."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import create_verified_sqlite_backup
+
+    manifest = create_verified_sqlite_backup(Path(args.source), Path(args.backup_path))
+    payload = asdict(manifest)
+    if args.manifest_path:
+        manifest_path = Path(args.manifest_path)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        payload["manifest_path"] = str(manifest_path)
+    _print_json(payload)
     return 0
 
 

@@ -194,14 +194,23 @@ def create_verified_sqlite_backup(
 ) -> SQLiteBackupManifest:
     """Create and integrity-check a SQLite backup; encryption is explicit, never implied."""
 
-    source_path = Path(source)
-    destination_path = Path(destination)
+    source_path = Path(source).resolve()
+    destination_path = Path(destination).resolve()
     if not source_path.exists():
         raise ResilienceError("SQLite backup source does not exist")
+    if source_path == destination_path:
+        raise ResilienceError("SQLite backup destination must differ from its source")
     if encrypted:
         raise ResilienceError("encryption must be provided by an approved external backup layer")
     destination_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(source_path) as source_connection, sqlite3.connect(destination_path) as destination_connection:
+    # Opening the source explicitly read-only makes this safe for a live
+    # runtime SQLite database: SQLite's backup API can obtain a consistent
+    # snapshot without giving this job write access to the source database.
+    source_uri = f"{source_path.as_uri()}?mode=ro"
+    with (
+        sqlite3.connect(source_uri, uri=True) as source_connection,
+        sqlite3.connect(destination_path) as destination_connection,
+    ):
         source_connection.backup(destination_connection)
         integrity = str(destination_connection.execute("PRAGMA integrity_check").fetchone()[0])
     if integrity.lower() != "ok":

@@ -70,6 +70,7 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
     with sqlite3.connect(source) as connection:
         connection.execute("CREATE TABLE observations (id INTEGER PRIMARY KEY, value TEXT)")
         connection.execute("INSERT INTO observations(value) VALUES ('preserved')")
+    source_before = source.read_bytes()
 
     manifest = create_verified_sqlite_backup(source, destination)
     with sqlite3.connect(destination) as connection:
@@ -80,8 +81,11 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
     assert manifest.backup_sha256
     assert manifest.encrypted is False
     assert restored == "preserved"
+    assert source.read_bytes() == source_before
     with pytest.raises(ResilienceError, match="approved external backup layer"):
         create_verified_sqlite_backup(source, tmp_path / "encrypted.sqlite3", encrypted=True)
+    with pytest.raises(ResilienceError, match="destination must differ"):
+        create_verified_sqlite_backup(source, source)
 
 
 def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):

@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule AUTOBOT verified SQLite backup after storage approval
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+RandomizedDelaySec=5m
+AccuracySec=1min
+Unit=autobot-sqlite-backup.service
+
+[Install]
+WantedBy=timers.target
