@@ -346,7 +346,10 @@ class ExecutionCostModel:
         slippage = entry.slippage_eur + exit_fill.slippage_eur
         latency = entry.latency_cost_eur + exit_fill.latency_cost_eur
         total_cost = fees + spread + slippage + latency
-        net = gross - fees
+        # Every modeled execution cost is an economic cost of the round trip.
+        # Deducting commissions alone would make the research simulator more
+        # optimistic than its own spread/slippage/latency assumptions.
+        net = gross - total_cost
         basis = max(entry.notional_eur, 1e-12)
         return RoundTripPnL(
             symbol=entry.symbol,
