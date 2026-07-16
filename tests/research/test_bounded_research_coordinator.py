@@ -109,6 +109,8 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
             "pytest",
             "--data-paths",
             "data/research/canonical/ohlcv",
+            "--capability-data-paths",
+            "data/research/canonical/ohlcv,data/research/manifests",
             "--feature-snapshot-manifest",
             "data/research/manifests/features.json",
         ]
@@ -118,6 +120,7 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
     assert args.max_variants == 3
     assert args.max_symbols == 6
     assert args.max_runtime_seconds == 120
+    assert args.capability_data_paths == "data/research/canonical/ohlcv,data/research/manifests"
     assert not hasattr(args, "enable_live")
     assert not hasattr(args, "enable_paper")
 

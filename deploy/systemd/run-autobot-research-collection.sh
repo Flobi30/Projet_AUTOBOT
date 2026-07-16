@@ -134,6 +134,7 @@ docker run --rm \
   python -m autobot.v2.cli alpha-hypothesis-scheduler \
     --run-id "${RUN_ID}_scheduler" \
     --data-paths data/research/canonical/ohlcv \
+    --capability-data-paths data/research/canonical/ohlcv,data/research/manifests \
     --memory-path data/research/alpha_research_memory.sqlite3 \
     --output-dir reports/research/daily_data_collection \
     --no-memory-backfill
@@ -165,6 +166,7 @@ if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
     python -m autobot.v2.cli bounded-research-coordinator \
       --run-id "${RUN_ID}_coordinator" \
       --data-paths data/research/canonical/ohlcv \
+      --capability-data-paths data/research/canonical/ohlcv,data/research/manifests \
       --feature-snapshot-manifest "data/research/manifests/${RUN_ID}_canonical_features_feature_snapshot.json" \
       --memory-path data/research/alpha_research_memory.sqlite3 \
       --experiment-registry data/research/experiment_registry.sqlite3 \

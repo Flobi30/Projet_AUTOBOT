@@ -199,6 +199,50 @@ def test_scheduler_reports_derivatives_waiting_instead_of_generic_data_missing(t
     assert candidate.adapter_ready is True
 
 
+def test_scheduler_reads_derivatives_capabilities_without_expanding_runner_market_data(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    (manifest_dir / "kraken_futures_derivatives.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": "derivatives-fixture",
+                "fingerprint": "derivatives-fingerprint",
+                "mappings": [{"futures_symbol": "PF_XBTUSD", "base_asset": "BTC"}],
+                "datasets": [
+                    {"dataset_id": "funding_rates", "row_count": 100},
+                    {"dataset_id": "ticker_snapshots", "row_count": 1},
+                    {"dataset_id": "basis", "row_count": 1},
+                ],
+                "funding_history_ready": True,
+                "basis_current_ready": True,
+                "basis_history_ready": False,
+                "current_open_interest_ready": True,
+                "open_interest_history_ready": False,
+                "derivatives_data_quality": "current_basis_only_waiting_for_history",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_separate_capabilities",
+            state_db=None,
+            data_paths=(data_dir,),
+            capability_data_paths=(data_dir, manifest_dir),
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    candidate = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
+    assert report.data_paths == (str(data_dir),)
+    assert report.capability_data_paths == (str(data_dir), str(manifest_dir))
+    assert report.data_capabilities["scheduler_data_state"]["funding_history_ready"] is True
+    assert candidate.status == "WAITING_FOR_MORE_DATA"
+    assert "derivatives_waiting_for_more_data" in candidate.blockers
+
+
 def test_cross_sectional_template_rejection_is_recorded_without_blocking_family(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"
@@ -240,12 +284,15 @@ def test_scheduler_cli_is_registered():
             "data/autobot_state.db",
             "--data-paths",
             "data/research/daily/ohlcv",
+            "--capability-data-paths",
+            "data/research/daily/ohlcv,data/research/manifests",
         ]
     )
 
     assert args.command == "alpha-hypothesis-scheduler"
     assert args.max_variants == 5
     assert args.max_symbols == 6
+    assert args.capability_data_paths == "data/research/daily/ohlcv,data/research/manifests"
 
 
 def test_memory_backfill_is_idempotent_and_adds_historical_records(tmp_path):

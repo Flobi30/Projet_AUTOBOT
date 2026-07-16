@@ -350,6 +350,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     bounded_research.add_argument("--run-id", required=True)
     bounded_research.add_argument("--data-paths", required=True)
+    bounded_research.add_argument(
+        "--capability-data-paths",
+        default=None,
+        help="Optional capability-manifest roots; never passed to the runner as market data.",
+    )
     bounded_research.add_argument("--feature-snapshot-manifest", required=True)
     bounded_research.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
     bounded_research.add_argument("--templates", default="docs/research/strategy_templates.json")
@@ -456,6 +461,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     alpha_hypothesis_scheduler.add_argument("--state-db", default=None)
     alpha_hypothesis_scheduler.add_argument("--data-paths", required=True)
+    alpha_hypothesis_scheduler.add_argument(
+        "--capability-data-paths",
+        default=None,
+        help="Optional research roots used only to scan available capabilities; runner market-data paths remain --data-paths.",
+    )
     alpha_hypothesis_scheduler.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
     alpha_hypothesis_scheduler.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_scheduler.add_argument("--hypotheses", default="docs/research/alpha_hypotheses.json")
@@ -2320,6 +2330,11 @@ def _cmd_bounded_research_coordinator(args: argparse.Namespace) -> int:
                 scheduler=AlphaSchedulerConfig(
                     state_db=None,
                     data_paths=data_paths,
+                    capability_data_paths=(
+                        tuple(Path(path) for path in _csv_tuple(args.capability_data_paths, "--capability-data-paths"))
+                        if args.capability_data_paths
+                        else None
+                    ),
                     knowledge_base_path=Path(args.knowledge_base),
                     templates_path=Path(args.templates),
                     hypotheses_path=Path(args.hypotheses),
@@ -2637,6 +2652,11 @@ def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
             run_id=run_id,
             state_db=Path(args.state_db) if args.state_db else None,
             data_paths=tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")),
+            capability_data_paths=(
+                tuple(Path(path) for path in _csv_tuple(args.capability_data_paths, "--capability-data-paths"))
+                if args.capability_data_paths
+                else None
+            ),
             knowledge_base_path=Path(args.knowledge_base),
             templates_path=Path(args.templates),
             hypotheses_path=Path(args.hypotheses),

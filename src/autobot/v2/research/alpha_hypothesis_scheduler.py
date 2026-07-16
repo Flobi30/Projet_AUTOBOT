@@ -356,6 +356,10 @@ class MemoryBackfillSummary:
 class AlphaSchedulerConfig:
     state_db: Path | None
     data_paths: tuple[Path, ...]
+    # Capability manifests may live outside the runner's market-data input.
+    # Keeping this separate prevents an OHLCV runner from ingesting unrelated
+    # derivatives datasets merely because the scheduler must explain them.
+    capability_data_paths: tuple[Path, ...] | None = None
     knowledge_base_path: Path = Path("docs/research/alpha_knowledge_base.json")
     templates_path: Path = Path("docs/research/strategy_templates.json")
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
@@ -381,6 +385,7 @@ class AlphaSchedulerReport:
     generated_at: str
     state_db: str | None
     data_paths: tuple[str, ...]
+    capability_data_paths: tuple[str, ...]
     families: tuple[dict[str, Any], ...]
     templates: tuple[dict[str, Any], ...]
     data_readiness: dict[str, Any]
@@ -407,6 +412,7 @@ class AlphaSchedulerReport:
             "generated_at": self.generated_at,
             "state_db": self.state_db,
             "data_paths": list(self.data_paths),
+            "capability_data_paths": list(self.capability_data_paths),
             "families": [dict(item) for item in self.families],
             "templates": [dict(item) for item in self.templates],
             "data_readiness": dict(self.data_readiness),
@@ -574,9 +580,10 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
     hypotheses = load_alpha_hypotheses(config.hypotheses_path)
     memory = load_alpha_research_memory(config.memory_path)
     readiness = scan_data_readiness(config.data_paths)
+    capability_data_paths = config.capability_data_paths or config.data_paths
     capability_scan = build_data_capability_scan_report(
         run_id=f"{config.run_id}_capabilities",
-        data_roots=config.data_paths,
+        data_roots=capability_data_paths,
         state_db=config.state_db,
         memory_path=config.memory_path,
     )
@@ -626,6 +633,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         generated_at=datetime.now(timezone.utc).isoformat(),
         state_db=str(config.state_db) if config.state_db else None,
         data_paths=tuple(str(path) for path in config.data_paths),
+        capability_data_paths=tuple(str(path) for path in capability_data_paths),
         families=tuple(knowledge["families"]),
         templates=tuple(templates["templates"]),
         data_readiness=readiness.to_dict(),
