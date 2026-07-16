@@ -18,6 +18,24 @@ from autobot.v2.research.experiment_registry import (
 pytestmark = pytest.mark.unit
 
 
+def _holdout_partition() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "partition_id": "holdout_2026_q3",
+        "fingerprint": "holdout-2026-q3-fixture-fingerprint",
+    }
+
+
+def _holdout_artifact() -> dict[str, object]:
+    return {
+        "holdout_partition": _holdout_partition(),
+        "role": "holdout_review",
+        "result_fingerprint": "pytest-final-result-fingerprint",
+        "sha256": "pytest-final-result-sha256",
+        "data_root": "/sealed/holdout",
+    }
+
+
 def _spec(*, snapshot: str = "ohlcv_v2_snapshot", thesis: str = "funding mean reversion") -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis_id="funding_basis",
@@ -30,7 +48,7 @@ def _spec(*, snapshot: str = "ohlcv_v2_snapshot", thesis: str = "funding mean re
         parameters={"threshold": 2.5, "lookback": 24},
         seed=42,
         cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
-        environment={"python": "3.11", "mode": "research"},
+        environment={"python": "3.11", "mode": "research", "holdout_partition": _holdout_partition()},
         holdout_id="holdout_2026_q3",
     )
 
@@ -154,13 +172,27 @@ def test_final_shadow_review_closes_the_material_experiment(tmp_path):
     registry.reserve_holdout(
         holdout_id="holdout_2026_q3",
         data_snapshot_id="ohlcv_v2_holdout",
-        immutable_fingerprint="fingerprint-holdout",
+        immutable_fingerprint=str(_holdout_partition()["fingerprint"]),
+        manifest={"partition": _holdout_partition()},
     )
+    with pytest.raises(ExperimentRegistryError, match="artifact partition"):
+        registry.record_final_holdout_review(
+            experiment_id=experiment.experiment_id,
+            metrics={"net_pnl_eur": 4.5, "profit_factor": 1.2},
+            artifact={**_holdout_artifact(), "holdout_partition": {"partition_id": "other"}},
+        )
     registry.record_final_holdout_review(
         experiment_id=experiment.experiment_id,
         metrics={"net_pnl_eur": 4.5, "profit_factor": 1.2},
         reasons=("final_immutable_holdout",),
+        artifact=_holdout_artifact(),
     )
+    with pytest.raises(ExperimentRegistryError, match="already recorded"):
+        registry.record_final_holdout_review(
+            experiment_id=experiment.experiment_id,
+            metrics={"net_pnl_eur": 5.0, "profit_factor": 1.3},
+            artifact=_holdout_artifact(),
+        )
     state = registry.record_gate_result(experiment_id=experiment.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
 
     assert state.terminal is True

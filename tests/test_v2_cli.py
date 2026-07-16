@@ -1,12 +1,14 @@
 import json
 import sqlite3
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from autobot.v2 import cli
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
+from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
 from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
 
@@ -1702,7 +1704,58 @@ def test_cli_reserves_an_immutable_experiment_holdout_without_enabling_execution
     assert output["live_allowed"] is False
 
 
+def test_cli_materializes_a_physical_research_only_holdout_partition(tmp_path, capsys):
+    source_file = tmp_path / "canonical.csv"
+    source_file.write_text(
+        "event_time,available_time,ingestion_time,symbol,close\n"
+        "2026-01-01T01:00:00+00:00,2026-01-01T01:00:00+00:00,2026-01-01T01:00:00+00:00,BTCEUR,100\n"
+        "2026-01-01T02:00:00+00:00,2026-01-01T02:00:00+00:00,2026-01-01T02:00:00+00:00,BTCEUR,101\n"
+        "2026-01-01T03:00:00+00:00,2026-01-01T03:00:00+00:00,2026-01-01T03:00:00+00:00,BTCEUR,102\n",
+        encoding="utf-8",
+    )
+    source_manifest = tmp_path / "canonical_snapshot.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "snapshot_id": "ohlcv_cli_holdout",
+                "fingerprint": "source-cli-holdout-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "holdout-partition-materialize",
+            "--run-id",
+            "pytest_cli_holdout",
+            "--source-snapshot-manifest",
+            str(source_manifest),
+            "--holdout-start-at",
+            "2026-01-01T03:00:00+00:00",
+            "--output-dir",
+            str(tmp_path / "partitions"),
+            "--registry-path",
+            str(tmp_path / "experiment_registry.sqlite3"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["optimization_row_count"] == 2
+    assert output["holdout_row_count"] == 1
+    assert output["reserved"] is True
+    assert output["holdout_id"] == output["partition_id"]
+    assert output["research_only"] is True
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert Path(output["manifest_path"]).is_file()
+
+
 def test_cli_records_final_holdout_review_without_enabling_execution(tmp_path, capsys):
+    partition = _physical_holdout_fixture(tmp_path)
     registry_path = tmp_path / "experiment_registry.sqlite3"
     registry = ExperimentRegistry(registry_path)
     experiment = registry.register_experiment(
@@ -1711,20 +1764,22 @@ def test_cli_records_final_holdout_review_without_enabling_execution(tmp_path, c
             template_id="funding_extreme_reversion",
             thesis="CLI final holdout review fixture",
             code_commit="pytest-commit",
-            data_snapshot_id="snapshot-pytest",
+            data_snapshot_id=partition.optimization_snapshot_id,
             feature_versions={"basis_bps": "1.0.0"},
             parameters={"threshold": 2.5},
             seed=7,
             cost_model={"fee_bps": 16.0},
-            environment={"mode": "research"},
-            holdout_id="holdout_cli_review",
+            environment={"mode": "research", "holdout_partition": partition.identity_dict()},
+            holdout_id=partition.partition_id,
         )
     )
     registry.reserve_holdout(
-        holdout_id="holdout_cli_review",
-        data_snapshot_id="snapshot-pytest-holdout",
-        immutable_fingerprint="holdout-cli-review-fingerprint",
+        holdout_id=partition.partition_id,
+        data_snapshot_id=partition.holdout_snapshot_id,
+        immutable_fingerprint=partition.fingerprint,
+        manifest={"partition": partition.identity_dict()},
     )
+    result_artifact = _write_final_holdout_result_artifact(tmp_path, experiment.experiment_id, partition)
 
     exit_code = cli.main(
         [
@@ -1733,8 +1788,12 @@ def test_cli_records_final_holdout_review_without_enabling_execution(tmp_path, c
             str(registry_path),
             "--experiment-id",
             experiment.experiment_id,
-            "--metrics-json",
-            '{"net_pnl_eur": 3.0, "profit_factor": 1.2}',
+            "--holdout-partition-manifest",
+            str(partition.manifest_path),
+            "--data-paths",
+            str(partition.holdout_data_dir),
+            "--result-artifact",
+            str(result_artifact),
             "--reasons",
             "final_review,pytest",
         ]
@@ -1746,6 +1805,54 @@ def test_cli_records_final_holdout_review_without_enabling_execution(tmp_path, c
     assert output["optimization_allowed"] is False
     assert output["paper_capital_allowed"] is False
     assert output["live_allowed"] is False
+
+
+def _physical_holdout_fixture(tmp_path):
+    source_file = tmp_path / "final_review_canonical.csv"
+    source_file.write_text(
+        "event_time,available_time,ingestion_time,symbol,close\n"
+        "2026-01-01T01:00:00+00:00,2026-01-01T01:00:00+00:00,2026-01-01T01:00:00+00:00,BTCEUR,100\n"
+        "2026-01-01T02:00:00+00:00,2026-01-01T02:00:00+00:00,2026-01-01T02:00:00+00:00,BTCEUR,101\n"
+        "2026-01-01T03:00:00+00:00,2026-01-01T03:00:00+00:00,2026-01-01T03:00:00+00:00,BTCEUR,102\n",
+        encoding="utf-8",
+    )
+    source_manifest = tmp_path / "final_review_canonical_snapshot.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "snapshot_id": "ohlcv_cli_final_review",
+                "fingerprint": "source-cli-final-review-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return materialize_holdout_partition(
+        HoldoutPartitionConfig(
+            run_id="pytest_cli_final_review",
+            source_snapshot_manifest=source_manifest,
+            holdout_start_at=datetime(2026, 1, 1, 3, tzinfo=timezone.utc),
+            output_dir=tmp_path / "final_review_partitions",
+        )
+    )
+
+
+def _write_final_holdout_result_artifact(tmp_path, experiment_id, partition):
+    payload = {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "holdout_partition": partition.identity_dict(),
+        "role": "holdout_review",
+        "data_root": str(Path(partition.holdout_data_dir).resolve()),
+        "metrics": {"net_pnl_eur": 3.0, "profit_factor": 1.2},
+    }
+    payload["result_fingerprint"] = sha256(
+        json.dumps(payload, default=str, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    path = tmp_path / "final_holdout_result.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
 
 
 def test_cli_sqlite_restore_drill_is_non_authorizing_and_preserves_backup(tmp_path, capsys):

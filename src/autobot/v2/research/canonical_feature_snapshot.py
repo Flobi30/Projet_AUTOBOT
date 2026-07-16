@@ -97,6 +97,8 @@ class CanonicalFeatureSnapshot:
     files: tuple[CanonicalFeatureFile, ...]
     parity_sample_row_count: int = 0
     parity_validation_scope: str = "bounded_deterministic_sample"
+    holdout_partition: Mapping[str, Any] | None = None
+    holdout_partition_role: str | None = None
     manifest_path: str | None = None
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -125,6 +127,8 @@ class CanonicalFeatureSnapshot:
             "parity_ok": self.parity_ok,
             "parity_sample_row_count": self.parity_sample_row_count,
             "parity_validation_scope": self.parity_validation_scope,
+            "holdout_partition": dict(self.holdout_partition) if self.holdout_partition else None,
+            "holdout_partition_role": self.holdout_partition_role,
             "status": self.status,
             "blockers": list(self.blockers),
             "files": [item.to_dict() for item in self.files],
@@ -149,6 +153,10 @@ def build_canonical_feature_snapshot(
     """Write one reproducible feature bundle from a canonical v2 manifest."""
 
     manifest = _load_manifest(config.canonical_manifest_path)
+    holdout_partition, holdout_partition_role = _verified_partition_source(
+        manifest,
+        config.canonical_manifest_path,
+    )
     source_snapshot_id = _required_text(manifest.get("snapshot_id"), "canonical manifest snapshot_id")
     source_fingerprint = _required_text(manifest.get("fingerprint"), "canonical manifest fingerprint")
     feature_ids = tuple(dict.fromkeys(str(item).strip() for item in config.feature_ids if str(item).strip()))
@@ -323,6 +331,8 @@ def build_canonical_feature_snapshot(
         blockers=tuple(blockers),
         files=tuple(files),
         parity_sample_row_count=parity_sample_row_count,
+        holdout_partition=holdout_partition,
+        holdout_partition_role=holdout_partition_role,
     )
     manifest_path = config.manifest_dir / f"{config.run_id}_feature_snapshot.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -472,6 +482,62 @@ def _bounded_parity_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, An
         for index in range(FEATURE_PARITY_MAX_ROWS)
     }
     return [normalized[index] for index in sorted(indices)]
+
+
+def _verified_partition_source(
+    manifest: Mapping[str, Any],
+    manifest_path: Path,
+) -> tuple[Mapping[str, Any] | None, str | None]:
+    """Return partition evidence only after the role manifest and CSV root verify.
+
+    A role-scoped canonical manifest is a security boundary: it must be the
+    manifest written beside the sealed partition and its listed CSVs must still
+    match the partition fingerprint.  A caller cannot merely declare matching
+    snapshot ids in a feature manifest.
+    """
+
+    raw_partition = manifest.get("holdout_partition")
+    if raw_partition is None:
+        return None, None
+    if not isinstance(raw_partition, Mapping):
+        raise ValueError("canonical holdout_partition provenance must be an object")
+    from .holdout_partition import (
+        HOLDOUT_REVIEW_ROLE,
+        OPTIMIZATION_ROLE,
+        HoldoutPartitionError,
+        load_holdout_partition_reference,
+        verify_holdout_partition,
+    )
+
+    role = str(raw_partition.get("role") or "").strip()
+    if role not in {OPTIMIZATION_ROLE, HOLDOUT_REVIEW_ROLE}:
+        raise ValueError("canonical holdout_partition role is invalid")
+    partition_manifest = manifest_path.resolve().parent / "partition_manifest.json"
+    try:
+        reference = load_holdout_partition_reference(partition_manifest)
+        expected_manifest = Path(
+            reference.optimization_snapshot_manifest
+            if role == OPTIMIZATION_ROLE
+            else reference.holdout_snapshot_manifest
+        ).resolve()
+        if manifest_path.resolve() != expected_manifest:
+            raise ValueError("canonical partition source manifest is not the sealed role manifest")
+        expected_root = Path(
+            reference.optimization_data_dir if role == OPTIMIZATION_ROLE else reference.holdout_data_dir
+        )
+        verify_holdout_partition(partition_manifest, role=role, data_paths=(expected_root,))
+    except HoldoutPartitionError as exc:
+        raise ValueError(f"canonical partition source is invalid: {exc}") from exc
+    expected_provenance = {
+        "partition_id": reference.partition_id,
+        "partition_fingerprint": reference.fingerprint,
+        "role": role,
+        "source_snapshot_id": reference.source_snapshot_id,
+        "source_snapshot_fingerprint": reference.source_snapshot_fingerprint,
+    }
+    if dict(raw_partition) != expected_provenance:
+        raise ValueError("canonical holdout_partition provenance does not match the sealed partition")
+    return reference.identity_dict(), role
 
 
 def _feature_fingerprint_digest(

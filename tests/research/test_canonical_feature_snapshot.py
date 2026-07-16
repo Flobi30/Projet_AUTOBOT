@@ -14,6 +14,7 @@ from autobot.v2.research.canonical_feature_snapshot import (
     upgrade_feature_snapshot_manifest,
 )
 from autobot.v2.research.canonical_ohlcv_store import CanonicalOHLCVConfig, build_canonical_ohlcv_snapshot
+from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
 
 
 pytestmark = pytest.mark.unit
@@ -103,6 +104,103 @@ def test_materialized_feature_snapshot_excludes_unverified_market_mappings(tmp_p
     assert snapshot.feature_count == 0
     assert snapshot.rejected_unverified_mapping_count == 25
     assert "UNVERIFIED_MARKET_MAPPING_ROWS_EXCLUDED" in snapshot.blockers
+
+
+def test_feature_snapshot_records_and_verifies_its_optimization_partition(tmp_path):
+    source_file = tmp_path / "canonical_source.csv"
+    fields = (
+        "exchange",
+        "market_type",
+        "symbol",
+        "base_asset",
+        "quote_asset",
+        "market_mapping_status",
+        "timeframe",
+        "open_timestamp",
+        "event_time",
+        "available_time",
+        "ingestion_time",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source_file.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index in range(30):
+            event = origin + timedelta(hours=index + 1)
+            price = 100.0 + index
+            writer.writerow(
+                {
+                    "exchange": "kraken",
+                    "market_type": "spot",
+                    "symbol": "BTCEUR",
+                    "base_asset": "BTC",
+                    "quote_asset": "EUR",
+                    "market_mapping_status": "EXPLICIT",
+                    "timeframe": "1h",
+                    "open_timestamp": (event - timedelta(hours=1)).isoformat(),
+                    "event_time": event.isoformat(),
+                    "available_time": event.isoformat(),
+                    "ingestion_time": event.isoformat(),
+                    "open": price - 0.5,
+                    "high": price + 1.0,
+                    "low": price - 1.0,
+                    "close": price,
+                    "volume": 100.0,
+                }
+            )
+    source_manifest = tmp_path / "canonical_source_manifest.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "canonical_partition_source",
+                "fingerprint": "canonical-partition-source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    partition = materialize_holdout_partition(
+        HoldoutPartitionConfig(
+            run_id="feature_partition_pytest",
+            source_snapshot_manifest=source_manifest,
+            holdout_start_at=origin + timedelta(hours=21),
+            output_dir=tmp_path / "partitions",
+        )
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="features_from_partition",
+            canonical_manifest_path=Path(partition.optimization_snapshot_manifest),
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+
+    assert snapshot.holdout_partition == partition.identity_dict()
+    assert snapshot.holdout_partition_role == "optimization"
+    assert snapshot.source_snapshot_id == partition.optimization_snapshot_id
+
+    role_manifest = Path(partition.optimization_snapshot_manifest)
+    role_manifest.chmod(0o666)
+    payload = json.loads(role_manifest.read_text(encoding="utf-8"))
+    payload["files"] = []
+    role_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="canonical partition source is invalid"):
+        build_canonical_feature_snapshot(
+            CanonicalFeatureSnapshotConfig(
+                run_id="features_from_tampered_partition",
+                canonical_manifest_path=role_manifest,
+                output_dir=tmp_path / "features_tampered",
+                manifest_dir=tmp_path / "feature_manifests_tampered",
+            )
+        )
 
 
 def test_feature_snapshot_streams_full_history_with_bounded_parity_replay(tmp_path):

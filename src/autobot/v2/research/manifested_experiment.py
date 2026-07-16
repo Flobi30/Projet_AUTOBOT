@@ -35,6 +35,8 @@ class FeatureSnapshotProvenance:
     parity_ok: bool
     ingestion_time_unknown_count: int
     runtime_parity_verified: bool | None = None
+    holdout_partition: Mapping[str, Any] | None = None
+    holdout_partition_role: str | None = None
 
     @property
     def runtime_parity_proven(self) -> bool:
@@ -55,6 +57,8 @@ class FeatureSnapshotProvenance:
             "parity_ok": self.parity_ok,
             "ingestion_time_unknown_count": self.ingestion_time_unknown_count,
             "runtime_parity_proven": self.runtime_parity_proven,
+            "holdout_partition": dict(self.holdout_partition) if self.holdout_partition else None,
+            "holdout_partition_role": self.holdout_partition_role,
             "research_only": True,
             "paper_capital_allowed": False,
             "live_allowed": False,
@@ -88,6 +92,12 @@ def load_feature_snapshot_provenance(path: str | Path) -> FeatureSnapshotProvena
     normalized_versions = {str(key).strip(): str(value).strip() for key, value in versions.items()}
     if not all(normalized_versions) or not all(normalized_versions.values()):
         raise ManifestedExperimentError("feature snapshot feature_versions are invalid")
+    raw_holdout_partition = payload.get("holdout_partition")
+    if raw_holdout_partition is not None and not isinstance(raw_holdout_partition, Mapping):
+        raise ManifestedExperimentError("feature snapshot holdout_partition must be an object")
+    holdout_partition_role = str(payload.get("holdout_partition_role") or "").strip() or None
+    if raw_holdout_partition is not None and not holdout_partition_role:
+        raise ManifestedExperimentError("feature snapshot holdout partition role is required")
     return FeatureSnapshotProvenance(
         manifest_path=str(manifest_path),
         feature_snapshot_id=_required(payload.get("feature_snapshot_id"), "feature_snapshot_id"),
@@ -105,6 +115,8 @@ def load_feature_snapshot_provenance(path: str | Path) -> FeatureSnapshotProvena
             if "runtime_parity_proven" in payload
             else None
         ),
+        holdout_partition=(dict(raw_holdout_partition) if isinstance(raw_holdout_partition, Mapping) else None),
+        holdout_partition_role=holdout_partition_role,
     )
 
 
@@ -121,6 +133,7 @@ def build_manifested_experiment_spec(
     environment: Mapping[str, Any] | None = None,
     derivatives_snapshot_manifest: str | Path | None = None,
     holdout_id: str | None = None,
+    holdout_partition_manifest: str | Path | None = None,
 ) -> tuple[ExperimentSpec, FeatureSnapshotProvenance]:
     """Build a reproducible research spec from one verified feature bundle."""
 
@@ -132,6 +145,39 @@ def build_manifested_experiment_spec(
     )
     if derivatives_provenance is not None and derivatives_provenance.snapshot_kind != "DERIVATIVES_POINT_IN_TIME":
         raise ManifestedExperimentError("derivatives snapshot manifest must be DERIVATIVES_POINT_IN_TIME")
+    normalized_holdout_id = str(holdout_id or "").strip() or None
+    if normalized_holdout_id is None and holdout_partition_manifest is not None:
+        raise ManifestedExperimentError("holdout partition requires a holdout_id")
+    if normalized_holdout_id is not None and holdout_partition_manifest is None:
+        raise ManifestedExperimentError("holdout_id requires a physical holdout partition manifest")
+    holdout_partition = None
+    if holdout_partition_manifest is not None:
+        from .holdout_partition import HoldoutPartitionError, load_holdout_partition_reference
+
+        try:
+            holdout_partition = load_holdout_partition_reference(holdout_partition_manifest)
+        except HoldoutPartitionError as exc:
+            raise ManifestedExperimentError(f"invalid physical holdout partition: {exc}") from exc
+        if normalized_holdout_id != holdout_partition.partition_id:
+            raise ManifestedExperimentError("holdout_id must match the physical holdout partition_id")
+        if (
+            provenance.holdout_partition != holdout_partition.identity_dict()
+            or provenance.holdout_partition_role != "optimization"
+        ):
+            raise ManifestedExperimentError(
+                "feature snapshot must be materialized from the sealed optimization partition"
+            )
+        if derivatives_provenance is not None:
+            raise ManifestedExperimentError(
+                "derivatives feature snapshots require a separate physical holdout partition before final review"
+            )
+        if (
+            holdout_partition.optimization_snapshot_id != provenance.source_snapshot_id
+            or holdout_partition.optimization_snapshot_fingerprint != provenance.source_snapshot_fingerprint
+        ):
+            raise ManifestedExperimentError(
+                "holdout partition optimization snapshot does not match the feature snapshot provenance"
+            )
     supplied_environment = dict(environment or {})
     if any(bool(supplied_environment.get(key)) for key in ("paper_capital_allowed", "live_allowed", "promotable")):
         raise ManifestedExperimentError("manifested experiment cannot enable paper capital, live or promotion")
@@ -165,6 +211,11 @@ def build_manifested_experiment_spec(
     }
     if derivatives_provenance is not None:
         resolved_environment["derivatives_snapshot"] = derivatives_provenance.to_dict()
+    if holdout_partition is not None:
+        # The local manifest path is intentionally excluded from the material
+        # experiment identity.  The partition fingerprint captures the sealed
+        # contents and lets the same research run reproduce on another host.
+        resolved_environment["holdout_partition"] = holdout_partition.identity_dict()
     return (
         ExperimentSpec(
             hypothesis_id=hypothesis_id,
@@ -177,7 +228,7 @@ def build_manifested_experiment_spec(
             seed=seed,
             cost_model=dict(cost_model),
             environment=resolved_environment,
-            holdout_id=str(holdout_id).strip() or None,
+            holdout_id=normalized_holdout_id,
         ),
         provenance,
     )

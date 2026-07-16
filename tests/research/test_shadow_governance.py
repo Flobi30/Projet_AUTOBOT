@@ -81,6 +81,24 @@ def _feature_snapshot():
     return feature_snapshot_reference_from_mapping(_feature_snapshot_evidence())
 
 
+def _holdout_partition_fixture(partition_id: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "partition_id": partition_id,
+        "fingerprint": f"{partition_id}-fingerprint",
+    }
+
+
+def _holdout_artifact_fixture(partition_id: str) -> dict[str, object]:
+    return {
+        "holdout_partition": _holdout_partition_fixture(partition_id),
+        "role": "holdout_review",
+        "result_fingerprint": f"{partition_id}-result",
+        "sha256": f"{partition_id}-sha256",
+        "data_root": f"/sealed/{partition_id}",
+    }
+
+
 def _experiment_spec() -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis_id="funding_basis",
@@ -92,7 +110,11 @@ def _experiment_spec() -> ExperimentSpec:
         parameters={"threshold": 2.5},
         seed=42,
         cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
-        environment={"mode": "research", "feature_snapshot": _feature_snapshot_evidence()},
+        environment={
+            "mode": "research",
+            "feature_snapshot": _feature_snapshot_evidence(),
+            "holdout_partition": _holdout_partition_fixture("holdout_shadow_fixture"),
+        },
         holdout_id="holdout_shadow_fixture",
     )
 
@@ -103,13 +125,15 @@ def _passed_experiment_registry(tmp_path) -> tuple[ExperimentRegistry, str]:
     registry.reserve_holdout(
         holdout_id="holdout_shadow_fixture",
         data_snapshot_id="snapshot-1-holdout",
-        immutable_fingerprint="holdout-shadow-fixture-fingerprint",
+        immutable_fingerprint="holdout_shadow_fixture-fingerprint",
+        manifest={"partition": _holdout_partition_fixture("holdout_shadow_fixture")},
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+        artifact=_holdout_artifact_fixture("holdout_shadow_fixture"),
     )
     state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
     assert state.terminal is True
@@ -296,20 +320,25 @@ def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_featur
             parameters={"threshold": 2.5},
             seed=42,
             cost_model={"fee_bps": 16.0},
-            environment={"mode": "research"},
+            environment={
+                "mode": "research",
+                "holdout_partition": _holdout_partition_fixture("holdout_legacy_fixture"),
+            },
             holdout_id="holdout_legacy_fixture",
         )
     )
     registry.reserve_holdout(
         holdout_id="holdout_legacy_fixture",
         data_snapshot_id="snapshot-legacy-holdout",
-        immutable_fingerprint="holdout-legacy-fixture-fingerprint",
+        immutable_fingerprint="holdout_legacy_fixture-fingerprint",
+        manifest={"partition": _holdout_partition_fixture("holdout_legacy_fixture")},
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+        artifact=_holdout_artifact_fixture("holdout_legacy_fixture"),
     )
     state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
 

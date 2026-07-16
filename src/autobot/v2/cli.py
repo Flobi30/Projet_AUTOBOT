@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import date, datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -340,7 +341,12 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument(
         "--holdout-id",
         default=None,
-        help="Previously reserved immutable holdout identifier; never available for optimization.",
+        help="Immutable physical holdout identifier; never available for optimization.",
+    )
+    alpha_hypothesis_runner.add_argument(
+        "--holdout-partition-manifest",
+        default=None,
+        help="Sealed partition manifest bound to --holdout-id; the runner is limited to its optimization root.",
     )
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
@@ -388,16 +394,31 @@ def _build_parser() -> argparse.ArgumentParser:
     experiment_registry_holdout.add_argument("--manifest-path", default=None)
     experiment_registry_holdout.set_defaults(handler=_cmd_experiment_registry_reserve_holdout)
 
+    holdout_partition = subparsers.add_parser(
+        "holdout-partition-materialize",
+        help="Materialize physically separate point-in-time research optimization and final-review datasets.",
+    )
+    holdout_partition.add_argument("--run-id", required=True)
+    holdout_partition.add_argument("--source-snapshot-manifest", required=True)
+    holdout_partition.add_argument("--holdout-start-at", required=True)
+    holdout_partition.add_argument("--holdout-end-at", default=None)
+    holdout_partition.add_argument("--output-dir", default="data/research/partitions")
+    holdout_partition.add_argument("--partition-id", default=None)
+    holdout_partition.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
+    holdout_partition.set_defaults(handler=_cmd_holdout_partition_materialize)
+
     experiment_registry_holdout_review = subparsers.add_parser(
         "experiment-registry-record-final-holdout-review",
         help="Record non-optimizing immutable-holdout evidence for a frozen research experiment.",
     )
     experiment_registry_holdout_review.add_argument("--registry-path", default="data/research/experiment_registry.sqlite3")
     experiment_registry_holdout_review.add_argument("--experiment-id", required=True)
+    experiment_registry_holdout_review.add_argument("--holdout-partition-manifest", required=True)
+    experiment_registry_holdout_review.add_argument("--data-paths", required=True)
     experiment_registry_holdout_review.add_argument(
-        "--metrics-json",
+        "--result-artifact",
         required=True,
-        help="JSON object of final holdout metrics; it is evidence only and cannot enable execution.",
+        help="Immutable final-review JSON artifact tied to the sealed holdout root and its fingerprint.",
     )
     experiment_registry_holdout_review.add_argument(
         "--reasons",
@@ -2261,6 +2282,10 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
 
     run_id = args.run_id or f"alpha_hypothesis_runner_{args.hypothesis_id}_{args.mode}"
     data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
+    if bool(args.holdout_id) != bool(args.holdout_partition_manifest):
+        raise ValueError("--holdout-id and --holdout-partition-manifest must be supplied together")
+    if args.holdout_id and not args.feature_snapshot_manifest:
+        raise ValueError("--holdout-id requires --feature-snapshot-manifest for provenance verification")
     pre_run_context = None
     pre_run_commit = str(args.commit or _current_git_commit() or "").strip()
     if args.feature_snapshot_manifest and pre_run_commit:
@@ -2455,6 +2480,11 @@ def _prepare_alpha_experiment_context(
     from autobot.v2.research.alpha_hypothesis_runner import canonical_hypothesis_id
     from autobot.v2.research.derivatives_feature_snapshot import inspect_derivatives_feature_snapshot_manifest
     from autobot.v2.research.experiment_registry import ExperimentRegistry
+    from autobot.v2.research.holdout_partition import (
+        OPTIMIZATION_ROLE,
+        HoldoutPartitionError,
+        verify_holdout_partition,
+    )
     from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
 
     resolved_hypothesis_id = canonical_hypothesis_id(hypothesis_id)
@@ -2484,6 +2514,18 @@ def _prepare_alpha_experiment_context(
     timeframes = _optional_csv_tuple(args.trial_timeframes, "--trial-timeframes")
     regimes = _optional_csv_tuple(args.trial_regimes, "--trial-regimes")
     symbols = _csv_tuple(args.symbols, "--symbols", uppercase=True)
+    holdout_partition = None
+    if args.holdout_id:
+        try:
+            holdout_partition = verify_holdout_partition(
+                Path(args.holdout_partition_manifest),
+                role=OPTIMIZATION_ROLE,
+                data_paths=data_paths,
+            )
+        except HoldoutPartitionError as exc:
+            raise ValueError(f"invalid optimization holdout partition: {exc}") from exc
+        if str(args.holdout_id).strip() != holdout_partition.partition_id:
+            raise ValueError("--holdout-id must match the physical partition_id")
     spec, provenance = build_manifested_experiment_spec(
         hypothesis_id=resolved_hypothesis_id,
         template_id=str(template["template_id"]),
@@ -2505,8 +2547,18 @@ def _prepare_alpha_experiment_context(
         cost_model={"profile": args.cost_profile},
         environment={"data_paths": [str(path) for path in data_paths]},
         holdout_id=args.holdout_id,
+        holdout_partition_manifest=(
+            Path(args.holdout_partition_manifest) if args.holdout_partition_manifest else None
+        ),
     )
     registry = ExperimentRegistry(Path(args.experiment_registry))
+    if holdout_partition is not None:
+        registry.reserve_holdout(
+            holdout_id=args.holdout_id,
+            data_snapshot_id=holdout_partition.holdout_snapshot_id,
+            immutable_fingerprint=holdout_partition.fingerprint,
+            manifest={"partition": holdout_partition.identity_dict()},
+        )
     state = registry.register_experiment(spec)
     if not state.terminal:
         registry.record_trial_plan(
@@ -2523,6 +2575,7 @@ def _prepare_alpha_experiment_context(
         "state": state,
         "validation_trial_count": registry.validation_trial_count(hypothesis_id=spec.hypothesis_id),
         "derivatives_availability": derivatives_availability,
+        "holdout_partition": holdout_partition,
     }
 
 
@@ -2587,29 +2640,92 @@ def _cmd_experiment_registry_reserve_holdout(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_holdout_partition_materialize(args: argparse.Namespace) -> int:
+    """Create sealed, research-only optimization and final-review roots."""
+
+    from autobot.v2.research.holdout_partition import (
+        HoldoutPartitionConfig,
+        materialize_holdout_partition,
+    )
+    from autobot.v2.research.experiment_registry import ExperimentRegistry
+
+    reference = materialize_holdout_partition(
+        HoldoutPartitionConfig(
+            run_id=args.run_id,
+            source_snapshot_manifest=Path(args.source_snapshot_manifest),
+            holdout_start_at=_parse_datetime(args.holdout_start_at),
+            holdout_end_at=_parse_datetime(args.holdout_end_at) if args.holdout_end_at else None,
+            output_dir=Path(args.output_dir),
+            partition_id=args.partition_id,
+        )
+    )
+    registry = ExperimentRegistry(Path(args.registry_path))
+    reserved = registry.reserve_holdout(
+        holdout_id=reference.partition_id,
+        data_snapshot_id=reference.holdout_snapshot_id,
+        immutable_fingerprint=reference.fingerprint,
+        manifest={"partition": reference.identity_dict()},
+    )
+    _print_json(
+        {
+            **reference.to_dict(),
+            "registry_path": str(registry.path),
+            "holdout_id": reference.partition_id,
+            "reserved": reserved,
+        }
+    )
+    return 0
+
+
 def _cmd_experiment_registry_record_final_holdout_review(args: argparse.Namespace) -> int:
     """Record immutable final-holdout evidence without changing any execution mode."""
 
     from autobot.v2.research.experiment_registry import ExperimentRegistry
+    from autobot.v2.research.holdout_partition import (
+        HOLDOUT_REVIEW_ROLE,
+        HoldoutPartitionError,
+        verify_holdout_partition,
+    )
 
+    data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths"))
     try:
-        metrics = json.loads(args.metrics_json)
-    except json.JSONDecodeError as exc:
-        raise ValueError("--metrics-json must be a JSON object") from exc
-    if not isinstance(metrics, dict):
-        raise ValueError("--metrics-json must be a JSON object")
+        partition = verify_holdout_partition(
+            Path(args.holdout_partition_manifest),
+            role=HOLDOUT_REVIEW_ROLE,
+            data_paths=data_paths,
+        )
+    except HoldoutPartitionError as exc:
+        raise ValueError(f"invalid final holdout partition: {exc}") from exc
     reasons = _optional_csv_tuple(args.reasons, "--reasons")
     registry = ExperimentRegistry(Path(args.registry_path))
+    exported = registry.export_manifest(args.experiment_id)
+    experiment = exported["experiment"]
+    if str(experiment.get("holdout_id") or "").strip() != partition.partition_id:
+        raise ValueError("experiment is not bound to this physical holdout partition")
+    environment = experiment.get("environment")
+    if not isinstance(environment, dict) or environment.get("holdout_partition") != partition.identity_dict():
+        raise ValueError("experiment holdout provenance does not match the sealed partition")
+    reservation = exported.get("holdout")
+    if not isinstance(reservation, dict) or str(reservation.get("immutable_fingerprint") or "") != partition.fingerprint:
+        raise ValueError("holdout registry reservation does not match the sealed partition")
+    metrics, artifact = _load_final_holdout_result_artifact(
+        Path(args.result_artifact),
+        experiment_id=args.experiment_id,
+        partition=partition,
+    )
     trial_id = registry.record_final_holdout_review(
         experiment_id=args.experiment_id,
         metrics=metrics,
         reasons=reasons,
+        artifact=artifact,
     )
     _print_json(
         {
             "registry_path": str(registry.path),
             "experiment_id": args.experiment_id,
             "trial_id": trial_id,
+            "holdout_partition_id": partition.partition_id,
+            "result_artifact": artifact,
             "final_holdout_review_recorded": registry.has_final_holdout_review(args.experiment_id),
             "optimization_allowed": False,
             "research_only": True,
@@ -2619,6 +2735,49 @@ def _cmd_experiment_registry_record_final_holdout_review(args: argparse.Namespac
         }
     )
     return 0
+
+
+def _load_final_holdout_result_artifact(
+    path: Path,
+    *,
+    experiment_id: str,
+    partition: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load one reproducible final-review result without accepting free-form metrics."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid final holdout result artifact: {path}") from exc
+    if not isinstance(payload, dict) or int(payload.get("schema_version") or 0) != 1:
+        raise ValueError("final holdout result artifact schema_version must be 1")
+    if str(payload.get("experiment_id") or "") != str(experiment_id):
+        raise ValueError("final holdout result artifact experiment_id does not match")
+    if payload.get("holdout_partition") != partition.identity_dict():
+        raise ValueError("final holdout result artifact partition provenance does not match")
+    if str(payload.get("role") or "") != "holdout_review":
+        raise ValueError("final holdout result artifact must use the holdout_review role")
+    if Path(str(payload.get("data_root") or "")).resolve() != Path(partition.holdout_data_dir).resolve():
+        raise ValueError("final holdout result artifact data_root does not match the sealed holdout root")
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError("final holdout result artifact metrics are required")
+    supplied_fingerprint = str(payload.get("result_fingerprint") or "")
+    material_payload = {key: value for key, value in payload.items() if key != "result_fingerprint"}
+    expected_fingerprint = sha256(
+        json.dumps(material_payload, default=str, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if supplied_fingerprint != expected_fingerprint:
+        raise ValueError("final holdout result artifact fingerprint does not match its contents")
+    file_hash = sha256(path.read_bytes()).hexdigest()
+    return dict(metrics), {
+        "path": str(path),
+        "sha256": file_hash,
+        "result_fingerprint": supplied_fingerprint,
+        "holdout_partition": partition.identity_dict(),
+        "role": "holdout_review",
+        "data_root": str(Path(partition.holdout_data_dir).resolve()),
+    }
 
 
 def _cmd_strategy_artifact_register(args: argparse.Namespace) -> int:

@@ -13,6 +13,24 @@ from autobot.v2.research.strategy_risk_mandates import load_strategy_risk_mandat
 pytestmark = pytest.mark.unit
 
 
+def _holdout_partition_fixture() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "partition_id": "holdout_cli_fixture",
+        "fingerprint": "holdout-cli-fixture-fingerprint",
+    }
+
+
+def _holdout_artifact_fixture() -> dict[str, object]:
+    return {
+        "holdout_partition": _holdout_partition_fixture(),
+        "role": "holdout_review",
+        "result_fingerprint": "holdout-cli-final-result",
+        "sha256": "holdout-cli-final-result-sha256",
+        "data_root": "/sealed/holdout-cli",
+    }
+
+
 def _passed_experiment(registry_path):
     registry = ExperimentRegistry(registry_path)
     state = registry.register_experiment(
@@ -28,6 +46,7 @@ def _passed_experiment(registry_path):
             cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
             environment={
                 "mode": "research",
+                "holdout_partition": _holdout_partition_fixture(),
                 "feature_snapshot": {
                     "feature_snapshot_id": "features_cli_fixture",
                     "feature_snapshot_fingerprint": "feature-fingerprint-cli-fixture",
@@ -49,12 +68,14 @@ def _passed_experiment(registry_path):
         holdout_id="holdout_cli_fixture",
         data_snapshot_id="snapshot-pytest-holdout",
         immutable_fingerprint="holdout-cli-fixture-fingerprint",
+        manifest={"partition": _holdout_partition_fixture()},
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
         state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
+        artifact=_holdout_artifact_fixture(),
     )
     state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
     return registry, state

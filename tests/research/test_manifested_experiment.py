@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -9,6 +11,7 @@ from autobot.v2.research.manifested_experiment import (
     build_manifested_experiment_spec,
     load_feature_snapshot_provenance,
 )
+from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
 
 
 pytestmark = pytest.mark.unit
@@ -97,19 +100,104 @@ def test_manifested_experiment_fingerprint_changes_for_material_inputs_not_runne
     assert first.experiment_id == second.experiment_id
 
 
-def test_manifested_experiment_binds_a_pre_reserved_holdout_identity(tmp_path):
+def test_manifested_experiment_binds_a_physical_holdout_identity(tmp_path):
+    partition = _physical_holdout_partition(tmp_path)
     spec, _ = build_manifested_experiment_spec(
         hypothesis_id="long_trend",
         template_id="regime_filtered_trend",
         thesis="test thesis",
         code_commit="abc123",
-        feature_snapshot_manifest=_manifest(tmp_path),
+        feature_snapshot_manifest=_manifest(
+            tmp_path,
+            source_snapshot_id=partition.optimization_snapshot_id,
+            source_snapshot_fingerprint=partition.optimization_snapshot_fingerprint,
+            holdout_partition=partition.identity_dict(),
+            holdout_partition_role="optimization",
+        ),
         parameters={"lookback": 24},
         seed=7,
         cost_model={"profile": "research_stress"},
-        holdout_id="holdout_2026_q3",
+        holdout_id=partition.partition_id,
+        holdout_partition_manifest=partition.manifest_path,
     )
 
-    assert spec.holdout_id == "holdout_2026_q3"
+    assert spec.holdout_id == partition.partition_id
+    assert spec.environment["holdout_partition"]["optimization_snapshot_id"] == partition.optimization_snapshot_id
+    assert "manifest_path" not in spec.environment["holdout_partition"]
+    assert "optimization_data_dir" not in spec.environment["holdout_partition"]
     assert spec.to_dict()["paper_capital_allowed"] is False
     assert spec.to_dict()["live_allowed"] is False
+
+
+def test_manifested_experiment_refuses_unpartitioned_or_mismatched_holdout(tmp_path):
+    common = {
+        "hypothesis_id": "long_trend",
+        "template_id": "regime_filtered_trend",
+        "thesis": "test thesis",
+        "code_commit": "abc123",
+        "feature_snapshot_manifest": _manifest(tmp_path),
+        "parameters": {},
+        "seed": 7,
+        "cost_model": {"profile": "research_stress"},
+        "holdout_id": "holdout_2026_q3",
+    }
+    with pytest.raises(ManifestedExperimentError, match="physical holdout partition"):
+        build_manifested_experiment_spec(**common)
+
+    partition = _physical_holdout_partition(tmp_path)
+    mismatched = {
+        **common,
+        "feature_snapshot_manifest": _manifest(
+            tmp_path,
+            source_snapshot_id="other_snapshot",
+            source_snapshot_fingerprint="other-fingerprint",
+            holdout_partition=partition.identity_dict(),
+            holdout_partition_role="optimization",
+        ),
+    }
+    mismatched["holdout_id"] = partition.partition_id
+    with pytest.raises(ManifestedExperimentError, match="optimization snapshot does not match"):
+        build_manifested_experiment_spec(
+            **mismatched,
+            holdout_partition_manifest=partition.manifest_path,
+        )
+
+
+def _physical_holdout_partition(tmp_path):
+    source_file = tmp_path / "canonical.csv"
+    fieldnames = ("event_time", "available_time", "ingestion_time", "symbol", "close")
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source_file.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for index in range(4):
+            event = origin + timedelta(hours=index + 1)
+            writer.writerow(
+                {
+                    "event_time": event.isoformat(),
+                    "available_time": event.isoformat(),
+                    "ingestion_time": event.isoformat(),
+                    "symbol": "BTCEUR",
+                    "close": "100",
+                }
+            )
+    canonical_manifest = tmp_path / "canonical_snapshot.json"
+    canonical_manifest.write_text(
+        json.dumps(
+            {
+                "snapshot_id": "ohlcv_v2_test",
+                "fingerprint": "source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return materialize_holdout_partition(
+        HoldoutPartitionConfig(
+            run_id="manifested_experiment_pytest",
+            source_snapshot_manifest=canonical_manifest,
+            holdout_start_at=origin + timedelta(hours=3),
+            output_dir=tmp_path / "partitions",
+        )
+    )

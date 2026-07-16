@@ -218,6 +218,7 @@ class ExperimentRegistry:
         experiment_id: str,
         metrics: Mapping[str, Any],
         reasons: Sequence[str] = (),
+        artifact: Mapping[str, Any],
     ) -> str:
         """Append immutable final-holdout evidence without optimizing on it.
 
@@ -228,6 +229,11 @@ class ExperimentRegistry:
 
         if not isinstance(metrics, Mapping) or not metrics:
             raise ExperimentRegistryError("final holdout review metrics are required")
+        if not isinstance(artifact, Mapping) or not artifact:
+            raise ExperimentRegistryError("final holdout review requires a sealed result artifact")
+        self._validate_final_holdout_artifact(experiment_id=experiment_id, artifact=artifact)
+        if self.has_final_holdout_review(experiment_id):
+            raise ExperimentRegistryError("final holdout review is already recorded for this experiment")
         return self.record_trial(
             experiment_id=experiment_id,
             dimension=FINAL_HOLDOUT_REVIEW_DIMENSION,
@@ -235,6 +241,7 @@ class ExperimentRegistry:
                 "metrics": dict(metrics),
                 "reasons": [str(item) for item in reasons],
                 "review_kind": "final_immutable_holdout",
+                "artifact": dict(artifact),
             },
             uses_holdout=True,
             optimization=False,
@@ -698,6 +705,57 @@ class ExperimentRegistry:
         if not reservation:
             raise ExperimentRegistryError("experiment holdout must be reserved before use")
         return reserved_id
+
+    def _validate_final_holdout_artifact(
+        self,
+        *,
+        experiment_id: str,
+        artifact: Mapping[str, Any],
+    ) -> None:
+        """Require final-review evidence to match the experiment's sealed partition.
+
+        The CLI performs file-system verification before calling this method.
+        The registry independently binds the resulting artifact to the immutable
+        experiment and reservation so direct library calls cannot submit free
+        metrics for an unrelated or unreserved holdout.
+        """
+
+        required = ("holdout_partition", "role", "result_fingerprint", "sha256", "data_root")
+        if any(not artifact.get(key) for key in required):
+            raise ExperimentRegistryError("final holdout artifact is incomplete")
+        if str(artifact.get("role")) != FINAL_HOLDOUT_REVIEW_DIMENSION.replace("final_", ""):
+            raise ExperimentRegistryError("final holdout artifact must use the holdout_review role")
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                "SELECT spec_json FROM experiments WHERE experiment_id = ?", (experiment_id,)
+            ).fetchone()
+            if not row:
+                raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+            spec = json.loads(str(row[0]))
+            environment = spec.get("environment")
+            expected_partition = environment.get("holdout_partition") if isinstance(environment, Mapping) else None
+            holdout_id = str(spec.get("holdout_id") or "").strip()
+            if not isinstance(expected_partition, Mapping) or not holdout_id:
+                raise ExperimentRegistryError("experiment lacks physical holdout partition provenance")
+            if str(expected_partition.get("partition_id") or "") != holdout_id:
+                raise ExperimentRegistryError("experiment holdout provenance does not match holdout_id")
+            if dict(artifact.get("holdout_partition") or {}) != dict(expected_partition):
+                raise ExperimentRegistryError("final holdout artifact partition does not match the experiment")
+            reservation = connection.execute(
+                "SELECT immutable_fingerprint, manifest_json FROM holdout_reservations WHERE holdout_id = ?",
+                (holdout_id,),
+            ).fetchone()
+            if not reservation:
+                raise ExperimentRegistryError("experiment holdout must be reserved before final review")
+            if str(reservation[0]) != str(expected_partition.get("fingerprint") or ""):
+                raise ExperimentRegistryError("holdout reservation fingerprint does not match experiment provenance")
+            try:
+                reservation_manifest = json.loads(str(reservation[1]))
+            except json.JSONDecodeError as exc:
+                raise ExperimentRegistryError("holdout reservation manifest is invalid") from exc
+            if reservation_manifest != {"partition": dict(expected_partition)}:
+                raise ExperimentRegistryError("holdout reservation provenance does not match the experiment")
 
     @staticmethod
     def _has_final_holdout_review(connection: sqlite3.Connection, *, experiment_id: str) -> bool:

@@ -219,6 +219,7 @@ def test_alpha_runner_cli_is_registered():
     assert args.trial_timeframes == ""
     assert args.trial_regimes == ""
     assert args.holdout_id is None
+    assert args.holdout_partition_manifest is None
 
 
 def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):
