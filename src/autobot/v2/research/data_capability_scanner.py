@@ -1075,7 +1075,16 @@ def _read_csv_sample(path: Path, *, max_rows: int | None) -> Iterable[dict[str, 
 
 def _looks_like_ohlcv(path: Path) -> bool:
     name = str(path).lower()
-    if any(token in name for token in ("spread_depth", "microstructure", "decision", "ledger")):
+    path_parts = {part.lower() for part in path.parts}
+    # Kraken Futures mark/trade/spot-reference candles are a derivatives
+    # dataset.  They may look syntactically like OHLCV but must never be
+    # silently classified as AUTOBOT spot execution history: doing so could
+    # unlock a research family with the wrong market and quote semantics.
+    if (
+        "derivatives" in path_parts
+        or "derivatives_candle" in name
+        or any(token in name for token in ("spread_depth", "microstructure", "decision", "ledger"))
+    ):
         return False
     if any(token in name for token in ("ohlcv", "kraken_")):
         return True

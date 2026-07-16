@@ -60,6 +60,53 @@ def test_funding_and_liquidation_stay_data_missing_without_feeds(tmp_path):
     assert "liquidation_events_missing" in liquidation["blockers"]
 
 
+def test_derivatives_candles_are_not_misclassified_as_spot_execution_ohlcv(tmp_path):
+    derivatives_dir = tmp_path / "data" / "research" / "canonical" / "derivatives" / "candles"
+    derivatives_dir.mkdir(parents=True)
+    path = derivatives_dir / "bounded_derivatives_candles.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "futures_symbol",
+                "tick_type",
+                "timeframe",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "timestamp": "2026-07-01T00:00:00+00:00",
+                "open": "100",
+                "high": "101",
+                "low": "99",
+                "close": "100.5",
+                "volume": "1",
+                "futures_symbol": "PF_XBTUSD",
+                "tick_type": "mark",
+                "timeframe": "1h",
+            }
+        )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_derivatives_not_spot",
+        data_roots=(tmp_path / "data" / "research",),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    by_id = {item.capability_id: item for item in report.capabilities}
+
+    assert by_id["spot_ohlcv"].available is False
+    assert by_id["multi_symbol_ohlcv"].available is False
+    assert report.alpha_family_status["funding_basis"]["status"] == "DATA_MISSING"
+    assert "spot_ohlcv_missing" in report.alpha_family_status["funding_basis"]["blockers"]
+
+
 def test_scanner_exposes_canonical_snapshot_scheduler_state(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     manifest_dir = tmp_path / "manifests"
