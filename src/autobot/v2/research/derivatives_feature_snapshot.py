@@ -280,7 +280,9 @@ def build_derivatives_feature_snapshot(
         active_registry.get(feature_id)
 
     as_of_time = _utc(config.as_of_time)
-    dataset_paths = _history_paths(manifest)
+    all_dataset_paths = _history_paths(manifest)
+    required_datasets = tuple(sorted({FEATURE_DATASET_BY_ID[feature_id] for feature_id in feature_ids}))
+    dataset_paths = {dataset: all_dataset_paths[dataset] for dataset in required_datasets}
     raw_source_rows = {dataset: _read_csv(path) for dataset, path in dataset_paths.items()}
     (
         source_rows,
@@ -293,12 +295,13 @@ def build_derivatives_feature_snapshot(
     source_rows, mapping_rows_excluded = _filter_rows_by_mapping(source_rows, mappings)
     invalid_basis_rows = sum(
         1
-        for row in source_rows["basis"]
+        for row in source_rows.get("basis", ())
         if str(row.get("confidence_status") or "") != "MARK_INDEX_SAME_QUOTE"
     )
-    source_rows["basis"] = [
-        row for row in source_rows["basis"] if str(row.get("confidence_status") or "") == "MARK_INDEX_SAME_QUOTE"
-    ]
+    if "basis" in source_rows:
+        source_rows["basis"] = [
+            row for row in source_rows["basis"] if str(row.get("confidence_status") or "") == "MARK_INDEX_SAME_QUOTE"
+        ]
     market_mapping_fingerprint = _fingerprint({"mappings": mappings})
     source_snapshot_fingerprint = _fingerprint(
         {

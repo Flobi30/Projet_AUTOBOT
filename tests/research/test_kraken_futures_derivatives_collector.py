@@ -397,14 +397,15 @@ def test_public_open_interest_analytics_history_is_explicit_opt_in_and_not_a_tic
     )
 
     assert dataset.row_count == 200
-    assert first_row["temporal_status"] == "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE"
+    assert first_row["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
     assert first_row["open_interest"] == "101"
     assert result.open_interest_history_ready is True
     assert result.open_interest_history_source == "kraken_futures_market_analytics"
     assert result.open_interest_history_row_count == 200
     assert Path(str(result.open_interest_history_path)).exists()
     assert feature_snapshot.status == "READY"
-    assert feature_snapshot.runtime_parity_proven is True
+    assert feature_snapshot.runtime_parity_proven is False
+    assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" in feature_snapshot.blockers
     assert feature_snapshot.feature_versions["open_interest_change_24_pct"] == "2.0.0"
     open_interest_capability = next(item for item in scan.capabilities if item.capability_id == "open_interest")
     assert open_interest_capability.available is True

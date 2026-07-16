@@ -40,6 +40,21 @@ case "${COLLECTION_MODE}" in
   funding_refresh)
     COLLECTION_FLAGS=(--skip-tickers --skip-candles)
     ;;
+  open_interest_refresh)
+    # A deliberately small overlap absorbs scheduler jitter and is compacted
+    # deterministically. It remains an explicit historical query and cannot
+    # prove runtime feature parity by itself.
+    OI_END="$(date -u +%Y-%m-%dT%H:00:00+00:00)"
+    OI_START="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:00:00+00:00)"
+    COLLECTION_FLAGS=(
+      --skip-funding --skip-tickers --skip-candles
+      --collect-open-interest-history
+      --open-interest-backfill-start-at "${OI_START}"
+      --open-interest-backfill-end-at "${OI_END}"
+      --open-interest-interval-seconds 3600
+      --open-interest-max-pages-per-symbol 1
+    )
+    ;;
   *)
     echo "Unsupported derivatives collection mode: ${COLLECTION_MODE}" >&2
     exit 1

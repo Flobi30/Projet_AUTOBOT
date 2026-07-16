@@ -438,6 +438,7 @@ def collect_kraken_futures_derivatives(
                             payload,
                             mapping,
                             interval_seconds=config.open_interest_interval_seconds,
+                            temporal_status="HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
                             invalid_rows=invalid_rows,
                             ingestion_time=collection_time,
                         )
@@ -1149,6 +1150,7 @@ def _open_interest_rows_from_analytics_payload(
     mapping: KrakenFuturesInstrumentMapping,
     *,
     interval_seconds: int,
+    temporal_status: str,
     invalid_rows: list[dict[str, Any]],
     ingestion_time: datetime,
 ) -> list[dict[str, Any]]:
@@ -1231,7 +1233,11 @@ def _open_interest_rows_from_analytics_payload(
                 "event_time": timestamp.isoformat(),
                 "available_time": available_time.isoformat(),
                 "ingestion_time": ingestion_time.isoformat(),
-                "temporal_status": "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
+                # An explicitly requested historical range is research data
+                # that became available to AUTOBOT at ingestion, even when
+                # the exchange bucket itself had closed earlier.  It must not
+                # be treated as evidence of a continuously running collector.
+                "temporal_status": temporal_status,
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,

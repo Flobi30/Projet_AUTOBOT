@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh AUTOBOT public derivatives open-interest research hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=90s
+AccuracySec=1min
+Unit=autobot-research-derivatives-open-interest.service
+
+[Install]
+WantedBy=timers.target
