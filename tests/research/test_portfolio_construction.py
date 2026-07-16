@@ -7,10 +7,12 @@ import pytest
 from autobot.v2.contracts import AlphaSignal, MarketIdentity
 from autobot.v2.research.portfolio_construction import (
     CapacityInput,
+    CapacityObservation,
     PortfolioConstructionConfig,
     build_target_portfolio,
     estimate_capacity,
     estimate_capacity_curve,
+    review_target_portfolio_capacity,
 )
 
 
@@ -60,6 +62,9 @@ def test_target_portfolio_uses_only_available_long_only_spot_eur_signals():
     assert result.accepted_signal_ids == ("good",)
     assert result.target.target_weights == {"BTCEUR": pytest.approx(0.35)}
     assert result.target.reserve_cash_weight == pytest.approx(0.65)
+    assert result.target.cash_asset == "EUR"
+    assert result.target.source_signal_ids == ("good",)
+    assert result.target.source_strategy_ids == ("funding_basis",)
     assert {item.reason for item in result.rejected_signals} == {
         "short_not_allowed",
         "signal_not_yet_available",
@@ -131,3 +136,83 @@ def test_capacity_curve_is_deterministic_and_never_invents_unobserved_depth():
     )
     assert missing.status == "WAITING_FOR_MORE_DATA"
     assert all(point.maximum_capacity_eur is None for point in missing.points)
+
+
+def test_target_capacity_review_requires_fresh_point_in_time_observations():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    target = build_target_portfolio(
+        (_signal(signal_id="btc", edge=20.0),),
+        decision_id="decision-capacity",
+        decision_at=now,
+    ).target
+
+    ready = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": CapacityObservation(
+                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now
+            )
+        },
+        max_liquidity_participation=0.05,
+    )
+    stale = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": CapacityObservation(
+                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now - timedelta(minutes=3)
+            )
+        },
+        max_liquidity_participation=0.05,
+    )
+    future = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": CapacityObservation(
+                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now + timedelta(seconds=1)
+            )
+        },
+        max_liquidity_participation=0.05,
+    )
+
+    assert ready.status == "CAPACITY_OK"
+    assert ready.target_notionals_eur == {"BTCEUR": pytest.approx(350.0)}
+    assert ready.paper_capital_allowed is False
+    assert ready.live_allowed is False
+    assert stale.status == "WAITING_FOR_MORE_DATA"
+    assert "BTCEUR:capacity_observation_stale" in stale.reasons
+    assert future.status == "WAITING_FOR_MORE_DATA"
+    assert "BTCEUR:capacity_observation_after_decision" in future.reasons
+
+
+def test_target_capacity_review_blocks_any_symbol_that_exceeds_or_lacks_capacity_data():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    target = build_target_portfolio(
+        (_signal(signal_id="btc", edge=20.0), _signal(signal_id="eth", symbol="ETHEUR", edge=10.0)),
+        decision_id="decision-capacity-blocked",
+        decision_at=now,
+        config=PortfolioConstructionConfig(max_symbol_weight=0.60),
+    ).target
+
+    exceeded = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=1_000.0, observed_at=now),
+            "ETHEUR": CapacityObservation("ETHEUR", observed_liquidity_eur=100.0, observed_at=now),
+        },
+        max_liquidity_participation=0.05,
+    )
+    missing = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={"BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=20_000.0, observed_at=now)},
+        max_liquidity_participation=0.05,
+    )
+
+    assert exceeded.status == "CAPACITY_EXCEEDED"
+    assert any(item.symbol == "ETHEUR" and item.status == "CAPACITY_EXCEEDED" for item in exceeded.estimates)
+    assert missing.status == "WAITING_FOR_MORE_DATA"
+    assert "ETHEUR:capacity_observation_missing" in missing.reasons

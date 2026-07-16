@@ -9,7 +9,7 @@ independent risk layer must review later.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 from typing import Mapping, Sequence
 
@@ -88,6 +88,26 @@ class CapacityInput:
 
 
 @dataclass(frozen=True)
+class CapacityObservation:
+    """Point-in-time liquidity evidence used only for a research review."""
+
+    symbol: str
+    observed_liquidity_eur: float | None = None
+    observed_volume_eur: float | None = None
+    observed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        # Reuse the validation rules without inventing a trading notional.
+        CapacityInput(
+            symbol=self.symbol,
+            desired_notional_eur=1.0,
+            observed_liquidity_eur=self.observed_liquidity_eur,
+            observed_volume_eur=self.observed_volume_eur,
+            observed_at=self.observed_at,
+        )
+
+
+@dataclass(frozen=True)
 class CapacityEstimate:
     symbol: str
     desired_notional_eur: float
@@ -126,6 +146,39 @@ class CapacityCurve:
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class PortfolioCapacityReview:
+    """Fail-closed capacity evidence for an entire research target portfolio.
+
+    This review only translates target weights into proposed notionals and
+    checks them against observed, point-in-time liquidity. It cannot create an
+    order, alter allocation, or authorize paper/live execution.
+    """
+
+    decision_id: str
+    decision_at: datetime
+    capital_eur: float
+    target_notionals_eur: Mapping[str, float]
+    estimates: tuple[CapacityEstimate, ...]
+    status: str
+    reasons: tuple[str, ...]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.decision_at.tzinfo is None or self.decision_at.utcoffset() is None:
+            raise PortfolioConstructionError("decision_at must be timezone-aware")
+        if not math.isfinite(float(self.capital_eur)) or float(self.capital_eur) <= 0.0:
+            raise PortfolioConstructionError("capital_eur must be positive and finite")
+        object.__setattr__(self, "decision_at", self.decision_at.astimezone(timezone.utc))
+        object.__setattr__(
+            self,
+            "target_notionals_eur",
+            {str(symbol).upper(): float(notional) for symbol, notional in sorted(self.target_notionals_eur.items())},
+        )
 
 
 def build_target_portfolio(
@@ -188,6 +241,9 @@ def build_target_portfolio(
         target_weights={symbol: weight for symbol, weight in sorted(target_weights.items()) if weight > 0.0},
         reserve_cash_weight=reserve,
         rationale=rationale,
+        cash_asset=cash_asset,
+        source_signal_ids=tuple(accepted),
+        source_strategy_ids=tuple(sorted({strategy_id for values in strategy_ids.values() for strategy_id in values})),
     )
     return PortfolioConstructionResult(
         target=target,
@@ -300,6 +356,143 @@ def estimate_capacity_curve(
         points=tuple(points),
         status=status,
         reason=reason,
+    )
+
+
+def review_target_portfolio_capacity(
+    target: TargetPortfolio,
+    *,
+    capital_eur: float,
+    observations: Mapping[str, CapacityObservation],
+    max_liquidity_participation: float,
+    max_observation_age: timedelta = timedelta(minutes=2),
+) -> PortfolioCapacityReview:
+    """Review all target weights against fresh point-in-time capacity evidence.
+
+    Missing, future-dated or stale observations are never replaced with a
+    guessed depth. The resulting ``WAITING_FOR_MORE_DATA`` status prevents an
+    optimistic capacity conclusion while preserving a clear audit trail.
+    """
+
+    capital = float(capital_eur)
+    if not math.isfinite(capital) or capital <= 0.0:
+        raise PortfolioConstructionError("capital_eur must be positive and finite")
+    if max_observation_age <= timedelta(0):
+        raise PortfolioConstructionError("max_observation_age must be positive")
+    # Validate the shared participation setting even for an empty target.
+    if not math.isfinite(float(max_liquidity_participation)) or not 0.0 < float(max_liquidity_participation) <= 1.0:
+        raise PortfolioConstructionError("max_liquidity_participation must be in (0, 1]")
+
+    decision_at = target.generated_at.astimezone(timezone.utc)
+    normalized_observations = {str(symbol).upper(): observation for symbol, observation in observations.items()}
+    target_notionals = {
+        symbol.upper(): capital * float(weight)
+        for symbol, weight in target.target_weights.items()
+        if float(weight) > 0.0
+    }
+    if not target_notionals:
+        return PortfolioCapacityReview(
+            decision_id=target.decision_id,
+            decision_at=decision_at,
+            capital_eur=capital,
+            target_notionals_eur={},
+            estimates=(),
+            status="NO_TARGET_EXPOSURE",
+            reasons=("target_contains_no_investable_weight",),
+        )
+
+    estimates: list[CapacityEstimate] = []
+    reasons: list[str] = []
+    for symbol, desired_notional in sorted(target_notionals.items()):
+        observation = normalized_observations.get(symbol)
+        if observation is None:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=None,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_observation_missing",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_observation_missing")
+            continue
+        if observation.symbol.upper() != symbol:
+            raise PortfolioConstructionError("capacity observation symbol must match its mapping key")
+        observed_at = observation.observed_at
+        if observed_at is None:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=observation.observed_liquidity_eur,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_observation_timestamp_missing",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_observation_timestamp_missing")
+            continue
+        observed_at = observed_at.astimezone(timezone.utc)
+        if observed_at > decision_at:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=observation.observed_liquidity_eur,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_observation_after_decision",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_observation_after_decision")
+            continue
+        if decision_at - observed_at > max_observation_age:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=observation.observed_liquidity_eur,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_observation_stale",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_observation_stale")
+            continue
+        estimate = estimate_capacity(
+            CapacityInput(
+                symbol=symbol,
+                desired_notional_eur=desired_notional,
+                observed_liquidity_eur=observation.observed_liquidity_eur,
+                observed_volume_eur=observation.observed_volume_eur,
+                observed_at=observed_at,
+            ),
+            max_liquidity_participation=max_liquidity_participation,
+        )
+        estimates.append(estimate)
+        if estimate.status != "CAPACITY_OK":
+            reasons.append(f"{symbol}:{estimate.reason}")
+
+    if any(item.status == "CAPACITY_EXCEEDED" for item in estimates):
+        status = "CAPACITY_EXCEEDED"
+    elif any(item.status != "CAPACITY_OK" for item in estimates):
+        status = "WAITING_FOR_MORE_DATA"
+    else:
+        status = "CAPACITY_OK"
+    return PortfolioCapacityReview(
+        decision_id=target.decision_id,
+        decision_at=decision_at,
+        capital_eur=capital,
+        target_notionals_eur=target_notionals,
+        estimates=tuple(estimates),
+        status=status,
+        reasons=tuple(reasons) or ("all_target_notionals_within_observed_participation_limit",),
     )
 
 

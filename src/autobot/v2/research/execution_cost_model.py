@@ -170,6 +170,10 @@ class FillRequest:
         _finite_positive(self.liquidity_eur, field_name="liquidity_eur")
         if self.quantity is None and self.notional_eur is None:
             raise ValueError("quantity or notional_eur is required")
+        if self.quantity is not None and self.notional_eur is not None:
+            implied_notional = float(self.quantity) * float(self.price)
+            if not math.isclose(float(self.notional_eur), implied_notional, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("quantity and notional_eur must match at requested price")
         if self.bid and self.ask and self.ask < self.bid:
             raise ValueError("ask cannot be below bid")
 
@@ -354,7 +358,9 @@ class ExecutionCostModel:
         expected_exit_side = "sell" if entry.side == "buy" else "buy"
         if exit_fill.side != expected_exit_side:
             raise ValueError("round trip exit side must close the entry side")
-        quantity = min(entry.quantity, exit_fill.quantity)
+        if not math.isclose(entry.quantity, exit_fill.quantity, rel_tol=1e-9, abs_tol=1e-12):
+            raise ValueError("round trip requires matched quantities; use a position ledger for partial closes")
+        quantity = entry.quantity
         if entry.side == "buy":
             reference_gross = (exit_fill.requested_price - entry.requested_price) * quantity
             gross = (exit_fill.execution_price - entry.execution_price) * quantity

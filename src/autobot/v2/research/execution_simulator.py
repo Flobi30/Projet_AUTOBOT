@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import FillEvent, OrderEvent, OrderIntent
+from autobot.v2.contracts import FillEvent, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
 
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
 
@@ -151,6 +151,8 @@ class ResearchExecutionOutcome:
     fill: FillResult | None
     fill_event: FillEvent | None
     scenario: str
+    risk_decision_id: str | None = None
+    approved_notional_eur: float = 0.0
     execution_mode: str = "shadow"
     research_only: bool = True
     paper_capital_allowed: bool = False
@@ -171,59 +173,156 @@ class ResearchExecutionSimulator:
         self.cost_config = scenario_cost_config(cost_config, config.scenario)
         self._cost_model = ExecutionCostModel(self.cost_config)
         self._market_rules = {str(symbol).upper(): rules for symbol, rules in (market_rules or {}).items()}
-        self._outcomes: dict[str, ResearchExecutionOutcome] = {}
+        self._outcomes: dict[str, tuple[str, ResearchExecutionOutcome]] = {}
 
-    def simulate(self, intent: OrderIntent, snapshots: Sequence[ShadowMarketSnapshot]) -> ResearchExecutionOutcome:
+    def simulate(
+        self,
+        intent: OrderIntent,
+        snapshots: Sequence[ShadowMarketSnapshot],
+        *,
+        risk_decision: RiskDecision | None,
+    ) -> ResearchExecutionOutcome:
         """Simulate one intent using the first timely market snapshot after latency.
 
-        Replaying the same client order id returns the original outcome rather
-        than creating a duplicate simulated fill.  A new simulator recovers the
-        same deterministic outcome from the same intent and snapshots.
+        A fill requires a matching, approved risk decision. Replaying the same
+        client order id returns the original outcome only when the immutable
+        intent/risk boundary is unchanged; a conflicting reuse is rejected.
         """
 
+        idempotency_key = _idempotency_key(intent, risk_decision)
         prior = self._outcomes.get(intent.client_order_id)
         if prior is not None:
-            return prior
-        outcome = self._simulate_once(intent, snapshots)
-        self._outcomes[intent.client_order_id] = outcome
+            prior_key, prior_outcome = prior
+            if prior_key == idempotency_key:
+                return prior_outcome
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "idempotency_conflict",
+                (),
+                intent.created_at,
+                risk_decision=risk_decision,
+            )
+        outcome = self._simulate_once(intent, snapshots, risk_decision=risk_decision)
+        self._outcomes[intent.client_order_id] = (idempotency_key, outcome)
         return outcome
 
-    def recover(self, intent: OrderIntent, snapshots: Sequence[ShadowMarketSnapshot]) -> ResearchExecutionOutcome:
+    def recover(
+        self,
+        intent: OrderIntent,
+        snapshots: Sequence[ShadowMarketSnapshot],
+        *,
+        risk_decision: RiskDecision | None,
+    ) -> ResearchExecutionOutcome:
         """Rebuild one outcome after a research-process restart without new orders."""
 
-        return self.simulate(intent, snapshots)
+        return self.simulate(intent, snapshots, risk_decision=risk_decision)
 
-    def _simulate_once(self, intent: OrderIntent, snapshots: Sequence[ShadowMarketSnapshot]) -> ResearchExecutionOutcome:
+    def _simulate_once(
+        self,
+        intent: OrderIntent,
+        snapshots: Sequence[ShadowMarketSnapshot],
+        *,
+        risk_decision: RiskDecision | None,
+    ) -> ResearchExecutionOutcome:
         created = OrderEvent(intent.client_order_id, "CREATED", intent.created_at, reason="research_shadow_intent")
         if intent.execution_mode != "shadow":
-            return self._terminal(intent, "REJECTED", "non_shadow_intent_not_allowed", (created,), intent.created_at)
+            return self._terminal(
+                intent, "REJECTED", "non_shadow_intent_not_allowed", (created,), intent.created_at, risk_decision=risk_decision
+            )
+        risk_reason, approved_notional = _approved_notional(intent, risk_decision)
+        if risk_reason is not None:
+            return self._terminal(
+                intent,
+                "REJECTED",
+                risk_reason,
+                (created,),
+                intent.created_at,
+                risk_decision=risk_decision,
+            )
         rules = self._market_rules.get(intent.market.symbol.upper())
         if rules is None and self.config.require_market_rules:
-            return self._terminal(intent, "REJECTED", "market_execution_rules_missing", (created,), intent.created_at)
-        submitted = OrderEvent(intent.client_order_id, "SUBMITTED", intent.created_at, reason="research_shadow_submission")
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "market_execution_rules_missing",
+                (created,),
+                intent.created_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
+        submitted = OrderEvent(intent.client_order_id, "SUBMITTED", intent.created_at, reason="research_shadow_risk_approved")
         ordered = sorted(snapshots, key=lambda item: item.timestamp)
         earliest = intent.created_at + self.config.latency * self.config.scenario.latency_multiplier
         snapshot = next((item for item in ordered if item.timestamp >= earliest), None)
         if snapshot is None:
-            return self._terminal(intent, "EXPIRED", "no_market_after_latency", (created, submitted), intent.created_at)
+            return self._terminal(
+                intent,
+                "EXPIRED",
+                "no_market_after_latency",
+                (created, submitted),
+                intent.created_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
         if snapshot.timestamp - intent.created_at > self.config.max_market_age:
-            return self._terminal(intent, "EXPIRED", "market_data_stale_before_fill", (created, submitted), snapshot.timestamp)
+            return self._terminal(
+                intent,
+                "EXPIRED",
+                "market_data_stale_before_fill",
+                (created, submitted),
+                snapshot.timestamp,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
         acknowledged = OrderEvent(intent.client_order_id, "ACKNOWLEDGED", snapshot.timestamp, reason="research_market_snapshot")
-        requested = float(intent.target_notional)
+        requested = approved_notional
         available = snapshot.liquidity_eur
         if available is None:
-            return self._terminal(intent, "REJECTED", "observed_liquidity_missing", (created, submitted, acknowledged), snapshot.timestamp)
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "observed_liquidity_missing",
+                (created, submitted, acknowledged),
+                snapshot.timestamp,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
         maximum = float(available) * self.cost_config.max_liquidity_participation
         fill_notional = min(requested, maximum)
         if rules is not None:
             fill_notional = _quantized_notional(fill_notional, price=_requested_price(intent, snapshot), rules=rules)
             if fill_notional <= 0.0:
-                return self._terminal(intent, "REJECTED", "quantity_below_market_minimum", (created, submitted, acknowledged), snapshot.timestamp)
+                return self._terminal(
+                    intent,
+                    "REJECTED",
+                    "quantity_below_market_minimum",
+                    (created, submitted, acknowledged),
+                    snapshot.timestamp,
+                    risk_decision=risk_decision,
+                    approved_notional=approved_notional,
+                )
             if fill_notional + 1e-12 < rules.min_notional_eur:
-                return self._terminal(intent, "REJECTED", "notional_below_market_minimum", (created, submitted, acknowledged), snapshot.timestamp)
+                return self._terminal(
+                    intent,
+                    "REJECTED",
+                    "notional_below_market_minimum",
+                    (created, submitted, acknowledged),
+                    snapshot.timestamp,
+                    risk_decision=risk_decision,
+                    approved_notional=approved_notional,
+                )
         partial = fill_notional + 1e-12 < requested
         if partial and (not self.config.allow_partial_fills or fill_notional < self.config.min_partial_notional_eur):
-            return self._terminal(intent, "REJECTED", "insufficient_liquidity", (created, submitted, acknowledged), snapshot.timestamp)
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "insufficient_liquidity",
+                (created, submitted, acknowledged),
+                snapshot.timestamp,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
         request = FillRequest(
             symbol=intent.market.symbol,
             side=intent.side,
@@ -239,7 +338,16 @@ class ResearchExecutionSimulator:
         )
         fill = self._cost_model.simulate_fill(request)
         if not fill.accepted:
-            return self._terminal(intent, "REJECTED", fill.reason, (created, submitted, acknowledged), snapshot.timestamp, fill=fill)
+            return self._terminal(
+                intent,
+                "REJECTED",
+                fill.reason,
+                (created, submitted, acknowledged),
+                snapshot.timestamp,
+                fill=fill,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+            )
         fill_event = FillEvent(
             client_order_id=intent.client_order_id,
             fill_id=f"shadow_fill_{intent.client_order_id}",
@@ -261,6 +369,8 @@ class ResearchExecutionSimulator:
             fill=fill,
             fill_event=fill_event,
             scenario=self.config.scenario.name,
+            risk_decision_id=risk_decision.risk_decision_id if risk_decision else None,
+            approved_notional_eur=approved_notional,
         )
 
     def _terminal(
@@ -272,6 +382,8 @@ class ResearchExecutionSimulator:
         occurred_at: datetime,
         *,
         fill: FillResult | None = None,
+        risk_decision: RiskDecision | None = None,
+        approved_notional: float = 0.0,
     ) -> ResearchExecutionOutcome:
         # ``EXPIRED`` is an outcome of this research simulator; the stable
         # boundary contract represents it as a cancellation with the precise
@@ -289,6 +401,8 @@ class ResearchExecutionSimulator:
             fill=fill,
             fill_event=None,
             scenario=self.config.scenario.name,
+            risk_decision_id=risk_decision.risk_decision_id if risk_decision else None,
+            approved_notional_eur=approved_notional,
         )
 
 
@@ -306,8 +420,35 @@ def scenario_cost_config(base: ExecutionCostConfig, scenario: ExecutionScenario)
 
 
 def _requested_price(intent: OrderIntent, snapshot: ShadowMarketSnapshot) -> float:
-    configured = _optional_float(intent.metadata.get("requested_price"))
-    return configured if configured is not None else float(snapshot.price)
+    # Market fills must use the observed post-latency snapshot. A signal or
+    # decision price belongs to TCA metadata, not to a future fill assumption.
+    return float(snapshot.price)
+
+
+def _approved_notional(intent: OrderIntent, risk_decision: RiskDecision | None) -> tuple[str | None, float]:
+    if risk_decision is None:
+        return "risk_decision_missing", 0.0
+    if risk_decision.decision_id != intent.decision_id:
+        return "risk_decision_intent_mismatch", 0.0
+    if risk_decision.decided_at < intent.data_available_at:
+        return "risk_decision_before_data_available", 0.0
+    if not risk_decision.approved:
+        return "risk_decision_not_approved", 0.0
+    approved = (
+        float(risk_decision.reduced_notional)
+        if risk_decision.reduced_notional is not None
+        else float(intent.target_notional)
+    )
+    if approved <= 0.0:
+        return "risk_decision_reduced_notional_zero", 0.0
+    if approved > float(intent.target_notional) + 1e-12:
+        return "risk_decision_increases_requested_notional", 0.0
+    return None, approved
+
+
+def _idempotency_key(intent: OrderIntent, risk_decision: RiskDecision | None) -> str:
+    risk_component = contract_fingerprint(risk_decision) if risk_decision is not None else "risk_decision_missing"
+    return f"{contract_fingerprint(intent)}:{risk_component}"
 
 
 def _optional_float(value: object) -> float | None:

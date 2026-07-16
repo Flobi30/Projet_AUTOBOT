@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from autobot.v2.contracts import FeatureSnapshotReference, MarketIdentity, OrderIntent, RiskMandateReference, StrategyArtifactReference
+from autobot.v2.contracts import (
+    FeatureSnapshotReference,
+    MarketIdentity,
+    OrderIntent,
+    RiskDecision,
+    RiskMandateReference,
+    StrategyArtifactReference,
+)
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.execution_simulator import (
     PESSIMISTIC_SCENARIO,
@@ -81,6 +89,22 @@ def _snapshot(*, seconds: int = 2, liquidity: float | None = 4_000.0) -> ShadowM
     )
 
 
+def _risk_decision(
+    intent: OrderIntent,
+    *,
+    approved: bool = True,
+    decision_id: str | None = None,
+    reduced_notional: float | None = None,
+) -> RiskDecision:
+    return RiskDecision(
+        decision_id=decision_id or intent.decision_id,
+        approved=approved,
+        decided_at=intent.created_at,
+        reasons=() if approved else ("risk_fixture_rejected",),
+        reduced_notional=reduced_notional,
+    )
+
+
 def _simulator(*, config: ResearchExecutionConfig | None = None) -> ResearchExecutionSimulator:
     return ResearchExecutionSimulator(
         cost_config=ExecutionCostConfig(
@@ -107,8 +131,9 @@ def _simulator(*, config: ResearchExecutionConfig | None = None) -> ResearchExec
 def test_shadow_simulator_records_partial_fill_and_is_idempotent():
     simulator = _simulator()
     intent = _intent(notional=300.0)
-    first = simulator.simulate(intent, (_snapshot(),))
-    replay = simulator.simulate(intent, (_snapshot(),))
+    risk = _risk_decision(intent)
+    first = simulator.simulate(intent, (_snapshot(),), risk_decision=risk)
+    replay = simulator.simulate(intent, (_snapshot(),), risk_decision=risk)
 
     assert first.status == "PARTIALLY_FILLED"
     assert first.filled_notional_eur == pytest.approx(200.0)
@@ -121,9 +146,12 @@ def test_shadow_simulator_records_partial_fill_and_is_idempotent():
 
 
 def test_shadow_simulator_expires_without_a_timely_market_and_rejects_non_shadow():
-    expired = _simulator().simulate(_intent(), ())
-    stale = _simulator().simulate(_intent(notional=101.0), (_snapshot(seconds=180),))
-    paper = _simulator().simulate(_intent(mode="paper"), (_snapshot(),))
+    expired_intent = _intent()
+    stale_intent = _intent(notional=101.0)
+    paper_intent = _intent(mode="paper")
+    expired = _simulator().simulate(expired_intent, (), risk_decision=_risk_decision(expired_intent))
+    stale = _simulator().simulate(stale_intent, (_snapshot(seconds=180),), risk_decision=_risk_decision(stale_intent))
+    paper = _simulator().simulate(paper_intent, (_snapshot(),), risk_decision=_risk_decision(paper_intent))
 
     assert expired.status == "EXPIRED"
     assert expired.order_events[-1].event_type == "CANCELLED"
@@ -135,9 +163,10 @@ def test_shadow_simulator_expires_without_a_timely_market_and_rejects_non_shadow
 
 
 def test_shadow_simulator_requires_explicit_market_rules_and_uses_cached_kraken_precision():
+    intent = _intent(notional=100.0)
     no_rules = ResearchExecutionSimulator(
         cost_config=ExecutionCostConfig(min_notional_eur=5.0, max_liquidity_participation=0.05),
-    ).simulate(_intent(notional=100.0), (_snapshot(),))
+    ).simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent))
     rules = MarketExecutionRules.from_kraken_asset_pair(
         symbol="BTCEUR",
         payload={"ordermin": "0.0001", "costmin": "5", "lot_decimals": 8, "pair_decimals": 1},
@@ -152,15 +181,58 @@ def test_shadow_simulator_requires_explicit_market_rules_and_uses_cached_kraken_
 def test_pessimistic_scenario_costs_more_and_restart_recovery_is_deterministic():
     intent = _intent(notional=100.0)
     snapshots = (_snapshot(),)
-    central = _simulator().simulate(intent, snapshots)
-    pessimistic = _simulator(config=ResearchExecutionConfig(scenario=PESSIMISTIC_SCENARIO)).simulate(intent, snapshots)
-    recovered = _simulator().recover(intent, snapshots)
+    risk = _risk_decision(intent)
+    central = _simulator().simulate(intent, snapshots, risk_decision=risk)
+    pessimistic = _simulator(config=ResearchExecutionConfig(scenario=PESSIMISTIC_SCENARIO)).simulate(
+        intent, snapshots, risk_decision=risk
+    )
+    recovered = _simulator().recover(intent, snapshots, risk_decision=risk)
 
     assert central.status == "FILLED"
     assert pessimistic.status == "FILLED"
     assert pessimistic.fill is not None and central.fill is not None
     assert pessimistic.fill.total_cost_eur > central.fill.total_cost_eur
     assert recovered == central
+
+
+def test_shadow_simulator_requires_matching_approved_risk_and_never_increases_notional():
+    intent = _intent(notional=100.0)
+    missing = _simulator().simulate(intent, (_snapshot(),), risk_decision=None)
+    denied = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent, approved=False))
+    mismatch = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent, decision_id="other"))
+    reduced = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent, reduced_notional=50.0))
+    increased = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent, reduced_notional=101.0))
+
+    assert missing.reason == "risk_decision_missing"
+    assert denied.reason == "risk_decision_not_approved"
+    assert mismatch.reason == "risk_decision_intent_mismatch"
+    assert reduced.status == "FILLED"
+    assert reduced.requested_notional_eur == pytest.approx(50.0)
+    assert reduced.approved_notional_eur == pytest.approx(50.0)
+    assert reduced.risk_decision_id is not None
+    assert increased.reason == "risk_decision_increases_requested_notional"
+
+
+def test_shadow_simulator_rejects_reused_client_order_id_with_changed_intent_or_risk():
+    simulator = _simulator()
+    intent = _intent(notional=100.0)
+    risk = _risk_decision(intent)
+    original = simulator.simulate(intent, (_snapshot(),), risk_decision=risk)
+    changed_intent = replace(intent, target_notional=101.0)
+    changed_risk = _risk_decision(intent, reduced_notional=50.0)
+
+    assert original.status == "FILLED"
+    assert simulator.simulate(changed_intent, (_snapshot(),), risk_decision=_risk_decision(changed_intent)).reason == "idempotency_conflict"
+    assert simulator.simulate(intent, (_snapshot(),), risk_decision=changed_risk).reason == "idempotency_conflict"
+
+
+def test_shadow_simulator_uses_post_latency_market_price_not_signal_metadata_price():
+    intent = replace(_intent(notional=100.0), metadata={"requested_price": 1.0, "order_type": "market"})
+    outcome = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent))
+
+    assert outcome.status == "FILLED"
+    assert outcome.fill is not None
+    assert outcome.fill.requested_price == pytest.approx(100.0)
 
 
 def test_block3_research_modules_do_not_import_runtime_order_paths():

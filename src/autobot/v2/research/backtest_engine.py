@@ -264,22 +264,7 @@ class BacktestEngine:
         return result
 
     def _simulate_signal(self, signal: BacktestSignal) -> FillResult:
-        return self.cost_model.simulate_fill(
-            FillRequest(
-                symbol=signal.symbol.upper(),
-                side=signal.side.lower(),
-                price=float(signal.price),
-                quantity=signal.quantity,
-                notional_eur=signal.notional_eur or self.config.default_order_notional_eur,
-                timestamp=signal.timestamp,
-                order_type=signal.order_type,
-                limit_price=signal.limit_price,
-                liquidity_eur=signal.metadata.get("liquidity_eur"),
-                bid=signal.metadata.get("bid"),
-                ask=signal.metadata.get("ask"),
-                metadata=dict(signal.metadata),
-            )
-        )
+        return self.cost_model.simulate_fill(self._fill_request_for_signal(signal))
 
     def _apply_signal_edge_gate(self, signal: BacktestSignal) -> BacktestSignal | None:
         """Apply optional cost-aware signal gate before simulated execution.
@@ -297,20 +282,7 @@ class BacktestEngine:
         gross_edge = _optional_float(signal.metadata.get("gross_edge_bps"))
         if gross_edge is None:
             return None
-        request = FillRequest(
-            symbol=signal.symbol.upper(),
-            side=signal.side.lower(),
-            price=float(signal.price),
-            quantity=signal.quantity,
-            notional_eur=signal.notional_eur or self.config.default_order_notional_eur,
-            timestamp=signal.timestamp,
-            order_type=signal.order_type,
-            limit_price=signal.limit_price,
-            liquidity_eur=signal.metadata.get("liquidity_eur"),
-            bid=signal.metadata.get("bid"),
-            ask=signal.metadata.get("ask"),
-            metadata=dict(signal.metadata),
-        )
+        request = self._fill_request_for_signal(signal)
         estimated_round_trip_cost_bps = self.cost_model.estimate_cost_bps(request) * 2.0
         estimated_net_edge_bps = gross_edge - estimated_round_trip_cost_bps
         if estimated_net_edge_bps < float(min_net_edge):
@@ -327,6 +299,34 @@ class BacktestEngine:
                     "accepted": True,
                 },
             },
+        )
+
+    def _fill_request_for_signal(self, signal: BacktestSignal) -> FillRequest:
+        """Build one coherent sizing request for costs and simulated PnL.
+
+        A strategy may specify a quantity or a notional. If both are supplied,
+        ``FillRequest`` verifies their consistency. Most importantly, a
+        quantity-based close must not silently receive the default notional,
+        because that would calculate fees from a different position size.
+        """
+
+        quantity = signal.quantity
+        notional = signal.notional_eur
+        if quantity is None and notional is None:
+            notional = self.config.default_order_notional_eur
+        return FillRequest(
+            symbol=signal.symbol.upper(),
+            side=signal.side.lower(),
+            price=float(signal.price),
+            quantity=quantity,
+            notional_eur=notional,
+            timestamp=signal.timestamp,
+            order_type=signal.order_type,
+            limit_price=signal.limit_price,
+            liquidity_eur=signal.metadata.get("liquidity_eur"),
+            bid=signal.metadata.get("bid"),
+            ask=signal.metadata.get("ask"),
+            metadata=dict(signal.metadata),
         )
 
     @staticmethod

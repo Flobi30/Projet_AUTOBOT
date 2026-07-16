@@ -48,6 +48,11 @@ def test_execution_cost_model_rejects_small_or_illiquid_orders():
     assert illiquid.reason == "insufficient_liquidity"
 
 
+def test_fill_request_rejects_inconsistent_quantity_and_notional():
+    with pytest.raises(ValueError, match="quantity and notional_eur must match"):
+        FillRequest(symbol="TRXEUR", side="buy", price=2.0, quantity=10.0, notional_eur=100.0)
+
+
 def test_execution_cost_model_respects_limit_price():
     model = ExecutionCostModel(ExecutionCostConfig(fallback_spread_bps=20.0, slippage_bps=10.0))
 
@@ -124,3 +129,12 @@ def test_round_trip_pnl_rejects_an_exit_that_does_not_close_the_entry():
 
     with pytest.raises(ValueError, match="must close the entry side"):
         model.round_trip_pnl(entry, wrong_exit)
+
+
+def test_round_trip_pnl_rejects_partial_close_until_position_ledger_owns_allocation():
+    model = ExecutionCostModel()
+    entry = model.simulate_fill(FillRequest(symbol="TRXEUR", side="buy", price=1.0, quantity=10.0))
+    partial_exit = model.simulate_fill(FillRequest(symbol="TRXEUR", side="sell", price=1.1, quantity=5.0))
+
+    with pytest.raises(ValueError, match="requires matched quantities"):
+        model.round_trip_pnl(entry, partial_exit)

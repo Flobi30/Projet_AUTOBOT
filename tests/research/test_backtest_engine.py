@@ -209,6 +209,44 @@ def test_backtest_engine_edge_gate_passes_and_records_cost_context(tmp_path):
     assert result.decision.live_promotion_allowed is False
 
 
+def test_backtest_engine_uses_quantity_based_notional_for_fees_and_pnl(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="quantity_entry",
+                    quantity=10.0,
+                )
+            ]
+        if len(history) == 2:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    config = BacktestConfig(
+        **{
+            **_config(tmp_path).__dict__,
+            "cost_config": ExecutionCostConfig(
+                taker_fee_bps=10.0,
+                fallback_spread_bps=0.0,
+                slippage_bps=0.0,
+                latency_buffer_bps=0.0,
+            ),
+        }
+    )
+    result = BacktestEngine(config).run([_bar(0, 2.0), _bar(1, 3.0)], strategy)
+    journal = TradeJournal.from_json(result.journal_path)
+    trade = journal.records[0]
+
+    assert trade.quantity == pytest.approx(10.0)
+    assert trade.fees_eur == pytest.approx(0.05)
+    assert trade.gross_pnl_eur == pytest.approx(10.0)
+    assert trade.net_pnl_eur == pytest.approx(9.95)
+
+
 def test_backtest_engine_random_baseline_is_deterministic(tmp_path):
     def strategy(bar, history):
         if len(history) in {1, 3}:

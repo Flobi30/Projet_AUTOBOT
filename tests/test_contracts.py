@@ -115,6 +115,20 @@ def test_feature_and_signal_reject_lookahead_timestamps():
             data_snapshot_id="snapshot",
         )
 
+    with pytest.raises(ValueError, match="expected_edge_bps must be finite"):
+        AlphaSignal(
+            strategy_id="research",
+            strategy_version="1",
+            signal_id="signal-nan",
+            market=_market(),
+            direction="long",
+            generated_at=event,
+            available_at=event,
+            feature_versions={"atr": "1"},
+            data_snapshot_id="snapshot",
+            expected_edge_bps=float("nan"),
+        )
+
 
 def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
     now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
@@ -185,6 +199,14 @@ def test_target_portfolio_and_order_intent_keep_risk_boundary_explicit():
             generated_at=now,
             target_weights={"BTCZEUR": 0.8},
             reserve_cash_weight=0.3,
+        )
+
+    with pytest.raises(ValueError, match="must be finite"):
+        TargetPortfolio(
+            decision_id="nan-weight",
+            generated_at=now,
+            target_weights={"BTCZEUR": float("nan")},
+            reserve_cash_weight=0.2,
         )
 
 

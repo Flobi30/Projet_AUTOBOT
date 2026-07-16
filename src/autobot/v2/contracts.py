@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
+import math
 from typing import Any, Mapping
 
 CONTRACT_VERSION = 1
@@ -128,6 +129,11 @@ class AlphaSignal:
             raise ValueError("direction must be long, short or flat")
         for field_name in ("strategy_id", "strategy_version", "signal_id", "data_snapshot_id"):
             object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        if self.expected_edge_bps is not None:
+            expected_edge_bps = float(self.expected_edge_bps)
+            if not math.isfinite(expected_edge_bps):
+                raise ValueError("expected_edge_bps must be finite when present")
+            object.__setattr__(self, "expected_edge_bps", expected_edge_bps)
         object.__setattr__(self, "direction", direction)
         object.__setattr__(self, "generated_at", generated_at)
         object.__setattr__(self, "available_at", available_at)
@@ -299,21 +305,33 @@ class TargetPortfolio:
     target_weights: Mapping[str, Decimal | float]
     reserve_cash_weight: Decimal | float
     rationale: Mapping[str, str] = field(default_factory=dict)
+    cash_asset: str = "EUR"
+    source_signal_ids: tuple[str, ...] = ()
+    source_strategy_ids: tuple[str, ...] = ()
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
         generated_at = _utc(self.generated_at, "generated_at")
         reserve = float(self.reserve_cash_weight)
         weights = {str(symbol).upper(): float(weight) for symbol, weight in self.target_weights.items()}
+        if not math.isfinite(reserve) or any(not math.isfinite(weight) for weight in weights.values()):
+            raise ValueError("portfolio weights must be finite")
         if reserve < 0 or any(weight < 0 for weight in weights.values()):
             raise ValueError("portfolio weights must be non-negative")
         if sum(weights.values()) + reserve > 1.000001:
             raise ValueError("target weights plus reserve cannot exceed 1")
+        signal_ids = tuple(_required(value, "source signal id") for value in self.source_signal_ids)
+        strategy_ids = tuple(_required(value, "source strategy id").lower() for value in self.source_strategy_ids)
+        if len(signal_ids) != len(set(signal_ids)) or len(strategy_ids) != len(set(strategy_ids)):
+            raise ValueError("target portfolio source identifiers must be unique")
         object.__setattr__(self, "decision_id", _required(self.decision_id, "decision_id"))
         object.__setattr__(self, "generated_at", generated_at)
         object.__setattr__(self, "target_weights", weights)
         object.__setattr__(self, "reserve_cash_weight", reserve)
         object.__setattr__(self, "rationale", dict(self.rationale))
+        object.__setattr__(self, "cash_asset", _required(self.cash_asset, "cash_asset").upper())
+        object.__setattr__(self, "source_signal_ids", signal_ids)
+        object.__setattr__(self, "source_strategy_ids", strategy_ids)
 
 
 @dataclass(frozen=True)
@@ -399,15 +417,41 @@ class RiskDecision:
     reasons: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     reduced_notional: Decimal | float | None = None
+    risk_decision_id: str | None = None
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
         if not self.approved and not self.reasons:
             raise ValueError("rejected risk decision requires at least one reason")
-        if self.reduced_notional is not None and float(self.reduced_notional) < 0:
-            raise ValueError("reduced_notional must be non-negative")
-        object.__setattr__(self, "decision_id", _required(self.decision_id, "decision_id"))
-        object.__setattr__(self, "decided_at", _utc(self.decided_at, "decided_at"))
+        if self.reduced_notional is not None:
+            reduced_notional = float(self.reduced_notional)
+            if not math.isfinite(reduced_notional) or reduced_notional < 0:
+                raise ValueError("reduced_notional must be non-negative and finite")
+            object.__setattr__(self, "reduced_notional", reduced_notional)
+        decision_id = _required(self.decision_id, "decision_id")
+        decided_at = _utc(self.decided_at, "decided_at")
+        reasons = tuple(_required(reason, "risk decision reason") for reason in self.reasons)
+        warnings = tuple(_required(warning, "risk decision warning") for warning in self.warnings)
+        risk_decision_id = self.risk_decision_id
+        if risk_decision_id is None:
+            identity = json.dumps(
+                {
+                    "decision_id": decision_id,
+                    "approved": bool(self.approved),
+                    "decided_at": decided_at.isoformat(),
+                    "reasons": reasons,
+                    "warnings": warnings,
+                    "reduced_notional": self.reduced_notional,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            risk_decision_id = f"risk_{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+        object.__setattr__(self, "decision_id", decision_id)
+        object.__setattr__(self, "decided_at", decided_at)
+        object.__setattr__(self, "reasons", reasons)
+        object.__setattr__(self, "warnings", warnings)
+        object.__setattr__(self, "risk_decision_id", _required(risk_decision_id, "risk_decision_id"))
 
 
 @dataclass(frozen=True)
