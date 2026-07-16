@@ -3774,10 +3774,21 @@ class OrchestratorAsync:
                 name="order-book-recovery",
             )
         if _env_bool("DECISION_LEARNING_ENABLED", True):
+            decision_learning_interval = float(_env_int("DECISION_LEARNING_REFRESH_SECONDS", 300, 30))
+            decision_learning_initial_delay = float(
+                min(
+                    _env_int("DECISION_LEARNING_INITIAL_REFRESH_SECONDS", 30, 5),
+                    int(decision_learning_interval),
+                )
+            )
             self.cold_scheduler.schedule_periodic(
                 self._refresh_decision_learning,
-                interval=float(_env_int("DECISION_LEARNING_REFRESH_SECONDS", 300, 30)),
+                interval=decision_learning_interval,
                 name="decision-learning",
+                # A short, still cold-path delay records the first observed
+                # prices well before the independent five-minute freshness
+                # audit.  It never submits an order or changes capital.
+                initial_delay=decision_learning_initial_delay,
             )
 
         # Connect WS via ring dispatcher (P2). Kraken can occasionally return

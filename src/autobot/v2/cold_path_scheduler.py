@@ -175,6 +175,8 @@ class ColdPathScheduler:
         fn: Callable[[], Any],
         interval: float,
         name: str,
+        *,
+        initial_delay: float | None = None,
     ) -> "asyncio.Task[None]":
         """
         Run ``fn()`` every *interval* seconds as a background task.
@@ -183,24 +185,33 @@ class ColdPathScheduler:
         handled.  If a periodic task with *name* is already running it is
         first cancelled and replaced.
 
-        The first invocation of *fn* is delayed by *interval* seconds so that
-        the hot path is not affected at startup.
+        The first invocation of *fn* is delayed by *interval* seconds by
+        default so that the hot path is not affected at startup.  A caller may
+        provide a bounded ``initial_delay`` when an early cold-path observation
+        is needed before an independent readiness audit runs.
 
         Args:
             fn:       Callable invoked every *interval* seconds.
             interval: Seconds between invocations (wall-clock delay).
             name:     Unique human-readable identifier for this task.
+            initial_delay: Optional delay before the first invocation.  When
+                omitted, ``interval`` is used.
 
         Returns:
             The created :class:`asyncio.Task`.
         """
+        if interval <= 0:
+            raise ValueError("interval must be positive")
+        if initial_delay is not None and initial_delay < 0:
+            raise ValueError("initial_delay must be non-negative")
+
         # Replace existing task with same name
         existing = self._periodic_tasks.pop(name, None)
         if existing and not existing.done():
             existing.cancel()
 
         task: asyncio.Task[None] = asyncio.create_task(
-            self._periodic_loop(fn, interval, name),
+            self._periodic_loop(fn, interval, name, initial_delay=initial_delay),
             name=f"cold-periodic-{name}",
         )
         self._periodic_tasks[name] = task
@@ -214,12 +225,16 @@ class ColdPathScheduler:
         fn: Callable[[], Any],
         interval: float,
         name: str,
+        *,
+        initial_delay: float | None = None,
     ) -> None:
-        """Core loop: sleep *interval* seconds then call *fn()*."""
+        """Core loop: wait once, then invoke *fn()* at the normal interval."""
         logger.debug("❄️ Démarrage tâche périodique: %s", name)
+        next_delay = interval if initial_delay is None else initial_delay
         try:
             while self._running:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(next_delay)
+                next_delay = interval
                 if not self._running:
                     break
                 try:

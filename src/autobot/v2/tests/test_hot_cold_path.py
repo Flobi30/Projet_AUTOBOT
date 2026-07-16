@@ -311,6 +311,40 @@ class TestColdPathSchedulerPeriodic:
         assert len(fired) >= 2
 
     @pytest.mark.asyncio
+    async def test_periodic_task_can_use_a_shorter_cold_start_delay(self):
+        scheduler = ColdPathScheduler()
+        await scheduler.start()
+        fired = []
+
+        def counter():
+            fired.append(asyncio.get_running_loop().time())
+
+        started_at = asyncio.get_running_loop().time()
+        scheduler.schedule_periodic(
+            counter,
+            interval=0.10,
+            initial_delay=0.01,
+            name="startup-observation",
+        )
+        await asyncio.sleep(0.04)
+        await scheduler.stop()
+
+        assert len(fired) == 1
+        assert fired[0] - started_at < 0.08
+
+    def test_periodic_task_rejects_invalid_delays(self):
+        scheduler = ColdPathScheduler()
+        with pytest.raises(ValueError, match="interval"):
+            scheduler.schedule_periodic(lambda: None, interval=0.0, name="bad")
+        with pytest.raises(ValueError, match="initial_delay"):
+            scheduler.schedule_periodic(
+                lambda: None,
+                interval=1.0,
+                initial_delay=-1.0,
+                name="bad-delay",
+            )
+
+    @pytest.mark.asyncio
     async def test_periodic_task_isolates_errors(self):
         scheduler = ColdPathScheduler()
         await scheduler.start()
