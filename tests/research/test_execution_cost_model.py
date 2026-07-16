@@ -71,7 +71,7 @@ def test_round_trip_pnl_is_net_of_fees_and_uses_execution_prices():
     assert round(pnl.net_pnl_eur, 4) == 9.79
 
 
-def test_round_trip_pnl_deducts_all_modeled_execution_costs():
+def test_round_trip_pnl_applies_price_impact_once_and_commission_once():
     model = ExecutionCostModel(
         ExecutionCostConfig(
             taker_fee_bps=10.0,
@@ -86,4 +86,41 @@ def test_round_trip_pnl_deducts_all_modeled_execution_costs():
     pnl = model.round_trip_pnl(entry, exit_fill)
 
     assert pnl.total_cost_eur > pnl.fees_eur
-    assert pnl.net_pnl_eur == pytest.approx(pnl.gross_pnl_eur - pnl.total_cost_eur)
+    assert pnl.execution_shortfall_eur == pytest.approx(
+        pnl.spread_cost_eur + pnl.slippage_eur + pnl.latency_cost_eur
+    )
+    assert pnl.net_pnl_eur == pytest.approx(pnl.gross_pnl_eur - pnl.fees_eur)
+    assert pnl.reference_gross_pnl_eur - pnl.net_pnl_eur == pytest.approx(pnl.total_cost_eur)
+
+
+@pytest.mark.parametrize(
+    ("entry_side", "entry_price", "exit_side", "exit_price"),
+    (("buy", 1.0, "sell", 1.1), ("sell", 1.1, "buy", 1.0)),
+)
+def test_round_trip_cost_attribution_is_consistent_for_both_directions(
+    entry_side: str,
+    entry_price: float,
+    exit_side: str,
+    exit_price: float,
+):
+    model = ExecutionCostModel(
+        ExecutionCostConfig(taker_fee_bps=10.0, fallback_spread_bps=8.0, slippage_bps=5.0, latency_buffer_bps=2.0)
+    )
+    entry = model.simulate_fill(FillRequest(symbol="TRXEUR", side=entry_side, price=entry_price, quantity=100.0))
+    exit_fill = model.simulate_fill(FillRequest(symbol="TRXEUR", side=exit_side, price=exit_price, quantity=100.0))
+
+    pnl = model.round_trip_pnl(entry, exit_fill)
+
+    assert pnl.execution_shortfall_eur == pytest.approx(
+        pnl.spread_cost_eur + pnl.slippage_eur + pnl.latency_cost_eur
+    )
+    assert pnl.reference_gross_pnl_eur - pnl.net_pnl_eur == pytest.approx(pnl.total_cost_eur)
+
+
+def test_round_trip_pnl_rejects_an_exit_that_does_not_close_the_entry():
+    model = ExecutionCostModel()
+    entry = model.simulate_fill(FillRequest(symbol="TRXEUR", side="buy", price=1.0, quantity=10.0))
+    wrong_exit = model.simulate_fill(FillRequest(symbol="TRXEUR", side="buy", price=1.1, quantity=10.0))
+
+    with pytest.raises(ValueError, match="must close the entry side"):
+        model.round_trip_pnl(entry, wrong_exit)

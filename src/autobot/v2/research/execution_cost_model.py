@@ -220,12 +220,27 @@ class FillResult:
 
 @dataclass(frozen=True)
 class RoundTripPnL:
+    """Round-trip attribution with prices and costs represented exactly once.
+
+    ``reference_gross_pnl_eur`` is the pre-cost PnL at the requested prices.
+    ``gross_pnl_eur`` is the PnL at adverse simulated fill prices, so it
+    already includes the price impact of spread, slippage and latency.
+    ``net_pnl_eur`` deducts only explicit commission from that fill PnL.
+    Consequently ``reference_gross_pnl_eur - net_pnl_eur`` equals the full
+    modeled economic cost, while subtracting ``total_cost_eur`` from
+    ``gross_pnl_eur`` would double-count the price-impact components.
+    """
+
     symbol: str
     side: str
     quantity: float
+    reference_entry_price: float
+    reference_exit_price: float
     entry_price: float
     exit_price: float
+    reference_gross_pnl_eur: float
     gross_pnl_eur: float
+    execution_shortfall_eur: float
     net_pnl_eur: float
     fees_eur: float
     spread_cost_eur: float
@@ -336,28 +351,39 @@ class ExecutionCostModel:
             raise ValueError("round trip requires accepted entry and exit fills")
         if entry.symbol != exit_fill.symbol:
             raise ValueError("entry and exit symbols must match")
+        expected_exit_side = "sell" if entry.side == "buy" else "buy"
+        if exit_fill.side != expected_exit_side:
+            raise ValueError("round trip exit side must close the entry side")
         quantity = min(entry.quantity, exit_fill.quantity)
         if entry.side == "buy":
+            reference_gross = (exit_fill.requested_price - entry.requested_price) * quantity
             gross = (exit_fill.execution_price - entry.execution_price) * quantity
         else:
+            reference_gross = (entry.requested_price - exit_fill.requested_price) * quantity
             gross = (entry.execution_price - exit_fill.execution_price) * quantity
         fees = entry.fee_eur + exit_fill.fee_eur
         spread = entry.spread_cost_eur + exit_fill.spread_cost_eur
         slippage = entry.slippage_eur + exit_fill.slippage_eur
         latency = entry.latency_cost_eur + exit_fill.latency_cost_eur
         total_cost = fees + spread + slippage + latency
-        # Every modeled execution cost is an economic cost of the round trip.
-        # Deducting commissions alone would make the research simulator more
-        # optimistic than its own spread/slippage/latency assumptions.
-        net = gross - total_cost
+        # Spread, slippage and latency already worsen the simulated fill
+        # prices. Deducting them a second time here would make the simulator
+        # pessimistic beyond the stated assumptions. Commission is an explicit
+        # debit, so it is the only component removed after fill-price PnL.
+        net = gross - fees
+        execution_shortfall = reference_gross - gross
         basis = max(entry.notional_eur, 1e-12)
         return RoundTripPnL(
             symbol=entry.symbol,
             side=entry.side,
             quantity=quantity,
+            reference_entry_price=entry.requested_price,
+            reference_exit_price=exit_fill.requested_price,
             entry_price=entry.execution_price,
             exit_price=exit_fill.execution_price,
+            reference_gross_pnl_eur=reference_gross,
             gross_pnl_eur=gross,
+            execution_shortfall_eur=execution_shortfall,
             net_pnl_eur=net,
             fees_eur=fees,
             spread_cost_eur=spread,
