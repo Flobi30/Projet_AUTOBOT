@@ -4,6 +4,8 @@
 
 `GO_LOCAL` — the coordinator is ready for controlled VPS deployment and smoke validation.
 
+- Implementation commit: `07baef2c37f3eef8f05318907614ec5f479b4953`.
+
 ## Scope
 
 This increment connects the typed research scheduler to one bounded,
