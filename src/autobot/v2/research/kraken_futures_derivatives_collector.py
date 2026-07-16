@@ -574,6 +574,7 @@ def collect_kraken_futures_derivatives(
             ticker_rows or ticker_history_rows,
             candle_history_rows,
             basis_rows or valid_basis_history_rows,
+            basis_history_ready=basis_history_ready,
         ),
         funding_history_row_count=len(funding_history_rows),
         funding_history_path=str(funding_history_path),
@@ -1401,7 +1402,11 @@ def _quality_label(
     ticker_rows: Sequence[Mapping[str, Any]],
     candle_rows: Sequence[Mapping[str, Any]],
     basis_rows: Sequence[Mapping[str, Any]],
+    *,
+    basis_history_ready: bool,
 ) -> str:
+    if funding_rows and ticker_rows and candle_rows and basis_rows and basis_history_ready:
+        return "historical_funding_and_same_quote_basis_ready_research_only"
     if funding_rows and ticker_rows and candle_rows and basis_rows:
         return "smoke_ready_current_basis_only"
     if funding_rows and ticker_rows:

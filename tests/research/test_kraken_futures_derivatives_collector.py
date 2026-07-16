@@ -18,6 +18,7 @@ from autobot.v2.research.kraken_futures_derivatives_collector import (
     TICKERS_ENDPOINT,
     KrakenFuturesCollectorConfig,
     _basis_rows_from_aligned_candles,
+    _quality_label,
     assert_public_kraken_futures_endpoint,
     calculate_basis_bps,
     collect_kraken_futures_derivatives,
@@ -331,6 +332,11 @@ def test_aligned_candle_basis_rejects_quote_currency_mismatch():
 
     assert rows == []
     assert invalid_rows[0]["reason"] == "BASIS_REFERENCE_UNVERIFIED"
+
+
+def test_derivatives_quality_distinguishes_history_from_a_current_only_smoke():
+    assert _quality_label([{}], [{}], [{}], [{}], basis_history_ready=False) == "smoke_ready_current_basis_only"
+    assert _quality_label([{}], [{}], [{}], [{}], basis_history_ready=True) == "historical_funding_and_same_quote_basis_ready_research_only"
 
 
 def test_raw_retention_prunes_only_old_completed_raw_runs_after_canonical_write(tmp_path):
