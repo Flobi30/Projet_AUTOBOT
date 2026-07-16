@@ -520,6 +520,21 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_ephemeral_restore_drill.add_argument("--source", required=True)
     sqlite_ephemeral_restore_drill.set_defaults(handler=_cmd_sqlite_ephemeral_restore_drill)
 
+    runtime_resilience_audit = subparsers.add_parser(
+        "runtime-resilience-audit",
+        help="Read SQLite, market-data freshness and disk evidence without modifying runtime state",
+    )
+    runtime_resilience_audit.add_argument("--state-db", required=True)
+    runtime_resilience_audit.add_argument("--max-data-age-seconds", type=int, default=300)
+    runtime_resilience_audit.add_argument("--min-free-disk-bytes", type=int, default=2 * 1024 * 1024 * 1024)
+    runtime_resilience_audit.add_argument(
+        "--websocket-status",
+        choices=("connected", "disconnected", "unknown"),
+        default="unknown",
+        help="Explicit observation only; unknown never claims a connected WebSocket",
+    )
+    runtime_resilience_audit.set_defaults(handler=_cmd_runtime_resilience_audit)
+
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
@@ -2788,6 +2803,22 @@ def _cmd_sqlite_ephemeral_restore_drill(args: argparse.Namespace) -> int:
     from autobot.v2.research.resilience_readiness import run_ephemeral_sqlite_restore_drill
 
     _print_json(asdict(run_ephemeral_sqlite_restore_drill(Path(args.source))))
+    return 0
+
+
+def _cmd_runtime_resilience_audit(args: argparse.Namespace) -> int:
+    """Produce read-only runtime incident evidence for the risk envelope."""
+
+    from autobot.v2.research.runtime_resilience_audit import audit_runtime_resilience
+
+    _print_json(
+        audit_runtime_resilience(
+            Path(args.state_db),
+            max_data_age_seconds=args.max_data_age_seconds,
+            min_free_disk_bytes=args.min_free_disk_bytes,
+            websocket_status=args.websocket_status,
+        ).to_dict()
+    )
     return 0
 
 

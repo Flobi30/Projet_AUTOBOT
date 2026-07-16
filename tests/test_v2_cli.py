@@ -1819,6 +1819,36 @@ def test_cli_sqlite_ephemeral_restore_drill_never_retains_a_backup(tmp_path, cap
     assert source_path.read_bytes() == before
 
 
+def test_cli_runtime_resilience_audit_is_read_only_and_reports_explicit_websocket_status(tmp_path, capsys):
+    state_db = tmp_path / "state.sqlite3"
+    observed_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(state_db) as connection:
+        connection.execute("CREATE TABLE market_price_samples (id INTEGER PRIMARY KEY, observed_at TEXT NOT NULL)")
+        connection.execute("INSERT INTO market_price_samples(observed_at) VALUES (?)", (observed_at,))
+    before = state_db.read_bytes()
+
+    exit_code = cli.main(
+        [
+            "runtime-resilience-audit",
+            "--state-db",
+            str(state_db),
+            "--min-free-disk-bytes",
+            "0",
+            "--websocket-status",
+            "connected",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["status"] == "RESILIENCE_HEALTHY"
+    assert output["fail_closed"]["action"] == "NORMAL"
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert output["order_submission_attempted"] is False
+    assert state_db.read_bytes() == before
+
+
 def test_cli_runtime_oms_ledger_migration_plan_is_non_authorizing(tmp_path, capsys):
     state_db = tmp_path / "state.sqlite3"
     with sqlite3.connect(state_db) as connection:
