@@ -85,6 +85,44 @@ def test_trial_plan_is_idempotent_and_counts_candidate_configurations_across_exp
     assert registry.trial_count(hypothesis_id="funding_basis") == 19
 
 
+def test_bounded_research_execution_claim_is_atomic_and_append_only(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    experiment = registry.register_experiment(_spec())
+
+    assert registry.claim_bounded_research_execution(
+        experiment_id=experiment.experiment_id,
+        coordinator_run_id="daily_2026_07_16",
+    ) is True
+    assert registry.claim_bounded_research_execution(
+        experiment_id=experiment.experiment_id,
+        coordinator_run_id="daily_2026_07_16_retry",
+    ) is False
+
+    manifest = registry.export_manifest(experiment.experiment_id)
+    assert manifest["bounded_research_execution_claim"]["coordinator_run_id"] == "daily_2026_07_16"
+    with sqlite3.connect(registry.path) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("DELETE FROM bounded_research_execution_claims")
+
+
+def test_bounded_research_snapshot_claim_allows_one_automatic_attempt_per_snapshot(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+
+    assert registry.claim_bounded_research_snapshot(
+        feature_snapshot_id="features_2026_07_16",
+        feature_snapshot_fingerprint="snapshot-fingerprint",
+        coordinator_run_id="daily_2026_07_16",
+    ) is True
+    assert registry.claim_bounded_research_snapshot(
+        feature_snapshot_id="features_2026_07_16",
+        feature_snapshot_fingerprint="snapshot-fingerprint",
+        coordinator_run_id="daily_2026_07_16_retry",
+    ) is False
+    with sqlite3.connect(registry.path) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("DELETE FROM bounded_research_snapshot_claims")
+
+
 def test_registry_enforces_monotonic_gate_pipeline_and_terminal_rejection(tmp_path):
     registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
     experiment = registry.register_experiment(_spec())

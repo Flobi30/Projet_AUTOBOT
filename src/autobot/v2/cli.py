@@ -344,6 +344,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     alpha_hypothesis_runner.set_defaults(handler=_cmd_alpha_hypothesis_runner)
 
+    bounded_research = subparsers.add_parser(
+        "bounded-research-coordinator",
+        help="Run at most one allowlisted research-only smoke experiment from typed scheduler evidence",
+    )
+    bounded_research.add_argument("--run-id", required=True)
+    bounded_research.add_argument("--data-paths", required=True)
+    bounded_research.add_argument("--feature-snapshot-manifest", required=True)
+    bounded_research.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
+    bounded_research.add_argument("--templates", default="docs/research/strategy_templates.json")
+    bounded_research.add_argument("--hypotheses", default="docs/research/alpha_hypotheses.json")
+    bounded_research.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
+    bounded_research.add_argument("--experiment-registry", default="data/research/experiment_registry.sqlite3")
+    bounded_research.add_argument("--output-dir", default="data/research/reports/bounded_research_coordinator")
+    bounded_research.add_argument("--commit", default=None)
+    bounded_research.add_argument("--seed", type=int, default=0)
+    bounded_research.add_argument("--max-variants", type=int, default=3)
+    bounded_research.add_argument("--max-symbols", type=int, default=6)
+    bounded_research.add_argument("--max-runtime-seconds", type=int, default=120)
+    bounded_research.set_defaults(handler=_cmd_bounded_research_coordinator)
+
     experiment_registry_migrate = subparsers.add_parser(
         "experiment-registry-migrate-memory",
         help="Import legacy AUTOBOT research memory into the append-only experiment registry",
@@ -2275,6 +2295,52 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             "promotable": False,
         }
     _print_json(payload)
+    return 0
+
+
+def _cmd_bounded_research_coordinator(args: argparse.Namespace) -> int:
+    """Coordinate one typed, allowlisted research-only smoke experiment."""
+
+    from autobot.v2.research.alpha_hypothesis_runner import _current_git_commit
+    from autobot.v2.research.alpha_hypothesis_scheduler import AlphaSchedulerConfig
+    from autobot.v2.research.bounded_research_coordinator import (
+        BoundedResearchCoordinatorConfig,
+        run_bounded_research_coordinator,
+        write_bounded_research_coordinator_report,
+    )
+
+    commit = str(args.commit or _current_git_commit() or "").strip()
+    if not commit:
+        raise ValueError("a code commit is required for bounded research coordination")
+    data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths"))
+    report = write_bounded_research_coordinator_report(
+        run_bounded_research_coordinator(
+            BoundedResearchCoordinatorConfig(
+                run_id=args.run_id,
+                scheduler=AlphaSchedulerConfig(
+                    state_db=None,
+                    data_paths=data_paths,
+                    knowledge_base_path=Path(args.knowledge_base),
+                    templates_path=Path(args.templates),
+                    hypotheses_path=Path(args.hypotheses),
+                    memory_path=Path(args.memory_path),
+                    output_dir=Path(args.output_dir) / "scheduler",
+                    run_id=f"{args.run_id}_scheduler",
+                    max_variants=args.max_variants,
+                    max_symbols=args.max_symbols,
+                    max_runtime_seconds=args.max_runtime_seconds,
+                ),
+                feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
+                code_commit=commit,
+                output_dir=Path(args.output_dir),
+                memory_path=Path(args.memory_path),
+                experiment_registry_path=Path(args.experiment_registry),
+                seed=args.seed,
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
     return 0
 
 

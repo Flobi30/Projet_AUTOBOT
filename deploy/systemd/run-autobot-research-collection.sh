@@ -8,6 +8,7 @@ RUN_ID="${AUTOBOT_RESEARCH_RUN_ID:-daily_$(date -u +%Y_%m_%dT%H_%M_%SZ)}"
 LOCK_PATH="${AUTOBOT_RESEARCH_LOCK_PATH:-/run/lock/autobot-research-data.lock}"
 MEMORY_LIMIT="${AUTOBOT_RESEARCH_MEMORY_LIMIT:-1536m}"
 CPU_LIMIT="${AUTOBOT_RESEARCH_CPU_LIMIT:-0.50}"
+COORDINATOR_ENABLED="${AUTOBOT_BOUNDED_RESEARCH_COORDINATOR_ENABLED:-true}"
 
 DATA_DIR="${REPO_DIR}/data/research/daily"
 CANONICAL_OHLCV_DIR="${REPO_DIR}/data/research/canonical/ohlcv"
@@ -20,6 +21,7 @@ HIGH_CONVICTION_REPORT_DIR="${REPO_DIR}/reports/research/high_conviction_walk_fo
 STRATEGY_ORCHESTRATOR_REPORT_DIR="${REPO_DIR}/reports/research/strategy_orchestrator"
 STRATEGY_EDGE_REPORT_DIR="${REPO_DIR}/reports/research/strategy_edge"
 SHADOW_OBSERVATION_REPORT_DIR="${REPO_DIR}/reports/paper/shadow_observations"
+COORDINATOR_REPORT_DIR="${REPO_DIR}/data/research/reports/bounded_research_coordinator"
 
 exec 9>"${LOCK_PATH}"
 if ! flock -n 9; then
@@ -37,15 +39,17 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   exit 1
 fi
 
+SOURCE_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)"
+
 # The image runs as appuser (uid/gid 999). Its only writable data mount is
 # data/research, so this public-data job cannot write the runtime state DB or
 # any paper/live ledger. Canonical artifacts remain inside that boundary.
-install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
+install -d -o 999 -g 999 -m 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}" "${COORDINATOR_REPORT_DIR}"
 # install -d preserves ownership for pre-existing directories. Restore the
 # appuser-owned output boundary so a prior root-created report cannot make a
 # subsequent isolated daily run fail while writing its research artifacts.
-chown 999:999 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
-chmod 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}"
+chown 999:999 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}" "${COORDINATOR_REPORT_DIR}"
+chmod 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "${CANONICAL_MANIFEST_DIR}" "${CANONICAL_QUARANTINE_DIR}" "${HIGH_CONVICTION_SHADOW_SYNC_DIR}" "${REPORT_DIR}" "${HIGH_CONVICTION_REPORT_DIR}" "${STRATEGY_ORCHESTRATOR_REPORT_DIR}" "${STRATEGY_EDGE_REPORT_DIR}" "${SHADOW_OBSERVATION_REPORT_DIR}" "${COORDINATOR_REPORT_DIR}"
 
 docker run --rm \
   --name "autobot-research-${RUN_ID}" \
@@ -133,3 +137,42 @@ docker run --rm \
     --memory-path data/research/alpha_research_memory.sqlite3 \
     --output-dir reports/research/daily_data_collection \
     --no-memory-backfill
+
+# A fourth isolated container may advance exactly one explicitly allowlisted,
+# point-in-time research smoke experiment. It receives no network, no runtime
+# state database, no secrets and no order path. The SQLite snapshot claim makes
+# the action idempotent even if this service is started twice.
+FEATURE_MANIFEST="${CANONICAL_MANIFEST_DIR}/${RUN_ID}_canonical_features_feature_snapshot.json"
+if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
+  docker run --rm \
+    --name "autobot-research-coordinator-${RUN_ID}" \
+    --label "autobot.component=bounded-research-coordinator" \
+    --network none \
+    --no-healthcheck \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+    --security-opt no-new-privileges \
+    --cap-drop ALL \
+    --memory "${MEMORY_LIMIT}" \
+    --cpus "${CPU_LIMIT}" \
+    --env PYTHONPATH=/app/src \
+    --env PYTHONUNBUFFERED=1 \
+    --env PYTHONDONTWRITEBYTECODE=1 \
+    --env HOME=/tmp \
+    --env TZ=Europe/Paris \
+    --volume "${REPO_DIR}/data/research:/app/data/research" \
+    "${IMAGE}" \
+    python -m autobot.v2.cli bounded-research-coordinator \
+      --run-id "${RUN_ID}_coordinator" \
+      --data-paths data/research/canonical/ohlcv \
+      --feature-snapshot-manifest "data/research/manifests/${RUN_ID}_canonical_features_feature_snapshot.json" \
+      --memory-path data/research/alpha_research_memory.sqlite3 \
+      --experiment-registry data/research/experiment_registry.sqlite3 \
+      --output-dir data/research/reports/bounded_research_coordinator \
+      --commit "${SOURCE_COMMIT}" \
+      --max-variants 3 \
+      --max-symbols 6 \
+      --max-runtime-seconds 120
+else
+  echo "AUTOBOT bounded research coordinator skipped: disabled or no verified feature manifest for ${RUN_ID}."
+fi

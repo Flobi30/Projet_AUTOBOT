@@ -399,6 +399,69 @@ class ExperimentRegistry:
             candidate_count += 1
         return candidate_count
 
+    def claim_bounded_research_execution(self, *, experiment_id: str, coordinator_run_id: str) -> bool:
+        """Atomically reserve one immutable material experiment for automation.
+
+        A bounded coordinator is allowed one attempt for a material
+        fingerprint.  The claim intentionally never expires: after a process
+        crash, fail closed and require new data, a new thesis or a new template
+        rather than silently replaying an uncertain experiment.  The normal
+        gate/artifact evidence records the actual outcome separately.
+        """
+
+        run_id = str(coordinator_run_id or "").strip()
+        if not run_id:
+            raise ExperimentRegistryError("coordinator_run_id is required")
+        with self._connect() as connection:
+            self._initialize(connection)
+            state = self._state(connection, experiment_id)
+            if state.terminal:
+                return False
+            execution_id = f"bounded_execution_{_fingerprint({'experiment_id': experiment_id, 'run_id': run_id})[:20]}"
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO bounded_research_execution_claims
+                    (experiment_id, execution_id, coordinator_run_id, claimed_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (experiment_id, execution_id, run_id, _now()),
+            )
+            return cursor.rowcount == 1
+
+    def claim_bounded_research_snapshot(
+        self,
+        *,
+        feature_snapshot_id: str,
+        feature_snapshot_fingerprint: str,
+        coordinator_run_id: str,
+    ) -> bool:
+        """Atomically limit unattended research to one attempt per snapshot.
+
+        This is stricter than material-experiment deduplication. A daily
+        point-in-time feature snapshot gets one autonomous smoke decision, not
+        one decision per template. Further exploration of the same data remains
+        an explicit human-reviewed research action.
+        """
+
+        snapshot_id = str(feature_snapshot_id or "").strip()
+        fingerprint = str(feature_snapshot_fingerprint or "").strip()
+        run_id = str(coordinator_run_id or "").strip()
+        if not snapshot_id or not fingerprint or not run_id:
+            raise ExperimentRegistryError("snapshot id, fingerprint and coordinator run id are required")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            self._initialize(connection)
+            claim_id = f"bounded_snapshot_{_fingerprint({'snapshot': fingerprint, 'run_id': run_id})[:20]}"
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO bounded_research_snapshot_claims
+                    (feature_snapshot_fingerprint, claim_id, feature_snapshot_id, coordinator_run_id, claimed_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (fingerprint, claim_id, snapshot_id, run_id, _now()),
+            )
+            return cursor.rowcount == 1
+
     def migrate_legacy_memory(self, records: Iterable[Mapping[str, Any]]) -> int:
         """Append legacy memory records once without treating them as gate evidence."""
 
@@ -548,6 +611,7 @@ class ExperimentRegistry:
                 if holdout
                 else None
             ),
+            "bounded_research_execution_claim": self._bounded_research_execution_claim(experiment_id),
             "research_only": True,
             "paper_capital_allowed": False,
             "live_allowed": False,
@@ -579,6 +643,27 @@ class ExperimentRegistry:
             terminal=latest_status in TERMINAL_STATUSES or completed,
             trial_count=count,
         )
+
+    def _bounded_research_execution_claim(self, experiment_id: str) -> dict[str, str] | None:
+        if not self.path.exists():
+            return None
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                """
+                SELECT execution_id, coordinator_run_id, claimed_at
+                FROM bounded_research_execution_claims
+                WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "execution_id": str(row[0]),
+            "coordinator_run_id": str(row[1]),
+            "claimed_at": str(row[2]),
+        }
 
     @staticmethod
     def _validate_holdout_use(
@@ -751,6 +836,27 @@ class ExperimentRegistry:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bounded_research_execution_claims (
+                experiment_id TEXT PRIMARY KEY REFERENCES experiments(experiment_id),
+                execution_id TEXT NOT NULL UNIQUE,
+                coordinator_run_id TEXT NOT NULL,
+                claimed_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bounded_research_snapshot_claims (
+                feature_snapshot_fingerprint TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL UNIQUE,
+                feature_snapshot_id TEXT NOT NULL,
+                coordinator_run_id TEXT NOT NULL,
+                claimed_at TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(connection, "experiment_trials", "holdout_id", "TEXT REFERENCES holdout_reservations(holdout_id)")
         _ensure_column(connection, "holdout_reservations", "manifest_json", "TEXT NOT NULL DEFAULT '{}'")
         for table in (
@@ -760,6 +866,8 @@ class ExperimentRegistry:
             "experiment_artifacts",
             "holdout_reservations",
             "legacy_memory_imports",
+            "bounded_research_execution_claims",
+            "bounded_research_snapshot_claims",
         ):
             _create_append_only_triggers(connection, table)
 
