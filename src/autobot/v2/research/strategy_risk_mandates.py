@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from autobot.v2.contracts import RiskMandateReference
+from autobot.v2.research.resilience_readiness import (
+    ResilienceError,
+    summarize_fail_closed_incidents,
+)
 from autobot.v2.strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, is_runtime_engine_retired
 
 
@@ -212,6 +216,14 @@ class StrategyHealthSnapshot:
     killed: bool = False
     paper_backtest_divergence: float | None = None
     ledger_errors: int = 0
+    incident_types: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        try:
+            summary = summarize_fail_closed_incidents(self.incident_types)
+        except ResilienceError as exc:
+            raise StrategyRiskMandateError(str(exc)) from exc
+        object.__setattr__(self, "incident_types", summary.incident_types)
 
 
 @dataclass(frozen=True)
@@ -303,7 +315,7 @@ def classify_autonomy_decision(decision: AutonomyDecision) -> dict[str, list[str
     warnings: list[str] = []
     if decision.decision == DECISION_HUMAN_REVIEW:
         blockers.append("human_review_required")
-    if decision.decision in {DECISION_BLOCK, DECISION_KILL}:
+    if decision.decision in {DECISION_REDUCE, DECISION_BLOCK, DECISION_KILL}:
         for reason in decision.reasons:
             if reason not in blockers:
                 blockers.append(reason)
@@ -422,6 +434,22 @@ class PreTradeAutonomyGate:
             return _decision(DECISION_KILL, ["rolling_expectancy_below_mandate"], mandate, request.strategy_id, checks)
         if health.ledger_errors > 0:
             return _decision(DECISION_KILL, ["ledger_errors_detected"], mandate, request.strategy_id, checks)
+        incident_summary = summarize_fail_closed_incidents(health.incident_types)
+        if incident_summary.action == "HALT":
+            return _decision(
+                DECISION_KILL,
+                ["resilience_halt", *incident_summary.reasons],
+                mandate,
+                request.strategy_id,
+                checks,
+            )
+        if incident_summary.action != "NORMAL":
+            checks["resilience_incidents_clear"] = {
+                "passed": False,
+                "value": list(incident_summary.incident_types),
+                "action": incident_summary.action,
+            }
+            reasons.extend(["resilience_reduce_or_block", *incident_summary.reasons])
         combined_reasons = [*static_blockers, *reasons]
         if combined_reasons:
             return _decision(DECISION_BLOCK, combined_reasons, mandate, request.strategy_id, checks)
@@ -432,22 +460,31 @@ class AutoKillDowngradeEngine:
     """Side-effect free kill/downgrade classifier."""
 
     def evaluate(self, mandate: StrategyRiskMandate, health: StrategyHealthSnapshot) -> AutonomyDecision:
-        reasons: list[str] = []
+        kill_reasons: list[str] = []
         if health.killed:
-            reasons.append("already_killed")
+            kill_reasons.append("already_killed")
         if health.rolling_pf is not None and health.rolling_pf < mandate.rolling_pf_min:
-            reasons.append("rolling_pf_below_mandate")
+            kill_reasons.append("rolling_pf_below_mandate")
         if health.rolling_expectancy is not None and health.rolling_expectancy < mandate.rolling_expectancy_min:
-            reasons.append("rolling_expectancy_below_mandate")
+            kill_reasons.append("rolling_expectancy_below_mandate")
         if health.consecutive_losses >= mandate.cooldown_after_losses:
-            reasons.append("cooldown_after_losses_triggered")
+            kill_reasons.append("cooldown_after_losses_triggered")
         if health.ledger_errors > 0:
-            reasons.append("ledger_errors_detected")
+            kill_reasons.append("ledger_errors_detected")
         if health.paper_backtest_divergence is not None and health.paper_backtest_divergence > 0.35:
-            reasons.append("paper_backtest_divergence_too_high")
-        health_check = {"passed": not bool(reasons), **asdict(health)}
-        if reasons:
-            return _decision(DECISION_KILL, reasons, mandate, mandate.strategy_id, {"health": health_check})
+            kill_reasons.append("paper_backtest_divergence_too_high")
+        incident_summary = summarize_fail_closed_incidents(health.incident_types)
+        if incident_summary.action == "HALT":
+            kill_reasons.extend(["resilience_halt", *incident_summary.reasons])
+        health_check = {
+            "passed": not kill_reasons and incident_summary.action == "NORMAL",
+            **asdict(health),
+        }
+        if kill_reasons:
+            return _decision(DECISION_KILL, kill_reasons, mandate, mandate.strategy_id, {"health": health_check})
+        if incident_summary.action != "NORMAL":
+            reduce_reasons = ["resilience_reduce_or_block", *incident_summary.reasons]
+            return _decision(DECISION_REDUCE, reduce_reasons, mandate, mandate.strategy_id, {"health": health_check})
         return _decision(DECISION_ALLOW, ["health_within_mandate"], mandate, mandate.strategy_id, {"health": health_check})
 
 

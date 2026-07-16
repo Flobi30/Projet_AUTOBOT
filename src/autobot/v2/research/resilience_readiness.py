@@ -68,6 +68,26 @@ class IncidentDecision:
 
 
 @dataclass(frozen=True)
+class FailClosedIncidentSummary:
+    """Canonical, non-authorizing result for one or more runtime incidents."""
+
+    incident_types: tuple[str, ...]
+    action: str
+    reasons: tuple[str, ...]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        normalized = _normalize_incident_types(self.incident_types)
+        if self.action not in FAIL_CLOSED_ACTIONS:
+            raise ResilienceError("unsupported fail-closed action")
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("incident summaries cannot authorize paper or live")
+        object.__setattr__(self, "incident_types", normalized)
+
+
+@dataclass(frozen=True)
 class RetryPolicy:
     max_attempts: int = 3
     initial_delay_seconds: float = 0.05
@@ -163,6 +183,28 @@ def decide_fail_closed(incident_type: str, *, previous_action: str = "NORMAL") -
     calculated, reason = mapping[incident]
     action = _more_severe(_validate_action(previous_action), calculated)
     return IncidentDecision(incident, action, reason)
+
+
+def summarize_fail_closed_incidents(incident_types: Sequence[str]) -> FailClosedIncidentSummary:
+    """Collapse current incidents into one monotonic, non-authorizing action.
+
+    This is a bridge from runtime health observations into the future risk
+    envelope. It remains side-effect free: callers decide how to enforce the
+    resulting reduction, block or halt.
+    """
+
+    normalized = _normalize_incident_types(incident_types)
+    action = "NORMAL"
+    reasons: list[str] = []
+    for incident in normalized:
+        decision = decide_fail_closed(incident, previous_action=action)
+        action = decision.action
+        reasons.append(f"{incident.lower()}:{decision.reason}")
+    return FailClosedIncidentSummary(
+        incident_types=normalized,
+        action=action,
+        reasons=tuple(reasons),
+    )
 
 
 def retry_bounded(
@@ -354,6 +396,18 @@ def _validate_action(action: str) -> str:
     normalized = str(action).upper()
     if normalized not in FAIL_CLOSED_ACTIONS:
         raise ResilienceError(f"unsupported fail-closed action: {action}")
+    return normalized
+
+
+def _normalize_incident_types(incident_types: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(incident_types, (str, bytes)):
+        raise ResilienceError("incident_types must be a sequence, not a string")
+    normalized = tuple(
+        sorted({str(value).strip().upper() for value in incident_types if str(value).strip()})
+    )
+    unsupported = sorted(set(normalized) - INCIDENT_TYPES)
+    if unsupported:
+        raise ResilienceError(f"unsupported incident types: {', '.join(unsupported)}")
     return normalized
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ast
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,6 +151,46 @@ def test_auto_kill_allow_does_not_report_health_as_blocker(tmp_path):
     assert payload["passed_checks"] == ["health"]
     assert payload["failed_checks"] == []
     assert payload["blockers"] == []
+
+
+def test_resilience_incidents_can_only_reduce_block_or_kill_the_risk_envelope(tmp_path):
+    mandate = _mandate(tmp_path, capital=100.0, symbols=["BCHEUR"], timeframes=["15m"], order_types=["market"])
+
+    stale = StrategyHealthSnapshot(incident_types=("data_stale", "api_unavailable", "DATA_STALE"))
+    blocked = PreTradeAutonomyGate().evaluate(mandate, _request(), stale)
+    reduced = AutoKillDowngradeEngine().evaluate(mandate, stale)
+    halted = PreTradeAutonomyGate().evaluate(
+        mandate,
+        _request(),
+        StrategyHealthSnapshot(incident_types=("ORDER_UNKNOWN",)),
+    )
+
+    assert stale.incident_types == ("API_UNAVAILABLE", "DATA_STALE")
+    assert blocked.decision == DECISION_BLOCK
+    assert "resilience_reduce_or_block" in blocked.reasons
+    assert reduced.decision == "REDUCE"
+    assert reduced.paper_capital_allowed is False
+    assert reduced.live_allowed is False
+    assert halted.decision == DECISION_KILL
+    assert "resilience_halt" in halted.reasons
+
+
+def test_unknown_resilience_incident_fails_closed_at_the_health_boundary():
+    with pytest.raises(StrategyRiskMandateError, match="unsupported incident types"):
+        StrategyHealthSnapshot(incident_types=("NOT_A_REAL_INCIDENT",))
+
+
+def test_incident_risk_bridge_does_not_import_execution_or_paper_runtime_paths():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "src/autobot/v2/research/strategy_risk_mandates.py").read_text(encoding="utf-8"))
+    forbidden = {
+        "autobot.v2.order_router",
+        "autobot.v2.signal_handler_async",
+        "autobot.v2.paper_trading",
+    }
+    imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
+    assert imports.isdisjoint(forbidden)
 
 
 def test_grid_mandate_is_rejected(tmp_path):

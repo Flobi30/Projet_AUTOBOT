@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from autobot.v2.research.resilience_readiness import (
+    FailClosedIncidentSummary,
     ResilienceError,
     RetryPolicy,
     build_readiness_dossier_from_coverage,
@@ -14,6 +15,7 @@ from autobot.v2.research.resilience_readiness import (
     decide_fail_closed,
     evaluate_human_paper_readiness,
     retry_bounded,
+    summarize_fail_closed_incidents,
     verify_sqlite_restore_drill,
     write_readiness_dossier,
 )
@@ -33,6 +35,31 @@ def test_fail_closed_actions_are_monotonic_and_never_enable_risk():
     assert unknown.risk_increase_allowed is False
     assert unknown.paper_capital_allowed is False
     assert unknown.live_allowed is False
+
+
+def test_incident_summary_normalizes_and_uses_the_strictest_fail_closed_action():
+    summary = summarize_fail_closed_incidents(("api_unavailable", "DATA_STALE", "API_UNAVAILABLE", "ORDER_UNKNOWN"))
+
+    assert summary.incident_types == ("API_UNAVAILABLE", "DATA_STALE", "ORDER_UNKNOWN")
+    assert summary.action == "HALT"
+    assert "order_unknown:order_state_unknown" in summary.reasons
+    assert summary.research_only is True
+    assert summary.paper_capital_allowed is False
+    assert summary.live_allowed is False
+
+
+def test_incident_summary_rejects_unknown_or_scalar_inputs():
+    with pytest.raises(ResilienceError, match="unsupported incident types"):
+        summarize_fail_closed_incidents(("UNKNOWN_INCIDENT",))
+    with pytest.raises(ResilienceError, match="sequence, not a string"):
+        summarize_fail_closed_incidents("DATA_STALE")
+    with pytest.raises(ResilienceError, match="cannot authorize paper or live"):
+        FailClosedIncidentSummary(
+            incident_types=("DATA_STALE",),
+            action="BLOCK_NEW_SIGNALS",
+            reasons=("fixture",),
+            paper_capital_allowed=True,
+        )
 
 
 def test_bounded_retry_recovers_only_within_limit_and_exposes_failure():
