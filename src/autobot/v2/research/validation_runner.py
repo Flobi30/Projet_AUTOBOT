@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from autobot.v2.cost_profiles import COST_PROFILE_NAMES, DEFAULT_RESEARCH_COST_PROFILE
+from autobot.v2.contracts import MarketIdentity
 
+from .backtest_alpha_adapter import BacktestSignalProvenance, fingerprint_backtest_bars
 from .backtest_engine import BacktestConfig, BacktestEngine, BacktestResult
 from .execution_cost_model import ExecutionCostConfig, execution_cost_config_for_profile
 from .market_data_repository import MarketBar, MarketDataRepository
@@ -65,6 +67,7 @@ class ValidationRunnerConfig:
     min_folds: int = 3
     min_passing_folds: int = 2
     include_regime_context: bool = False
+    alpha_provenance: BacktestSignalProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,7 @@ def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
     bars = load_bars_for_validation(config)
     if config.include_regime_context:
         bars = enrich_bars_with_regime_context(bars)
+    alpha_provenance = _bind_alpha_provenance(config.alpha_provenance, bars)
     factory = make_signal_generator_factory(
         config.strategy,
         config.strategy_config,
@@ -192,8 +196,9 @@ def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
         max_drawdown_pct=config.max_drawdown_pct,
         min_signal_net_edge_bps=config.min_signal_net_edge_bps,
     )
+    _validate_alpha_provenance(alpha_provenance, backtest_config)
     if config.mode == "backtest":
-        result = BacktestEngine(backtest_config).run(bars, factory())
+        result = BacktestEngine(backtest_config, alpha_provenance=alpha_provenance).run(bars, factory())
         return ValidationRunnerResult(mode=config.mode, bar_count=len(bars), result=result)
     if config.mode == "walk_forward":
         walk_config = WalkForwardConfig(
@@ -205,6 +210,7 @@ def run_validation(config: ValidationRunnerConfig) -> ValidationRunnerResult:
             min_folds=config.min_folds,
             min_passing_folds=config.min_passing_folds,
             output_dir=config.output_dir / "walk_forward",
+            alpha_provenance=alpha_provenance,
         )
         result = WalkForwardValidator(walk_config).run(bars, factory)
         return ValidationRunnerResult(mode=config.mode, bar_count=len(bars), result=result)
@@ -217,6 +223,104 @@ def _strategy_id(strategy: StrategyName) -> str:
         "trend": "trend_momentum",
         "mean_reversion": "mean_reversion",
     }[strategy]
+
+
+def _validate_alpha_provenance(
+    provenance: BacktestSignalProvenance | None,
+    config: BacktestConfig,
+) -> None:
+    """Reject provenance detached from the validation request before replay."""
+
+    if provenance is None:
+        return
+    if provenance.strategy_id != config.strategy_id.strip().lower():
+        raise ValueError("alpha provenance strategy_id must match validation strategy")
+    if provenance.data_snapshot_id != config.dataset_id.strip():
+        raise ValueError("alpha provenance data_snapshot_id must match validation dataset")
+
+
+def _bind_alpha_provenance(
+    provenance: BacktestSignalProvenance | None,
+    bars: list[MarketBar],
+) -> BacktestSignalProvenance | None:
+    """Bind strict provenance to the exact post-filter research input.
+
+    A caller cannot reuse a friendly dataset label for different CSV contents,
+    time filters or symbols: strict adaptation starts only when the declared
+    source fingerprint matches the actual normalized bars. Walk-forward later
+    derives a per-fold input fingerprint while retaining this verified source
+    snapshot identity.
+    """
+
+    if provenance is None:
+        return None
+    observed = fingerprint_backtest_bars(bars)
+    if provenance.source_snapshot_fingerprint != observed:
+        raise ValueError("alpha provenance source_snapshot_fingerprint does not match validation input")
+    if provenance.input_snapshot_fingerprint != provenance.source_snapshot_fingerprint:
+        raise ValueError("validation runner provenance input fingerprint must equal source fingerprint")
+    return replace(provenance, input_snapshot_fingerprint=observed)
+
+
+def _parse_alpha_provenance_json(
+    value: str | None,
+    *,
+    strategy_id: str,
+    dataset_id: str,
+) -> BacktestSignalProvenance | None:
+    """Parse an opt-in legacy adapter boundary without inferring market facts.
+
+    ``strategy_id`` and ``dataset_id`` are taken from the validation request.
+    The caller still has to provide every market identity explicitly; a symbol
+    string is never split into an assumed base/quote pair.
+    """
+
+    if value is None or not value.strip():
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("--alpha-provenance-json must contain valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("--alpha-provenance-json must decode to an object")
+    supplied_strategy_id = payload.get("strategy_id", strategy_id)
+    supplied_snapshot_id = payload.get("data_snapshot_id", dataset_id)
+    if str(supplied_strategy_id).strip().lower() != strategy_id.strip().lower():
+        raise ValueError("alpha provenance strategy_id must match --strategy")
+    if str(supplied_snapshot_id).strip() != dataset_id.strip():
+        raise ValueError("alpha provenance data_snapshot_id must match --dataset-id")
+    raw_markets = payload.get("markets")
+    if not isinstance(raw_markets, dict):
+        raise ValueError("alpha provenance markets must be an object")
+    markets: dict[str, MarketIdentity] = {}
+    for symbol, raw_market in raw_markets.items():
+        if not isinstance(raw_market, dict):
+            raise ValueError("each alpha provenance market must be an object")
+        try:
+            markets[str(symbol).strip().upper()] = MarketIdentity(
+                exchange=raw_market["exchange"],
+                market_type=raw_market["market_type"],
+                symbol=raw_market["symbol"],
+                base_asset=raw_market["base_asset"],
+                quote_asset=raw_market["quote_asset"],
+            )
+        except KeyError as exc:
+            raise ValueError(f"alpha provenance market is missing {exc.args[0]}") from exc
+    feature_versions = payload.get("feature_versions")
+    if not isinstance(feature_versions, dict):
+        raise ValueError("alpha provenance feature_versions must be an object")
+    return BacktestSignalProvenance(
+        strategy_id=strategy_id,
+        strategy_version=str(payload.get("strategy_version", "")).strip(),
+        data_snapshot_id=dataset_id,
+        source_snapshot_fingerprint=str(payload.get("source_snapshot_fingerprint", "")).strip(),
+        input_snapshot_fingerprint=str(
+            payload.get("input_snapshot_fingerprint") or payload.get("source_snapshot_fingerprint") or ""
+        ).strip(),
+        feature_versions=feature_versions,
+        markets=markets,
+        source=str(payload.get("source", "legacy_backtest_alpha_adapter/v1")).strip(),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -249,18 +353,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spread-bps", type=float, default=None)
     parser.add_argument("--slippage-bps", type=float, default=None)
     parser.add_argument("--strategy-config-json", default="{}")
+    parser.add_argument(
+        "--alpha-provenance-json",
+        default=None,
+        help=(
+            "optional strict legacy-to-AlphaSignal provenance: strategy_version, source_snapshot_fingerprint, "
+            "feature_versions and explicit markets are required; enables fail-closed research adaptation"
+        ),
+    )
     args = parser.parse_args(argv)
 
     strategy_config = json.loads(args.strategy_config_json)
     if not isinstance(strategy_config, dict):
         raise ValueError("--strategy-config-json must decode to an object")
+    dataset_id = args.dataset_id or f"{args.data_source}:{args.symbol.upper()}"
     config = ValidationRunnerConfig(
         run_id=args.run_id,
         strategy=args.strategy,
         data_source=args.data_source,
         data_path=Path(args.data_path),
         symbol=args.symbol.upper(),
-        dataset_id=args.dataset_id or f"{args.data_source}:{args.symbol.upper()}",
+        dataset_id=dataset_id,
         mode=args.mode,
         output_dir=Path(args.output_dir),
         initial_capital_eur=args.initial_capital_eur,
@@ -285,6 +398,11 @@ def main(argv: list[str] | None = None) -> int:
         min_folds=args.min_folds,
         min_passing_folds=args.min_passing_folds,
         include_regime_context=args.include_regime_context,
+        alpha_provenance=_parse_alpha_provenance_json(
+            args.alpha_provenance_json,
+            strategy_id=_strategy_id(args.strategy),
+            dataset_id=dataset_id,
+        ),
     )
     result = run_validation(config)
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

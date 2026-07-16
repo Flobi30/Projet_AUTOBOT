@@ -38,6 +38,7 @@ def _cell(
     mode="backtest",
     status="ok",
     error=None,
+    contract_signal_boundary_enforced=True,
 ):
     return MatrixCellResult(
         run_id=f"pytest_{symbol}_{strategy}",
@@ -57,6 +58,12 @@ def _cell(
         spread_cost_eur=0.2,
         slippage_eur=0.1,
         latency_cost_eur=0.05,
+        contract_signal_boundary_enforced=contract_signal_boundary_enforced,
+        execution_path=(
+            "alpha_contract_research_fill_model"
+            if contract_signal_boundary_enforced
+            else "legacy_research_fill_model"
+        ),
         cost_config={"taker_fee_bps": 16.0, "fallback_spread_bps": 8.0, "slippage_bps": 4.0},
         report_path=f"reports/{symbol}_{strategy}.md",
         error=error,
@@ -165,6 +172,27 @@ def test_walk_forward_matrix_recommends_walk_forward_passed_after_backtest_stage
     assert recommendation.recommended_status == "walk_forward_passed"
     assert recommendation.decision == "promote_candidate"
     assert recommendation.live_promotion_allowed is False
+
+
+def test_legacy_matrix_cells_cannot_produce_a_registry_promotion_candidate():
+    report = recommend_from_matrix(
+        _matrix(
+            [
+                _cell(
+                    "trend",
+                    contract_signal_boundary_enforced=False,
+                    decision="research_only",
+                )
+            ]
+        ),
+        registry_payload={"hypotheses": [{"strategy_id": "trend_momentum", "validation_status": "learning"}]},
+    )
+
+    recommendation = report.recommendations[0]
+
+    assert recommendation.decision == "keep_testing"
+    assert recommendation.reason == "alpha_contract_boundary_missing"
+    assert recommendation.recommended_status == "learning"
 
 
 def test_report_writer_and_loader_round_trip_matrix_json(tmp_path):

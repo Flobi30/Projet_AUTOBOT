@@ -21,6 +21,9 @@ from .backtest_alpha_adapter import (
     BacktestAlphaAdapterError,
     BacktestSignalProvenance,
     adapt_backtest_signal_to_alpha,
+    available_at_from_bar,
+    cost_model_fingerprint,
+    fingerprint_backtest_bars,
 )
 from .market_data_repository import MarketBar, MarketDataRepository
 from .metrics_engine import MetricsEngine, MetricsResult
@@ -93,6 +96,7 @@ class BacktestResult:
     dataset_id: str
     hypothesis: str
     event_count: int
+    input_snapshot_fingerprint: str
     signal_count: int
     contract_adapted_signal_count: int
     contract_rejected_signal_count: int
@@ -117,6 +121,7 @@ class BacktestResult:
             "dataset_id": self.dataset_id,
             "hypothesis": self.hypothesis,
             "event_count": self.event_count,
+            "input_snapshot_fingerprint": self.input_snapshot_fingerprint,
             "signal_count": self.signal_count,
             "contract_adapted_signal_count": self.contract_adapted_signal_count,
             "contract_rejected_signal_count": self.contract_rejected_signal_count,
@@ -164,6 +169,11 @@ class BacktestEngine:
             raise ValueError("default_order_notional_eur must be positive")
         if config.execution_timing != "next_bar_open":
             raise ValueError("research backtests require execution_timing='next_bar_open'")
+        if alpha_provenance is not None:
+            if alpha_provenance.strategy_id != config.strategy_id.strip().lower():
+                raise ValueError("alpha provenance strategy_id must match BacktestConfig.strategy_id")
+            if alpha_provenance.data_snapshot_id != config.dataset_id.strip():
+                raise ValueError("alpha provenance data_snapshot_id must match BacktestConfig.dataset_id")
         self.config = config
         self.market_data_repository = market_data_repository or MarketDataRepository()
         self.cost_model = cost_model or ExecutionCostModel(config.cost_config)
@@ -179,6 +189,12 @@ class BacktestEngine:
     ) -> BacktestResult:
         ordered_bars = self.market_data_repository.normalize(bars)
         self.market_data_repository.validate(ordered_bars)
+        input_snapshot_fingerprint = fingerprint_backtest_bars(ordered_bars)
+        if (
+            self.alpha_provenance is not None
+            and self.alpha_provenance.input_snapshot_fingerprint != input_snapshot_fingerprint
+        ):
+            raise BacktestAlphaAdapterError("input_snapshot_fingerprint_mismatch")
         history_by_symbol: dict[str, list[MarketBar]] = {}
         positions: dict[str, _OpenPosition] = {}
         journal = TradeJournal()
@@ -258,7 +274,7 @@ class BacktestEngine:
                 if signal.side.lower() not in {"buy", "sell"}:
                     rejected_fill_count += 1
                     continue
-                contract_signal = self._apply_alpha_contract_boundary(signal)
+                contract_signal = self._apply_alpha_contract_boundary(signal, source_bar=bar)
                 if contract_signal is None:
                     contract_rejected_signal_count += 1
                     rejected_fill_count += 1
@@ -316,6 +332,7 @@ class BacktestEngine:
             dataset_id=self.config.dataset_id,
             hypothesis=self.config.hypothesis,
             event_count=len(ordered_bars),
+            input_snapshot_fingerprint=input_snapshot_fingerprint,
             signal_count=signal_count,
             contract_adapted_signal_count=contract_adapted_signal_count,
             contract_rejected_signal_count=contract_rejected_signal_count,
@@ -327,6 +344,11 @@ class BacktestEngine:
             baselines=baselines,
             decision=decision,
             contract_signal_boundary_enforced=self.alpha_provenance is not None,
+            execution_path=(
+                "alpha_contract_research_fill_model"
+                if self.alpha_provenance is not None
+                else "legacy_research_fill_model"
+            ),
             cost_config=self.config.cost_config.to_dict(),
         )
         if write_reports:
@@ -336,7 +358,12 @@ class BacktestEngine:
     def _simulate_signal(self, signal: BacktestSignal) -> FillResult:
         return self.cost_model.simulate_fill(self._fill_request_for_signal(signal))
 
-    def _apply_alpha_contract_boundary(self, signal: BacktestSignal) -> BacktestSignal | None:
+    def _apply_alpha_contract_boundary(
+        self,
+        signal: BacktestSignal,
+        *,
+        source_bar: MarketBar,
+    ) -> BacktestSignal | None:
         """Require a stable alpha contract when provenance is explicitly supplied.
 
         Legacy validation remains available for historical comparison until each
@@ -349,7 +376,12 @@ class BacktestEngine:
         if self.alpha_provenance is None:
             return signal
         try:
-            adaptation = adapt_backtest_signal_to_alpha(signal, provenance=self.alpha_provenance)
+            adaptation = adapt_backtest_signal_to_alpha(
+                signal,
+                provenance=self.alpha_provenance,
+                available_at=available_at_from_bar(source_bar),
+                cost_model_fingerprint=cost_model_fingerprint(self.config.cost_config.to_dict()),
+            )
         except BacktestAlphaAdapterError:
             return None
         return replace(
@@ -363,8 +395,12 @@ class BacktestEngine:
                     "strategy_id": adaptation.alpha_signal.strategy_id,
                     "strategy_version": adaptation.alpha_signal.strategy_version,
                     "data_snapshot_id": adaptation.alpha_signal.data_snapshot_id,
+                    "input_snapshot_fingerprint": self.alpha_provenance.input_snapshot_fingerprint,
                     "feature_versions": dict(adaptation.alpha_signal.feature_versions),
                     "expected_edge_bps": adaptation.alpha_signal.expected_edge_bps,
+                    "net_expected_edge_bps": adaptation.alpha_signal.expected_edge_bps,
+                    "data_available_at": adaptation.alpha_signal.available_at.isoformat(),
+                    "cost_model_fingerprint": adaptation.alpha_signal.metadata["cost_model_fingerprint"],
                     "research_only": True,
                     "paper_capital_allowed": False,
                     "live_allowed": False,
@@ -401,15 +437,37 @@ class BacktestEngine:
         """Apply optional cost-aware signal gate before simulated execution.
 
         The gate is disabled unless ``BacktestConfig.min_signal_net_edge_bps``
-        is set. When enabled, a BUY signal must expose ``gross_edge_bps`` in
-        metadata and exceed estimated round-trip costs plus the configured
-        minimum net edge. Missing or invalid edge values are rejected by default
-        to avoid a permissive fallback in validation.
+        is set. A contract-enabled BUY must expose the same verified
+        ``net_expected_edge_bps`` used by its AlphaSignal adaptation. Legacy
+        comparison mode retains its historical ``gross_edge_bps`` calculation.
+        Missing or invalid edge values are rejected by default to avoid a
+        permissive fallback in validation.
         """
 
         min_net_edge = self.config.min_signal_net_edge_bps
         if min_net_edge is None or signal.side.lower() != "buy":
             return signal
+        if self.alpha_provenance is not None:
+            net_edge = _optional_float(signal.metadata.get("net_expected_edge_bps"))
+            contract = signal.metadata.get("alpha_contract")
+            if not isinstance(contract, dict) or net_edge is None:
+                return None
+            if contract.get("cost_model_fingerprint") != cost_model_fingerprint(self.config.cost_config.to_dict()):
+                return None
+            if net_edge < float(min_net_edge):
+                return None
+            return replace(
+                signal,
+                metadata={
+                    **dict(signal.metadata),
+                    "edge_gate": {
+                        "net_expected_edge_bps": net_edge,
+                        "minimum_net_edge_bps": float(min_net_edge),
+                        "cost_model_fingerprint": contract["cost_model_fingerprint"],
+                        "accepted": True,
+                    },
+                },
+            )
         gross_edge = _optional_float(signal.metadata.get("gross_edge_bps"))
         if gross_edge is None:
             return None
@@ -719,6 +777,7 @@ def render_backtest_report(result: BacktestResult) -> str:
         "",
         f"Strategy: `{result.strategy_id}`",
         f"Dataset: `{result.dataset_id}`",
+        f"Input snapshot fingerprint: `{result.input_snapshot_fingerprint}`",
         f"Hypothesis: {result.hypothesis}",
         "",
         "## Replay",

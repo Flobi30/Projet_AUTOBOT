@@ -116,6 +116,9 @@ def load_matrix_result(path: str | Path) -> MatrixRunResult:
             spread_cost_eur=_optional_float(item.get("spread_cost_eur")),
             slippage_eur=_optional_float(item.get("slippage_eur")),
             latency_cost_eur=_optional_float(item.get("latency_cost_eur")),
+            contract_signal_boundary_enforced=bool(item.get("contract_signal_boundary_enforced", False)),
+            execution_path=str(item.get("execution_path") or "legacy_research_fill_model"),
+            input_snapshot_fingerprint=item.get("input_snapshot_fingerprint"),
             cost_config=dict(item.get("cost_config") or {}),
             report_path=item.get("report_path"),
             error=item.get("error"),
@@ -239,6 +242,10 @@ def _recommend_strategy(
         decision = "insufficient_evidence"
         reason = "all_matrix_cells_failed"
         proposed_status = current_status or "learning"
+    elif not any(cell.contract_signal_boundary_enforced for cell in ok_cells):
+        decision = "keep_testing"
+        reason = "alpha_contract_boundary_missing"
+        proposed_status = current_status or "learning"
     elif len(passing_cells) >= criteria.min_passing_symbols:
         decision = "promote_candidate"
         reason = f"{mode}_criteria_passed_for_human_review"
@@ -292,6 +299,8 @@ def _cell_passes(
     criteria: RegistryRecommendationCriteria,
 ) -> bool:
     if cell.status != "ok":
+        return False
+    if not cell.contract_signal_boundary_enforced:
         return False
     if mode == "walk_forward":
         return cell.decision == "walk_forward_passed" and (cell.net_pnl_eur or 0.0) > criteria.min_net_pnl_eur

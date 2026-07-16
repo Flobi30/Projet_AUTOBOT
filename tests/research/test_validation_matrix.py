@@ -51,6 +51,9 @@ def test_validation_matrix_runs_strategy_symbol_grid_and_writes_summary(tmp_path
     assert result.error_count == 0
     assert {cell.strategy for cell in result.results} == {"grid", "trend"}
     assert all(cell.status == "ok" for cell in result.results)
+    assert all(cell.contract_signal_boundary_enforced is False for cell in result.results)
+    assert all(cell.decision == "research_only" for cell in result.results)
+    assert all("alpha_contract_boundary_missing" in (cell.reason or "") for cell in result.results)
     assert all(cell.report_path for cell in result.results)
     assert result.cost_config["taker_fee_bps"] == pytest.approx(0.0)
     assert all(cell.cost_config["fallback_spread_bps"] == pytest.approx(0.0) for cell in result.results)
@@ -74,6 +77,7 @@ def test_validation_matrix_runs_strategy_symbol_grid_and_writes_summary(tmp_path
     assert "Slippage" in markdown
     assert "MFE/Cost" in markdown
     assert "Exit Capture" in markdown
+    assert "Contract" in markdown
 
 
 def test_validation_matrix_records_cell_errors_without_aborting(tmp_path):

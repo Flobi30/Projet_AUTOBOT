@@ -3,6 +3,8 @@ import sqlite3
 
 import pytest
 
+from autobot.v2.contracts import MarketIdentity
+from autobot.v2.research.backtest_alpha_adapter import BacktestSignalProvenance, fingerprint_backtest_bars
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.trade_journal import TradeJournal
 from autobot.v2.research.validation_runner import (
@@ -21,13 +23,37 @@ def _write_grid_csv(path):
     path.write_text(
         "\n".join(
             [
-                "timestamp,symbol,timeframe,open,high,low,close,volume",
-                "2026-05-31T00:00:00+00:00,TRXEUR,1m,100,101,99,100,1000",
-                "2026-05-31T00:01:00+00:00,TRXEUR,1m,99.05,100,98,99.05,1000",
-                "2026-05-31T00:02:00+00:00,TRXEUR,1m,99.6,100,98,99.6,1000",
+                "timestamp,symbol,timeframe,open,high,low,close,volume,bar_close_time",
+                "2026-05-31T00:00:00+00:00,TRXEUR,1m,100,101,99,100,1000,2026-05-31T00:01:00+00:00",
+                "2026-05-31T00:01:00+00:00,TRXEUR,1m,99.05,100,98,99.05,1000,2026-05-31T00:02:00+00:00",
+                "2026-05-31T00:02:00+00:00,TRXEUR,1m,99.6,100,98,99.6,1000,2026-05-31T00:03:00+00:00",
             ]
         ),
         encoding="utf-8",
+    )
+
+
+def _validation_input_fingerprint(csv_path, *, symbol="TRXEUR", dataset_id="pytest_csv"):
+    config = ValidationRunnerConfig(
+        run_id="pytest_fingerprint",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol=symbol,
+        dataset_id=dataset_id,
+    )
+    return fingerprint_backtest_bars(load_bars_for_validation(config))
+
+
+def _contract_provenance(*, source_snapshot_fingerprint, strategy_id="dynamic_grid", dataset_id="pytest_csv"):
+    return BacktestSignalProvenance(
+        strategy_id=strategy_id,
+        strategy_version="v1",
+        data_snapshot_id=dataset_id,
+        source_snapshot_fingerprint=source_snapshot_fingerprint,
+        input_snapshot_fingerprint=source_snapshot_fingerprint,
+        feature_versions={"grid_distance": "1"},
+        markets={"TRXEUR": MarketIdentity("kraken", "spot", "TRXEUR", "TRX", "EUR")},
     )
 
 
@@ -88,6 +114,71 @@ def test_validation_runner_runs_backtest_from_csv(tmp_path):
     assert result.result.strategy_id == "dynamic_grid"
     assert result.result.trade_count == 1
     assert (tmp_path / "reports" / "backtests" / "pytest_runner_backtest.md").exists()
+
+
+def test_validation_runner_opt_in_contract_boundary_rejects_legacy_grid_entries_without_net_edge(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+    input_fingerprint = _validation_input_fingerprint(csv_path)
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_contract_reject",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="TRXEUR",
+        dataset_id="pytest_csv",
+        output_dir=tmp_path / "reports",
+        min_closed_trades=1,
+        cost_config=ExecutionCostConfig(taker_fee_bps=0.0, fallback_spread_bps=0.0, slippage_bps=0.0),
+        strategy_config={"range_percent": 4.0, "num_levels": 5, "entry_touch_bps": 20.0, "take_profit_bps": 40.0},
+        alpha_provenance=_contract_provenance(source_snapshot_fingerprint=input_fingerprint),
+    )
+
+    result = run_validation(config).result
+
+    assert result.contract_signal_boundary_enforced is True
+    assert result.contract_rejected_signal_count > 0
+    assert result.fill_count == 0
+    assert result.input_snapshot_fingerprint == input_fingerprint
+    assert result.decision.live_promotion_allowed is False
+
+
+def test_validation_runner_rejects_provenance_that_does_not_match_request(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+    input_fingerprint = _validation_input_fingerprint(csv_path)
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_contract_mismatch",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="TRXEUR",
+        dataset_id="pytest_csv",
+        alpha_provenance=_contract_provenance(
+            source_snapshot_fingerprint=input_fingerprint,
+            strategy_id="trend_momentum",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="strategy_id"):
+        run_validation(config)
+
+
+def test_validation_runner_rejects_provenance_for_different_csv_contents(tmp_path):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+    config = ValidationRunnerConfig(
+        run_id="pytest_runner_contract_input_mismatch",
+        strategy="grid",
+        data_source="csv",
+        data_path=csv_path,
+        symbol="TRXEUR",
+        dataset_id="pytest_csv",
+        alpha_provenance=_contract_provenance(source_snapshot_fingerprint="different-input"),
+    )
+
+    with pytest.raises(ValueError, match="source_snapshot_fingerprint"):
+        run_validation(config)
 
 
 def test_validation_runner_filters_multi_symbol_csv_to_requested_symbol(tmp_path):
@@ -306,3 +397,58 @@ def test_validation_runner_cli_outputs_json(tmp_path, capsys):
     assert output["mode"] == "backtest"
     assert output["bar_count"] == 3
     assert output["result"]["strategy_id"] == "dynamic_grid"
+
+
+def test_validation_runner_cli_can_enable_strict_contract_boundary(tmp_path, capsys):
+    csv_path = tmp_path / "bars.csv"
+    _write_grid_csv(csv_path)
+    input_fingerprint = _validation_input_fingerprint(csv_path)
+    provenance = {
+        "strategy_version": "v1",
+        "source_snapshot_fingerprint": input_fingerprint,
+        "feature_versions": {"grid_distance": "1"},
+        "markets": {
+            "TRXEUR": {
+                "exchange": "kraken",
+                "market_type": "spot",
+                "symbol": "TRXEUR",
+                "base_asset": "TRX",
+                "quote_asset": "EUR",
+            }
+        },
+    }
+
+    exit_code = main(
+        [
+            "--run-id",
+            "pytest_runner_cli_contract",
+            "--strategy",
+            "grid",
+            "--data-source",
+            "csv",
+            "--data-path",
+            str(csv_path),
+            "--symbol",
+            "TRXEUR",
+            "--dataset-id",
+            "pytest_csv",
+            "--output-dir",
+            str(tmp_path / "reports"),
+            "--fee-bps",
+            "0",
+            "--spread-bps",
+            "0",
+            "--slippage-bps",
+            "0",
+            "--strategy-config-json",
+            json.dumps({"range_percent": 4.0, "num_levels": 5, "entry_touch_bps": 20.0, "take_profit_bps": 40.0}),
+            "--alpha-provenance-json",
+            json.dumps(provenance),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["result"]["contract_signal_boundary_enforced"] is True
+    assert output["result"]["contract_rejected_signal_count"] > 0
+    assert output["result"]["fill_count"] == 0

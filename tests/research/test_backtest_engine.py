@@ -1,9 +1,15 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from autobot.v2.contracts import MarketIdentity
-from autobot.v2.research.backtest_alpha_adapter import BacktestSignalProvenance
+from autobot.v2.research.backtest_alpha_adapter import (
+    BacktestAlphaAdapterError,
+    BacktestSignalProvenance,
+    cost_model_fingerprint,
+    fingerprint_backtest_bars,
+)
 from autobot.v2.research.backtest_engine import BacktestConfig, BacktestEngine, BacktestSignal
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.market_data_repository import MarketBar
@@ -24,6 +30,7 @@ def _bar(minute, close, symbol="TRXEUR"):
         low=close * 0.99,
         close=close,
         volume=1000.0,
+        metadata={"bar_close_time": (timestamp + timedelta(minutes=1)).isoformat()},
     )
 
 
@@ -38,6 +45,7 @@ def _custom_bar(minute, *, open_, high, low, close, symbol="TRXEUR"):
         low=low,
         close=close,
         volume=1000.0,
+        metadata={"bar_close_time": (timestamp + timedelta(minutes=1)).isoformat()},
     )
 
 
@@ -61,14 +69,21 @@ def _config(tmp_path, *, min_closed_trades=1):
     )
 
 
-def _alpha_provenance():
+def _alpha_provenance(bars=()):
+    fingerprint = fingerprint_backtest_bars(bars) if bars else "input-fingerprint-fixture"
     return BacktestSignalProvenance(
         strategy_id="example_strategy",
         strategy_version="v1",
         data_snapshot_id="inline_bars",
+        source_snapshot_fingerprint=fingerprint,
+        input_snapshot_fingerprint=fingerprint,
         feature_versions={"momentum": "1"},
         markets={"TRXEUR": MarketIdentity("kraken", "spot", "TRXEUR", "TRX", "EUR")},
     )
+
+
+def _cost_fingerprint(config: BacktestConfig) -> str:
+    return cost_model_fingerprint(config.cost_config.to_dict())
 
 
 def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path):
@@ -82,11 +97,13 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
             return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
         return []
 
+    bars = [_bar(2, 1.2), _bar(0, 1.0), _bar(1, 1.1)]
     engine = BacktestEngine(_config(tmp_path))
-    result = engine.run([_bar(2, 1.2), _bar(0, 1.0), _bar(1, 1.1)], strategy)
+    result = engine.run(bars, strategy)
 
     assert seen == sorted(seen)
     assert result.event_count == 3
+    assert result.input_snapshot_fingerprint == fingerprint_backtest_bars(bars)
     assert result.signal_count == 2
     assert result.fill_count == 2
     assert result.trade_count == 1
@@ -108,6 +125,9 @@ def test_backtest_engine_replays_chronologically_and_generates_reports(tmp_path)
 
 
 def test_backtest_engine_can_enforce_alpha_contracts_without_changing_legacy_fill_model(tmp_path):
+    config = _config(tmp_path)
+    cost_fingerprint = _cost_fingerprint(config)
+
     def strategy(bar, history):
         if len(history) == 1:
             return [
@@ -117,22 +137,21 @@ def test_backtest_engine_can_enforce_alpha_contracts_without_changing_legacy_fil
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="entry",
-                    metadata={"expected_edge_bps": 100.0},
+                    metadata={"net_expected_edge_bps": 100.0, "cost_model_fingerprint": cost_fingerprint},
                 )
             ]
         if len(history) == 2:
             return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
         return []
 
-    result = BacktestEngine(_config(tmp_path), alpha_provenance=_alpha_provenance()).run(
-        [_bar(0, 1.0), _bar(1, 1.1), _bar(2, 1.2)], strategy, write_reports=False
-    )
+    bars = [_bar(0, 1.0), _bar(1, 1.1), _bar(2, 1.2)]
+    result = BacktestEngine(config, alpha_provenance=_alpha_provenance(bars)).run(bars, strategy, write_reports=False)
 
     assert result.contract_signal_boundary_enforced is True
     assert result.contract_adapted_signal_count == 2
     assert result.contract_rejected_signal_count == 0
     assert result.fill_count == 2
-    assert result.execution_path == "legacy_research_fill_model"
+    assert result.execution_path == "alpha_contract_research_fill_model"
     assert result.decision.live_promotion_allowed is False
 
 
@@ -151,12 +170,70 @@ def test_backtest_engine_contract_boundary_rejects_entry_without_explicit_expect
             ]
         return []
 
-    result = BacktestEngine(_config(tmp_path), alpha_provenance=_alpha_provenance()).run(
-        [_bar(0, 1.0), _bar(1, 1.1)], strategy, write_reports=False
+    bars = [_bar(0, 1.0), _bar(1, 1.1)]
+    result = BacktestEngine(_config(tmp_path), alpha_provenance=_alpha_provenance(bars)).run(
+        bars, strategy, write_reports=False
     )
 
     assert result.signal_count == 1
     assert result.contract_adapted_signal_count == 0
+    assert result.contract_rejected_signal_count == 1
+    assert result.fill_count == 0
+
+
+def test_backtest_engine_rejects_provenance_for_a_different_strategy_or_snapshot(tmp_path):
+    provenance = _alpha_provenance()
+
+    with pytest.raises(ValueError, match="strategy_id"):
+        BacktestEngine(
+            BacktestConfig(**{**_config(tmp_path).__dict__, "strategy_id": "another_strategy"}),
+            alpha_provenance=provenance,
+        )
+
+    with pytest.raises(ValueError, match="data_snapshot_id"):
+        BacktestEngine(
+            BacktestConfig(**{**_config(tmp_path).__dict__, "dataset_id": "another_snapshot"}),
+            alpha_provenance=provenance,
+        )
+
+
+def test_backtest_engine_rejects_contract_provenance_for_different_input_contents(tmp_path):
+    bars = [_bar(0, 1.0), _bar(1, 1.1)]
+    provenance = BacktestSignalProvenance(
+        strategy_id="example_strategy",
+        strategy_version="v1",
+        data_snapshot_id="inline_bars",
+        source_snapshot_fingerprint="different-input",
+        input_snapshot_fingerprint="different-input",
+        feature_versions={"momentum": "1"},
+        markets={"TRXEUR": MarketIdentity("kraken", "spot", "TRXEUR", "TRX", "EUR")},
+    )
+
+    with pytest.raises(BacktestAlphaAdapterError, match="input_snapshot_fingerprint_mismatch"):
+        BacktestEngine(_config(tmp_path), alpha_provenance=provenance).run(bars, lambda *_: (), write_reports=False)
+
+
+def test_backtest_engine_contract_boundary_rejects_missing_explicit_bar_availability(tmp_path):
+    bars = [replace(_bar(0, 1.0), metadata={}), replace(_bar(1, 1.1), metadata={})]
+    config = _config(tmp_path)
+    cost_fingerprint = _cost_fingerprint(config)
+
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [
+                BacktestSignal(
+                    symbol=bar.symbol,
+                    side="buy",
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="entry",
+                    metadata={"net_expected_edge_bps": 100.0, "cost_model_fingerprint": cost_fingerprint},
+                )
+            ]
+        return []
+
+    result = BacktestEngine(config, alpha_provenance=_alpha_provenance(bars)).run(bars, strategy, write_reports=False)
+
     assert result.contract_rejected_signal_count == 1
     assert result.fill_count == 0
 

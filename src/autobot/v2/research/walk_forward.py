@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from .backtest_alpha_adapter import BacktestSignalProvenance, fingerprint_backtest_bars
 from .backtest_engine import BacktestConfig, BacktestEngine, BacktestResult, SignalGenerator
 from .market_data_repository import MarketBar, MarketDataRepository
 
@@ -21,6 +22,7 @@ class WalkForwardConfig:
     min_folds: int = 3
     min_passing_folds: int = 2
     output_dir: Path = Path("reports/walk_forward")
+    alpha_provenance: BacktestSignalProvenance | None = None
 
     def __post_init__(self) -> None:
         if self.train_window_bars <= 0:
@@ -33,6 +35,11 @@ class WalkForwardConfig:
             raise ValueError("min_folds must be positive")
         if self.min_passing_folds <= 0:
             raise ValueError("min_passing_folds must be positive")
+        if self.alpha_provenance is not None:
+            if self.alpha_provenance.strategy_id != self.base_backtest_config.strategy_id.strip().lower():
+                raise ValueError("alpha provenance strategy_id must match base_backtest_config.strategy_id")
+            if self.alpha_provenance.data_snapshot_id != self.base_backtest_config.dataset_id.strip():
+                raise ValueError("alpha provenance data_snapshot_id must match base_backtest_config.dataset_id")
 
 
 @dataclass(frozen=True)
@@ -105,7 +112,13 @@ class WalkForwardResult:
 
 
 class WalkForwardValidator:
-    """Run rolling out-of-sample backtests without passing future bars."""
+    """Run rolling OOS replays of a fixed signal policy without future bars.
+
+    ``train_window_bars`` defines the historical context that is deliberately
+    held before each test slice.  This validator does not fit or tune the
+    strategy inside that window; callers must record any calibration as a
+    separate experiment before claiming parameter re-estimation.
+    """
 
     PASSING_BACKTEST_STATUSES = {"promote_candidate"}
 
@@ -125,7 +138,12 @@ class WalkForwardValidator:
         fold_results: list[WalkForwardFoldResult] = []
         for fold_index, (train_bars, test_bars) in enumerate(folds, start=1):
             fold_config = self._fold_backtest_config(fold_index)
-            fold_engine = BacktestEngine(fold_config, market_data_repository=self.repository)
+            fold_provenance = self._fold_alpha_provenance(test_bars)
+            fold_engine = BacktestEngine(
+                fold_config,
+                market_data_repository=self.repository,
+                alpha_provenance=fold_provenance,
+            )
             backtest_result = fold_engine.run(
                 test_bars,
                 signal_generator_factory(),
@@ -176,6 +194,22 @@ class WalkForwardValidator:
             start += step
         return windows
 
+    def _fold_alpha_provenance(self, test_bars: Sequence[MarketBar]) -> BacktestSignalProvenance | None:
+        """Bind each OOS replay to its exact test-window input.
+
+        The parent provenance remains the verified full validation snapshot;
+        only ``input_snapshot_fingerprint`` changes for the isolated fold. This
+        prevents a full-run fingerprint from being incorrectly asserted for a
+        smaller out-of-sample slice.
+        """
+
+        if self.config.alpha_provenance is None:
+            return None
+        return replace(
+            self.config.alpha_provenance,
+            input_snapshot_fingerprint=fingerprint_backtest_bars(test_bars),
+        )
+
     def _fold_backtest_config(self, fold_index: int) -> BacktestConfig:
         base = self.config.base_backtest_config
         return BacktestConfig(
@@ -191,6 +225,8 @@ class WalkForwardValidator:
             min_profit_factor=base.min_profit_factor,
             max_drawdown_pct=base.max_drawdown_pct,
             close_open_positions_at_end=base.close_open_positions_at_end,
+            min_signal_net_edge_bps=base.min_signal_net_edge_bps,
+            execution_timing=base.execution_timing,
         )
 
     def _decide(self, folds: Sequence[WalkForwardFoldResult]) -> WalkForwardDecision:

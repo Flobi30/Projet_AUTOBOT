@@ -71,6 +71,8 @@ class StrategyEvidence:
     baseline_included: bool = True
     out_of_sample_included: bool = False
     paper_evidence: bool = False
+    contract_signal_boundary_enforced: bool = True
+    research_only_evidence: bool = False
     notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -349,6 +351,10 @@ def _evidence_from_cells(
         baseline_included=baseline_included,
         out_of_sample_included=out_of_sample_included,
         paper_evidence=False,
+        contract_signal_boundary_enforced=bool(ok_cells) and all(
+            cell.contract_signal_boundary_enforced for cell in ok_cells
+        ),
+        research_only_evidence=True,
         notes=(f"{len(ok_cells)}/{len(cells)} matrix cells succeeded",),
     )
 
@@ -455,6 +461,8 @@ def _blockers(evidence: StrategyEvidence, criteria: StrategyScorecardCriteria) -
         blockers.append("baseline_underperformed")
     if not evidence.out_of_sample_included:
         blockers.append("out_of_sample_missing")
+    if not evidence.contract_signal_boundary_enforced:
+        blockers.append("alpha_contract_boundary_missing")
     return blockers
 
 
@@ -471,6 +479,13 @@ def _caps(evidence: StrategyEvidence, criteria: StrategyScorecardCriteria) -> li
         caps.append(("insufficient_sample_cap_64", 64.0))
     if not evidence.out_of_sample_included:
         caps.append(("missing_out_of_sample_cap_65", 65.0))
+    if not evidence.contract_signal_boundary_enforced:
+        caps.append(("alpha_contract_boundary_missing_cap_64", 64.0))
+    if evidence.research_only_evidence:
+        # A validation matrix is research evidence.  It can at most justify a
+        # shadow review; paper evidence must come from the dedicated runtime
+        # parity, OMS and reconciliation gates.
+        caps.append(("research_matrix_not_paper_evidence_cap_74", 74.0))
     if evidence.baseline_delta_pct is not None and evidence.baseline_delta_pct < 0.0:
         caps.append(("underperforms_baseline_cap_64", 64.0))
     if evidence.baseline_delta_eur is not None and evidence.baseline_delta_eur < 0.0:

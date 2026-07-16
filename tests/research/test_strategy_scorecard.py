@@ -52,6 +52,7 @@ def _cell(strategy, **overrides):
         "total_return_pct": 0.8,
         "profit_factor": 1.35,
         "max_drawdown_pct": 3.0,
+        "contract_signal_boundary_enforced": True,
         "report_path": "reports/test.md",
     }
     defaults.update(overrides)
@@ -172,3 +173,57 @@ def test_scorecard_report_writer_outputs_safety_notes(tmp_path):
     assert payload["results"][0]["live_promotion_allowed"] is False
     markdown = (tmp_path / "pytest_matrix_strategy_scorecard.md").read_text(encoding="utf-8")
     assert "No live trading permission is granted" in markdown
+
+
+def test_matrix_evidence_cannot_become_paper_candidate_even_with_strict_contract():
+    matrix = MatrixRunResult(
+        run_id="pytest_strict_matrix",
+        mode="walk_forward",
+        cell_count=1,
+        success_count=1,
+        error_count=0,
+        results=(
+            _cell(
+                "trend",
+                mode="walk_forward",
+                decision="walk_forward_passed",
+                closed_trades=250,
+                net_pnl_eur=120.0,
+                total_return_pct=12.0,
+                profit_factor=2.0,
+                max_drawdown_pct=3.0,
+                contract_signal_boundary_enforced=True,
+            ),
+        ),
+    )
+
+    result = score_matrix(matrix, baseline_included=True, out_of_sample_included=True).results[0]
+
+    assert result.score <= 74.0
+    assert result.tier == "shadow_only"
+    assert result.decision == "keep_testing"
+    assert "research_matrix_not_paper_evidence_cap_74" in result.caps_applied
+
+
+def test_matrix_evidence_without_alpha_contract_is_capped_below_shadow():
+    matrix = MatrixRunResult(
+        run_id="pytest_legacy_matrix",
+        mode="walk_forward",
+        cell_count=1,
+        success_count=1,
+        error_count=0,
+        results=(
+            _cell(
+                "trend",
+                mode="walk_forward",
+                decision="research_only",
+                contract_signal_boundary_enforced=False,
+            ),
+        ),
+    )
+
+    result = score_matrix(matrix, baseline_included=True, out_of_sample_included=True).results[0]
+
+    assert result.score <= 64.0
+    assert "alpha_contract_boundary_missing" in result.blockers
+    assert "alpha_contract_boundary_missing_cap_64" in result.caps_applied

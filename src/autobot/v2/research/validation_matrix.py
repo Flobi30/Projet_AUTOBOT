@@ -75,6 +75,9 @@ class MatrixCellResult:
     beats_random_signal_same_frequency: bool | None = None
     average_mfe_to_cost_ratio: float | None = None
     average_exit_capture_bps: float | None = None
+    contract_signal_boundary_enforced: bool = False
+    execution_path: str = "legacy_research_fill_model"
+    input_snapshot_fingerprint: str | None = None
     cost_config: dict[str, Any] = field(default_factory=dict)
     report_path: str | None = None
     error: str | None = None
@@ -179,14 +182,19 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
         metrics = result.metrics
         baseline_net_pnl = {baseline.name: baseline.net_pnl_eur for baseline in result.baselines}
         attribution = analyze_trade_journal(result.journal_path) if result.journal_path else None
+        contract_boundary = bool(result.contract_signal_boundary_enforced)
         return MatrixCellResult(
             run_id=cell_run_id,
             symbol=symbol.upper(),
             strategy=strategy,
             mode=runner_result.mode,
             status="ok",
-            decision=result.decision.status,
-            reason=result.decision.reason,
+            decision=result.decision.status if contract_boundary else "research_only",
+            reason=(
+                result.decision.reason
+                if contract_boundary
+                else f"alpha_contract_boundary_missing; {result.decision.reason}"
+            ),
             bar_count=runner_result.bar_count,
             closed_trades=result.trade_count,
             net_pnl_eur=metrics.total_net_pnl_eur,
@@ -207,6 +215,9 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
             ),
             average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio if attribution else None,
             average_exit_capture_bps=attribution.average_exit_capture_bps if attribution else None,
+            contract_signal_boundary_enforced=contract_boundary,
+            execution_path=result.execution_path,
+            input_snapshot_fingerprint=result.input_snapshot_fingerprint,
             cost_config=dict(result.cost_config),
             report_path=result.markdown_report_path,
         )
@@ -218,14 +229,21 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
         if journal_path:
             fold_records.extend(TradeJournal.from_json(journal_path).records)
     attribution = analyze_trade_losses(fold_records, run_id=cell_run_id) if fold_records else None
+    contract_boundary = bool(result.folds) and all(
+        fold.backtest_result.contract_signal_boundary_enforced for fold in result.folds
+    )
     return MatrixCellResult(
         run_id=cell_run_id,
         symbol=symbol.upper(),
         strategy=strategy,
         mode=runner_result.mode,
         status="ok",
-        decision=result.decision.status,
-        reason=result.decision.reason,
+        decision=result.decision.status if contract_boundary else "research_only",
+        reason=(
+            result.decision.reason
+            if contract_boundary
+            else f"alpha_contract_boundary_missing; {result.decision.reason}"
+        ),
         bar_count=runner_result.bar_count,
         closed_trades=result.total_closed_trades,
         net_pnl_eur=result.aggregate_net_pnl_eur,
@@ -246,6 +264,12 @@ def _cell_from_runner_result(cell_run_id: str, symbol: str, strategy: str, runne
         ),
         average_mfe_to_cost_ratio=attribution.average_mfe_to_cost_ratio if attribution else None,
         average_exit_capture_bps=attribution.average_exit_capture_bps if attribution else None,
+        contract_signal_boundary_enforced=contract_boundary,
+        execution_path=(
+            "alpha_contract_rolling_oos_fixed_policy"
+            if contract_boundary
+            else "legacy_rolling_oos_fixed_policy"
+        ),
         cost_config=result.folds[0].backtest_result.cost_config if result.folds else {},
         report_path=result.markdown_report_path,
     )
@@ -305,12 +329,13 @@ def render_matrix_report(result: MatrixRunResult) -> str:
         "",
         "## Results",
         "",
-        "| Symbol | Strategy | Status | Decision | Reason | Bars | Trades | Net PnL | Fees | Spread | Slippage | Return | PF | Max DD | No-trade | Buy & Hold | Random | MFE/Cost | Exit Capture |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: |",
+        "| Symbol | Strategy | Status | Contract | Execution Path | Decision | Reason | Bars | Trades | Net PnL | Fees | Spread | Slippage | Return | PF | Max DD | No-trade | Buy & Hold | Random | MFE/Cost | Exit Capture |",
+        "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: |",
     ]
     for cell in sorted_cells:
         lines.append(
-            f"| {cell.symbol} | {cell.strategy} | {cell.status} | {cell.decision or ''} | "
+            f"| {cell.symbol} | {cell.strategy} | {cell.status} | "
+            f"{_fmt_bool(cell.contract_signal_boundary_enforced)} | {cell.execution_path} | {cell.decision or ''} | "
             f"{cell.reason or cell.error or ''} | {cell.bar_count} | {cell.closed_trades} | "
             f"{_fmt(cell.net_pnl_eur)} | {_fmt(cell.fees_eur)} | {_fmt(cell.spread_cost_eur)} | "
             f"{_fmt(cell.slippage_eur)} | {_fmt(cell.total_return_pct)} | {_fmt(cell.profit_factor)} | "
