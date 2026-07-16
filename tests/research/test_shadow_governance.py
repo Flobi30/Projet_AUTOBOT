@@ -15,6 +15,7 @@ from autobot.v2.research.shadow_governance import (
     ShadowGovernanceError,
     ShadowObservation,
     ShadowPerformanceWindow,
+    ShadowSafetyPolicy,
     StrategyArtifactRegistry,
     StrategyArtifact,
     apply_shadow_safety,
@@ -373,6 +374,33 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
     assert quarantine.risk_increase_allowed is False
     assert quarantine.paper_capital_allowed is False
     assert quarantine.live_allowed is False
+
+
+def test_shadow_cost_drift_can_only_reduce_or_block_the_shadow_envelope():
+    def performance(cost_drift_bps: float) -> ShadowPerformanceWindow:
+        return ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.05,
+            cost_drift_bps=cost_drift_bps,
+            data_age=timedelta(seconds=10),
+        )
+
+    assert decide_shadow_safety(performance(-25.0)).action == "NORMAL"
+    assert decide_shadow_safety(performance(5.0)).action == "WATCH"
+    assert decide_shadow_safety(performance(10.0)).action == "REDUCE"
+    assert decide_shadow_safety(performance(20.0)).action == "DISABLE_NEW_ENTRIES"
+    quarantined = decide_shadow_safety(performance(40.0))
+    assert quarantined.action == "QUARANTINE"
+    assert "cost_drift_quarantine" in quarantined.reasons
+    assert quarantined.risk_increase_allowed is False
+    assert quarantined.paper_capital_allowed is False
+    assert quarantined.live_allowed is False
+
+    with pytest.raises(ShadowGovernanceError, match="cost drift thresholds"):
+        ShadowSafetyPolicy(reduce_cost_drift_bps=4.0)
 
 
 def test_strategy_artifact_registry_is_append_only_and_refuses_safety_relaxation(tmp_path):

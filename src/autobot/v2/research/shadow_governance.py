@@ -468,6 +468,10 @@ class ShadowSafetyPolicy:
     reduce_feature_drift: float = 0.30
     disable_feature_drift: float = 0.55
     quarantine_feature_drift: float = 0.80
+    watch_cost_drift_bps: float = 5.0
+    reduce_cost_drift_bps: float = 10.0
+    disable_cost_drift_bps: float = 20.0
+    quarantine_cost_drift_bps: float = 40.0
 
     def __post_init__(self) -> None:
         if self.max_data_age <= timedelta(0) or self.min_trade_count_for_performance < 1:
@@ -481,6 +485,21 @@ class ShadowSafetyPolicy:
             and self.reduce_feature_drift <= self.disable_feature_drift <= self.quarantine_feature_drift
         ):
             raise ShadowGovernanceError("drawdown and drift thresholds must become stricter monotonically")
+        cost_thresholds = (
+            self.watch_cost_drift_bps,
+            self.reduce_cost_drift_bps,
+            self.disable_cost_drift_bps,
+            self.quarantine_cost_drift_bps,
+        )
+        if any(not math.isfinite(float(value)) or float(value) < 0.0 for value in cost_thresholds):
+            raise ShadowGovernanceError("cost drift thresholds must be finite and non-negative")
+        if not (
+            self.watch_cost_drift_bps
+            <= self.reduce_cost_drift_bps
+            <= self.disable_cost_drift_bps
+            <= self.quarantine_cost_drift_bps
+        ):
+            raise ShadowGovernanceError("cost drift thresholds must become stricter monotonically")
 
 
 @dataclass(frozen=True)
@@ -796,6 +815,23 @@ def decide_shadow_safety(
         elif drift >= policy.reduce_feature_drift:
             calculated = _more_severe(calculated, "REDUCE")
             reasons.append("feature_drift_reduced")
+    if performance.cost_drift_bps is not None:
+        # Only adverse incremental costs can reduce a shadow envelope.  A
+        # favourable execution difference is still recorded, but cannot be
+        # treated as a reason to increase risk automatically.
+        cost_drift = performance.cost_drift_bps
+        if cost_drift >= policy.quarantine_cost_drift_bps:
+            calculated = _more_severe(calculated, "QUARANTINE")
+            reasons.append("cost_drift_quarantine")
+        elif cost_drift >= policy.disable_cost_drift_bps:
+            calculated = _more_severe(calculated, "DISABLE_NEW_ENTRIES")
+            reasons.append("cost_drift_disabled")
+        elif cost_drift >= policy.reduce_cost_drift_bps:
+            calculated = _more_severe(calculated, "REDUCE")
+            reasons.append("cost_drift_reduced")
+        elif cost_drift >= policy.watch_cost_drift_bps:
+            calculated = _more_severe(calculated, "WATCH")
+            reasons.append("cost_drift_watch")
     action = _more_severe(previous, calculated)
     return ShadowSafetyDecision(
         action=action,
