@@ -2,8 +2,7 @@
 
 ## Verdict
 
-`GO_LOCAL` — deploy the scheduler capability-path separation, then validate the
-next scheduled report on the VPS. This change does not unlock or run a
+`GO` — deployed and validated on the VPS. This change does not unlock or run a
 derivatives strategy.
 
 ## Finding
@@ -50,6 +49,19 @@ appropriate, without letting an OHLCV runner ingest derivatives CSVs.
 - Full suite: `1542 passed, 5 skipped`.
 - Python syntax compilation: passed for touched modules.
 - `git diff --check`: passed.
+
+## VPS validation
+
+- Deployed code commit: `719c36e228f33005ec7a79cf2ab70c5561141304`.
+- Both research shell scripts passed `bash -n` before the controlled rebuild.
+- The runtime container returned healthy; the orchestrator was running, the
+  WebSocket was connected and 14 instances were active.
+- An isolated, no-network scheduler smoke confirmed
+  `funding_history_ready: true` while `funding_extreme_reversion` remained
+  `WAITING_FOR_MORE_DATA` with reason
+  `derivatives_waiting_for_more_data`.
+- The report offered no runner command and kept paper-capital, live and
+  promotion flags false.
 
 ## Residual risk and next gate
 
