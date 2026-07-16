@@ -274,6 +274,42 @@ def test_backtest_engine_random_baseline_is_deterministic(tmp_path):
     assert "requested trades=2" in first_random.notes
 
 
+def test_backtest_engine_baselines_follow_next_open_timing(tmp_path):
+    def strategy(bar, history):
+        if len(history) == 1:
+            return [BacktestSignal(symbol=bar.symbol, side="buy", price=bar.close, timestamp=bar.timestamp, reason="entry")]
+        if len(history) == 2:
+            return [BacktestSignal(symbol=bar.symbol, side="sell", price=bar.close, timestamp=bar.timestamp, reason="exit")]
+        return []
+
+    config = BacktestConfig(
+        **{
+            **_config(tmp_path).__dict__,
+            "cost_config": ExecutionCostConfig(
+                taker_fee_bps=0.0,
+                fallback_spread_bps=0.0,
+                slippage_bps=0.0,
+                latency_buffer_bps=0.0,
+            ),
+        }
+    )
+    bars = [
+        _custom_bar(0, open_=100.0, high=100.0, low=100.0, close=100.0),
+        _custom_bar(1, open_=110.0, high=120.0, low=110.0, close=120.0),
+        _custom_bar(2, open_=130.0, high=150.0, low=130.0, close=150.0),
+    ]
+
+    result = BacktestEngine(config).run(bars, strategy, write_reports=False)
+    baselines = {baseline.name: baseline for baseline in result.baselines}
+
+    # The random baseline has only one possible timeline: decide after bar 0,
+    # enter at bar 1 open, decide after bar 1 and exit at bar 2 open.
+    assert baselines["random_signal_same_frequency"].net_pnl_eur == pytest.approx(100.0 * ((130.0 / 110.0) - 1.0))
+    # Buy-and-hold follows the same entry rule, then uses the documented terminal close.
+    assert baselines["buy_and_hold"].net_pnl_eur == pytest.approx(1000.0 * ((150.0 / 110.0) - 1.0))
+    assert "following opens" in baselines["random_signal_same_frequency"].notes
+
+
 def test_backtest_engine_records_trade_path_without_entry_bar_lookahead(tmp_path):
     def strategy(bar, history):
         if len(history) == 1:

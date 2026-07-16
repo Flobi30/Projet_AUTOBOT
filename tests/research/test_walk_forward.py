@@ -121,7 +121,7 @@ def test_walk_forward_can_pass_only_after_enough_passing_folds(tmp_path):
             ]
         )
     config = WalkForwardConfig(
-        run_id="pytest_wf_pass_1",
+        run_id="pytest_wf_pass_next_open_1",
         base_backtest_config=_base_config(tmp_path),
         train_window_bars=1,
         test_window_bars=5,

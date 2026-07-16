@@ -512,8 +512,11 @@ class BacktestEngine:
             ordered = sorted(series, key=lambda item: item.timestamp)
             if len(ordered) < 2:
                 continue
+            # The benchmark is allowed to decide at the first completed bar only.
+            # It therefore enters at the following bar open, just like a strategy
+            # signal.  The terminal close remains an explicit end-of-run assumption.
             entry = self.cost_model.simulate_fill(
-                FillRequest(symbol=symbol, side="buy", price=ordered[0].close, notional_eur=allocation, timestamp=ordered[0].timestamp)
+                FillRequest(symbol=symbol, side="buy", price=ordered[1].open, notional_eur=allocation, timestamp=ordered[1].timestamp)
             )
             exit_fill = self.cost_model.simulate_fill(
                 FillRequest(symbol=symbol, side="sell", price=ordered[-1].close, quantity=entry.quantity, timestamp=ordered[-1].timestamp)
@@ -524,7 +527,7 @@ class BacktestEngine:
             name="buy_and_hold",
             net_pnl_eur=net_pnl,
             total_return_pct=(net_pnl / self.config.initial_capital_eur) * 100.0,
-            notes="Equal capital allocation per symbol, net of configured costs.",
+            notes="Equal capital allocation per symbol; decision at first close, entry at next open, terminal close; net of configured costs.",
         )
         random_same_frequency = self._random_signal_baseline(by_symbol, strategy_trade_count=strategy_trade_count)
         return (no_trade, buy_hold, random_same_frequency)
@@ -545,14 +548,16 @@ class BacktestEngine:
         eligible = {
             symbol: sorted(series, key=lambda item: item.timestamp)
             for symbol, series in by_symbol.items()
-            if len(series) >= 2
+            # A random decision made at a close must have a next open for entry
+            # and another next open for its later exit decision.
+            if len(series) >= 3
         }
         if not eligible:
             return BaselineResult(
                 name="random_signal_same_frequency",
                 net_pnl_eur=0.0,
                 total_return_pct=0.0,
-                notes="Not computed because no symbol has enough bars.",
+                notes="Not computed because no symbol has enough bars for next-open entry and exit.",
             )
         rng = random.Random(self._baseline_seed())
         symbols = sorted(eligible)
@@ -561,15 +566,15 @@ class BacktestEngine:
         for _ in range(strategy_trade_count):
             symbol = rng.choice(symbols)
             series = eligible[symbol]
-            entry_index = rng.randrange(0, len(series) - 1)
-            exit_index = rng.randrange(entry_index + 1, len(series))
-            entry_bar = series[entry_index]
-            exit_bar = series[exit_index]
+            entry_decision_index = rng.randrange(0, len(series) - 2)
+            exit_decision_index = rng.randrange(entry_decision_index + 1, len(series) - 1)
+            entry_bar = series[entry_decision_index + 1]
+            exit_bar = series[exit_decision_index + 1]
             entry = self.cost_model.simulate_fill(
                 FillRequest(
                     symbol=symbol,
                     side="buy",
-                    price=entry_bar.close,
+                    price=entry_bar.open,
                     notional_eur=self.config.default_order_notional_eur,
                     timestamp=entry_bar.timestamp,
                 )
@@ -578,7 +583,7 @@ class BacktestEngine:
                 FillRequest(
                     symbol=symbol,
                     side="sell",
-                    price=exit_bar.close,
+                    price=exit_bar.open,
                     quantity=entry.quantity,
                     timestamp=exit_bar.timestamp,
                 )
@@ -590,7 +595,10 @@ class BacktestEngine:
             name="random_signal_same_frequency",
             net_pnl_eur=net_pnl,
             total_return_pct=(net_pnl / self.config.initial_capital_eur) * 100.0,
-            notes=f"Deterministic random long baseline, requested trades={strategy_trade_count}, executed={executed}.",
+            notes=(
+                "Deterministic random long baseline, decisions at closes and fills at following opens, "
+                f"requested trades={strategy_trade_count}, executed={executed}."
+            ),
         )
 
     def _baseline_seed(self) -> int:
