@@ -254,6 +254,7 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.open_interest_interval_seconds == 3600
     assert args.open_interest_max_pages_per_symbol == 2
     assert args.raw_retention_days == 7
+    assert args.report_dir == "data/research/reports/kraken_futures_derivatives"
 
 
 def test_bounded_mark_spot_candle_backfill_derives_same_quote_history_without_orders(tmp_path):
