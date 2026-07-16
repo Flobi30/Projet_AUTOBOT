@@ -15,6 +15,7 @@ from autobot.v2.research.resilience_readiness import (
     decide_fail_closed,
     evaluate_human_paper_readiness,
     retry_bounded,
+    run_ephemeral_sqlite_restore_drill,
     summarize_fail_closed_incidents,
     verify_sqlite_restore_drill,
     write_readiness_dossier,
@@ -113,6 +114,8 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
         create_verified_sqlite_backup(source, tmp_path / "encrypted.sqlite3", encrypted=True)
     with pytest.raises(ResilienceError, match="destination must differ"):
         create_verified_sqlite_backup(source, source)
+    with pytest.raises(ResilienceError, match="refusing to overwrite"):
+        create_verified_sqlite_backup(source, destination)
 
 
 def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):
@@ -132,6 +135,25 @@ def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):
     assert manifest.temporary_restore_cleaned is True
     assert manifest.paper_capital_allowed is False
     assert manifest.live_allowed is False
+
+
+def test_ephemeral_sqlite_restore_drill_retains_no_backup_and_preserves_source(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE observations (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.executemany("INSERT INTO observations(value) VALUES (?)", [("one",), ("two",)])
+    source_before = source.read_bytes()
+
+    manifest = run_ephemeral_sqlite_restore_drill(source)
+
+    assert manifest.source_path == str(source.resolve())
+    assert manifest.backup.integrity_check.lower() == "ok"
+    assert manifest.restore.integrity_check.lower() == "ok"
+    assert manifest.restore.source_table_row_counts == {"observations": 2}
+    assert manifest.temporary_backup_cleaned is True
+    assert manifest.paper_capital_allowed is False
+    assert manifest.live_allowed is False
+    assert source.read_bytes() == source_before
 
 
 def test_sqlite_restore_drill_rejects_corrupt_or_missing_backup(tmp_path):

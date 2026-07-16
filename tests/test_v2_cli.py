@@ -1800,6 +1800,25 @@ def test_cli_sqlite_backup_writes_manifest_without_mutating_source(tmp_path, cap
     assert source_path.read_bytes() == before
 
 
+def test_cli_sqlite_ephemeral_restore_drill_never_retains_a_backup(tmp_path, capsys):
+    source_path = tmp_path / "source.sqlite3"
+    with sqlite3.connect(source_path) as connection:
+        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.execute("INSERT INTO evidence(value) VALUES ('preserved')")
+    before = source_path.read_bytes()
+
+    exit_code = cli.main(["sqlite-ephemeral-restore-drill", "--source", str(source_path)])
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["temporary_backup_cleaned"] is True
+    assert output["backup"]["integrity_check"].lower() == "ok"
+    assert output["restore"]["temporary_restore_cleaned"] is True
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert source_path.read_bytes() == before
+
+
 def test_cli_runtime_oms_ledger_migration_plan_is_non_authorizing(tmp_path, capsys):
     state_db = tmp_path / "state.sqlite3"
     with sqlite3.connect(state_db) as connection:

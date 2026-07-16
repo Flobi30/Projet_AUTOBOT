@@ -149,6 +149,25 @@ class SQLiteRestoreDrillManifest:
 
 
 @dataclass(frozen=True)
+class EphemeralSQLiteRestoreDrillManifest:
+    """Evidence from a backup/restore drill that leaves no retained backup."""
+
+    source_path: str
+    backup: SQLiteBackupManifest
+    restore: SQLiteRestoreDrillManifest
+    temporary_backup_cleaned: bool
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("ephemeral restore drills cannot authorize paper or live")
+        if not self.temporary_backup_cleaned:
+            raise ResilienceError("ephemeral restore drill must remove its temporary backup")
+
+
+@dataclass(frozen=True)
 class PaperReadinessDossier:
     status: str
     blockers: tuple[str, ...]
@@ -242,6 +261,8 @@ def create_verified_sqlite_backup(
         raise ResilienceError("SQLite backup source does not exist")
     if source_path == destination_path:
         raise ResilienceError("SQLite backup destination must differ from its source")
+    if destination_path.exists():
+        raise ResilienceError("SQLite backup destination already exists; refusing to overwrite it")
     if encrypted:
         raise ResilienceError("encryption must be provided by an approved external backup layer")
     destination_path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,8 +271,8 @@ def create_verified_sqlite_backup(
     # snapshot without giving this job write access to the source database.
     source_uri = f"{source_path.as_uri()}?mode=ro"
     with (
-        sqlite3.connect(source_uri, uri=True) as source_connection,
-        sqlite3.connect(destination_path) as destination_connection,
+        closing(sqlite3.connect(source_uri, uri=True)) as source_connection,
+        closing(sqlite3.connect(destination_path)) as destination_connection,
     ):
         source_connection.backup(destination_connection)
         integrity = str(destination_connection.execute("PRAGMA integrity_check").fetchone()[0])
@@ -316,6 +337,24 @@ def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifes
         integrity_check=source_integrity,
         temporary_restore_cleaned=True,
         verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def run_ephemeral_sqlite_restore_drill(source: str | Path) -> EphemeralSQLiteRestoreDrillManifest:
+    """Create, restore and remove a temporary SQLite backup without runtime writes."""
+
+    source_path = Path(source).resolve()
+    if not source_path.is_file():
+        raise ResilienceError("SQLite ephemeral restore source does not exist")
+    with TemporaryDirectory(prefix="autobot-sqlite-ephemeral-restore-") as temporary_directory:
+        backup_path = Path(temporary_directory) / "backup.sqlite3"
+        backup = create_verified_sqlite_backup(source_path, backup_path)
+        restore = verify_sqlite_restore_drill(backup_path)
+    return EphemeralSQLiteRestoreDrillManifest(
+        source_path=str(source_path),
+        backup=backup,
+        restore=restore,
+        temporary_backup_cleaned=not backup_path.exists(),
     )
 
 

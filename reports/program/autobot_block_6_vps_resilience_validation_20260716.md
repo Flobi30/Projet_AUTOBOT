@@ -40,6 +40,12 @@ deployed together at source commit `bb96493c2f9c007f01163d086c63a939cc8cc6b9`.
 - The backup unit and timer were not installed under `/etc/systemd/system`.
 - Running the script with its default environment exited safely with the
   expected disabled status; no backup was created.
+- An isolated, no-network, read-only ephemeral backup/restore drill completed
+  against the runtime SQLite database. The source database was `136,081,408`
+  bytes; a `512 MiB` temporary filesystem was sufficient for the backup plus
+  disposable restore, and both integrity/schema/table-count checks passed.
+- The ephemeral container was removed with its `/tmp` filesystem, so this
+  evidence did not create a retained local backup.
 - Backup execution remains blocked until an operator explicitly approves both
   retention and encrypted off-VPS storage.
 

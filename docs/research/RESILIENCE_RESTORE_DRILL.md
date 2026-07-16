@@ -24,6 +24,17 @@ python -m autobot.v2.cli sqlite-backup \
   --manifest-path backups/sqlite/<run-id>.json
 ```
 
+To prove a backup/restore cycle without retaining any backup artifact:
+
+```text
+python -m autobot.v2.cli sqlite-ephemeral-restore-drill \
+  --source data/autobot_state.db
+```
+
+When this is run in an isolated container, the temporary filesystem must hold
+both the backup and disposable restore; budget at least three times the current
+SQLite database size. The command remains read-only against its source.
+
 The command opens the input backup read-only, restores it into a temporary
 directory, checks SQLite integrity, schema and row counts, verifies the input
 hash did not change, then removes the temporary restore.

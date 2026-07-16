@@ -513,6 +513,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_backup.add_argument("--manifest-path", default=None)
     sqlite_backup.set_defaults(handler=_cmd_sqlite_backup)
 
+    sqlite_ephemeral_restore_drill = subparsers.add_parser(
+        "sqlite-ephemeral-restore-drill",
+        help="Create and restore a temporary SQLite backup without retaining it",
+    )
+    sqlite_ephemeral_restore_drill.add_argument("--source", required=True)
+    sqlite_ephemeral_restore_drill.set_defaults(handler=_cmd_sqlite_ephemeral_restore_drill)
+
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
@@ -2770,6 +2777,17 @@ def _cmd_sqlite_backup(args: argparse.Namespace) -> int:
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         payload["manifest_path"] = str(manifest_path)
     _print_json(payload)
+    return 0
+
+
+def _cmd_sqlite_ephemeral_restore_drill(args: argparse.Namespace) -> int:
+    """Run a non-retained, research-only SQLite backup/restore proof."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import run_ephemeral_sqlite_restore_drill
+
+    _print_json(asdict(run_ephemeral_sqlite_restore_drill(Path(args.source))))
     return 0
 
 
