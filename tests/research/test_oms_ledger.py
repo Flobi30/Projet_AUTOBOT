@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -122,6 +123,63 @@ def test_oms_ledger_blocks_invalid_lifecycle_and_reconciliation_mismatch(tmp_pat
     assert "open_order_mismatch" in report.reasons
 
 
+def test_oms_ledger_recovers_unknown_order_and_reconstructs_cash_and_realized_pnl(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    buy = _intent(notional=100.0)
+    sell = replace(
+        buy,
+        decision_id="decision-oms-sell",
+        side="sell",
+        target_notional=110.0,
+        client_order_id="oms-shadow-sell-110",
+    )
+
+    assert ledger.register_intent(buy)
+    created_at = buy.created_at
+    assert ledger.record_order_event(OrderEvent(buy.client_order_id, "CREATED", created_at))
+    assert ledger.record_order_event(OrderEvent(buy.client_order_id, "SUBMITTED", created_at + timedelta(seconds=1)))
+    unknown = OrderEvent(buy.client_order_id, "UNKNOWN", created_at + timedelta(seconds=2), reason="ack_timeout")
+    assert ledger.record_order_event(unknown)
+    assert ledger.record_order_event(unknown) is False
+    assert ledger.record_order_event(OrderEvent(buy.client_order_id, "ACKNOWLEDGED", created_at + timedelta(seconds=3)))
+    assert ledger.record_fill(
+        FillEvent(buy.client_order_id, "fill-buy", created_at + timedelta(seconds=4), 1.0, 100.0, 0.16),
+        costs=_costs(),
+    )
+
+    assert ledger.register_intent(sell)
+    _acknowledge(ledger, sell)
+    assert ledger.record_fill(
+        FillEvent(sell.client_order_id, "fill-sell", created_at + timedelta(seconds=5), 1.0, 110.0, 0.16),
+        costs=_costs(),
+    )
+
+    accounting = ledger.reconstruct_accounting()
+    assert accounting.positions == ()
+    assert accounting.cash_flow_by_quote_asset == {"EUR": pytest.approx(9.48)}
+    assert accounting.realized_pnl_by_quote_asset == {"EUR": pytest.approx(9.48)}
+
+    reconciled = ledger.reconcile(
+        observed_positions={},
+        observed_open_orders=(),
+        baseline_cash_by_quote_asset={"EUR": 1_000.0},
+        observed_cash_by_quote_asset={"EUR": 1_009.48},
+    )
+    assert reconciled.status == "RECONCILED"
+    assert reconciled.expected_cash_balances == {"EUR": pytest.approx(1_009.48)}
+    assert reconciled.realized_pnl_by_quote_asset == {"EUR": pytest.approx(9.48)}
+
+    mismatched = ledger.reconcile(
+        observed_positions={},
+        observed_open_orders=(),
+        baseline_cash_by_quote_asset={"EUR": 1_000.0},
+        observed_cash_by_quote_asset={"EUR": 1_000.0},
+    )
+    assert mismatched.status == "RECONCILIATION_REQUIRED"
+    assert mismatched.trading_halted is True
+    assert "cash_balance_mismatch:EUR" in mismatched.reasons
+
+
 def test_tca_requires_cost_evidence_and_remains_shadow_only(tmp_path):
     ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
     intent = _intent(notional=100.0)
@@ -143,6 +201,11 @@ def test_tca_requires_cost_evidence_and_remains_shadow_only(tmp_path):
     assert tca.total_cost_eur == pytest.approx(0.26)
     assert ledger.record_tca(tca)
     assert ledger.record_tca(tca) is False
+    with pytest.raises(OMSLedgerError, match="fee evidence"):
+        ledger.record_fill(
+            FillEvent(intent.client_order_id, "fill-fee-mismatch", intent.created_at, 1.0, 100.0, 0.20),
+            costs=_costs(),
+        )
     with pytest.raises(OMSLedgerError, match="shadow intents only"):
         ledger.register_intent(_intent(mode="paper"))
 

@@ -8,7 +8,7 @@ Only ``shadow`` intents are accepted.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 import math
@@ -91,6 +91,23 @@ class TransactionCostAnalysis:
 
 
 @dataclass(frozen=True)
+class LedgerAccountingSnapshot:
+    """State reconstructed solely from append-only shadow ledger events.
+
+    Cash values are net flows until the caller supplies a separately observed
+    baseline for reconciliation.  This prevents the ledger from inventing an
+    exchange balance or treating a starting balance as execution evidence.
+    """
+
+    positions: tuple[PositionSnapshot, ...]
+    cash_flow_by_quote_asset: Mapping[str, float]
+    realized_pnl_by_quote_asset: Mapping[str, float]
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+
+@dataclass(frozen=True)
 class ReconciliationReport:
     status: str
     reasons: tuple[str, ...]
@@ -99,6 +116,9 @@ class ReconciliationReport:
     local_open_orders: tuple[str, ...]
     observed_open_orders: tuple[str, ...]
     trading_halted: bool
+    expected_cash_balances: Mapping[str, float] = field(default_factory=dict)
+    observed_cash_balances: Mapping[str, float] = field(default_factory=dict)
+    realized_pnl_by_quote_asset: Mapping[str, float] = field(default_factory=dict)
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -140,6 +160,8 @@ class ShadowOMSLedger:
 
     def record_fill(self, fill: FillEvent, *, costs: Mapping[str, float]) -> bool:
         _validate_costs(costs)
+        if not math.isclose(float(costs["fee_eur"]), float(fill.fees), rel_tol=0.0, abs_tol=1e-9):
+            raise OMSLedgerError("fill fee evidence does not match FillEvent fee")
         with self._connect() as connection:
             self._initialize(connection)
             duplicate = connection.execute("SELECT 1 FROM oms_fill_events WHERE fill_id = ?", (fill.fill_id,)).fetchone()
@@ -190,26 +212,42 @@ class ShadowOMSLedger:
             return cursor.rowcount == 1
 
     def reconstruct_positions(self) -> tuple[PositionSnapshot, ...]:
+        return self.reconstruct_accounting().positions
+
+    def reconstruct_accounting(self) -> LedgerAccountingSnapshot:
+        """Rebuild positions, net cash flows and realized PnL from fills only.
+
+        The method deliberately has no starting-capital parameter.  Starting
+        balances belong to the independent reconciliation observation, not to
+        the append-only event ledger.
+        """
+
         if not self.path.exists():
-            return ()
+            return LedgerAccountingSnapshot((), {}, {})
         with self._connect() as connection:
             self._initialize(connection)
             rows = connection.execute(
                 """
-                SELECT intent.intent_json, fill.fill_json
+                SELECT intent.intent_json, fill.fill_json, fill.costs_json
                 FROM oms_fill_events AS fill
                 JOIN oms_intents AS intent ON intent.client_order_id = fill.client_order_id
                 ORDER BY fill.occurred_at, fill.fill_id
                 """
             ).fetchall()
         positions: dict[str, dict[str, Any]] = {}
-        for intent_json, fill_json in rows:
+        cash_flows: dict[str, float] = {}
+        realized_pnl: dict[str, float] = {}
+        for intent_json, fill_json, costs_json in rows:
             intent = json.loads(str(intent_json))
             fill = json.loads(str(fill_json))
+            costs = json.loads(str(costs_json))
             market = intent["market"]
             symbol = str(market["symbol"]).upper()
+            quote_asset = str(market["quote_asset"]).upper()
             quantity = float(fill["quantity"])
             price = float(fill["average_price"])
+            gross_notional = quantity * price
+            total_cost = _total_cost(costs)
             side = str(intent["side"]).lower()
             position = positions.setdefault(
                 symbol,
@@ -217,13 +255,17 @@ class ShadowOMSLedger:
             )
             if side == "buy":
                 position["quantity"] += quantity
-                position["cost"] += quantity * price
+                position["cost"] += gross_notional + total_cost
+                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) - gross_notional - total_cost
             else:
                 if quantity > position["quantity"] + 1e-9:
                     raise OMSLedgerError(f"sell fill exceeds reconstructed position for {symbol}")
                 average = position["cost"] / position["quantity"] if position["quantity"] > 0.0 else 0.0
+                realized = gross_notional - total_cost - (quantity * average)
                 position["quantity"] -= quantity
                 position["cost"] -= quantity * average
+                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) + gross_notional - total_cost
+                realized_pnl[quote_asset] = realized_pnl.get(quote_asset, 0.0) + realized
             position["observed_at"] = fill["occurred_at"]
         snapshots: list[PositionSnapshot] = []
         for symbol, state in sorted(positions.items()):
@@ -241,16 +283,25 @@ class ShadowOMSLedger:
                     source="research_shadow_oms_ledger",
                 )
             )
-        return tuple(snapshots)
+        return LedgerAccountingSnapshot(
+            positions=tuple(snapshots),
+            cash_flow_by_quote_asset={key: round(value, 12) for key, value in sorted(cash_flows.items())},
+            realized_pnl_by_quote_asset={key: round(value, 12) for key, value in sorted(realized_pnl.items())},
+        )
 
     def reconcile(
         self,
         *,
         observed_positions: Mapping[str, float],
         observed_open_orders: Sequence[str],
+        baseline_cash_by_quote_asset: Mapping[str, float] | None = None,
+        observed_cash_by_quote_asset: Mapping[str, float] | None = None,
         tolerance: float = 1e-9,
     ) -> ReconciliationReport:
-        local_positions = {snapshot.market.symbol: float(snapshot.quantity) for snapshot in self.reconstruct_positions()}
+        if (baseline_cash_by_quote_asset is None) != (observed_cash_by_quote_asset is None):
+            raise OMSLedgerError("cash reconciliation requires both baseline and observed balances")
+        accounting = self.reconstruct_accounting()
+        local_positions = {snapshot.market.symbol: float(snapshot.quantity) for snapshot in accounting.positions}
         observed = {str(symbol).upper(): float(quantity) for symbol, quantity in observed_positions.items()}
         local_open = tuple(sorted(self._open_order_ids()))
         remote_open = tuple(sorted(str(value) for value in observed_open_orders))
@@ -260,6 +311,15 @@ class ShadowOMSLedger:
                 reasons.append(f"position_mismatch:{symbol}")
         if local_open != remote_open:
             reasons.append("open_order_mismatch")
+        expected_cash: dict[str, float] = {}
+        observed_cash: dict[str, float] = {}
+        if baseline_cash_by_quote_asset is not None and observed_cash_by_quote_asset is not None:
+            baseline_cash = _validated_cash_balances(baseline_cash_by_quote_asset, "baseline")
+            observed_cash = _validated_cash_balances(observed_cash_by_quote_asset, "observed")
+            for asset in sorted(set(baseline_cash) | set(accounting.cash_flow_by_quote_asset) | set(observed_cash)):
+                expected_cash[asset] = baseline_cash.get(asset, 0.0) + accounting.cash_flow_by_quote_asset.get(asset, 0.0)
+                if abs(expected_cash[asset] - observed_cash.get(asset, 0.0)) > tolerance:
+                    reasons.append(f"cash_balance_mismatch:{asset}")
         return ReconciliationReport(
             status="RECONCILED" if not reasons else "RECONCILIATION_REQUIRED",
             reasons=tuple(reasons),
@@ -268,6 +328,9 @@ class ShadowOMSLedger:
             local_open_orders=local_open,
             observed_open_orders=remote_open,
             trading_halted=bool(reasons),
+            expected_cash_balances=expected_cash,
+            observed_cash_balances=observed_cash,
+            realized_pnl_by_quote_asset=accounting.realized_pnl_by_quote_asset,
         )
 
     def _open_order_ids(self) -> set[str]:
@@ -417,6 +480,26 @@ def _validate_costs(costs: Mapping[str, float]) -> None:
         value = float(costs[field_name])
         if not math.isfinite(value) or value < 0.0:
             raise OMSLedgerError(f"{field_name} must be finite and non-negative")
+    if "funding_eur" in costs and not math.isfinite(float(costs["funding_eur"])):
+        raise OMSLedgerError("funding_eur must be finite when supplied")
+
+
+def _total_cost(costs: Mapping[str, float]) -> float:
+    _validate_costs(costs)
+    return sum(float(costs[field_name]) for field_name in ("fee_eur", "spread_cost_eur", "slippage_eur", "latency_cost_eur")) + float(costs.get("funding_eur", 0.0))
+
+
+def _validated_cash_balances(values: Mapping[str, float], label: str) -> dict[str, float]:
+    if not isinstance(values, Mapping):
+        raise OMSLedgerError(f"{label} cash balances must be a mapping")
+    normalised: dict[str, float] = {}
+    for raw_asset, raw_value in values.items():
+        asset = str(raw_asset).upper().strip()
+        value = float(raw_value)
+        if not asset or not math.isfinite(value):
+            raise OMSLedgerError(f"{label} cash balances contain an invalid value")
+        normalised[asset] = value
+    return normalised
 
 
 def _event_id(prefix: str, payload: Mapping[str, Any]) -> str:
