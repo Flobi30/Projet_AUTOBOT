@@ -112,6 +112,26 @@ def test_derivatives_snapshot_does_not_claim_runtime_parity_for_missing_temporal
     assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" in snapshot.blockers
 
 
+def test_selected_open_interest_feature_does_not_inherit_unrelated_historical_funding_parity(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_open_interest_only",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            feature_ids=("open_interest_change_24_pct",),
+        )
+    )
+
+    assert set(snapshot.datasets) == {"open_interest"}
+    assert snapshot.runtime_parity_proven is True
+    assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" not in snapshot.blockers
+    assert {row["feature_id"] for row in _feature_rows(snapshot)} == {"open_interest_change_24_pct"}
+
+
 def test_derivatives_snapshot_excludes_rows_ingested_after_as_of_and_reports_unknown_ingestion(tmp_path):
     manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
     funding_path = tmp_path / "funding.csv"
