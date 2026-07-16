@@ -1,4 +1,15 @@
-# PAPER_TRADING_OPERATIONS
+# PAPER_TRADING_OPERATIONS — ARCHIVED
+
+> **Current programme status:** this legacy paper-operation guide is not an
+> authorization to enable paper capital, strategy promotion, or live trading.
+> AUTOBOT is in research/shadow-only mode. Follow
+> [the research/shadow incident runbook](runbooks/RESEARCH_SHADOW_INCIDENTS.md)
+> for the current safe operational procedures. Any future paper activation
+> requires an explicit human decision after a `READY_FOR_HUMAN_PAPER_REVIEW`
+> dossier; that dossier does not itself enable execution.
+
+The material below is retained only as historical operational reference. It
+must not be used to change runtime flags during the 24-layer programme.
 
 Operational support pass for safer day-to-day paper trading.
 
