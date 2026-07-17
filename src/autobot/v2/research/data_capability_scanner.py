@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 CAPABILITY_IDS = (
     "spot_ohlcv",
+    "spot_post_trade_history",
     "multi_symbol_ohlcv",
     "orderbook_depth_snapshots",
     "spread_history",
@@ -199,17 +200,26 @@ def build_data_capability_scan_report(
     state_db_path = Path(state_db) if state_db else None
     canonical_manifest = _latest_canonical_ohlcv_manifest(roots)
     derivatives_manifest = _latest_kraken_futures_derivatives_manifest(roots)
+    post_trade_manifest = _latest_kraken_spot_post_trade_manifest(roots)
     capabilities = _build_capabilities(
         root_files,
         state_db_path,
         canonical_manifest=canonical_manifest,
         derivatives_manifest=derivatives_manifest,
+        post_trade_manifest=post_trade_manifest,
     )
     capability_by_id = {item.capability_id: item for item in capabilities}
     alpha_status = _alpha_family_status(capability_by_id)
     rejected_status = _rejected_family_status(memory_path, capability_by_id)
     ohlcv = capability_by_id["spot_ohlcv"]
-    scheduler_data_state = _scheduler_data_state(roots, capability_by_id, alpha_status, canonical_manifest, derivatives_manifest)
+    scheduler_data_state = _scheduler_data_state(
+        roots,
+        capability_by_id,
+        alpha_status,
+        canonical_manifest,
+        derivatives_manifest,
+        post_trade_manifest,
+    )
     report = DataCapabilityScanReport(
         run_id=run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -307,6 +317,7 @@ def _build_capabilities(
     *,
     canonical_manifest: Mapping[str, Any] | None = None,
     derivatives_manifest: Mapping[str, Any] | None = None,
+    post_trade_manifest: Mapping[str, Any] | None = None,
 ) -> tuple[DataCapability, ...]:
     ohlcv = _scan_ohlcv(files, canonical_manifest=canonical_manifest)
     spread_depth = _scan_spread_depth(files)
@@ -316,6 +327,7 @@ def _build_capabilities(
     derivatives = _derivatives_capabilities_from_manifest(derivatives_manifest) if derivatives_manifest else {}
     raw = {
         "spot_ohlcv": ohlcv,
+        "spot_post_trade_history": _spot_post_trade_history_capability(post_trade_manifest),
         "multi_symbol_ohlcv": _multi_symbol_ohlcv_capability(ohlcv),
         "orderbook_depth_snapshots": spread_depth["orderbook_depth_snapshots"],
         "spread_history": spread_depth["spread_history"],
@@ -365,7 +377,13 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
             blockers=() if final_duplicate_count == 0 else ("canonical_duplicate_bars_present",),
             notes=("canonical_ohlcv_snapshot", f"snapshot_id={canonical_manifest.get('snapshot_id')}"),
         )
-    csv_files = [path for path in files if path.suffix.lower() == ".csv" and _looks_like_ohlcv(path)]
+    csv_files = [
+        path
+        for path in files
+        if path.suffix.lower() == ".csv"
+        and _looks_like_ohlcv(path)
+        and not _is_post_trade_historical_ohlcv(path)
+    ]
     symbols: set[str] = set()
     timeframes: set[str] = set()
     starts: list[str] = []
@@ -410,6 +428,87 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
         alpha_families_unlocked=ALPHA_UNLOCKS["spot_ohlcv"] if available else (),
         blockers=blockers,
         notes=("csv_ohlcv_scan",),
+    )
+
+
+def _spot_post_trade_history_capability(manifest: Mapping[str, Any] | None) -> DataCapability:
+    """Report bounded public PostTrade history without treating it as shadow parity.
+
+    The canonical PostTrade collector is useful for historical research because
+    Kraken supplies both matching-engine and publication timestamps.  A
+    backfill is nevertheless observed only at ingestion time, so it must never
+    make a strategy shadow-eligible or silently replace the canonical runtime
+    OHLCV snapshot.
+    """
+
+    if not manifest:
+        return DataCapability(
+            capability_id="spot_post_trade_history",
+            available=False,
+            provider="kraken_public_post_trade",
+            quality_status="missing",
+            blockers=("spot_post_trade_history_missing",),
+            notes=("separate_from_canonical_runtime_ohlcv",),
+        )
+
+    payload = dict(manifest)
+    market = payload.get("market")
+    market_payload = market if isinstance(market, Mapping) else {}
+    status = str(payload.get("status") or "UNKNOWN").upper()
+    row_count = int(payload.get("hourly_bar_count") or 0)
+    gap_count = len(
+        tuple(
+            item
+            for item in (payload.get("coverage") or {}).get("gap_hour_starts", ())
+            if item is not None
+        )
+    ) if isinstance(payload.get("coverage"), Mapping) else 0
+    source_path = str(payload.get("canonical_path") or "")
+    source_paths = (source_path,) if source_path else ()
+    completed = status in {"COMPLETE", "COMPLETE_WITH_GAPS"} and row_count > 0
+    runtime_parity = bool(
+        (payload.get("temporal_contract") or {}).get("runtime_parity_proven")
+        if isinstance(payload.get("temporal_contract"), Mapping)
+        else False
+    )
+    blockers: list[str] = []
+    if not completed:
+        blockers.append("spot_post_trade_history_incomplete")
+    if gap_count:
+        blockers.append("post_trade_gaps_detected")
+    if not runtime_parity:
+        blockers.append("historical_backfill_not_runtime_parity")
+    return DataCapability(
+        capability_id="spot_post_trade_history",
+        available=completed,
+        source_paths=source_paths,
+        provider="kraken_public_post_trade",
+        symbols=tuple(
+            str(item)
+            for item in (market_payload.get("autobot_symbol"),)
+            if item
+        ),
+        timeframes=("1h",) if completed else (),
+        start_at=payload.get("requested_start"),
+        end_at=payload.get("requested_end"),
+        row_count=row_count,
+        duplicate_count=int(payload.get("duplicate_count") or 0),
+        gap_count=gap_count,
+        freshness_seconds=_freshness_seconds(tuple(Path(item) for item in source_paths)),
+        storage_size_bytes=_storage_size(tuple(Path(item) for item in source_paths)),
+        quality_status=(
+            "historical_post_trade_research_only"
+            if completed and not gap_count
+            else ("historical_post_trade_with_gaps" if completed else "incomplete")
+        ),
+        alpha_families_unlocked=(),
+        blockers=tuple(dict.fromkeys(blockers)),
+        notes=(
+            f"snapshot_id={payload.get('snapshot_id')}",
+            f"temporal_status={(payload.get('temporal_contract') or {}).get('temporal_status', 'unknown')}",
+            "not_a_shadow_or_paper_eligibility_signal",
+            "explicit_kraken_to_autobot_market_mapping_required",
+        ),
     )
 
 
@@ -924,6 +1023,7 @@ def _scheduler_data_state(
     alpha_status: Mapping[str, Mapping[str, Any]],
     canonical_manifest: Mapping[str, Any] | None = None,
     derivatives_manifest: Mapping[str, Any] | None = None,
+    post_trade_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     manifest = dict(canonical_manifest or _latest_canonical_ohlcv_manifest(roots) or {})
     final_duplicate_count = sum(
@@ -948,11 +1048,22 @@ def _scheduler_data_state(
         if payload.get("blockers") or payload.get("status") == "DATA_MISSING"
     ]
     derivatives = dict(derivatives_manifest or _latest_kraken_futures_derivatives_manifest(roots) or {})
+    post_trade = dict(post_trade_manifest or _latest_kraken_spot_post_trade_manifest(roots) or {})
+    post_trade_temporal_contract = post_trade.get("temporal_contract")
+    if not isinstance(post_trade_temporal_contract, Mapping):
+        post_trade_temporal_contract = {}
     return {
         "canonical_ohlcv_ready": canonical_ready,
         "snapshot_id": manifest.get("snapshot_id") if manifest else None,
         "snapshot_fingerprint": manifest.get("fingerprint") if manifest else None,
         "new_data_significance": manifest.get("new_data_significance") if manifest else "no_canonical_snapshot",
+        "spot_post_trade_history_ready": capability_by_id["spot_post_trade_history"].available,
+        "spot_post_trade_snapshot_id": post_trade.get("snapshot_id") if post_trade else None,
+        "spot_post_trade_fingerprint": post_trade.get("fingerprint") if post_trade else None,
+        "spot_post_trade_history_start": post_trade.get("requested_start") if post_trade else None,
+        "spot_post_trade_history_end": post_trade.get("requested_end") if post_trade else None,
+        "spot_post_trade_runtime_parity_proven": bool(post_trade_temporal_contract.get("runtime_parity_proven")),
+        "spot_post_trade_research_only": bool(post_trade.get("research_only")) if post_trade else False,
         "funding_data_ready": capability_by_id["funding_rates"].available,
         "funding_history_ready": bool(derivatives.get("funding_history_ready")),
         "funding_history_start": derivatives.get("funding_history_start"),
@@ -1000,6 +1111,8 @@ def _scheduler_notes(
         notes.append("canonical_ohlcv_ready is false until a deduped canonical snapshot exists.")
     elif scheduler_data_state.get("new_data_significance") in {"same_data", "minor_addition"}:
         notes.append("Existing rejections stay blocked because canonical data is unchanged or only a minor addition.")
+    if scheduler_data_state.get("spot_post_trade_history_ready") and not scheduler_data_state.get("spot_post_trade_runtime_parity_proven"):
+        notes.append("PostTrade historical backfill is research-only and cannot establish shadow/runtime parity.")
     runnable = [
         family
         for family, payload in alpha_status.items()
@@ -1069,6 +1182,45 @@ def _latest_kraken_futures_derivatives_manifest(roots: Sequence[Path]) -> dict[s
     return None
 
 
+def _latest_kraken_spot_post_trade_manifest(roots: Sequence[Path]) -> dict[str, Any] | None:
+    """Return the newest valid bounded PostTrade manifest, if any.
+
+    This deliberately does not merge manifests or rewrite timestamps.  Each
+    immutable bounded window remains separately auditable until a dedicated
+    canonical merge job proves its coverage and compatibility.
+    """
+
+    candidates: list[Path] = []
+    for root in roots:
+        search_roots = [root]
+        if root.name != "manifests":
+            search_roots.extend(
+                candidate
+                for candidate in (root / "manifests", root.parent / "manifests")
+                if candidate.exists()
+            )
+        for search_root in search_roots:
+            if search_root.is_file() and "kraken_spot_post_trade" in search_root.name.lower() and search_root.suffix.lower() == ".json":
+                candidates.append(search_root)
+            elif search_root.exists():
+                candidates.extend(search_root.rglob("*kraken_spot_post_trade*.json"))
+    unique = sorted(set(candidates), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True)
+    for path in unique:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        temporal_contract = payload.get("temporal_contract")
+        if (
+            payload.get("dataset_id") == "kraken_spot_post_trade_ohlcv"
+            and payload.get("snapshot_id")
+            and payload.get("fingerprint")
+            and isinstance(temporal_contract, Mapping)
+        ):
+            return payload
+    return None
+
+
 def _files_under(roots: Iterable[Path]) -> tuple[Path, ...]:
     files: list[Path] = []
     for root in roots:
@@ -1109,6 +1261,22 @@ def _looks_like_ohlcv(path: Path) -> bool:
     for row in _read_csv_sample(path, max_rows=1):
         fields = set(row)
         return {"open", "high", "low", "close"}.issubset(fields)
+    return False
+
+
+def _is_post_trade_historical_ohlcv(path: Path) -> bool:
+    """Keep historical PostTrade bars out of the runtime OHLCV capability.
+
+    They carry valuable point-in-time lineage for offline research, but are
+    available only when a backfill runs.  Treating them as the canonical
+    runtime feed would let a historical import change strategy readiness.
+    """
+
+    for row in _read_csv_sample(path, max_rows=1):
+        if str(row.get("source") or "").strip() == "kraken_spot_post_trade":
+            return True
+        if str(row.get("temporal_status") or "").strip() == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION":
+            return True
     return False
 
 

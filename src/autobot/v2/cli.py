@@ -596,6 +596,26 @@ def _build_parser() -> argparse.ArgumentParser:
     canonicalize_ohlcv.add_argument("--max-rows", type=int, default=None)
     canonicalize_ohlcv.set_defaults(handler=_cmd_canonicalize_ohlcv)
 
+    post_trade_backfill = subparsers.add_parser(
+        "collect-kraken-spot-post-trade",
+        help="Collect one bounded public Kraken Spot PostTrade window for research only",
+    )
+    post_trade_backfill.add_argument("--run-id", default=None)
+    post_trade_backfill.add_argument("--autobot-symbol", required=True, help="Explicit EUR AUTOBOT symbol, e.g. BTCZEUR")
+    post_trade_backfill.add_argument("--kraken-symbol", required=True, help="Explicit Kraken display symbol, e.g. BTC/EUR")
+    post_trade_backfill.add_argument("--autobot-base-asset", required=True, help="Explicit AUTOBOT base asset, e.g. BTC")
+    post_trade_backfill.add_argument("--kraken-base-asset", required=True, help="Explicit Kraken response base asset, e.g. XBT")
+    post_trade_backfill.add_argument("--start-at", required=True, help="UTC ISO-8601 inclusive start")
+    post_trade_backfill.add_argument("--end-at", required=True, help="UTC ISO-8601 exclusive end; maximum 24 hours")
+    post_trade_backfill.add_argument("--count", type=int, default=1000, help="Public PostTrade rows per request (1..1000)")
+    post_trade_backfill.add_argument("--max-pages", type=int, default=20, help="Hard public PostTrade page cap (1..100)")
+    post_trade_backfill.add_argument("--timeout-seconds", type=float, default=20.0)
+    post_trade_backfill.add_argument("--raw-dir", default="data/research/raw/kraken_spot_post_trade")
+    post_trade_backfill.add_argument("--canonical-dir", default="data/research/canonical/spot_post_trade")
+    post_trade_backfill.add_argument("--manifest-dir", default="data/research/manifests")
+    post_trade_backfill.add_argument("--report-dir", default="data/research/reports/kraken_spot_post_trade")
+    post_trade_backfill.set_defaults(handler=_cmd_collect_kraken_spot_post_trade)
+
     materialize_features = subparsers.add_parser(
         "materialize-feature-snapshot",
         help="Materialize a deterministic research-only feature bundle from a canonical OHLCV v2 manifest",
@@ -3006,6 +3026,55 @@ def _cmd_canonicalize_ohlcv(args: argparse.Namespace) -> int:
         "markdown_report_path": str(markdown_path),
     }
     _print_json(payload)
+    return 0
+
+
+def _cmd_collect_kraken_spot_post_trade(args: argparse.Namespace) -> int:
+    from autobot.v2.research.kraken_post_trade_backfill import (
+        KrakenEurSpotMarket,
+        KrakenPostTradeBackfillConfig,
+        collect_kraken_spot_post_trade_backfill,
+        persist_kraken_spot_post_trade_backfill,
+    )
+
+    run_id = args.run_id or f"kraken_post_trade_{date.today().strftime('%Y%m%d')}"
+    result = collect_kraken_spot_post_trade_backfill(
+        KrakenPostTradeBackfillConfig(
+            run_id=run_id,
+            market=KrakenEurSpotMarket(
+                args.autobot_symbol,
+                args.kraken_symbol,
+                args.autobot_base_asset,
+                args.kraken_base_asset,
+            ),
+            start_at=_parse_datetime(args.start_at),
+            end_at=_parse_datetime(args.end_at),
+            count=args.count,
+            max_pages=args.max_pages,
+            timeout_seconds=args.timeout_seconds,
+        )
+    )
+    canonical_path, manifest_path, report_path = persist_kraken_spot_post_trade_backfill(
+        result,
+        raw_root=Path(args.raw_dir),
+        canonical_root=Path(args.canonical_dir),
+        manifest_root=Path(args.manifest_dir),
+        report_root=Path(args.report_dir),
+    )
+    _print_json(
+        {
+            "run_id": run_id,
+            "canonical_path": str(canonical_path),
+            "manifest_path": str(manifest_path),
+            "report_path": str(report_path),
+            "status": result.status,
+            "blockers": list(result.blockers),
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    )
     return 0
 
 

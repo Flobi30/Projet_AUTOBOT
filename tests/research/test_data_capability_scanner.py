@@ -136,6 +136,108 @@ def test_scanner_exposes_canonical_snapshot_scheduler_state(tmp_path):
     assert "funding_basis" in state["hypotheses_still_blocked"]
 
 
+def test_scanner_reports_posttrade_history_without_granting_runtime_parity(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    canonical_path = tmp_path / "canonical" / "posttrade_btc_1h.csv"
+    canonical_path.parent.mkdir()
+    canonical_path.write_text(
+        "timestamp,open,high,low,close,volume\n2026-01-01T00:00:00+00:00,100,101,99,100.5,3\n",
+        encoding="utf-8",
+    )
+    post_trade_manifest = {
+        "dataset_id": "kraken_spot_post_trade_ohlcv",
+        "snapshot_id": "spot_post_trade_test",
+        "fingerprint": "posttrade-fingerprint",
+        "status": "COMPLETE",
+        "market": {
+            "autobot_symbol": "BTCZEUR",
+            "kraken_symbol": "BTC/EUR",
+            "autobot_base_asset": "BTC",
+            "kraken_base_asset": "XBT",
+            "quote_asset": "EUR",
+        },
+        "requested_start": "2026-01-01T00:00:00+00:00",
+        "requested_end": "2026-01-01T01:00:00+00:00",
+        "hourly_bar_count": 1,
+        "duplicate_count": 0,
+        "coverage": {"gap_hour_starts": []},
+        "canonical_path": str(canonical_path),
+        "research_only": True,
+        "temporal_contract": {
+            "temporal_status": "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+            "runtime_parity_proven": False,
+        },
+    }
+    (manifest_dir / "pytest_kraken_spot_post_trade.json").write_text(
+        json.dumps(post_trade_manifest),
+        encoding="utf-8",
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_posttrade_history",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    by_id = {item.capability_id: item for item in report.capabilities}
+    post_trade = by_id["spot_post_trade_history"]
+
+    assert post_trade.available is True
+    assert post_trade.symbols == ("BTCZEUR",)
+    assert post_trade.alpha_families_unlocked == ()
+    assert "historical_backfill_not_runtime_parity" in post_trade.blockers
+    assert report.scheduler_data_state["spot_post_trade_history_ready"] is True
+    assert report.scheduler_data_state["spot_post_trade_runtime_parity_proven"] is False
+    assert "PostTrade historical backfill is research-only" in " ".join(report.scheduler_notes)
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
+
+
+def test_posttrade_bars_never_become_runtime_spot_ohlcv(tmp_path):
+    canonical_dir = tmp_path / "canonical"
+    canonical_dir.mkdir()
+    canonical_path = canonical_dir / "posttrade_btc_1h.csv"
+    canonical_path.write_text(
+        "schema_version,market,timestamp,temporal_status,source,open,high,low,close,volume\n"
+        "1,BTCZEUR,2026-01-01T00:00:00+00:00,HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION,kraken_spot_post_trade,100,101,99,100.5,3\n",
+        encoding="utf-8",
+    )
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    (manifest_dir / "pytest_kraken_spot_post_trade.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": "kraken_spot_post_trade_ohlcv",
+                "snapshot_id": "spot_post_trade_only",
+                "fingerprint": "posttrade-only",
+                "status": "COMPLETE",
+                "market": {"autobot_symbol": "BTCZEUR"},
+                "requested_start": "2026-01-01T00:00:00+00:00",
+                "requested_end": "2026-01-01T01:00:00+00:00",
+                "hourly_bar_count": 1,
+                "coverage": {"gap_hour_starts": []},
+                "canonical_path": str(canonical_path),
+                "research_only": True,
+                "temporal_contract": {"runtime_parity_proven": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_posttrade_not_runtime",
+        data_roots=(canonical_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    by_id = {item.capability_id: item for item in report.capabilities}
+
+    assert by_id["spot_post_trade_history"].available is True
+    assert by_id["spot_ohlcv"].available is False
+    assert report.alpha_family_status["long_trend"]["status"] == "DATA_MISSING"
+    assert "spot_ohlcv_missing" in report.alpha_family_status["long_trend"]["blockers"]
+
+
 def test_scanner_keeps_liquidation_missing_when_derivatives_manifest_lacks_events(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     manifest_dir = tmp_path / "manifests"
