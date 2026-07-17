@@ -17,6 +17,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     funding_timer = (ROOT / "deploy/systemd/autobot-research-derivatives-funding.timer").read_text(encoding="utf-8")
     open_interest_service = (ROOT / "deploy/systemd/autobot-research-derivatives-open-interest.service").read_text(encoding="utf-8")
     open_interest_timer = (ROOT / "deploy/systemd/autobot-research-derivatives-open-interest.timer").read_text(encoding="utf-8")
+    future_basis_service = (ROOT / "deploy/systemd/autobot-research-derivatives-future-basis.service").read_text(encoding="utf-8")
+    future_basis_timer = (ROOT / "deploy/systemd/autobot-research-derivatives-future-basis.timer").read_text(encoding="utf-8")
 
     assert "collect-kraken-futures-derivatives" in script
     assert "--skip-funding" in script
@@ -25,9 +27,13 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE" in script
     assert "funding_refresh" in script
     assert "open_interest_refresh" in script
+    assert "future_basis_refresh" in script
     assert "--collect-open-interest-history" in script
     assert "--open-interest-backfill-start-at" in script
     assert "--open-interest-backfill-end-at" in script
+    assert "--collect-future-basis-history" in script
+    assert "--future-basis-backfill-start-at" in script
+    assert "--future-basis-backfill-end-at" in script
     assert "--assets \"BTC,ETH,SOL,XRP,ADA,LINK\"" in script
     assert "--volume \"${REPO_DIR}/data/research:/app/data/research\"" in script
     assert "--volume \"${REPO_DIR}/data:/app/data\"" not in script
@@ -52,3 +58,8 @@ def test_derivatives_timer_is_bounded_public_research_only():
     assert "NoNewPrivileges=true" in open_interest_service
     assert "OnCalendar=hourly" in open_interest_timer
     assert "Persistent=true" in open_interest_timer
+    assert "AUTOBOT_DERIVATIVES_COLLECTION_MODE=future_basis_refresh" in future_basis_service
+    assert "ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-collection.sh" in future_basis_service
+    assert "NoNewPrivileges=true" in future_basis_service
+    assert "OnCalendar=hourly" in future_basis_timer
+    assert "Persistent=true" in future_basis_timer

@@ -55,6 +55,21 @@ case "${COLLECTION_MODE}" in
       --open-interest-max-pages-per-symbol 1
     )
     ;;
+  future_basis_refresh)
+    # A bounded overlap absorbs scheduler jitter.  These are exchange-provided
+    # same-contract buckets, collected outside the AUTOBOT runtime and never
+    # treated as an execution signal on their own.
+    BASIS_END="$(date -u +%Y-%m-%dT%H:00:00+00:00)"
+    BASIS_START="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:00:00+00:00)"
+    COLLECTION_FLAGS=(
+      --skip-funding --skip-tickers --skip-candles
+      --collect-future-basis-history
+      --future-basis-backfill-start-at "${BASIS_START}"
+      --future-basis-backfill-end-at "${BASIS_END}"
+      --future-basis-interval-seconds 3600
+      --future-basis-max-pages-per-symbol 1
+    )
+    ;;
   *)
     echo "Unsupported derivatives collection mode: ${COLLECTION_MODE}" >&2
     exit 1

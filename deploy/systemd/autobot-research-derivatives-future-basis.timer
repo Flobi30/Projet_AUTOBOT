@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh AUTOBOT public derivatives future-basis research hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=90s
+AccuracySec=1min
+Unit=autobot-research-derivatives-future-basis.service
+
+[Install]
+WantedBy=timers.target
