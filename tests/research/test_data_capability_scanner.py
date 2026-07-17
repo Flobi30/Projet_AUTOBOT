@@ -191,6 +191,58 @@ def test_scanner_keeps_liquidation_missing_when_derivatives_manifest_lacks_event
     assert report.alpha_family_status["liquidation_cascade"]["status"] == "DATA_MISSING"
 
 
+def test_scanner_reports_canonical_basis_history_not_only_the_latest_run(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    history_path = tmp_path / "basis_history.csv"
+    history_path.write_text("timestamp,basis_bps\n2026-01-01T00:00:00+00:00,10\n", encoding="utf-8")
+    derivatives_manifest = {
+        "snapshot_id": "kraken_futures_basis_history",
+        "fingerprint": "basis-history-fingerprint",
+        "mappings": [{"futures_symbol": "PF_XBTUSD", "base_asset": "BTC"}],
+        "funding_history_ready": True,
+        "basis_current_ready": True,
+        "basis_history_ready": True,
+        "basis_history_row_count": 8_760,
+        "basis_history_start": "2025-01-01T00:00:00+00:00",
+        "basis_history_end": "2026-01-01T00:00:00+00:00",
+        "basis_history_path": str(history_path),
+        "basis_confidence_status": "KRAKEN_FUTURES_FUTURE_BASIS",
+        "current_open_interest_ready": False,
+        "open_interest_history_ready": False,
+        "predicted_funding_ready": True,
+        "mark_candles_ready": True,
+        "trade_candles_ready": True,
+        "derivatives_data_quality": "historical_funding_and_same_quote_basis_ready_research_only",
+        "datasets": [
+            {
+                "dataset_id": "basis",
+                "row_count": 2,
+                "start_at": "2026-01-01T00:00:00+00:00",
+                "end_at": "2026-01-01T01:00:00+00:00",
+                "csv_path": str(tmp_path / "latest_basis_run.csv"),
+            },
+        ],
+    }
+    (manifest_dir / "pytest_kraken_futures_derivatives_basis_history.json").write_text(
+        json.dumps(derivatives_manifest),
+        encoding="utf-8",
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_basis_history_metrics",
+        data_roots=(data_dir, manifest_dir),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+
+    basis = next(item for item in report.capabilities if item.capability_id == "spot_perp_basis")
+    assert basis.available is True
+    assert basis.row_count == 8_760
+    assert basis.start_at == "2025-01-01T00:00:00+00:00"
+    assert basis.end_at == "2026-01-01T00:00:00+00:00"
+
+
 def test_rejected_hypotheses_are_not_retestable_without_new_data(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"

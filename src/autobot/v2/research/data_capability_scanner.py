@@ -645,11 +645,21 @@ def _derivatives_capabilities_from_manifest(manifest: Mapping[str, Any]) -> dict
             source_paths=tuple(path for path in (manifest.get("basis_history_path"), basis.get("csv_path"), manifest.get("manifest_path")) if path),
             provider="kraken_futures_public",
             symbols=mapping_symbols,
-            start_at=basis.get("start_at"),
-            end_at=basis.get("end_at"),
-            row_count=int(basis.get("row_count") or 0),
+            # ``datasets.basis`` describes only the immutable latest run.  A
+            # scheduler may have skipped basis collection while preserving a
+            # mature canonical history, so all readiness-facing metrics must
+            # come from the history fields first.
+            start_at=manifest.get("basis_history_start") or basis.get("start_at"),
+            end_at=manifest.get("basis_history_end") or basis.get("end_at"),
+            row_count=int(manifest.get("basis_history_row_count") or basis.get("row_count") or 0),
             duplicate_count=int(basis.get("duplicate_count") or 0),
-            storage_size_bytes=int(basis.get("storage_size_bytes") or 0),
+            storage_size_bytes=_storage_size(
+                tuple(
+                    Path(path)
+                    for path in (manifest.get("basis_history_path"), basis.get("csv_path"))
+                    if path
+                )
+            ),
             freshness_seconds=_freshness_seconds(tuple(Path(path) for path in source_paths if path)),
             quality_status="basis_history_ready" if basis_history_ready else ("current_basis_only_waiting_for_history" if basis_current_ready else "missing"),
             alpha_families_unlocked=ALPHA_UNLOCKS["spot_perp_basis"] if basis_history_ready else (),
