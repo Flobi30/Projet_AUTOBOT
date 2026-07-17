@@ -60,6 +60,27 @@ def test_funding_and_liquidation_stay_data_missing_without_feeds(tmp_path):
     assert "liquidation_events_missing" in liquidation["blockers"]
 
 
+def test_top_of_book_samples_do_not_unlock_order_flow_replay(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    (data_dir / "sample_spread_depth.csv").write_text(
+        "timestamp,symbol,spread_bps,bid_depth_eur,ask_depth_eur\n"
+        "2026-01-01T00:00:00+00:00,BTCZEUR,8.0,1000,900\n",
+        encoding="utf-8",
+    )
+
+    report = build_data_capability_scan_report(
+        run_id="pytest_top_of_book_only",
+        data_roots=(data_dir,),
+        memory_path=tmp_path / "missing_memory.json",
+    )
+    order_flow = report.alpha_family_status["order_flow_imbalance"]
+
+    assert order_flow["status"] == "WAITING_FOR_MORE_DATA"
+    assert "full_orderbook_replay_missing" in order_flow["blockers"]
+    assert "order_flow_imbalance" in report.scheduler_data_state["hypotheses_still_blocked"]
+    assert "order_flow_imbalance" not in report.scheduler_data_state["hypotheses_unlocked"]
+
+
 def test_derivatives_candles_are_not_misclassified_as_spot_execution_ohlcv(tmp_path):
     derivatives_dir = tmp_path / "data" / "research" / "canonical" / "derivatives" / "candles"
     derivatives_dir.mkdir(parents=True)

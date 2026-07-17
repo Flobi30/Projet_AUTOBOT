@@ -889,10 +889,17 @@ def _alpha_family_status(capability_by_id: Mapping[str, DataCapability]) -> dict
     for family, required in requirements.items():
         missing = [cap for cap in required if not capability_by_id[cap].available]
         available = [cap for cap in required if capability_by_id[cap].available]
+        top_of_book_only = (
+            family == "order_flow_imbalance"
+            and "orderbook_depth_snapshots" in available
+            and capability_by_id["orderbook_depth_snapshots"].quality_status == "sampled_top_of_book_depth"
+        )
         if family == "funding_basis" and "spot_perp_basis" in missing and capability_by_id["funding_rates"].available:
             status = "WAITING_FOR_MORE_DATA"
         elif missing:
             status = "DATA_MISSING"
+        elif top_of_book_only:
+            status = "WAITING_FOR_MORE_DATA"
         elif family in {"volatility_breakout", "long_trend", "cross_sectional_momentum", "relative_value"}:
             status = "DATA_AVAILABLE_BUT_CURRENT_CONFIG_REJECTED_OR_BENCHMARK"
         else:
@@ -906,6 +913,8 @@ def _alpha_family_status(capability_by_id: Mapping[str, DataCapability]) -> dict
         for item in missing:
             capability_blockers = tuple(capability_by_id[item].blockers)
             blockers.extend(capability_blockers or (f"{item}_missing",))
+        if top_of_book_only:
+            blockers.append("full_orderbook_replay_missing")
         statuses[family] = {
             "status": status,
             "available_capabilities": available,
