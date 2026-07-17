@@ -219,6 +219,7 @@ def build_data_capability_scan_report(
         canonical_manifest,
         derivatives_manifest,
         post_trade_manifest,
+        rejected_status,
     )
     report = DataCapabilityScanReport(
         run_id=run_id,
@@ -1024,6 +1025,7 @@ def _scheduler_data_state(
     canonical_manifest: Mapping[str, Any] | None = None,
     derivatives_manifest: Mapping[str, Any] | None = None,
     post_trade_manifest: Mapping[str, Any] | None = None,
+    rejected_status: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     manifest = dict(canonical_manifest or _latest_canonical_ohlcv_manifest(roots) or {})
     final_duplicate_count = sum(
@@ -1036,16 +1038,18 @@ def _scheduler_data_state(
         and int(manifest.get("canonical_row_count") or 0) > 0
         and final_duplicate_count == 0
     )
+    rejected = set((rejected_status or {}).keys())
     unlocked = [
         family
         for family, payload in alpha_status.items()
         if not payload.get("blockers")
         and payload.get("status") not in {"DATA_MISSING"}
+        and family not in rejected
     ]
     still_blocked = [
         family
         for family, payload in alpha_status.items()
-        if payload.get("blockers") or payload.get("status") == "DATA_MISSING"
+        if payload.get("blockers") or payload.get("status") == "DATA_MISSING" or family in rejected
     ]
     derivatives = dict(derivatives_manifest or _latest_kraken_futures_derivatives_manifest(roots) or {})
     post_trade = dict(post_trade_manifest or _latest_kraken_spot_post_trade_manifest(roots) or {})
@@ -1082,6 +1086,7 @@ def _scheduler_data_state(
         "liquidation_data_ready": capability_by_id["liquidation_events"].available,
         "hypotheses_unlocked": sorted(unlocked),
         "hypotheses_still_blocked": sorted(still_blocked),
+        "hypotheses_rejected_current_config": sorted(rejected),
     }
 
 

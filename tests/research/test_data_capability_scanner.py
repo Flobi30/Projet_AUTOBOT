@@ -374,6 +374,9 @@ def test_rejected_hypotheses_are_not_retestable_without_new_data(tmp_path):
     assert rejected["status"] == "REJECTED_CURRENT_CONFIG"
     assert rejected["retest_allowed"] is False
     assert rejected["reason"] == "blocked_until_new_data_signature_or_new_template"
+    assert "volatility_breakout" not in report.scheduler_data_state["hypotheses_unlocked"]
+    assert "volatility_breakout" in report.scheduler_data_state["hypotheses_still_blocked"]
+    assert "volatility_breakout" in report.scheduler_data_state["hypotheses_rejected_current_config"]
 
 
 def test_scanner_reads_rejected_history_from_sqlite_memory_store(tmp_path):
