@@ -237,6 +237,15 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
             "3600",
             "--open-interest-max-pages-per-symbol",
             "2",
+            "--collect-future-basis-history",
+            "--future-basis-backfill-start-at",
+            "2026-07-01T00:00:00+00:00",
+            "--future-basis-backfill-end-at",
+            "2026-07-02T00:00:00+00:00",
+            "--future-basis-interval-seconds",
+            "3600",
+            "--future-basis-max-pages-per-symbol",
+            "2",
             "--raw-retention-days",
             "7",
         ]
@@ -253,6 +262,11 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.open_interest_backfill_end_at == "2026-07-02T00:00:00+00:00"
     assert args.open_interest_interval_seconds == 3600
     assert args.open_interest_max_pages_per_symbol == 2
+    assert args.collect_future_basis_history is True
+    assert args.future_basis_backfill_start_at == "2026-07-01T00:00:00+00:00"
+    assert args.future_basis_backfill_end_at == "2026-07-02T00:00:00+00:00"
+    assert args.future_basis_interval_seconds == 3600
+    assert args.future_basis_max_pages_per_symbol == 2
     assert args.raw_retention_days == 7
     assert args.report_dir == "data/research/reports/kraken_futures_derivatives"
 
@@ -415,6 +429,139 @@ def test_public_open_interest_analytics_history_is_explicit_opt_in_and_not_a_tic
     assert result.paper_capital_allowed is False
     assert result.live_allowed is False
     assert result.promotable is False
+
+
+def test_public_future_basis_analytics_history_is_explicit_opt_in_and_same_quote_only(tmp_path):
+    class _FutureBasisClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/future-basis":
+                assert params == {
+                    "since": int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
+                    "to": int(datetime(2026, 7, 10, tzinfo=timezone.utc).timestamp()),
+                    "interval": 3_600,
+                }
+                self.calls.append((endpoint, params))
+                timestamps = [
+                    int((datetime(2026, 7, 1, tzinfo=timezone.utc) + timedelta(hours=index)).timestamp())
+                    for index in range(200)
+                ]
+                return {
+                    "result": {
+                        "timestamp": timestamps,
+                        "data": {"basis": ["0.001" for _timestamp in timestamps]},
+                        "more": False,
+                    }
+                }
+            return super().get_json(endpoint, params)
+
+    client = _FutureBasisClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_future_basis_analytics",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical" / "derivatives",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            collect_candles=False,
+            collect_future_basis_history=True,
+            future_basis_backfill_start_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            future_basis_backfill_end_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            future_basis_interval_seconds=3_600,
+            observed_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    dataset = next(item for item in result.datasets if item.dataset_id == "basis")
+    with Path(str(dataset.csv_path)).open("r", encoding="utf-8", newline="") as handle:
+        first_row = next(csv.DictReader(handle))
+    feature_snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="pytest_future_basis_features",
+            derivatives_manifest_path=Path(str(result.manifest_path)),
+            as_of_time=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+            feature_ids=("basis_bps",),
+        )
+    )
+
+    assert dataset.row_count == 200
+    assert first_row["basis_bps"] == "10"
+    assert first_row["timeframe"] == "1h"
+    assert first_row["confidence_status"] == "KRAKEN_FUTURES_FUTURE_BASIS"
+    assert first_row["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+    assert result.basis_history_ready is True
+    assert result.basis_confidence_status == "KRAKEN_FUTURES_FUTURE_BASIS"
+    assert feature_snapshot.status == "READY"
+    assert "BASIS_UNVERIFIED_ROWS_EXCLUDED" not in feature_snapshot.blockers
+    assert any(endpoint.endswith("/future-basis") for endpoint, _params in client.calls)
+    assert not any("order" in endpoint.lower() for endpoint, _params in client.calls)
+    assert result.paper_capital_allowed is False
+    assert result.live_allowed is False
+    assert result.promotable is False
+
+
+def test_future_basis_analytics_pagination_advances_without_duplicate_buckets(tmp_path):
+    class _PaginatedFutureBasisClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/future-basis":
+                assert params is not None
+                self.calls.append((endpoint, params))
+                start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                first_page = params["since"] == int(start.timestamp())
+                page_start = start if first_page else start + timedelta(hours=2)
+                timestamps = [
+                    int(page_start.timestamp()),
+                    int((page_start + timedelta(hours=1)).timestamp()),
+                ]
+                return {
+                    "result": {
+                        "timestamp": timestamps,
+                        "data": {"basis": ["0.001", "0.002"]},
+                        "more": first_page,
+                    }
+                }
+            return super().get_json(endpoint, params)
+
+    client = _PaginatedFutureBasisClient()
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_future_basis_pagination",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            collect_candles=False,
+            collect_future_basis_history=True,
+            future_basis_backfill_start_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            future_basis_backfill_end_at=datetime(2026, 7, 1, 5, tzinfo=timezone.utc),
+            future_basis_interval_seconds=3_600,
+            future_basis_max_pages_per_symbol=2,
+            observed_at=datetime(2026, 7, 1, 8, tzinfo=timezone.utc),
+        ),
+        client=client,
+    )
+
+    analytics_calls = [
+        params
+        for endpoint, params in client.calls
+        if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/future-basis"
+    ]
+    assert [item["since"] for item in analytics_calls] == [
+        int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp()),
+        int(datetime(2026, 7, 1, 2, tzinfo=timezone.utc).timestamp()),
+    ]
+    assert result.basis_history_row_count == 4
+    assert not any(item.get("reason") == "analytics_future_basis_pagination_non_advancing" for item in result.errors)
 
 
 def test_open_interest_analytics_pagination_advances_without_duplicate_buckets(tmp_path):

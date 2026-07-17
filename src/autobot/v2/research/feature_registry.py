@@ -16,6 +16,8 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from autobot.v2.contracts import FeatureValue, MarketIdentity
 
+from .derivatives_basis_contract import is_verified_basis_confidence
+
 
 READY = "READY"
 DATA_MISSING = "DATA_MISSING"
@@ -281,7 +283,7 @@ def _feature_value(
     if kind == "basis_bps":
         confidence = str(target.get("confidence_status") or "")
         basis = _number(target.get("basis_bps"))
-        if confidence != "MARK_INDEX_SAME_QUOTE":
+        if not is_verified_basis_confidence(confidence):
             return DATA_MISSING, None, {"reason": "basis_reference_unverified"}
         if basis is None:
             return DATA_MISSING, None, {"reason": "basis_missing"}

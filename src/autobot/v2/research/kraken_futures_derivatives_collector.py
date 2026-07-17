@@ -21,6 +21,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
+from .derivatives_basis_contract import (
+    KRAKEN_FUTURES_FUTURE_BASIS,
+    is_verified_basis_confidence,
+)
+
 
 KRAKEN_FUTURES_BASE_URL = "https://futures.kraken.com"
 TICKERS_ENDPOINT = "/derivatives/api/v3/tickers"
@@ -87,6 +92,15 @@ class KrakenFuturesCollectorConfig:
     open_interest_backfill_start_at: datetime | None = None
     open_interest_backfill_end_at: datetime | None = None
     open_interest_max_pages_per_symbol: int = 1
+    # ``future-basis`` is an exchange-provided relative basis series.  It is
+    # collected separately from the current ticker/candle derived basis, with
+    # an explicit range and page cap, so a current snapshot cannot silently
+    # masquerade as historical research data.
+    collect_future_basis_history: bool = False
+    future_basis_interval_seconds: int = 3_600
+    future_basis_backfill_start_at: datetime | None = None
+    future_basis_backfill_end_at: datetime | None = None
+    future_basis_max_pages_per_symbol: int = 1
     sleep_seconds: float = 0.0
     timeout_seconds: float = 20.0
     continue_on_error: bool = False
@@ -121,6 +135,8 @@ class KrakenFuturesCollectorConfig:
             ("candle_backfill_end_at", self.candle_backfill_end_at),
             ("open_interest_backfill_start_at", self.open_interest_backfill_start_at),
             ("open_interest_backfill_end_at", self.open_interest_backfill_end_at),
+            ("future_basis_backfill_start_at", self.future_basis_backfill_start_at),
+            ("future_basis_backfill_end_at", self.future_basis_backfill_end_at),
         ):
             if timestamp is not None and (timestamp.tzinfo is None or timestamp.utcoffset() is None):
                 raise ValueError(f"{label} must be timezone-aware when provided")
@@ -148,6 +164,20 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("open_interest_interval_seconds must be an official Kraken analytics interval")
         if self.open_interest_max_pages_per_symbol <= 0 or self.open_interest_max_pages_per_symbol > 50:
             raise ValueError("open_interest_max_pages_per_symbol must be between 1 and 50")
+        if self.future_basis_backfill_end_at is not None and self.future_basis_backfill_start_at is None:
+            raise ValueError("future_basis_backfill_end_at requires future_basis_backfill_start_at")
+        if (
+            self.future_basis_backfill_start_at is not None
+            and self.future_basis_backfill_end_at is not None
+            and self.future_basis_backfill_end_at <= self.future_basis_backfill_start_at
+        ):
+            raise ValueError("future_basis_backfill_end_at must be after future_basis_backfill_start_at")
+        if self.collect_future_basis_history and self.future_basis_backfill_start_at is None:
+            raise ValueError("collect_future_basis_history requires future_basis_backfill_start_at")
+        if self.future_basis_interval_seconds not in ALLOWED_ANALYTICS_INTERVAL_SECONDS:
+            raise ValueError("future_basis_interval_seconds must be an official Kraken analytics interval")
+        if self.future_basis_max_pages_per_symbol <= 0 or self.future_basis_max_pages_per_symbol > 50:
+            raise ValueError("future_basis_max_pages_per_symbol must be between 1 and 50")
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
         if unknown_ticks:
             raise ValueError(f"unsupported Kraken Futures tick types: {', '.join(unknown_ticks)}")
@@ -159,6 +189,10 @@ class KrakenFuturesCollectorConfig:
     @property
     def open_interest_backfill_enabled(self) -> bool:
         return self.open_interest_backfill_start_at is not None
+
+    @property
+    def future_basis_backfill_enabled(self) -> bool:
+        return self.future_basis_backfill_start_at is not None
 
 
 @dataclass(frozen=True)
@@ -342,6 +376,7 @@ def collect_kraken_futures_derivatives(
     ticker_rows: list[dict[str, Any]] = []
     candle_rows: list[dict[str, Any]] = []
     basis_rows: list[dict[str, Any]] = []
+    current_ticker_basis_rows: list[dict[str, Any]] = []
     open_interest_rows: list[dict[str, Any]] = []
     invalid_rows: list[dict[str, Any]] = []
 
@@ -354,7 +389,8 @@ def collect_kraken_futures_derivatives(
                 ingestion_time=collection_time,
             )
         )
-        basis_rows.extend(_basis_rows_from_tickers(ticker_rows, invalid_rows=invalid_rows))
+        current_ticker_basis_rows = _basis_rows_from_tickers(ticker_rows, invalid_rows=invalid_rows)
+        basis_rows.extend(current_ticker_basis_rows)
 
     for mapping in mappings:
         if config.collect_funding:
@@ -454,6 +490,41 @@ def collect_kraken_futures_derivatives(
                 if analytics_page_params is None:
                     break
 
+        if config.collect_future_basis_history:
+            endpoint = f"{ANALYTICS_ENDPOINT_PREFIX}/{mapping.futures_symbol}/future-basis"
+            analytics_page_params = _initial_future_basis_page_params(config, collection_time=collection_time)
+            for page_index in range(config.future_basis_max_pages_per_symbol):
+                payload = _safe_fetch(
+                    api,
+                    endpoint,
+                    raw_run_dir / f"{mapping.futures_symbol}_future_basis_page_{page_index + 1}.json",
+                    errors,
+                    config.continue_on_error,
+                    params=analytics_page_params,
+                )
+                raw_response_count += 1 if payload is not None else 0
+                if payload:
+                    basis_rows.extend(
+                        _future_basis_rows_from_analytics_payload(
+                            payload,
+                            mapping,
+                            interval_seconds=config.future_basis_interval_seconds,
+                            temporal_status="HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+                            invalid_rows=invalid_rows,
+                            ingestion_time=collection_time,
+                        )
+                    )
+                _sleep(config.sleep_seconds)
+                analytics_page_params = _next_future_basis_page_params(
+                    payload,
+                    current_params=analytics_page_params,
+                    config=config,
+                    mapping=mapping,
+                    errors=errors,
+                )
+                if analytics_page_params is None:
+                    break
+
     # A candle-derived basis is historical only when mark and reference close
     # values are aligned at the same timestamp and share an explicit quote
     # currency.  This deliberately rejects any implicit USD/EUR comparison.
@@ -528,6 +599,7 @@ def collect_kraken_futures_derivatives(
             "futures_symbol",
             "base_asset",
             "quote_asset",
+            "timeframe",
             "basis_bps",
             "mark_price",
             "index_or_reference_price",
@@ -585,16 +657,17 @@ def collect_kraken_futures_derivatives(
         ),
         incremental_paths=(ticker_path,) if config.collect_tickers else (),
     )
-    basis_history_rows, basis_history_path, _basis_history_duplicates = _compact_canonical_history(
+    basis_history_rows, basis_history_path, _basis_history_duplicates = _compact_basis_history(
         config.canonical_dir / "basis",
         history_filename="basis_history.csv",
-        key_fields=("exchange", "futures_symbol", "timestamp", "calculation_method"),
         fieldnames=(
             "schema_version", "timestamp", "event_time", "available_time", "ingestion_time", "temporal_status", "exchange",
-            "futures_symbol", "base_asset", "quote_asset", "basis_bps", "mark_price", "index_or_reference_price",
+            "futures_symbol", "base_asset", "quote_asset", "timeframe", "basis_bps", "mark_price", "index_or_reference_price",
             "calculation_method", "confidence_status", "source", "source_endpoint",
         ),
-        incremental_paths=(basis_path,) if (config.collect_tickers or config.collect_candles) else (),
+        incremental_paths=(basis_path,)
+        if (config.collect_tickers or config.collect_candles or config.collect_future_basis_history)
+        else (),
     )
     analytics_open_interest_history_path = config.canonical_dir / "open_interest" / "open_interest_history.csv"
     if config.collect_open_interest_history or analytics_open_interest_history_path.exists():
@@ -629,7 +702,7 @@ def collect_kraken_futures_derivatives(
     valid_basis_history_rows = [
         row
         for row in basis_history_rows
-        if row.get("confidence_status") == "MARK_INDEX_SAME_QUOTE"
+        if is_verified_basis_confidence(row.get("confidence_status"))
     ]
     open_interest_history_ready = _forward_history_ready(open_interest_history_rows, mappings)
     basis_history_ready = _forward_history_ready(valid_basis_history_rows, mappings)
@@ -687,7 +760,7 @@ def collect_kraken_futures_derivatives(
                 and any(_safe_float(row.get("predicted_funding_rate")) is not None for row in ticker_history_rows)
             )
         ),
-        basis_current_ready=bool(basis_rows) or (basis_history_is_fresh and bool(valid_basis_history_rows)),
+        basis_current_ready=bool(current_ticker_basis_rows) or (basis_history_is_fresh and bool(valid_basis_history_rows)),
         basis_history_ready=basis_history_ready,
         basis_confidence_status=_aggregate_basis_confidence(basis_rows or valid_basis_history_rows),
         derivatives_data_quality=_quality_label(
@@ -1145,6 +1218,81 @@ def _next_open_interest_page_params(
     return params
 
 
+def _initial_future_basis_page_params(
+    config: KrakenFuturesCollectorConfig,
+    *,
+    collection_time: datetime,
+) -> dict[str, int]:
+    """Build one bounded public Kraken Future Basis analytics request."""
+
+    if not config.future_basis_backfill_enabled:
+        raise ValueError("future-basis collection requires an explicit start timestamp")
+    assert config.future_basis_backfill_start_at is not None
+    end_at = config.future_basis_backfill_end_at or collection_time
+    if end_at <= config.future_basis_backfill_start_at:
+        raise ValueError("future-basis collection end must be after its start")
+    return {
+        "since": int(config.future_basis_backfill_start_at.timestamp()),
+        "to": int(end_at.timestamp()),
+        "interval": config.future_basis_interval_seconds,
+    }
+
+
+def _next_future_basis_page_params(
+    payload: Mapping[str, Any] | None,
+    *,
+    current_params: Mapping[str, int] | None,
+    config: KrakenFuturesCollectorConfig,
+    mapping: KrakenFuturesInstrumentMapping,
+    errors: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    """Advance exchange basis pages without accepting duplicate buckets."""
+
+    if not payload or current_params is None:
+        return None
+    result = payload.get("result")
+    if not isinstance(result, Mapping) or not bool(result.get("more")):
+        return None
+    timestamps = result.get("timestamp")
+    if not isinstance(timestamps, Sequence) or isinstance(timestamps, (str, bytes)):
+        errors.append(
+            {
+                "dataset": "basis",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_future_basis_pagination_missing_timestamps",
+            }
+        )
+        return None
+    parsed_timestamps = [_parse_timestamp(value) for value in timestamps]
+    latest = max((value for value in parsed_timestamps if value is not None), default=None)
+    if latest is None:
+        errors.append(
+            {
+                "dataset": "basis",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_future_basis_pagination_invalid_timestamp",
+            }
+        )
+        return None
+    next_since = int(latest.timestamp()) + config.future_basis_interval_seconds
+    current_since = int(current_params.get("since", 0))
+    end_at = int(current_params.get("to", 0))
+    if next_since <= current_since:
+        errors.append(
+            {
+                "dataset": "basis",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_future_basis_pagination_non_advancing",
+            }
+        )
+        return None
+    if end_at and next_since >= end_at:
+        return None
+    params = dict(current_params)
+    params["since"] = next_since
+    return params
+
+
 def _open_interest_rows_from_analytics_payload(
     payload: Mapping[str, Any],
     mapping: KrakenFuturesInstrumentMapping,
@@ -1251,6 +1399,111 @@ def _open_interest_rows_from_analytics_payload(
                 "open_interest_close": _stable_number(open_interest_close),
                 "source": "kraken_futures_market_analytics",
                 "source_endpoint": f"{ANALYTICS_ENDPOINT_PREFIX}/{{symbol}}/open-interest",
+            }
+        )
+    return rows
+
+
+def _future_basis_rows_from_analytics_payload(
+    payload: Mapping[str, Any],
+    mapping: KrakenFuturesInstrumentMapping,
+    *,
+    interval_seconds: int,
+    temporal_status: str,
+    invalid_rows: list[dict[str, Any]],
+    ingestion_time: datetime,
+) -> list[dict[str, Any]]:
+    """Normalize Kraken's public same-contract ``future-basis`` buckets.
+
+    Kraken documents this endpoint as a relative basis series for the supplied
+    perpetual market.  The raw response is retained in ``raw/``; this
+    canonical form expresses the same value in basis points and records the
+    conversion method.  No AUTOBOT EUR spot price is used or inferred.
+    """
+
+    result = payload.get("result")
+    if not isinstance(result, Mapping):
+        invalid_rows.append(
+            {
+                "dataset": "basis",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_future_basis_result_missing",
+            }
+        )
+        return []
+    timestamps = result.get("timestamp")
+    data = result.get("data")
+    values = data.get("basis") if isinstance(data, Mapping) else None
+    if (
+        not isinstance(timestamps, Sequence)
+        or isinstance(timestamps, (str, bytes))
+        or not isinstance(values, Sequence)
+        or isinstance(values, (str, bytes))
+        or len(timestamps) != len(values)
+    ):
+        invalid_rows.append(
+            {
+                "dataset": "basis",
+                "futures_symbol": mapping.futures_symbol,
+                "reason": "analytics_future_basis_timestamp_data_mismatch",
+            }
+        )
+        return []
+
+    timeframe = _analytics_timeframe(interval_seconds)
+    rows: list[dict[str, Any]] = []
+    for timestamp_value, basis_value in zip(timestamps, values):
+        timestamp = _parse_timestamp(timestamp_value)
+        basis_relative = _safe_float(basis_value)
+        if timestamp is None or basis_relative is None:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_future_basis_value_invalid",
+                }
+            )
+            continue
+        basis_bps = basis_relative * 10_000.0
+        if abs(basis_bps) > 5_000.0:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_future_basis_bps_anomaly",
+                }
+            )
+            continue
+        available_time = timestamp + timedelta(seconds=interval_seconds)
+        if available_time > ingestion_time:
+            invalid_rows.append(
+                {
+                    "dataset": "basis",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "analytics_future_basis_unclosed_bucket",
+                }
+            )
+            continue
+        rows.append(
+            {
+                "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
+                "timestamp": timestamp.isoformat(),
+                "event_time": timestamp.isoformat(),
+                "available_time": available_time.isoformat(),
+                "ingestion_time": ingestion_time.isoformat(),
+                "temporal_status": temporal_status,
+                "exchange": "kraken_futures",
+                "futures_symbol": mapping.futures_symbol,
+                "base_asset": mapping.base_asset,
+                "quote_asset": mapping.quote_asset,
+                "timeframe": timeframe,
+                "basis_bps": _stable_number(basis_bps),
+                "mark_price": "",
+                "index_or_reference_price": "",
+                "calculation_method": "kraken_futures_future_basis_relative_to_bps",
+                "confidence_status": KRAKEN_FUTURES_FUTURE_BASIS,
+                "source": "kraken_futures_market_analytics",
+                "source_endpoint": f"{ANALYTICS_ENDPOINT_PREFIX}/{{symbol}}/future-basis",
             }
         )
     return rows
@@ -1392,6 +1645,7 @@ def _basis_rows_from_tickers(rows: Sequence[Mapping[str, Any]], *, invalid_rows:
                 "futures_symbol": row["futures_symbol"],
                 "base_asset": row["base_asset"],
                 "quote_asset": row["quote_asset"],
+                "timeframe": "snapshot",
                 "basis_bps": _stable_number(basis),
                 "mark_price": row["mark_price"],
                 "index_or_reference_price": row["index_price"],
@@ -1496,6 +1750,7 @@ def _basis_rows_from_aligned_candles(
                 "futures_symbol": futures_symbol,
                 "base_asset": mark_row["base_asset"],
                 "quote_asset": mark_quote,
+                "timeframe": timeframe,
                 "basis_bps": _stable_number(basis),
                 "mark_price": mark_row["close"],
                 "index_or_reference_price": spot_row["close"],
@@ -1624,6 +1879,78 @@ def _compact_canonical_history(
     return deduped_rows, history_path, duplicate_count
 
 
+def _compact_basis_history(
+    dataset_dir: Path,
+    *,
+    history_filename: str,
+    fieldnames: Sequence[str],
+    incremental_paths: Sequence[Path] | None = None,
+) -> tuple[list[dict[str, Any]], Path, int]:
+    """Publish one canonical basis observation per contract and timestamp.
+
+    The immutable per-run files remain the audit record.  The compact history
+    is a feature input, so it must not contain competing basis definitions at
+    the same timestamp.  Exchange-provided ``future-basis`` analytics win over
+    a locally derived mark/index value; both still require an explicit
+    same-quote contract.  Unverified rows are retained only in the immutable
+    run artifacts and are never selected for canonical feature history.
+    """
+
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    history_path = dataset_dir / history_filename
+    if history_path.exists() and incremental_paths is not None:
+        run_paths = [history_path]
+        seen_paths = {history_path.resolve()}
+        for path in incremental_paths:
+            resolved = path.resolve()
+            if path.exists() and resolved not in seen_paths:
+                run_paths.append(path)
+                seen_paths.add(resolved)
+    else:
+        run_paths = sorted(path for path in dataset_dir.glob("*.csv") if path.name != history_filename)
+
+    selected: dict[tuple[str, str, str], dict[str, Any]] = {}
+    duplicate_count = 0
+    for path in run_paths:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                if not row.get("timestamp") or not is_verified_basis_confidence(row.get("confidence_status")):
+                    continue
+                key = (
+                    str(row.get("exchange") or ""),
+                    str(row.get("futures_symbol") or ""),
+                    str(row.get("timestamp") or ""),
+                )
+                if not all(key):
+                    continue
+                candidate = dict(row)
+                previous = selected.get(key)
+                if previous is not None:
+                    duplicate_count += 1
+                    selected[key] = min(previous, candidate, key=_basis_history_preference_key)
+                else:
+                    selected[key] = candidate
+    rows = [selected[key] for key in sorted(selected)]
+    _write_csv(rows, history_path, fieldnames)
+    return rows, history_path, duplicate_count
+
+
+def _basis_history_preference_key(row: Mapping[str, Any]) -> tuple[int, int, str, str, str]:
+    """Rank verified basis sources without making an implicit conversion."""
+
+    confidence = str(row.get("confidence_status") or "")
+    source_rank = 0 if confidence == KRAKEN_FUTURES_FUTURE_BASIS else 1
+    timeframe = str(row.get("timeframe") or "").lower()
+    timeframe_rank = 0 if timeframe == "1h" else 1
+    return (
+        source_rank,
+        timeframe_rank,
+        str(row.get("calculation_method") or ""),
+        str(row.get("source_endpoint") or ""),
+        json.dumps(dict(row), sort_keys=True),
+    )
+
+
 def _load_or_compact_canonical_history(
     dataset_dir: Path,
     *,
@@ -1721,7 +2048,7 @@ def _dataset_summary(
 def _basis_quality(rows: Sequence[Mapping[str, Any]]) -> str:
     if not rows:
         return "missing"
-    if all(row.get("confidence_status") == "MARK_INDEX_SAME_QUOTE" for row in rows):
+    if all(is_verified_basis_confidence(row.get("confidence_status")) for row in rows):
         return "current_basis_same_quote_ready"
     return "basis_reference_unverified"
 
@@ -1749,6 +2076,10 @@ def _aggregate_basis_confidence(rows: Sequence[Mapping[str, Any]]) -> str:
     statuses = {str(row.get("confidence_status") or "") for row in rows}
     if statuses == {"MARK_INDEX_SAME_QUOTE"}:
         return "MARK_INDEX_SAME_QUOTE"
+    if statuses == {KRAKEN_FUTURES_FUTURE_BASIS}:
+        return KRAKEN_FUTURES_FUTURE_BASIS
+    if statuses and all(is_verified_basis_confidence(status) for status in statuses):
+        return "VERIFIED_SAME_QUOTE_MIXED"
     return "BASIS_REFERENCE_UNVERIFIED"
 
 
@@ -1772,6 +2103,15 @@ def _time_coverage_seconds(rows: Sequence[Mapping[str, Any]]) -> float:
     if start is None or end is None:
         return 0.0
     return max(0.0, (end - start).total_seconds())
+
+
+def _analytics_timeframe(interval_seconds: int) -> str:
+    """Return the canonical label for an official analytics bucket size."""
+
+    for label, seconds in TIMEFRAME_SECONDS.items():
+        if seconds == interval_seconds:
+            return label
+    return f"analytics_{interval_seconds}s"
 
 
 def _history_is_fresh(rows: Sequence[Mapping[str, Any]], now: datetime) -> bool:

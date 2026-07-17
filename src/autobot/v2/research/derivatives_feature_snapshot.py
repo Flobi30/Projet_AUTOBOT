@@ -20,6 +20,11 @@ import uuid
 
 from autobot.v2.contracts import MarketIdentity, contract_to_dict
 
+from .derivatives_basis_contract import (
+    accepted_basis_confidence_statuses,
+    basis_contract_metadata,
+    is_verified_basis_confidence,
+)
 from .feature_registry import FeatureRegistry, default_feature_registry, validate_historical_shadow_parity
 
 
@@ -128,10 +133,12 @@ def inspect_derivatives_feature_snapshot_manifest(
     basis_contract = payload.get("basis_contract")
     if not isinstance(basis_contract, Mapping):
         raise DerivativesFeatureSnapshotManifestError("derivatives snapshot basis_contract is required")
+    accepted_statuses = accepted_basis_confidence_statuses(basis_contract)
     basis_same_quote_verified = (
         basis_contract.get("same_quote_required") is True
         and basis_contract.get("implicit_usd_eur_conversion_allowed") is False
-        and str(basis_contract.get("accepted_confidence_status") or "") == "MARK_INDEX_SAME_QUOTE"
+        and bool(accepted_statuses)
+        and all(is_verified_basis_confidence(status) for status in accepted_statuses)
     )
     if not basis_same_quote_verified:
         raise DerivativesFeatureSnapshotManifestError("derivatives snapshot basis contract is not same-quote verified")
@@ -294,13 +301,11 @@ def build_derivatives_feature_snapshot(
     mappings = _validated_market_mappings(manifest)
     source_rows, mapping_rows_excluded = _filter_rows_by_mapping(source_rows, mappings)
     invalid_basis_rows = sum(
-        1
-        for row in source_rows.get("basis", ())
-        if str(row.get("confidence_status") or "") != "MARK_INDEX_SAME_QUOTE"
+        1 for row in source_rows.get("basis", ()) if not is_verified_basis_confidence(row.get("confidence_status"))
     )
     if "basis" in source_rows:
         source_rows["basis"] = [
-            row for row in source_rows["basis"] if str(row.get("confidence_status") or "") == "MARK_INDEX_SAME_QUOTE"
+            row for row in source_rows["basis"] if is_verified_basis_confidence(row.get("confidence_status"))
         ]
     market_mapping_fingerprint = _fingerprint({"mappings": mappings})
     source_snapshot_fingerprint = _fingerprint(
@@ -424,13 +429,9 @@ def build_derivatives_feature_snapshot(
             "market_mapping_rows_excluded": mapping_rows_excluded,
             "runtime_parity_proven": runtime_parity_proven,
         },
-        basis_contract={
-            "calculation_method": "mark_over_index_same_quote",
-            "same_quote_required": True,
-            "accepted_confidence_status": "MARK_INDEX_SAME_QUOTE",
-            "invalid_or_unverified_rows_excluded": invalid_basis_rows,
-            "implicit_usd_eur_conversion_allowed": False,
-        },
+        basis_contract=basis_contract_metadata(
+            invalid_or_unverified_rows_excluded=invalid_basis_rows,
+        ),
     )
     manifest_path = config.manifest_dir / f"{config.run_id}_derivatives_feature_snapshot.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
