@@ -38,7 +38,10 @@ case "${COLLECTION_MODE}" in
     COLLECTION_FLAGS=(--skip-funding --skip-candles)
     ;;
   funding_refresh)
-    COLLECTION_FLAGS=(--skip-tickers --skip-candles)
+    # Funding rows are only marked forward-captured when the public endpoint
+    # returns a fresh timestamp inside this explicit budget. Older rows remain
+    # historical research data.
+    COLLECTION_FLAGS=(--skip-tickers --skip-candles --forward-capture-max-lag-seconds 7200)
     ;;
   open_interest_refresh)
     # A deliberately small overlap absorbs scheduler jitter and is compacted
@@ -53,6 +56,7 @@ case "${COLLECTION_MODE}" in
       --open-interest-backfill-end-at "${OI_END}"
       --open-interest-interval-seconds 3600
       --open-interest-max-pages-per-symbol 1
+      --forward-capture-max-lag-seconds 900
     )
     ;;
   future_basis_refresh)
@@ -68,6 +72,7 @@ case "${COLLECTION_MODE}" in
       --future-basis-backfill-end-at "${BASIS_END}"
       --future-basis-interval-seconds 3600
       --future-basis-max-pages-per-symbol 1
+      --forward-capture-max-lag-seconds 900
     )
     ;;
   *)

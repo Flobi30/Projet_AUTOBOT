@@ -721,6 +721,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Hard maximum future-basis analytics pages per futures symbol (default: 1)",
     )
+    futures_derivatives.add_argument(
+        "--forward-capture-max-lag-seconds",
+        type=int,
+        default=None,
+        help=(
+            "Explicitly tag only newly observed, completed public derivatives observations within this lag budget; "
+            "research-only and never a promotion or execution switch"
+        ),
+    )
     futures_derivatives.add_argument("--raw-dir", default="data/research/raw/kraken_futures")
     futures_derivatives.add_argument("--canonical-dir", default="data/research/canonical/derivatives")
     futures_derivatives.add_argument("--manifest-dir", default="data/research/manifests")
@@ -3178,6 +3187,7 @@ def _cmd_collect_kraken_futures_derivatives(args: argparse.Namespace) -> int:
             ),
             future_basis_interval_seconds=args.future_basis_interval_seconds,
             future_basis_max_pages_per_symbol=args.future_basis_max_pages_per_symbol,
+            forward_capture_max_lag_seconds=args.forward_capture_max_lag_seconds,
             sleep_seconds=args.sleep_seconds,
             timeout_seconds=args.timeout_seconds,
             continue_on_error=args.continue_on_error,

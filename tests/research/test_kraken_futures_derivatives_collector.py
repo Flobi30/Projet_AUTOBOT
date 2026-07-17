@@ -24,6 +24,7 @@ from autobot.v2.research.kraken_futures_derivatives_collector import (
     KrakenFuturesCollectorConfig,
     _basis_rows_from_aligned_candles,
     _compact_canonical_history,
+    _dedupe_rows,
     _quality_label,
     assert_public_kraken_futures_endpoint,
     calculate_basis_bps,
@@ -246,6 +247,8 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
             "3600",
             "--future-basis-max-pages-per-symbol",
             "2",
+            "--forward-capture-max-lag-seconds",
+            "900",
             "--raw-retention-days",
             "7",
         ]
@@ -267,6 +270,7 @@ def test_collect_kraken_futures_derivatives_cli_is_registered():
     assert args.future_basis_backfill_end_at == "2026-07-02T00:00:00+00:00"
     assert args.future_basis_interval_seconds == 3600
     assert args.future_basis_max_pages_per_symbol == 2
+    assert args.forward_capture_max_lag_seconds == 900
     assert args.raw_retention_days == 7
     assert args.report_dir == "data/research/reports/kraken_futures_derivatives"
 
@@ -562,6 +566,117 @@ def test_future_basis_analytics_pagination_advances_without_duplicate_buckets(tm
     ]
     assert result.basis_history_row_count == 4
     assert not any(item.get("reason") == "analytics_future_basis_pagination_non_advancing" for item in result.errors)
+
+
+def test_forward_capture_marks_only_fresh_completed_analytics_buckets(tmp_path):
+    class _ForwardCaptureClient(_FakeKrakenFuturesClient):
+        def get_json(self, endpoint, params=None):
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/future-basis":
+                self.calls.append((endpoint, params))
+                return {
+                    "result": {
+                        "timestamp": [
+                            int(datetime(2026, 7, 1, hour, tzinfo=timezone.utc).timestamp())
+                            for hour in (1, 2, 3)
+                        ],
+                        "data": {"basis": ["0.001", "0.001", "0.001"]},
+                        "more": False,
+                    }
+                }
+            if endpoint == f"{ANALYTICS_ENDPOINT_PREFIX}/PF_XBTUSD/open-interest":
+                self.calls.append((endpoint, params))
+                return {
+                    "result": {
+                        "timestamp": [
+                            int(datetime(2026, 7, 1, hour, tzinfo=timezone.utc).timestamp())
+                            for hour in (1, 2, 3)
+                        ],
+                        "data": [["10", "11", "9", "10"] for _ in range(3)],
+                        "more": False,
+                    }
+                }
+            return super().get_json(endpoint, params)
+
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_forward_capture",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_funding=False,
+            collect_tickers=False,
+            collect_candles=False,
+            collect_open_interest_history=True,
+            open_interest_backfill_start_at=datetime(2026, 7, 1, 1, tzinfo=timezone.utc),
+            open_interest_backfill_end_at=datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+            collect_future_basis_history=True,
+            future_basis_backfill_start_at=datetime(2026, 7, 1, 1, tzinfo=timezone.utc),
+            future_basis_backfill_end_at=datetime(2026, 7, 1, 4, tzinfo=timezone.utc),
+            forward_capture_max_lag_seconds=600,
+            observed_at=datetime(2026, 7, 1, 4, 5, tzinfo=timezone.utc),
+        ),
+        client=_ForwardCaptureClient(),
+    )
+
+    for history_path in (result.basis_history_path, result.open_interest_history_path):
+        assert history_path is not None
+        with Path(history_path).open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        fresh = next(row for row in rows if row["timestamp"] == "2026-07-01T03:00:00+00:00")
+        historical = next(row for row in rows if row["timestamp"] == "2026-07-01T02:00:00+00:00")
+        assert fresh["temporal_status"] == "AVAILABLE_AFTER_FORWARD_CAPTURE"
+        assert fresh["available_time"] == "2026-07-01T04:05:00+00:00"
+        assert historical["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+        assert historical["available_time"] == "2026-07-01T03:00:00+00:00"
+
+
+def test_fresh_funding_capture_is_explicit_and_historical_rows_stay_historical(tmp_path):
+    result = collect_kraken_futures_derivatives(
+        KrakenFuturesCollectorConfig(
+            run_id="pytest_forward_funding",
+            priority_assets=("BTC",),
+            max_symbols=1,
+            raw_dir=tmp_path / "raw",
+            canonical_dir=tmp_path / "canonical",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+            collect_tickers=False,
+            collect_candles=False,
+            forward_capture_max_lag_seconds=600,
+            observed_at=datetime(2026, 7, 10, 0, 5, tzinfo=timezone.utc),
+        ),
+        client=_FakeKrakenFuturesClient(),
+    )
+
+    assert result.funding_history_path is not None
+    with Path(result.funding_history_path).open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    fresh = next(row for row in rows if row["timestamp"] == "2026-07-10T00:00:00+00:00")
+    historical = next(row for row in rows if row["timestamp"] == "2026-07-09T23:00:00+00:00")
+    assert fresh["temporal_status"] == "AVAILABLE_AFTER_FORWARD_CAPTURE"
+    assert fresh["available_time"] == "2026-07-10T00:05:00+00:00"
+    assert historical["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+
+
+def test_canonical_dedupe_prefers_forward_capture_without_rewriting_history():
+    historical = {
+        "timestamp": "2026-07-01T03:00:00+00:00",
+        "temporal_status": "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+        "ingestion_time": "2026-07-10T00:00:00+00:00",
+    }
+    forward = {
+        **historical,
+        "temporal_status": "AVAILABLE_AFTER_FORWARD_CAPTURE",
+        "ingestion_time": "2026-07-01T04:05:00+00:00",
+    }
+
+    rows, duplicate_count = _dedupe_rows([historical, forward], ("timestamp",))
+
+    assert duplicate_count == 1
+    assert rows == [forward]
 
 
 def test_open_interest_analytics_pagination_advances_without_duplicate_buckets(tmp_path):

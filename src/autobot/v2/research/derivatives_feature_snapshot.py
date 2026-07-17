@@ -703,6 +703,7 @@ def _runtime_parity_proven(source_rows: Mapping[str, Sequence[Mapping[str, Any]]
                 "AVAILABLE_AT_EVENT",
                 "AVAILABLE_AFTER_BAR_CLOSE",
                 "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
+                "AVAILABLE_AFTER_FORWARD_CAPTURE",
             }:
                 return False
     return True

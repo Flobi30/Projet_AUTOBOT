@@ -12,6 +12,7 @@ from autobot.v2.research.derivatives_feature_snapshot import (
     DerivativesFeatureSnapshotManifestError,
     DerivativesFeatureSnapshotConfig,
     build_derivatives_feature_snapshot,
+    _runtime_parity_proven,
     inspect_derivatives_feature_snapshot_manifest,
 )
 from autobot.v2.research.manifested_experiment import build_manifested_experiment_spec
@@ -267,6 +268,16 @@ def test_derivatives_feature_snapshot_cli_is_registered():
         ]
     )
     assert runner_args.derivatives_feature_snapshot_manifest == "derivatives.json"
+
+
+def test_forward_captured_derivatives_rows_are_runtime_parity_eligible():
+    row = _row(
+        AS_OF - timedelta(hours=1),
+        available_time=AS_OF.isoformat(),
+        temporal_status="AVAILABLE_AFTER_FORWARD_CAPTURE",
+    )
+
+    assert _runtime_parity_proven({"funding": [row], "basis": [row], "open_interest": [row]}) is True
 
 
 def _derivatives_manifest(

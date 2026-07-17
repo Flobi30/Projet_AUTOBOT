@@ -53,6 +53,9 @@ DERIVATIVES_SCHEMA_VERSION = 2
 FORWARD_HISTORY_MIN_COVERAGE_SECONDS = 7 * 24 * 60 * 60
 FORWARD_HISTORY_MIN_OBSERVATIONS_PER_SYMBOL = 96
 CURRENT_DERIVATIVES_SNAPSHOT_MAX_AGE_SECONDS = 60 * 60
+HISTORICAL_BACKFILL_TEMPORAL_STATUS = "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+FORWARD_CAPTURE_TEMPORAL_STATUS = "AVAILABLE_AFTER_FORWARD_CAPTURE"
+FORWARD_CAPTURE_MAX_LAG_SECONDS = 6 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,10 @@ class KrakenFuturesCollectorConfig:
     future_basis_backfill_start_at: datetime | None = None
     future_basis_backfill_end_at: datetime | None = None
     future_basis_max_pages_per_symbol: int = 1
+    # Explicit opt-in only.  It records that a completed public observation was
+    # first captured close to its completion time; it never restamps a
+    # historical backfill or makes a strategy promotable.
+    forward_capture_max_lag_seconds: int | None = None
     sleep_seconds: float = 0.0
     timeout_seconds: float = 20.0
     continue_on_error: bool = False
@@ -178,6 +185,13 @@ class KrakenFuturesCollectorConfig:
             raise ValueError("future_basis_interval_seconds must be an official Kraken analytics interval")
         if self.future_basis_max_pages_per_symbol <= 0 or self.future_basis_max_pages_per_symbol > 50:
             raise ValueError("future_basis_max_pages_per_symbol must be between 1 and 50")
+        if self.forward_capture_max_lag_seconds is not None and not (
+            1 <= self.forward_capture_max_lag_seconds <= FORWARD_CAPTURE_MAX_LAG_SECONDS
+        ):
+            raise ValueError(
+                "forward_capture_max_lag_seconds must be between 1 and "
+                f"{FORWARD_CAPTURE_MAX_LAG_SECONDS} when provided"
+            )
         unknown_ticks = sorted(set(self.tick_types) - ALLOWED_CHART_TICK_TYPES)
         if unknown_ticks:
             raise ValueError(f"unsupported Kraken Futures tick types: {', '.join(unknown_ticks)}")
@@ -193,6 +207,10 @@ class KrakenFuturesCollectorConfig:
     @property
     def future_basis_backfill_enabled(self) -> bool:
         return self.future_basis_backfill_start_at is not None
+
+    @property
+    def forward_capture_enabled(self) -> bool:
+        return self.forward_capture_max_lag_seconds is not None
 
 
 @dataclass(frozen=True)
@@ -410,6 +428,7 @@ def collect_kraken_futures_derivatives(
                         mapping,
                         invalid_rows=invalid_rows,
                         ingestion_time=collection_time,
+                        forward_capture_max_lag_seconds=config.forward_capture_max_lag_seconds,
                     )
                 )
             _sleep(config.sleep_seconds)
@@ -474,9 +493,10 @@ def collect_kraken_futures_derivatives(
                             payload,
                             mapping,
                             interval_seconds=config.open_interest_interval_seconds,
-                            temporal_status="HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+                            temporal_status=HISTORICAL_BACKFILL_TEMPORAL_STATUS,
                             invalid_rows=invalid_rows,
                             ingestion_time=collection_time,
+                            forward_capture_max_lag_seconds=config.forward_capture_max_lag_seconds,
                         )
                     )
                 _sleep(config.sleep_seconds)
@@ -509,9 +529,10 @@ def collect_kraken_futures_derivatives(
                             payload,
                             mapping,
                             interval_seconds=config.future_basis_interval_seconds,
-                            temporal_status="HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+                            temporal_status=HISTORICAL_BACKFILL_TEMPORAL_STATUS,
                             invalid_rows=invalid_rows,
                             ingestion_time=collection_time,
+                            forward_capture_max_lag_seconds=config.forward_capture_max_lag_seconds,
                         )
                     )
                 _sleep(config.sleep_seconds)
@@ -1301,6 +1322,7 @@ def _open_interest_rows_from_analytics_payload(
     temporal_status: str,
     invalid_rows: list[dict[str, Any]],
     ingestion_time: datetime,
+    forward_capture_max_lag_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize Kraken's public open-interest analytics OHLC buckets.
 
@@ -1364,8 +1386,14 @@ def _open_interest_rows_from_analytics_payload(
                 }
             )
             continue
-        available_time = timestamp + timedelta(seconds=interval_seconds)
-        if available_time > ingestion_time:
+        temporal_metadata = _completed_analytics_temporal_metadata(
+            timestamp,
+            interval_seconds=interval_seconds,
+            ingestion_time=ingestion_time,
+            historical_temporal_status=temporal_status,
+            forward_capture_max_lag_seconds=forward_capture_max_lag_seconds,
+        )
+        if temporal_metadata is None:
             invalid_rows.append(
                 {
                     "dataset": "open_interest_history",
@@ -1374,6 +1402,7 @@ def _open_interest_rows_from_analytics_payload(
                 }
             )
             continue
+        available_time, row_temporal_status = temporal_metadata
         rows.append(
             {
                 "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
@@ -1385,7 +1414,7 @@ def _open_interest_rows_from_analytics_payload(
                 # that became available to AUTOBOT at ingestion, even when
                 # the exchange bucket itself had closed earlier.  It must not
                 # be treated as evidence of a continuously running collector.
-                "temporal_status": temporal_status,
+                "temporal_status": row_temporal_status,
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,
@@ -1412,6 +1441,7 @@ def _future_basis_rows_from_analytics_payload(
     temporal_status: str,
     invalid_rows: list[dict[str, Any]],
     ingestion_time: datetime,
+    forward_capture_max_lag_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize Kraken's public same-contract ``future-basis`` buckets.
 
@@ -1474,8 +1504,14 @@ def _future_basis_rows_from_analytics_payload(
                 }
             )
             continue
-        available_time = timestamp + timedelta(seconds=interval_seconds)
-        if available_time > ingestion_time:
+        temporal_metadata = _completed_analytics_temporal_metadata(
+            timestamp,
+            interval_seconds=interval_seconds,
+            ingestion_time=ingestion_time,
+            historical_temporal_status=temporal_status,
+            forward_capture_max_lag_seconds=forward_capture_max_lag_seconds,
+        )
+        if temporal_metadata is None:
             invalid_rows.append(
                 {
                     "dataset": "basis",
@@ -1484,6 +1520,7 @@ def _future_basis_rows_from_analytics_payload(
                 }
             )
             continue
+        available_time, row_temporal_status = temporal_metadata
         rows.append(
             {
                 "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
@@ -1491,7 +1528,7 @@ def _future_basis_rows_from_analytics_payload(
                 "event_time": timestamp.isoformat(),
                 "available_time": available_time.isoformat(),
                 "ingestion_time": ingestion_time.isoformat(),
-                "temporal_status": temporal_status,
+                "temporal_status": row_temporal_status,
                 "exchange": "kraken_futures",
                 "futures_symbol": mapping.futures_symbol,
                 "base_asset": mapping.base_asset,
@@ -1509,12 +1546,66 @@ def _future_basis_rows_from_analytics_payload(
     return rows
 
 
+def _completed_analytics_temporal_metadata(
+    event_time: datetime,
+    *,
+    interval_seconds: int,
+    ingestion_time: datetime,
+    historical_temporal_status: str,
+    forward_capture_max_lag_seconds: int | None,
+) -> tuple[datetime, str] | None:
+    """Return the only availability time an analytics bucket can claim.
+
+    A backfill is available to AUTOBOT when it is ingested.  A scheduled,
+    forward capture may additionally prove that a *closed* bucket was first
+    observed inside a declared lag budget.  The latter remains explicit and
+    never rewrites older rows as forward observations.
+    """
+
+    bucket_close_time = event_time + timedelta(seconds=interval_seconds)
+    if bucket_close_time > ingestion_time:
+        return None
+    capture_lag_seconds = (ingestion_time - bucket_close_time).total_seconds()
+    if (
+        forward_capture_max_lag_seconds is not None
+        and 0.0 <= capture_lag_seconds <= forward_capture_max_lag_seconds
+    ):
+        return ingestion_time, FORWARD_CAPTURE_TEMPORAL_STATUS
+    return bucket_close_time, historical_temporal_status
+
+
+def _funding_temporal_metadata(
+    event_time: datetime,
+    *,
+    ingestion_time: datetime,
+    forward_capture_max_lag_seconds: int | None,
+) -> tuple[datetime, str] | None:
+    """Tag fresh funding observations without assuming an unpublished rate.
+
+    Kraken's historical endpoint does not expose a separate publication time.
+    Therefore even a fresh observation becomes available only at collection.
+    Rows outside the declared collection lag retain their historical-backfill
+    status; future timestamps are rejected rather than coerced.
+    """
+
+    if event_time > ingestion_time:
+        return None
+    capture_lag_seconds = (ingestion_time - event_time).total_seconds()
+    if (
+        forward_capture_max_lag_seconds is not None
+        and 0.0 <= capture_lag_seconds <= forward_capture_max_lag_seconds
+    ):
+        return ingestion_time, FORWARD_CAPTURE_TEMPORAL_STATUS
+    return ingestion_time, HISTORICAL_BACKFILL_TEMPORAL_STATUS
+
+
 def _funding_rows_from_payload(
     payload: Mapping[str, Any],
     mapping: KrakenFuturesInstrumentMapping,
     *,
     invalid_rows: list[dict[str, Any]],
     ingestion_time: datetime,
+    forward_capture_max_lag_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     previous: datetime | None = None
@@ -1530,6 +1621,21 @@ def _funding_rows_from_payload(
         if previous and timestamp < previous:
             invalid_rows.append({"dataset": "funding_rates", "futures_symbol": mapping.futures_symbol, "reason": "funding_timestamps_not_ordered"})
         previous = timestamp
+        temporal_metadata = _funding_temporal_metadata(
+            timestamp,
+            ingestion_time=ingestion_time,
+            forward_capture_max_lag_seconds=forward_capture_max_lag_seconds,
+        )
+        if temporal_metadata is None:
+            invalid_rows.append(
+                {
+                    "dataset": "funding_rates",
+                    "futures_symbol": mapping.futures_symbol,
+                    "reason": "funding_timestamp_after_ingestion",
+                }
+            )
+            continue
+        available_time, temporal_status = temporal_metadata
         rows.append(
             {
                 "schema_version": str(DERIVATIVES_SCHEMA_VERSION),
@@ -1538,9 +1644,9 @@ def _funding_rows_from_payload(
                 "base_asset": mapping.base_asset,
                 "timestamp": timestamp.isoformat(),
                 "event_time": timestamp.isoformat(),
-                "available_time": ingestion_time.isoformat(),
+                "available_time": available_time.isoformat(),
                 "ingestion_time": ingestion_time.isoformat(),
-                "temporal_status": "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+                "temporal_status": temporal_status,
                 "funding_rate_absolute": _stable_number(absolute),
                 "funding_rate_relative": _stable_number(relative),
                 "source": HISTORICAL_FUNDING_ENDPOINT,
@@ -1826,6 +1932,28 @@ def _candle_rows_from_payload(
     return rows
 
 
+def _temporal_preference_rank(row: Mapping[str, Any]) -> int:
+    """Prefer real forward capture without fabricating point-in-time history."""
+
+    status = str(row.get("temporal_status") or "")
+    if status == FORWARD_CAPTURE_TEMPORAL_STATUS:
+        return 0
+    if status in {
+        "AVAILABLE_AT_EVENT",
+        "AVAILABLE_AFTER_BAR_CLOSE",
+        "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
+        "EXCHANGE_SNAPSHOT_TIME",
+    }:
+        return 1
+    if status == HISTORICAL_BACKFILL_TEMPORAL_STATUS:
+        return 2
+    return 3
+
+
+def _dedupe_preference_key(row: Mapping[str, Any]) -> tuple[int, str]:
+    return (_temporal_preference_rank(row), json.dumps(dict(row), sort_keys=True))
+
+
 def _dedupe_rows(rows: Sequence[dict[str, Any]], key_fields: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
     seen: dict[tuple[str, ...], dict[str, Any]] = {}
     duplicate_count = 0
@@ -1833,7 +1961,7 @@ def _dedupe_rows(rows: Sequence[dict[str, Any]], key_fields: Sequence[str]) -> t
         key = tuple(str(row.get(field, "")) for field in key_fields)
         if key in seen:
             duplicate_count += 1
-            winner = min(seen[key], row, key=lambda item: json.dumps(item, sort_keys=True))
+            winner = min(seen[key], row, key=_dedupe_preference_key)
             seen[key] = winner
         else:
             seen[key] = row
@@ -1935,7 +2063,7 @@ def _compact_basis_history(
     return rows, history_path, duplicate_count
 
 
-def _basis_history_preference_key(row: Mapping[str, Any]) -> tuple[int, int, str, str, str]:
+def _basis_history_preference_key(row: Mapping[str, Any]) -> tuple[int, int, int, str, str, str]:
     """Rank verified basis sources without making an implicit conversion."""
 
     confidence = str(row.get("confidence_status") or "")
@@ -1945,6 +2073,7 @@ def _basis_history_preference_key(row: Mapping[str, Any]) -> tuple[int, int, str
     return (
         source_rank,
         timeframe_rank,
+        _temporal_preference_rank(row),
         str(row.get("calculation_method") or ""),
         str(row.get("source_endpoint") or ""),
         json.dumps(dict(row), sort_keys=True),
