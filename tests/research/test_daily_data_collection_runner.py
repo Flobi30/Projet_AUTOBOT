@@ -222,6 +222,23 @@ def test_daily_runner_rejects_config_that_is_not_research_only(tmp_path):
         load_daily_research_data_collection_config(config_path)
 
 
+def test_daily_config_preserves_zero_interval_and_rejects_zero_collection_counts(tmp_path):
+    config_path = tmp_path / "research_daily_values.yaml"
+    _write_config(config_path, tmp_path)
+
+    loaded = load_daily_research_data_collection_config(config_path)
+    assert loaded.microstructure_sample_interval_seconds == 0.0
+
+    for field in ("depth_count", "samples_per_run"):
+        invalid = config_path.read_text(encoding="utf-8").replace(f"  {field}: 5", f"  {field}: 0")
+        if field == "samples_per_run":
+            invalid = config_path.read_text(encoding="utf-8").replace("  samples_per_run: 1", "  samples_per_run: 0")
+        config_path.write_text(invalid, encoding="utf-8")
+        with pytest.raises(ValueError, match=f"microstructure.{field}"):
+            load_daily_research_data_collection_config(config_path)
+        _write_config(config_path, tmp_path)
+
+
 def test_daily_runner_marks_timeboxed_microstructure_collection_partial(tmp_path, monkeypatch):
     config_path = tmp_path / "research_daily_timeboxed.yaml"
     _write_config(config_path, tmp_path)

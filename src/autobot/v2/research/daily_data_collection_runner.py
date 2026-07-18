@@ -366,9 +366,11 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
         ohlcv_fail_on_gaps=bool(ohlcv.get("fail_on_gaps", False)),
         ohlcv_export_csv=bool(ohlcv.get("export_csv", True)),
         ohlcv_export_parquet=bool(ohlcv.get("export_parquet", False)),
-        microstructure_depth_count=int(microstructure.get("depth_count") or 10),
-        microstructure_sample_interval_seconds=float(microstructure.get("sample_interval_seconds") or 60.0),
-        microstructure_samples_per_run=int(microstructure.get("samples_per_run") or 60),
+        microstructure_depth_count=int(_yaml_value_or_default(microstructure, "depth_count", 10)),
+        microstructure_sample_interval_seconds=float(
+            _yaml_value_or_default(microstructure, "sample_interval_seconds", 60.0)
+        ),
+        microstructure_samples_per_run=int(_yaml_value_or_default(microstructure, "samples_per_run", 60)),
         microstructure_max_runtime_seconds=(
             float(microstructure["max_runtime_seconds"])
             if microstructure.get("max_runtime_seconds") not in (None, "")
@@ -1231,6 +1233,18 @@ def _tuple_upper(value: Any) -> tuple[str, ...]:
 
 def _tuple_text(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in (value or ()) if str(item).strip())
+
+
+def _yaml_value_or_default(mapping: Mapping[str, Any], key: str, default: Any) -> Any:
+    """Use the default only when a YAML scalar is absent or explicitly blank.
+
+    Numeric zero is a meaningful configuration value: validation must either
+    accept it (for a zero sleep interval) or reject it (for a count/budget),
+    never silently replace it with a default.
+    """
+
+    value = mapping.get(key)
+    return default if value in (None, "") else value
 
 
 def _preflight_active_symbols(
