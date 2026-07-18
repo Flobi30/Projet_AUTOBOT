@@ -1,0 +1,20 @@
+[Unit]
+Description=AUTOBOT forward-captured derivatives feature research materialization
+Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/derivatives_feature_snapshot.py
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-feature-snapshot.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-derivatives-feature-snapshot.sh
+TimeoutStartSec=5min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

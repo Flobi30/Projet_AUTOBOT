@@ -1,0 +1,12 @@
+[Unit]
+Description=Materialize AUTOBOT forward-captured derivatives research features daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Paris
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=autobot-research-derivatives-feature-snapshot.service
+
+[Install]
+WantedBy=timers.target
