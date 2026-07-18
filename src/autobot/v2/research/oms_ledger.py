@@ -16,7 +16,15 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Mapping, Sequence
 
-from autobot.v2.contracts import FillEvent, MarketIdentity, OrderEvent, OrderIntent, PositionSnapshot, contract_to_dict
+from autobot.v2.contracts import (
+    FillEvent,
+    MarketIdentity,
+    OrderEvent,
+    OrderIntent,
+    PositionSnapshot,
+    RiskDecision,
+    contract_to_dict,
+)
 
 
 DEFAULT_OMS_LEDGER_PATH = Path("data/research/oms_shadow_ledger.sqlite3")
@@ -156,7 +164,62 @@ class ShadowOMSLedger:
     def record_order_event(self, event: OrderEvent) -> bool:
         with self._connect() as connection:
             self._initialize(connection)
+            self._require_approved_risk_decision(
+                connection,
+                event.client_order_id,
+                occurred_at=event.occurred_at,
+            )
             return self._record_order_event(connection, event)
+
+    def record_risk_decision(self, intent: OrderIntent, decision: RiskDecision) -> bool:
+        """Append one approved risk decision bound to one registered intent.
+
+        The ledger deliberately refuses a replacement decision.  A caller that
+        changes risk facts must create a new immutable intent/decision pair,
+        rather than silently changing the evidence behind a client order id.
+        """
+
+        if intent.execution_mode != "shadow":
+            raise OMSLedgerError("OMS ledger accepts shadow intents only")
+        if decision.decision_id != intent.decision_id:
+            raise OMSLedgerError("risk decision must match intent decision_id")
+        if not decision.approved:
+            raise OMSLedgerError("OMS ledger records approved risk decisions only")
+        with self._connect() as connection:
+            self._initialize(connection)
+            stored_intent = self._load_intent(connection, intent.client_order_id)
+            if str(stored_intent["decision_id"]) != intent.decision_id:
+                raise OMSLedgerError("risk decision intent does not match registered intent")
+            existing = connection.execute(
+                "SELECT risk_decision_id FROM oms_risk_decisions WHERE client_order_id = ?",
+                (intent.client_order_id,),
+            ).fetchone()
+            if existing:
+                if str(existing[0]) == decision.risk_decision_id:
+                    return False
+                raise OMSLedgerError("intent already has immutable approved risk decision")
+            bound = connection.execute(
+                "SELECT client_order_id FROM oms_risk_decisions WHERE risk_decision_id = ?",
+                (decision.risk_decision_id,),
+            ).fetchone()
+            if bound:
+                raise OMSLedgerError("risk decision is already bound to another client order")
+            cursor = connection.execute(
+                """
+                INSERT INTO oms_risk_decisions
+                    (risk_decision_id, client_order_id, decision_id, decision_json, decided_at,
+                     approved, paper_capital_allowed, live_allowed)
+                VALUES (?, ?, ?, ?, ?, 1, 0, 0)
+                """,
+                (
+                    decision.risk_decision_id,
+                    intent.client_order_id,
+                    decision.decision_id,
+                    _json(contract_to_dict(decision)),
+                    decision.decided_at.isoformat(),
+                ),
+            )
+            return cursor.rowcount == 1
 
     def record_fill(self, fill: FillEvent, *, costs: Mapping[str, float]) -> bool:
         _validate_costs(costs)
@@ -168,6 +231,11 @@ class ShadowOMSLedger:
             if duplicate:
                 return False
             intent = self._load_intent(connection, fill.client_order_id)
+            self._require_approved_risk_decision(
+                connection,
+                fill.client_order_id,
+                occurred_at=fill.occurred_at,
+            )
             current = self._latest_event_type(connection, fill.client_order_id)
             if current not in {"ACKNOWLEDGED", "PARTIALLY_FILLED", "UNKNOWN"}:
                 raise OMSLedgerError("fill requires acknowledged, partial or recovered-unknown order state")
@@ -198,6 +266,7 @@ class ShadowOMSLedger:
         with self._connect() as connection:
             self._initialize(connection)
             self._load_intent(connection, record.client_order_id)
+            self._require_approved_risk_decision(connection, record.client_order_id)
             payload = record.to_dict()
             record_id = _event_id("tca", payload)
             cursor = connection.execute(
@@ -371,6 +440,32 @@ class ShadowOMSLedger:
         return str(row[0]) if row else None
 
     @staticmethod
+    def _require_approved_risk_decision(
+        connection: sqlite3.Connection,
+        client_order_id: str,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT risk.decision_id, intent.decision_id, risk.approved, risk.decided_at
+            FROM oms_risk_decisions AS risk
+            JOIN oms_intents AS intent ON intent.client_order_id = risk.client_order_id
+            WHERE risk.client_order_id = ?
+            """,
+            (client_order_id,),
+        ).fetchone()
+        if not row:
+            raise OMSLedgerError("order evidence requires matching approved risk decision")
+        recorded_decision_id, intent_decision_id, approved, decided_at = row
+        if str(recorded_decision_id) != str(intent_decision_id) or int(approved) != 1:
+            raise OMSLedgerError("order evidence requires matching approved risk decision")
+        if occurred_at is not None:
+            decided = datetime.fromisoformat(str(decided_at))
+            if decided > occurred_at:
+                raise OMSLedgerError("risk decision must be recorded before order event")
+
+    @staticmethod
     def _record_order_event(connection: sqlite3.Connection, event: OrderEvent) -> bool:
         intent = connection.execute(
             "SELECT 1 FROM oms_intents WHERE client_order_id = ?", (event.client_order_id,)
@@ -437,6 +532,20 @@ class ShadowOMSLedger:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS oms_risk_decisions (
+                risk_decision_id TEXT PRIMARY KEY,
+                client_order_id TEXT NOT NULL UNIQUE REFERENCES oms_intents(client_order_id),
+                decision_id TEXT NOT NULL,
+                decision_json TEXT NOT NULL,
+                decided_at TEXT NOT NULL,
+                approved INTEGER NOT NULL CHECK (approved = 1),
+                paper_capital_allowed INTEGER NOT NULL CHECK (paper_capital_allowed = 0),
+                live_allowed INTEGER NOT NULL CHECK (live_allowed = 0)
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS oms_fill_events (
                 fill_id TEXT PRIMARY KEY,
                 client_order_id TEXT NOT NULL REFERENCES oms_intents(client_order_id),
@@ -458,7 +567,7 @@ class ShadowOMSLedger:
             )
             """
         )
-        for table in ("oms_intents", "oms_order_events", "oms_fill_events", "oms_tca_records"):
+        for table in ("oms_intents", "oms_risk_decisions", "oms_order_events", "oms_fill_events", "oms_tca_records"):
             for operation in ("UPDATE", "DELETE"):
                 connection.execute(
                     f"""

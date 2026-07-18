@@ -14,6 +14,7 @@ from autobot.v2.contracts import (
     MarketIdentity,
     OrderEvent,
     OrderIntent,
+    RiskDecision,
     RiskMandateReference,
     StrategyArtifactReference,
 )
@@ -77,6 +78,7 @@ def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
 
 
 def _acknowledge(ledger: ShadowOMSLedger, intent: OrderIntent) -> None:
+    ledger.record_risk_decision(intent, _risk_decision(intent))
     at = intent.created_at
     assert ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", at))
     assert ledger.record_order_event(OrderEvent(intent.client_order_id, "SUBMITTED", at + timedelta(seconds=1)))
@@ -85,6 +87,21 @@ def _acknowledge(ledger: ShadowOMSLedger, intent: OrderIntent) -> None:
 
 def _costs() -> dict[str, float]:
     return {"fee_eur": 0.16, "spread_cost_eur": 0.04, "slippage_eur": 0.05, "latency_cost_eur": 0.01}
+
+
+def _risk_decision(
+    intent: OrderIntent,
+    *,
+    approved: bool = True,
+    decision_id: str | None = None,
+    decided_at: datetime | None = None,
+) -> RiskDecision:
+    return RiskDecision(
+        decision_id=decision_id or intent.decision_id,
+        approved=approved,
+        decided_at=decided_at or intent.created_at,
+        reasons=() if approved else ("fixture_risk_rejected",),
+    )
 
 
 def test_oms_ledger_handles_partial_fill_duplicate_and_restart_reconstruction(tmp_path):
@@ -112,6 +129,7 @@ def test_oms_ledger_blocks_invalid_lifecycle_and_reconciliation_mismatch(tmp_pat
     ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
     intent = _intent()
     assert ledger.register_intent(intent)
+    assert ledger.record_risk_decision(intent, _risk_decision(intent))
     fill = FillEvent(intent.client_order_id, "fill-invalid", intent.created_at, 1.0, 100.0, 0.16)
     with pytest.raises(OMSLedgerError, match="fill requires"):
         ledger.record_fill(fill, costs=_costs())
@@ -137,6 +155,7 @@ def test_oms_ledger_recovers_unknown_order_and_reconstructs_cash_and_realized_pn
     )
 
     assert ledger.register_intent(buy)
+    assert ledger.record_risk_decision(buy, _risk_decision(buy))
     created_at = buy.created_at
     assert ledger.record_order_event(OrderEvent(buy.client_order_id, "CREATED", created_at))
     assert ledger.record_order_event(OrderEvent(buy.client_order_id, "SUBMITTED", created_at + timedelta(seconds=1)))
@@ -150,6 +169,7 @@ def test_oms_ledger_recovers_unknown_order_and_reconstructs_cash_and_realized_pn
     )
 
     assert ledger.register_intent(sell)
+    assert ledger.record_risk_decision(sell, _risk_decision(sell))
     _acknowledge(ledger, sell)
     assert ledger.record_fill(
         FillEvent(sell.client_order_id, "fill-sell", created_at + timedelta(seconds=5), 1.0, 110.0, 0.16),
@@ -201,6 +221,9 @@ def test_tca_requires_cost_evidence_and_remains_shadow_only(tmp_path):
 
     assert tca.implementation_shortfall_bps == pytest.approx(50.0)
     assert tca.total_cost_eur == pytest.approx(0.26)
+    with pytest.raises(OMSLedgerError, match="matching approved risk decision"):
+        ledger.record_tca(tca)
+    assert ledger.record_risk_decision(intent, _risk_decision(intent))
     assert ledger.record_tca(tca)
     assert ledger.record_tca(tca) is False
     with pytest.raises(OMSLedgerError, match="fee evidence"):
@@ -217,9 +240,12 @@ def test_oms_ledger_is_append_only_and_does_not_import_runtime_paths(tmp_path):
     ledger = ShadowOMSLedger(path)
     intent = _intent()
     ledger.register_intent(intent)
+    ledger.record_risk_decision(intent, _risk_decision(intent))
     with sqlite3.connect(path) as connection:
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             connection.execute("DELETE FROM oms_intents")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("DELETE FROM oms_risk_decisions")
 
     root = Path(__file__).resolve().parents[2]
     tree = ast.parse((root / "src/autobot/v2/research/oms_ledger.py").read_text(encoding="utf-8"))
@@ -227,3 +253,39 @@ def test_oms_ledger_is_append_only_and_does_not_import_runtime_paths(tmp_path):
     imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
     assert imports.isdisjoint(forbidden)
+
+
+def test_oms_ledger_requires_one_matching_approved_risk_decision_before_order_evidence(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    intent = _intent()
+    assert ledger.register_intent(intent)
+
+    with pytest.raises(OMSLedgerError, match="matching approved risk decision"):
+        ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", intent.created_at))
+    with pytest.raises(OMSLedgerError, match="approved risk decisions only"):
+        ledger.record_risk_decision(intent, _risk_decision(intent, approved=False))
+    with pytest.raises(OMSLedgerError, match="must match intent decision_id"):
+        ledger.record_risk_decision(intent, _risk_decision(intent, decision_id="other-decision"))
+
+    decision = _risk_decision(intent)
+    assert ledger.record_risk_decision(intent, decision)
+    assert ledger.record_risk_decision(intent, decision) is False
+    with pytest.raises(OMSLedgerError, match="immutable approved risk decision"):
+        ledger.record_risk_decision(
+            intent,
+            _risk_decision(intent, decided_at=intent.created_at + timedelta(seconds=1)),
+        )
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", intent.created_at))
+
+
+def test_oms_ledger_rejects_order_event_when_risk_decision_is_future_dated(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    intent = _intent()
+    assert ledger.register_intent(intent)
+    assert ledger.record_risk_decision(
+        intent,
+        _risk_decision(intent, decided_at=intent.created_at + timedelta(seconds=1)),
+    )
+
+    with pytest.raises(OMSLedgerError, match="risk decision must be recorded before order event"):
+        ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", intent.created_at))
