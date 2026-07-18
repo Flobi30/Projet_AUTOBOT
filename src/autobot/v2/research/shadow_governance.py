@@ -741,10 +741,22 @@ class StrategyArtifactRegistry:
                     "SELECT artifact_json FROM strategy_artifacts WHERE artifact_id = ?",
                     (requested_id,),
                 ).fetchone()
+                safety = connection.execute(
+                    """
+                    SELECT action
+                    FROM strategy_safety_events
+                    WHERE artifact_id = ?
+                    ORDER BY recorded_at DESC, event_id DESC
+                    LIMIT 1
+                    """,
+                    (requested_id,),
+                ).fetchone()
         except sqlite3.Error as exc:
             raise ShadowGovernanceError("strategy artifact registry read failed") from exc
         if not row:
             raise ShadowGovernanceError("unknown strategy artifact")
+        if safety and str(safety[0]) in {"DISABLE_NEW_ENTRIES", "QUARANTINE"}:
+            raise ShadowGovernanceError("shadow safety action blocks new shadow order intents")
         try:
             reference = strategy_artifact_reference_from_mapping(json.loads(str(row[0])))
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
