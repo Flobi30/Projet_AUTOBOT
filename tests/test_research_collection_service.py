@@ -67,3 +67,19 @@ def test_daily_research_service_rejects_stale_or_unverifiable_image_before_colle
     assert "'{{ index .Config.Labels \"org.opencontainers.image.revision\" }}'" in collection_section
     assert '"${IMAGE_COMMIT}" != "${SOURCE_COMMIT}"' in collection_section
     assert "image provenance mismatch" in collection_section
+
+
+def test_daily_research_service_stop_path_cleans_only_its_labelled_containers():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "deploy" / "systemd" / "run-autobot-research-collection.sh").read_text(encoding="utf-8")
+    unit = (root / "deploy" / "systemd" / "autobot-research-data.service").read_text(encoding="utf-8")
+
+    assert script.count('--label "autobot.job=research-daily"') == 4
+    assert "KillMode=control-group" in unit
+    assert "TimeoutStopSec=45s" in unit
+    assert "ExecStop=/bin/sh -c" in unit
+    assert "label=autobot.job=research-daily" in unit
+    assert "docker stop --timeout 20" in unit
+    assert "ExecStopPost=/bin/sh -c" in unit
+    assert "autobot-v2" not in unit
+    assert "docker compose" not in unit

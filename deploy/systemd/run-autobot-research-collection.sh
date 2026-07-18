@@ -64,6 +64,7 @@ chmod 0775 "${DATA_DIR}" "${CANONICAL_OHLCV_DIR}" "${CANONICAL_FEATURES_DIR}" "$
 docker run --rm \
   --name "autobot-research-${RUN_ID}" \
   --label "autobot.component=research-data-collection" \
+  --label "autobot.job=research-daily" \
   --network bridge \
   --no-healthcheck \
   --read-only \
@@ -95,6 +96,7 @@ docker run --rm \
 docker run --rm \
   --name "autobot-research-capability-${RUN_ID}" \
   --label "autobot.component=research-data-capability" \
+  --label "autobot.job=research-daily" \
   --network none \
   --no-healthcheck \
   --read-only \
@@ -125,6 +127,7 @@ docker run --rm \
 docker run --rm \
   --name "autobot-research-scheduler-${RUN_ID}" \
   --label "autobot.component=research-hypothesis-scheduler" \
+  --label "autobot.job=research-daily" \
   --network none \
   --no-healthcheck \
   --read-only \
@@ -158,6 +161,7 @@ if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
   docker run --rm \
     --name "autobot-research-coordinator-${RUN_ID}" \
     --label "autobot.component=bounded-research-coordinator" \
+    --label "autobot.job=research-daily" \
     --network none \
     --no-healthcheck \
     --read-only \
