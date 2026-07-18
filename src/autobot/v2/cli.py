@@ -313,6 +313,11 @@ def _build_parser() -> argparse.ArgumentParser:
     alpha_hypothesis_runner.add_argument("--max-symbols", type=int, default=6)
     alpha_hypothesis_runner.add_argument("--max-data-rows", type=int, default=250000)
     alpha_hypothesis_runner.add_argument("--commit", default=None)
+    alpha_hypothesis_runner.add_argument(
+        "--image-ref",
+        default=None,
+        help="Immutable research image reference required whenever --feature-snapshot-manifest is supplied.",
+    )
     alpha_hypothesis_runner.add_argument("--templates", default="docs/research/strategy_templates.json")
     alpha_hypothesis_runner.add_argument("--template-id", default=None)
     alpha_hypothesis_runner.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
@@ -2564,6 +2569,9 @@ def _prepare_alpha_experiment_context(
     resolved_commit = str(code_commit or "").strip()
     if not resolved_commit:
         raise ValueError("a code commit is required for manifested experiment evidence")
+    resolved_image_ref = str(args.image_ref or "").strip()
+    if not resolved_image_ref:
+        raise ValueError("--image-ref is required for manifested experiment evidence")
 
     derivatives_availability = None
     if args.derivatives_feature_snapshot_manifest:
@@ -2593,6 +2601,7 @@ def _prepare_alpha_experiment_context(
         template_id=str(template["template_id"]),
         thesis=str(hypothesis["thesis"]),
         code_commit=resolved_commit,
+        image_ref=resolved_image_ref,
         feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
         derivatives_snapshot_manifest=(
             Path(args.derivatives_feature_snapshot_manifest) if args.derivatives_feature_snapshot_manifest else None

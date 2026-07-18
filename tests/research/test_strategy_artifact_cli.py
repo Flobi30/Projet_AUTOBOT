@@ -118,6 +118,7 @@ def _passed_experiment(registry_path):
             template_id="funding_extreme_reversion",
             thesis="Hermetic CLI governance test",
             code_commit="pytest-commit",
+            image_ref="oci-revision:pytest-commit",
             data_snapshot_id="snapshot-pytest",
             feature_versions=feature_snapshot["feature_versions"],
             parameters={"threshold": 2.5},

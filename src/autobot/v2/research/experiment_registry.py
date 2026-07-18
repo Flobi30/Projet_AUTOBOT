@@ -36,17 +36,17 @@ class ExperimentSpec:
     template_id: str
     thesis: str
     code_commit: str
+    image_ref: str
     data_snapshot_id: str
     feature_versions: Mapping[str, str]
     parameters: Mapping[str, Any]
     seed: int
     cost_model: Mapping[str, Any]
     environment: Mapping[str, Any]
-    image_ref: str | None = None
     holdout_id: str | None = None
 
     def __post_init__(self) -> None:
-        for field_name in ("hypothesis_id", "template_id", "thesis", "code_commit", "data_snapshot_id"):
+        for field_name in ("hypothesis_id", "template_id", "thesis", "code_commit", "image_ref", "data_snapshot_id"):
             if not str(getattr(self, field_name) or "").strip():
                 raise ValueError(f"{field_name} is required")
         if not isinstance(self.seed, int):

@@ -421,6 +421,7 @@ def _build_material_experiment(
         template_id=template_id,
         thesis=str(hypothesis["thesis"]),
         code_commit=config.code_commit,
+        image_ref=f"oci-revision:{config.image_commit}",
         feature_snapshot_manifest=config.feature_snapshot_manifest,
         parameters={
             "coordinator": "bounded_research_coordinator_v1",

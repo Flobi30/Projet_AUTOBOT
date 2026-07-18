@@ -244,6 +244,7 @@ def test_manifested_experiment_binds_derivatives_materially_without_local_paths(
         template_id="funding_basis_v1",
         thesis="test only",
         code_commit="abc123",
+        image_ref="oci-revision:abc123",
         feature_snapshot_manifest=spot_manifest,
         derivatives_snapshot_manifest=derivatives_snapshot.manifest_path,
         parameters={"horizon_hours": 4},

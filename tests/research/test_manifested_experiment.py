@@ -104,6 +104,7 @@ def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_pat
         template_id="regime_filtered_trend",
         thesis="test thesis",
         code_commit="abc123",
+        image_ref="oci-revision:abc123",
         feature_snapshot_manifest=_verified_manifest(tmp_path),
         parameters={"lookback": 24},
         seed=7,
@@ -130,6 +131,20 @@ def test_manifested_experiment_refuses_unready_or_unproven_feature_snapshot(tmp_
         load_feature_snapshot_provenance(_manifest(tmp_path, feature_versions={}))
 
 
+def test_manifested_experiment_requires_an_immutable_image_reference(tmp_path):
+    with pytest.raises(ManifestedExperimentError, match="image_ref is required"):
+        build_manifested_experiment_spec(
+            hypothesis_id="long_trend",
+            template_id="regime_filtered_trend",
+            thesis="test thesis",
+            code_commit="abc123",
+            feature_snapshot_manifest=_verified_manifest(tmp_path),
+            parameters={},
+            seed=7,
+            cost_model={},
+        )
+
+
 def test_manifested_experiment_cannot_relax_research_only_safety(tmp_path):
     with pytest.raises(ManifestedExperimentError, match="cannot enable"):
         build_manifested_experiment_spec(
@@ -137,6 +152,7 @@ def test_manifested_experiment_cannot_relax_research_only_safety(tmp_path):
             template_id="regime_filtered_trend",
             thesis="test thesis",
             code_commit="abc123",
+            image_ref="oci-revision:abc123",
             feature_snapshot_manifest=_verified_manifest(tmp_path),
             parameters={},
             seed=7,
@@ -151,6 +167,7 @@ def test_manifested_experiment_fingerprint_changes_for_material_inputs_not_runne
         "template_id": "regime_filtered_trend",
         "thesis": "test thesis",
         "code_commit": "abc123",
+        "image_ref": "oci-revision:abc123",
         "feature_snapshot_manifest": _verified_manifest(tmp_path),
         "parameters": {"max_variants": 3, "symbols": ["BTCZEUR"]},
         "seed": 7,
@@ -170,6 +187,7 @@ def test_manifested_experiment_binds_a_physical_holdout_identity(tmp_path):
         template_id="regime_filtered_trend",
         thesis="test thesis",
         code_commit="abc123",
+        image_ref="oci-revision:abc123",
         feature_snapshot_manifest=_manifest(
             tmp_path,
             source_snapshot_id=partition.optimization_snapshot_id,
@@ -198,6 +216,7 @@ def test_manifested_experiment_refuses_unpartitioned_or_mismatched_holdout(tmp_p
         "template_id": "regime_filtered_trend",
         "thesis": "test thesis",
         "code_commit": "abc123",
+        "image_ref": "oci-revision:abc123",
         "feature_snapshot_manifest": _manifest(tmp_path),
         "parameters": {},
         "seed": 7,

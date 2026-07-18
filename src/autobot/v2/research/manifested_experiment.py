@@ -159,6 +159,7 @@ def build_manifested_experiment_spec(
     parameters: Mapping[str, Any],
     seed: int,
     cost_model: Mapping[str, Any],
+    image_ref: str | None = None,
     environment: Mapping[str, Any] | None = None,
     derivatives_snapshot_manifest: str | Path | None = None,
     holdout_id: str | None = None,
@@ -166,6 +167,7 @@ def build_manifested_experiment_spec(
 ) -> tuple[ExperimentSpec, FeatureSnapshotProvenance]:
     """Build a reproducible research spec from one verified feature bundle."""
 
+    resolved_image_ref = _required(image_ref, "image_ref")
     provenance = load_feature_snapshot_provenance(feature_snapshot_manifest)
     derivatives_provenance = (
         load_feature_snapshot_provenance(derivatives_snapshot_manifest)
@@ -251,6 +253,7 @@ def build_manifested_experiment_spec(
             template_id=template_id,
             thesis=thesis,
             code_commit=code_commit,
+            image_ref=resolved_image_ref,
             data_snapshot_id=data_snapshot_id,
             feature_versions=feature_versions,
             parameters=dict(parameters),
