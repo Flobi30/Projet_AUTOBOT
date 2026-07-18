@@ -51,6 +51,7 @@ def test_daily_research_service_runs_one_isolated_bounded_research_coordinator_p
     assert "--feature-snapshot-manifest" in coordinator_section
     assert "--capability-data-paths data/research/canonical/ohlcv,data/research/manifests" in coordinator_section
     assert "--commit \"${SOURCE_COMMIT}\"" in coordinator_section
+    assert "--image-commit \"${IMAGE_COMMIT}\"" in coordinator_section
     assert "--max-variants 3" in coordinator_section
 
 

@@ -369,6 +369,11 @@ def _build_parser() -> argparse.ArgumentParser:
     bounded_research.add_argument("--experiment-registry", default="data/research/experiment_registry.sqlite3")
     bounded_research.add_argument("--output-dir", default="data/research/reports/bounded_research_coordinator")
     bounded_research.add_argument("--commit", default=None)
+    bounded_research.add_argument(
+        "--image-commit",
+        required=True,
+        help="Verified Docker image revision; must match --commit before the coordinator can write research evidence.",
+    )
     bounded_research.add_argument("--seed", type=int, default=0)
     bounded_research.add_argument("--max-variants", type=int, default=3)
     bounded_research.add_argument("--max-symbols", type=int, default=6)
@@ -2506,6 +2511,7 @@ def _cmd_bounded_research_coordinator(args: argparse.Namespace) -> int:
                 ),
                 feature_snapshot_manifest=Path(args.feature_snapshot_manifest),
                 code_commit=commit,
+                image_commit=str(args.image_commit).strip(),
                 output_dir=Path(args.output_dir),
                 memory_path=Path(args.memory_path),
                 experiment_registry_path=Path(args.experiment_registry),

@@ -186,6 +186,7 @@ if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
       --experiment-registry data/research/experiment_registry.sqlite3 \
       --output-dir data/research/reports/bounded_research_coordinator \
       --commit "${SOURCE_COMMIT}" \
+      --image-commit "${IMAGE_COMMIT}" \
       --max-variants 3 \
       --max-symbols 6 \
       --max-runtime-seconds 120

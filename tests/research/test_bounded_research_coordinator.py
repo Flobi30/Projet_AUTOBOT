@@ -114,6 +114,8 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
             "data/research/canonical/ohlcv,data/research/manifests",
             "--feature-snapshot-manifest",
             "data/research/manifests/features.json",
+            "--image-commit",
+            "pytest-image-commit",
         ]
     )
 
@@ -122,6 +124,7 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
     assert args.max_symbols == 6
     assert args.max_runtime_seconds == 120
     assert args.capability_data_paths == "data/research/canonical/ohlcv,data/research/manifests"
+    assert args.image_commit == "pytest-image-commit"
     assert not hasattr(args, "enable_live")
     assert not hasattr(args, "enable_paper")
 
@@ -166,10 +169,27 @@ def _config(
         ),
         feature_snapshot_manifest=feature_manifest,
         code_commit="test-commit",
+        image_commit="test-commit",
         output_dir=tmp_path / "reports",
         memory_path=memory_path,
         experiment_registry_path=tmp_path / "registry.sqlite3",
     )
+
+
+def test_coordinator_blocks_before_registry_writes_when_image_commit_differs(tmp_path):
+    config = _config(
+        tmp_path,
+        tmp_path / "missing-data",
+        tmp_path / "missing-manifest.json",
+        tmp_path / "memory.sqlite3",
+    )
+    report = run_bounded_research_coordinator(replace(config, image_commit="other-image-commit"))
+
+    assert report.decision == "BLOCKED_IMAGE_PROVENANCE_MISMATCH"
+    assert report.image_provenance_verified is False
+    assert "image_commit_does_not_match_declared_code_commit" in report.reasons
+    assert not config.experiment_registry_path.exists()
+    assert not config.memory_path.exists()
 
 
 def _reject_long_trend(memory_path: Path) -> None:

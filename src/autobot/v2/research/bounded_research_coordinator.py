@@ -67,6 +67,7 @@ class BoundedResearchCoordinatorConfig:
     scheduler: AlphaSchedulerConfig
     feature_snapshot_manifest: Path
     code_commit: str
+    image_commit: str
     output_dir: Path = DEFAULT_COORDINATOR_OUTPUT_DIR
     memory_path: Path = Path("data/research/alpha_research_memory.sqlite3")
     experiment_registry_path: Path = Path("data/research/experiment_registry.sqlite3")
@@ -77,8 +78,8 @@ class BoundedResearchCoordinatorConfig:
     def __post_init__(self) -> None:
         if not self.run_id.strip():
             raise ValueError("run_id is required")
-        if not self.code_commit.strip():
-            raise ValueError("code_commit is required")
+        if not self.code_commit.strip() or not self.image_commit.strip():
+            raise ValueError("code_commit and image_commit are required")
         if self.max_experiments != 1:
             raise ValueError("bounded research coordinator permits exactly one experiment per invocation")
         if not self.allowed_template_ids:
@@ -94,6 +95,8 @@ class BoundedResearchCoordinatorReport:
     run_id: str
     generated_at: str
     code_commit: str
+    image_commit: str
+    image_provenance_verified: bool
     decision: str
     reasons: tuple[str, ...]
     scheduler_report: AlphaSchedulerReport
@@ -113,6 +116,8 @@ class BoundedResearchCoordinatorReport:
             "run_id": self.run_id,
             "generated_at": self.generated_at,
             "code_commit": self.code_commit,
+            "image_commit": self.image_commit,
+            "image_provenance_verified": self.image_provenance_verified,
             "decision": self.decision,
             "reasons": list(self.reasons),
             "scheduler_report": self.scheduler_report.to_dict(),
@@ -143,6 +148,12 @@ def run_bounded_research_coordinator(
     scheduler_report = build_alpha_hypothesis_scheduler_report(config.scheduler)
     selected = scheduler_report.selected
     base = _base_report(config, scheduler_report)
+    if config.image_commit != config.code_commit:
+        return replace(
+            base,
+            decision="BLOCKED_IMAGE_PROVENANCE_MISMATCH",
+            reasons=("image_commit_does_not_match_declared_code_commit",),
+        )
     if selected is None:
         return replace(base, decision="NO_RUNNABLE_CANDIDATE", reasons=("scheduler_selected_no_runnable_smoke",))
     if selected.status != "RUNNABLE_SMOKE":
@@ -327,6 +338,8 @@ def render_bounded_research_coordinator_report(report: BoundedResearchCoordinato
         "- Scheduler command text is never executed.",
         "- No runtime order path, shadow activation, paper capital, live activation, promotion, sizing, leverage, or UI change.",
         f"- Commit: `{report.code_commit}`.",
+        f"- Image commit: `{report.image_commit}`.",
+        f"- Image provenance verified: `{str(report.image_provenance_verified).lower()}`.",
         f"- Decision: `{report.decision}`.",
         "",
         "## Selection",
@@ -365,6 +378,8 @@ def _base_report(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
         code_commit=config.code_commit,
+        image_commit=config.image_commit,
+        image_provenance_verified=config.image_commit == config.code_commit,
         decision="BLOCKED",
         reasons=(),
         scheduler_report=scheduler_report,
