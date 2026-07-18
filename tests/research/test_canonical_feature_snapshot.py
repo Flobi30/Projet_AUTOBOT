@@ -11,6 +11,7 @@ from autobot.v2.cli import _build_parser
 from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
+    load_verified_feature_vector_from_canonical_snapshot,
     upgrade_feature_snapshot_manifest,
     verify_canonical_feature_snapshot_manifest,
 )
@@ -54,6 +55,80 @@ def _canonical_manifest(tmp_path: Path, *, explicit_mapping: bool, row_count: in
         )
     )
     return Path(str(snapshot.manifest_path))
+
+
+def _ready_feature_snapshot(tmp_path: Path):
+    """Build a compact source with known ingestion times for vector tests."""
+
+    source_file = tmp_path / "canonical_ready_source.csv"
+    fields = (
+        "exchange",
+        "market_type",
+        "symbol",
+        "base_asset",
+        "quote_asset",
+        "market_mapping_status",
+        "timeframe",
+        "open_timestamp",
+        "event_time",
+        "available_time",
+        "ingestion_time",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source_file.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index in range(30):
+            event = origin + timedelta(minutes=5 * (index + 1))
+            price = 100.0 + index
+            writer.writerow(
+                {
+                    "exchange": "kraken",
+                    "market_type": "spot",
+                    "symbol": "BTCEUR",
+                    "base_asset": "BTC",
+                    "quote_asset": "EUR",
+                    "market_mapping_status": "EXPLICIT",
+                    "timeframe": "5m",
+                    "open_timestamp": (event - timedelta(minutes=5)).isoformat(),
+                    "event_time": event.isoformat(),
+                    "available_time": event.isoformat(),
+                    "ingestion_time": event.isoformat(),
+                    "open": price - 0.5,
+                    "high": price + 1.0,
+                    "low": price - 1.0,
+                    "close": price,
+                    "volume": 100.0,
+                }
+            )
+    source_manifest = tmp_path / "canonical_ready_source_manifest.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "canonical_ready_source",
+                "fingerprint": "canonical-ready-source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="ready_feature_vector",
+            canonical_manifest_path=source_manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+    assert snapshot.status == "READY"
+    return snapshot
 
 
 def test_materialized_feature_snapshot_is_deterministic_and_has_feature_parity(tmp_path):
@@ -109,6 +184,48 @@ def test_feature_snapshot_material_verification_detects_tampered_csv(tmp_path):
     feature_csv.write_text(feature_csv.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="content hash mismatch"):
         verify_canonical_feature_snapshot_manifest(Path(str(snapshot.manifest_path)))
+
+
+def test_verified_feature_vector_loads_only_materially_verified_ready_snapshot(tmp_path):
+    snapshot = _ready_feature_snapshot(tmp_path)
+    feature_csv = Path(snapshot.files[0].csv_path)
+    with feature_csv.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    by_event: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        if row["status"] == "READY":
+            by_event.setdefault(row["event_time"], []).append(row)
+    event_time, event_rows = next(
+        (event, values)
+        for event, values in sorted(by_event.items())
+        if {row["feature_id"] for row in values} == set(snapshot.feature_ids)
+    )
+    observed_at = max(datetime.fromisoformat(row["available_time"]) for row in event_rows)
+
+    vector = load_verified_feature_vector_from_canonical_snapshot(
+        Path(str(snapshot.manifest_path)),
+        symbol="BTCEUR",
+        timeframe="5m",
+        event_time=datetime.fromisoformat(event_time),
+        observed_at=observed_at,
+    )
+
+    assert vector.feature_snapshot.material_verified is True
+    assert vector.feature_snapshot.runtime_parity_proven is True
+    assert vector.feature_snapshot.bundle_content_fingerprint == snapshot.bundle_content_fingerprint
+    assert vector.market.symbol == "BTCEUR"
+    assert {item.feature_id for item in vector.values} == set(snapshot.feature_ids)
+    assert vector.fingerprint
+
+    feature_csv.write_text(feature_csv.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="content hash mismatch"):
+        load_verified_feature_vector_from_canonical_snapshot(
+            Path(str(snapshot.manifest_path)),
+            symbol="BTCEUR",
+            timeframe="5m",
+            event_time=datetime.fromisoformat(event_time),
+            observed_at=observed_at,
+        )
 
 
 def test_materialized_feature_snapshot_excludes_unverified_market_mappings(tmp_path):

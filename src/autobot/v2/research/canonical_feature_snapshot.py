@@ -17,7 +17,13 @@ from pathlib import Path
 import tempfile
 from typing import Any, Mapping, Sequence
 
-from autobot.v2.contracts import MarketIdentity, contract_to_dict
+from autobot.v2.contracts import (
+    FeatureSnapshotReference,
+    FeatureValue,
+    MarketIdentity,
+    VerifiedFeatureVector,
+    contract_to_dict,
+)
 
 from .feature_registry import FeatureRegistry, default_feature_registry, validate_historical_shadow_parity
 
@@ -463,6 +469,96 @@ def verify_canonical_feature_snapshot_manifest(
     )
 
 
+def load_verified_feature_vector_from_canonical_snapshot(
+    path: str | Path,
+    *,
+    symbol: str,
+    timeframe: str,
+    event_time: datetime,
+    observed_at: datetime,
+    registry: FeatureRegistry | None = None,
+) -> VerifiedFeatureVector:
+    """Load one concrete vector only after its canonical bundle re-verifies.
+
+    This is a batch/research reader.  It deliberately accepts an explicit
+    event and observation time rather than guessing the latest row, and never
+    imports runtime, shadow execution, paper or routing code.
+    """
+
+    manifest_path = Path(path)
+    verification = verify_canonical_feature_snapshot_manifest(manifest_path, registry=registry)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid canonical feature snapshot manifest: {manifest_path}") from exc
+    if not isinstance(payload, Mapping) or str(payload.get("status") or "").upper() != "READY":
+        raise ValueError("canonical feature snapshot must be READY")
+    target_symbol = _required_text(symbol, "feature vector symbol").upper()
+    target_timeframe = _required_text(timeframe, "feature vector timeframe")
+    target_event_time = _utc_datetime(event_time, "feature vector event_time")
+    target_observed_at = _utc_datetime(observed_at, "feature vector observed_at")
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list):
+        raise ValueError("canonical feature snapshot files are required")
+    matching = [
+        item
+        for item in raw_files
+        if isinstance(item, Mapping)
+        and str(item.get("symbol") or "").upper() == target_symbol
+        and str(item.get("timeframe") or "") == target_timeframe
+    ]
+    if len(matching) != 1:
+        raise ValueError("canonical feature vector market/timeframe file is ambiguous or missing")
+    rows = _read_csv(_resolve_feature_csv_path(manifest_path, matching[0].get("csv_path")))
+    selected = [
+        row
+        for row in rows
+        if _utc_datetime(row.get("event_time"), "feature vector row event_time") == target_event_time
+    ]
+    if not selected:
+        raise ValueError("canonical feature vector event_time is missing")
+    market = _market_from_row(selected[0])
+    if market.symbol != target_symbol:
+        raise ValueError("canonical feature vector symbol does not match explicit file mapping")
+    values = tuple(
+        _feature_value_from_csv_row(row, market=market, timeframe=target_timeframe)
+        for row in selected
+    )
+    # ``runtime_parity_proven`` was not serialized by the first v2 manifest
+    # writer.  A READY manifest is nevertheless sufficient proof here only
+    # when its stored parity result is true and no source row had an unknown
+    # ingestion time.  Keep accepting an explicit value for future manifests,
+    # but never infer parity from a bare status or from the caller.
+    runtime_parity_proven = payload.get("runtime_parity_proven") is True or (
+        payload.get("parity_ok") is True
+        and int(payload.get("ingestion_time_unknown_count") or 0) == 0
+    )
+    snapshot = FeatureSnapshotReference(
+        feature_snapshot_id=verification.feature_snapshot_id,
+        fingerprint=verification.fingerprint,
+        snapshot_kind=CANONICAL_FEATURE_SNAPSHOT_KIND,
+        source_snapshot_id=_required_text(payload.get("source_snapshot_id"), "source_snapshot_id"),
+        source_snapshot_fingerprint=_required_text(
+            payload.get("source_snapshot_fingerprint"), "source_snapshot_fingerprint"
+        ),
+        feature_registry_fingerprint=_required_text(
+            payload.get("feature_registry_fingerprint"), "feature_registry_fingerprint"
+        ),
+        feature_versions=payload.get("feature_versions") or {},
+        runtime_parity_proven=runtime_parity_proven,
+        material_verified=True,
+        bundle_content_fingerprint=verification.bundle_content_fingerprint,
+        ingestion_time_unknown_count=int(payload.get("ingestion_time_unknown_count") or 0),
+    )
+    return VerifiedFeatureVector(
+        feature_snapshot=snapshot,
+        market=market,
+        timeframe=target_timeframe,
+        observed_at=target_observed_at,
+        values=values,
+    )
+
+
 def render_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot) -> str:
     lines = [
         f"# Canonical Feature Snapshot - {snapshot.run_id}",
@@ -615,6 +711,39 @@ def _feature_row(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _feature_value_from_csv_row(
+    row: Mapping[str, Any],
+    *,
+    market: MarketIdentity,
+    timeframe: str,
+) -> FeatureValue:
+    if _market_from_row(row) != market:
+        raise ValueError("canonical feature vector rows must share one explicit market identity")
+    if str(row.get("timeframe") or "") != timeframe:
+        raise ValueError("canonical feature vector rows must share one timeframe")
+    raw_metadata = row.get("metadata_json") or "{}"
+    try:
+        metadata = json.loads(raw_metadata)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("canonical feature vector metadata_json is invalid") from exc
+    if not isinstance(metadata, Mapping):
+        raise ValueError("canonical feature vector metadata_json must be an object")
+    raw_value = str(row.get("value") or "").strip()
+    value = None if not raw_value else float(raw_value)
+    return FeatureValue(
+        feature_id=_required_text(row.get("feature_id"), "feature vector feature_id"),
+        feature_version=_required_text(row.get("feature_version"), "feature vector feature_version"),
+        market=market,
+        timeframe=timeframe,
+        event_time=_utc_datetime(row.get("event_time"), "feature vector row event_time"),
+        available_time=_utc_datetime(row.get("available_time"), "feature vector row available_time"),
+        source_snapshot_id=_required_text(row.get("source_snapshot_id"), "feature vector source_snapshot_id"),
+        value=value,
+        status=_required_text(row.get("status"), "feature vector status"),
+        metadata=dict(metadata),
+    )
+
+
 def _bounded_parity_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Return a deterministic parity sample without weakening feature output.
 
@@ -727,6 +856,21 @@ def _required_text(value: Any, field_name: str) -> str:
     if not text:
         raise ValueError(f"{field_name} is required")
     return text
+
+
+def _utc_datetime(value: Any, field_name: str) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be ISO-8601") from exc
+    else:
+        raise ValueError(f"{field_name} is required")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+    return parsed.astimezone(timezone.utc)
 
 
 def _fingerprint(payload: Mapping[str, Any]) -> str:
