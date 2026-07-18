@@ -15,6 +15,10 @@ promoted by it.
   aggregate vector fingerprint.
 - The SQLite table has append-only triggers and idempotent deterministic IDs.
 - The schema hard-blocks paper-capital and live flags at zero.
+- A public vector serializer and shared observation constructor now make the
+  batch-to-preview contract explicit. A canonical `READY` snapshot is loaded,
+  carried into the non-executable preview with the same signal identity, then
+  compared against the batch target before the shadow observation is ledgered.
 
 ## Validation
 
@@ -23,10 +27,10 @@ promoted by it.
   imports.
 - Existing governance, runtime-preview, feature-vector and contract tests are
   included in the focused regression suite.
-- Focused regression suite: `49 passed`.
-- Research and contract regression suite: `550 passed, 1 skipped`.
+- Focused regression suite: `41 passed`.
+- Research and contract regression suite: `551 passed, 1 skipped`.
 - Hermetic unit suite: `1346 passed, 6 skipped`.
-- Hermetic integration suite: `316 passed`.
+- Hermetic integration suite: `317 passed`.
 
 ## Safety
 
@@ -38,6 +42,8 @@ promoted by it.
 
 ## Remaining Gate
 
-The next bounded step is a hermetic adapter test: the same canonical inputs
-must produce a batch target and a ledgered shadow observation with a
-`PARITY_OK` result. Runtime wiring stays blocked until that comparison exists.
+The canonical batch-to-preview parity test now passes, but it remains a
+hermetic contract proof. Runtime wiring stays blocked until a real runtime
+feature producer exposes the same point-in-time values and an independently
+replayed batch run confirms them without relying on manually supplied preview
+metadata.

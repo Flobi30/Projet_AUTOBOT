@@ -8,6 +8,7 @@ from autobot.v2.contracts import FeatureSnapshotReference
 from autobot.v2.research.verified_feature_vector import (
     VerifiedFeatureVectorError,
     parse_verified_feature_vectors,
+    verified_feature_vector_to_mapping,
 )
 
 
@@ -80,6 +81,13 @@ def test_verified_feature_vector_requires_exact_snapshot_and_available_values():
 
     assert vector.feature_snapshot.feature_snapshot_id == "features_vector_fixture"
     assert vector.fingerprint
+
+    round_trip = parse_verified_feature_vectors(
+        {vector.feature_snapshot.feature_snapshot_id: verified_feature_vector_to_mapping(vector)},
+        snapshots=(_snapshot(),),
+        observed_at=observed_at,
+    )[0]
+    assert round_trip.fingerprint == vector.fingerprint
 
 
 def test_verified_feature_vector_rejects_tampered_bundle_or_feature_set():

@@ -15,7 +15,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Iterable, Sequence
 
-from autobot.v2.contracts import VerifiedFeatureVector, contract_fingerprint, contract_to_dict
+from autobot.v2.contracts import TargetPortfolio, VerifiedFeatureVector, contract_fingerprint, contract_to_dict
 
 from .shadow_governance import ShadowGovernanceError, ShadowObservation, StrategyArtifact
 
@@ -58,6 +58,43 @@ def verified_feature_vectors_fingerprint(vectors: Iterable[VerifiedFeatureVector
         for item in sorted(materialized, key=lambda item: item.feature_snapshot.feature_snapshot_id)
     ]
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def build_shadow_observation_from_target(
+    *,
+    artifact: StrategyArtifact,
+    target_portfolio: TargetPortfolio,
+    feature_vectors: Sequence[VerifiedFeatureVector],
+) -> ShadowObservation:
+    """Create one reproducible shadow observation from a target portfolio.
+
+    The target must be decided exactly when all supplied vectors are available.
+    This avoids claiming that a batch or shadow decision saw a feature earlier
+    than its point-in-time evidence.  The returned record remains a fact only;
+    callers must use :class:`ShadowObservationLedger` to persist it.
+    """
+
+    if not isinstance(artifact, StrategyArtifact):
+        raise ShadowObservationLedgerError("strategy artifact is required")
+    if not isinstance(target_portfolio, TargetPortfolio):
+        raise ShadowObservationLedgerError("target portfolio is required")
+    vectors = tuple(feature_vectors)
+    if not vectors or any(not isinstance(item, VerifiedFeatureVector) for item in vectors):
+        raise ShadowObservationLedgerError("verified feature vectors are required")
+    available_times = {item.observed_at for item in vectors}
+    if len(available_times) != 1:
+        raise ShadowObservationLedgerError("shadow observation vectors must share one observed_at")
+    available_at = available_times.pop()
+    if target_portfolio.generated_at != available_at:
+        raise ShadowObservationLedgerError("target portfolio generated_at must equal feature vector observed_at")
+    return ShadowObservation(
+        artifact_id=artifact.artifact_id,
+        observed_at=available_at,
+        data_available_at=available_at,
+        source_snapshot_id=artifact.data_snapshot_id,
+        feature_fingerprint=verified_feature_vectors_fingerprint(vectors),
+        target_portfolio=target_portfolio,
+    )
 
 
 class ShadowObservationLedger:

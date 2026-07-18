@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import ast
-from datetime import datetime, timezone
+import csv
+from datetime import datetime, timedelta, timezone
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from autobot.v2.contracts import (
+    AlphaSignal,
     FeatureSnapshotReference,
     FeatureValue,
     MarketIdentity,
@@ -19,8 +22,17 @@ from autobot.v2.research.shadow_governance import ShadowObservation, StrategyArt
 from autobot.v2.research.shadow_observation_ledger import (
     ShadowObservationLedger,
     ShadowObservationLedgerError,
+    build_shadow_observation_from_target,
     verified_feature_vectors_fingerprint,
 )
+from autobot.v2.research.portfolio_construction import build_target_portfolio
+from autobot.v2.research.canonical_feature_snapshot import (
+    CanonicalFeatureSnapshotConfig,
+    build_canonical_feature_snapshot,
+    load_verified_feature_vector_from_canonical_snapshot,
+)
+from autobot.v2.research.runtime_shadow_preview import preview_runtime_buy_signal
+from autobot.v2.research.verified_feature_vector import verified_feature_vector_to_mapping
 
 
 pytestmark = pytest.mark.integration
@@ -53,12 +65,80 @@ def _vector() -> VerifiedFeatureVector:
     )
 
 
+def _canonical_vector(tmp_path) -> VerifiedFeatureVector:
+    """Create one actual READY canonical bundle for the cross-boundary test."""
+
+    source_file = tmp_path / "canonical_shadow_source.csv"
+    fields = (
+        "exchange", "market_type", "symbol", "base_asset", "quote_asset", "market_mapping_status",
+        "timeframe", "open_timestamp", "event_time", "available_time", "ingestion_time",
+        "open", "high", "low", "close", "volume",
+    )
+    origin = datetime(2026, 7, 18, 10, tzinfo=timezone.utc)
+    with source_file.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index in range(30):
+            event = origin + timedelta(minutes=5 * (index + 1))
+            price = 100.0 + index
+            writer.writerow(
+                {
+                    "exchange": "kraken", "market_type": "spot", "symbol": "BTCEUR",
+                    "base_asset": "BTC", "quote_asset": "EUR", "market_mapping_status": "EXPLICIT",
+                    "timeframe": "5m", "open_timestamp": (event - timedelta(minutes=5)).isoformat(),
+                    "event_time": event.isoformat(), "available_time": event.isoformat(),
+                    "ingestion_time": event.isoformat(), "open": price - 0.5, "high": price + 1.0,
+                    "low": price - 1.0, "close": price, "volume": 100.0,
+                }
+            )
+    source_manifest = tmp_path / "canonical_shadow_source_manifest.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "canonical_shadow_source",
+                "fingerprint": "canonical-shadow-source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source_file)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="canonical_shadow_vector",
+            canonical_manifest_path=source_manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+    assert snapshot.status == "READY"
+    with Path(snapshot.files[0].csv_path).open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        if row["status"] == "READY":
+            grouped.setdefault(row["event_time"], []).append(row)
+    event_time, event_rows = next(
+        (event, values)
+        for event, values in sorted(grouped.items())
+        if {row["feature_id"] for row in values} == set(snapshot.feature_ids)
+    )
+    return load_verified_feature_vector_from_canonical_snapshot(
+        Path(str(snapshot.manifest_path)),
+        symbol="BTCEUR",
+        timeframe="5m",
+        event_time=datetime.fromisoformat(event_time),
+        observed_at=max(datetime.fromisoformat(row["available_time"]) for row in event_rows),
+    )
+
+
 def _artifact(vector: VerifiedFeatureVector, *, status: str = "SHADOW_ELIGIBLE") -> StrategyArtifact:
     return StrategyArtifact(
         strategy_id="trend_momentum",
         strategy_version="shadow-observation-v1",
         code_commit="shadow-observation-fixture",
-        data_snapshot_id="ohlcv_shadow_observation",
+        data_snapshot_id=vector.feature_snapshot.source_snapshot_id,
         feature_versions=dict(vector.feature_snapshot.feature_versions),
         parameters={"fixture": True},
         risk_mandate_fingerprint="shadow-observation-mandate",
@@ -133,12 +213,83 @@ def test_shadow_observation_ledger_rejects_unproven_artifact_or_feature_mismatch
             observation=_observation(artifact, vector, fingerprint="tampered"),
             feature_vectors=(vector,),
         )
+    throttled = _artifact(vector, status="THROTTLED")
     with pytest.raises(ShadowObservationLedgerError, match="not writable"):
         ledger.record(
-            artifact=_artifact(vector, status="THROTTLED"),
-            observation=_observation(_artifact(vector, status="THROTTLED"), vector),
+            artifact=throttled,
+            observation=_observation(throttled, vector),
             feature_vectors=(vector,),
         )
+
+
+def test_batch_target_preview_and_ledgered_shadow_observation_have_exact_parity(tmp_path):
+    vector = _canonical_vector(tmp_path)
+    artifact = _artifact(vector)
+    available_at = vector.observed_at
+    alpha = AlphaSignal(
+        strategy_id=artifact.strategy_id,
+        strategy_version=artifact.strategy_version,
+        signal_id="shadow-parity-signal",
+        market=vector.market,
+        direction="long",
+        generated_at=available_at,
+        available_at=available_at,
+        feature_versions=dict(vector.feature_snapshot.feature_versions),
+        data_snapshot_id=artifact.data_snapshot_id,
+        expected_edge_bps=float(vector.values[0].value),
+    )
+    batch_target = build_target_portfolio((alpha,), decision_id="shadow-parity-decision", decision_at=available_at).target
+    preview = preview_runtime_buy_signal(
+        symbol="BTC/EUR",
+        price=65_000.0,
+        signal_timestamp=available_at,
+        decision_id="shadow-parity-decision",
+        metadata={
+            "strategy_id": artifact.strategy_id,
+            "strategy_version": artifact.strategy_version,
+            "signal_id": alpha.signal_id,
+            "data_snapshot_id": artifact.data_snapshot_id,
+            "data_available_at": available_at.isoformat(),
+            "net_expected_edge_bps": float(vector.values[0].value),
+            "shadow_notional_eur": 1.0,
+            "feature_versions": dict(vector.feature_snapshot.feature_versions),
+            "verified_feature_vectors": {
+                vector.feature_snapshot.feature_snapshot_id: verified_feature_vector_to_mapping(vector)
+            },
+            "strategy_artifact": artifact.to_dict(),
+            "market_identity": {
+                "exchange": vector.market.exchange,
+                "market_type": vector.market.market_type,
+                "symbol": vector.market.symbol,
+                "base_asset": vector.market.base_asset,
+                "quote_asset": vector.market.quote_asset,
+            },
+        },
+    )
+    assert preview.status == "SHADOW_PREVIEW_READY"
+    assert preview.target_portfolio is not None
+    batch_observation = build_shadow_observation_from_target(
+        artifact=artifact,
+        target_portfolio=batch_target,
+        feature_vectors=(vector,),
+    )
+    shadow_observation = build_shadow_observation_from_target(
+        artifact=artifact,
+        target_portfolio=preview.target_portfolio,
+        feature_vectors=(vector,),
+    )
+    from autobot.v2.research.shadow_governance import evaluate_shadow_parity
+
+    parity = evaluate_shadow_parity(
+        artifact=artifact,
+        batch_observation=batch_observation,
+        shadow_observation=shadow_observation,
+    )
+    assert parity.status == "PARITY_OK"
+    ledger = ShadowObservationLedger(tmp_path / "shadow_observations.sqlite3")
+    recorded = ledger.record(artifact=artifact, observation=shadow_observation, feature_vectors=(vector,))
+    assert recorded.duplicate is False
+    assert ledger.count() == 1
 
 
 def test_shadow_observation_ledger_has_no_execution_imports():

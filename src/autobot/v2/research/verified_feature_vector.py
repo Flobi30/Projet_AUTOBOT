@@ -46,6 +46,48 @@ def parse_verified_feature_vectors(
     )
 
 
+def verified_feature_vector_to_mapping(vector: VerifiedFeatureVector) -> dict[str, Any]:
+    """Serialize one verified vector for the strict shadow preview boundary.
+
+    This is deliberately the inverse of the parser's public payload shape,
+    rather than a generic dataclass dump: the preview requires an explicit
+    ``market_identity`` and independently repeats bundle/registry/source
+    evidence before it accepts the values.
+    """
+
+    if not isinstance(vector, VerifiedFeatureVector):
+        raise VerifiedFeatureVectorError("verified_feature_vector_required")
+    market = vector.market
+    return {
+        "feature_snapshot_id": vector.feature_snapshot.feature_snapshot_id,
+        "bundle_content_fingerprint": vector.feature_snapshot.bundle_content_fingerprint,
+        "feature_registry_fingerprint": vector.feature_snapshot.feature_registry_fingerprint,
+        "source_snapshot_id": vector.feature_snapshot.source_snapshot_id,
+        "observed_at": vector.observed_at.isoformat(),
+        "market_identity": {
+            "exchange": market.exchange,
+            "market_type": market.market_type,
+            "symbol": market.symbol,
+            "base_asset": market.base_asset,
+            "quote_asset": market.quote_asset,
+        },
+        "timeframe": vector.timeframe,
+        "values": [
+            {
+                "feature_id": item.feature_id,
+                "feature_version": item.feature_version,
+                "event_time": item.event_time.isoformat(),
+                "available_time": item.available_time.isoformat(),
+                "source_snapshot_id": item.source_snapshot_id,
+                "value": item.value,
+                "status": item.status,
+                "metadata": dict(item.metadata),
+            }
+            for item in sorted(vector.values, key=lambda item: item.feature_id)
+        ],
+    }
+
+
 def _parse_vector(
     value: Any,
     *,
