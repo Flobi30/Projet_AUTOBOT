@@ -61,6 +61,33 @@ async def test_decision_ledger_write_retries_temporary_sqlite_lock(monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_order_upsert_retries_temporary_sqlite_lock_without_duplicate_creation(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    fake_conn = _BusyThenOkConnection()
+
+    async def fake_get_conn():
+        return fake_conn
+
+    monkeypatch.setattr(persistence.orders, "get_conn", fake_get_conn)
+    created = await persistence.upsert_order(
+        client_order_id="order-retry",
+        instance_id="inst",
+        symbol="TRXEUR",
+        side="buy",
+        order_type="market",
+        requested_qty=1.0,
+        strategy_id="trend_momentum",
+    )
+    await persistence.close()
+
+    assert created is True
+    assert fake_conn.execute_calls == 2
+    assert fake_conn.commit_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_trade_ledger_duplicate_trade_id_is_not_double_counted(tmp_path):
     db_path = tmp_path / "state.db"
     persistence = StatePersistence(str(db_path))

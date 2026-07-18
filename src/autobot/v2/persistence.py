@@ -127,32 +127,35 @@ class OrderRepository(_PersistenceRepositoryBase):
             return False
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.get_conn()
-            await conn.execute(
-                """
-                INSERT INTO orders
-                (client_order_id, decision_id, signal_id, strategy_id, instance_id, symbol, side, order_type,
-                 requested_qty, status, userref, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(client_order_id) DO UPDATE SET
-                    decision_id=excluded.decision_id,
-                    signal_id=excluded.signal_id,
-                    strategy_id=excluded.strategy_id,
-                    instance_id=excluded.instance_id,
-                    symbol=excluded.symbol,
-                    side=excluded.side,
-                    order_type=excluded.order_type,
-                    requested_qty=excluded.requested_qty,
-                    userref=excluded.userref,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    client_order_id, decision_id, signal_id, normalized_strategy_id, instance_id, symbol, side, order_type,
-                    requested_qty, status, userref, now, now,
-                ),
-            )
-            await conn.commit()
-            return True
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                await conn.execute(
+                    """
+                    INSERT INTO orders
+                    (client_order_id, decision_id, signal_id, strategy_id, instance_id, symbol, side, order_type,
+                     requested_qty, status, userref, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(client_order_id) DO UPDATE SET
+                        decision_id=excluded.decision_id,
+                        signal_id=excluded.signal_id,
+                        strategy_id=excluded.strategy_id,
+                        instance_id=excluded.instance_id,
+                        symbol=excluded.symbol,
+                        side=excluded.side,
+                        order_type=excluded.order_type,
+                        requested_qty=excluded.requested_qty,
+                        userref=excluded.userref,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        client_order_id, decision_id, signal_id, normalized_strategy_id, instance_id, symbol, side, order_type,
+                        requested_qty, status, userref, now, now,
+                    ),
+                )
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("upsert_order", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur upsert_order {client_order_id}: {e}")
             return False
