@@ -49,7 +49,10 @@ def test_insufficient_sample_fails_closed():
 
 
 def test_excessive_trial_count_fails_closed_even_with_acceptable_proxies():
-    summary = summarize_statistical_gate(_evidence(trial_count=17))
+    summary = summarize_statistical_gate(
+        _evidence(trial_count=17),
+        StatisticalGateConfig(max_trial_count=16),
+    )
 
     assert summary.decision == "RESEARCH_BLOCKED"
     assert "trial_count_exceeds_maximum_16" in summary.blockers

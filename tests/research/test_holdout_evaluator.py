@@ -99,6 +99,30 @@ def test_symbol_concentration_rejects_evidence_even_when_aggregate_pnl_is_positi
     assert "concentration_symbol_above_0.7000" in result.blockers
 
 
+def test_missing_concentration_metadata_fails_closed(tmp_path):
+    partition = _partition(tmp_path)
+    incomplete = tuple(
+        ClosedResearchTrade(
+            f"trade-{index}",
+            1.0,
+            "BTCEUR" if index else None,
+            "2026-07",
+            "trend",
+        )
+        for index in range(6)
+    )
+    result = evaluate_sealed_holdout(
+        partition=partition,
+        provenance=_provenance(partition),
+        closed_trades=incomplete,
+        baselines=_baselines(),
+        config=HoldoutEvaluationConfig(min_closed_trades=6),
+    )
+
+    assert result.verdict == VERDICT_REJECTED
+    assert "concentration_symbol_metadata_missing" in result.blockers
+
+
 def test_duplicate_trade_identity_is_rejected(tmp_path):
     partition = _partition(tmp_path)
     with pytest.raises(HoldoutEvaluatorError, match="trade_ids must be unique"):

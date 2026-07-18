@@ -25,14 +25,14 @@ class StatisticalGateConfig:
     """Explicit conservative thresholds for a research-only evidence review."""
 
     min_trade_count: int = 50
-    max_trial_count: int = 16
+    max_trial_count: int | None = None
     min_bootstrap_positive_probability: float = 0.55
 
     def __post_init__(self) -> None:
         if self.min_trade_count < 2:
             raise ValueError("min_trade_count must be at least two")
-        if self.max_trial_count < 1:
-            raise ValueError("max_trial_count must be positive")
+        if self.max_trial_count is not None and self.max_trial_count < 1:
+            raise ValueError("max_trial_count must be positive when configured")
         if not 0.0 < self.min_bootstrap_positive_probability <= 1.0:
             raise ValueError("min_bootstrap_positive_probability must be in (0, 1]")
 
@@ -130,7 +130,7 @@ def summarize_statistical_gate(
         blockers.append(f"trade_count_below_{config.min_trade_count}")
     if trial_count is None:
         blockers.append("trial_count_missing_or_invalid")
-    elif trial_count > config.max_trial_count:
+    elif config.max_trial_count is not None and trial_count > config.max_trial_count:
         blockers.append(f"trial_count_exceeds_maximum_{config.max_trial_count}")
     if net_pnl_eur is None:
         blockers.append("net_pnl_missing_or_invalid")

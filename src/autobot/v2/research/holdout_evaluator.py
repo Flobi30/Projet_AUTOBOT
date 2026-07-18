@@ -232,6 +232,9 @@ def evaluate_sealed_holdout(
         for dimension in ("symbol", "period", "regime")
     }
     for dimension, assessment in concentration.items():
+        if int(assessment["missing_trade_count"]) > 0:
+            blockers.append(f"concentration_{dimension}_metadata_missing")
+            continue
         max_share = assessment.get("max_positive_pnl_share")
         if max_share is not None and float(max_share) > config.max_positive_pnl_concentration:
             blockers.append(
@@ -287,20 +290,32 @@ def _baseline_map(baselines: Sequence[BaselineOutcome]) -> dict[str, BaselineOut
 
 def _concentration(trades: Sequence[ClosedResearchTrade], dimension: str) -> dict[str, Any]:
     attributed = [trade for trade in trades if str(getattr(trade, dimension) or "").strip()]
+    missing_trade_count = len(trades) - len(attributed)
     if not attributed:
-        return {"status": "UNAVAILABLE", "max_positive_pnl_share": None, "by_value": {}}
+        return {
+            "status": "UNAVAILABLE",
+            "max_positive_pnl_share": None,
+            "by_value": {},
+            "missing_trade_count": missing_trade_count,
+        }
     positive_by_value: dict[str, float] = {}
     for trade in attributed:
         value = str(getattr(trade, dimension)).strip()
         positive_by_value[value] = positive_by_value.get(value, 0.0) + max(float(trade.net_pnl_eur), 0.0)
     total_positive = sum(positive_by_value.values())
     if total_positive <= 0.0:
-        return {"status": "NO_POSITIVE_PNL", "max_positive_pnl_share": None, "by_value": positive_by_value}
+        return {
+            "status": "NO_POSITIVE_PNL",
+            "max_positive_pnl_share": None,
+            "by_value": positive_by_value,
+            "missing_trade_count": missing_trade_count,
+        }
     shares = {value: pnl / total_positive for value, pnl in sorted(positive_by_value.items())}
     return {
         "status": "ASSESSED",
         "max_positive_pnl_share": max(shares.values()),
         "by_value": shares,
+        "missing_trade_count": missing_trade_count,
     }
 
 
