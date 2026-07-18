@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from hashlib import sha256
+import json
 import sqlite3
 from types import SimpleNamespace
 from pathlib import Path
@@ -13,6 +14,7 @@ from autobot.v2.research.experiment_registry import (
     ExperimentRegistryError,
     ExperimentSpec,
 )
+from autobot.v2.research.shadow_review_evidence import seal_shadow_review_evidence
 
 
 pytestmark = pytest.mark.unit
@@ -23,16 +25,76 @@ def _holdout_partition() -> dict[str, object]:
         "schema_version": 1,
         "partition_id": "holdout_2026_q3",
         "fingerprint": "holdout-2026-q3-fixture-fingerprint",
+        "holdout_snapshot_id": "holdout_2026_q3_review",
+        "holdout_snapshot_fingerprint": "holdout-2026-q3-review-fingerprint",
+        "source_snapshot_id": "ohlcv_v2_snapshot",
+        "source_snapshot_fingerprint": "ohlcv-v2-fixture-fingerprint",
     }
 
 
-def _holdout_artifact() -> dict[str, object]:
+def _holdout_provenance(experiment_id: str) -> dict[str, object]:
+    partition = _holdout_partition()
+    identity = {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "partition_id": partition["partition_id"],
+        "partition_fingerprint": partition["fingerprint"],
+        "holdout_snapshot_id": partition["holdout_snapshot_id"],
+        "holdout_snapshot_fingerprint": partition["holdout_snapshot_fingerprint"],
+        "source_snapshot_id": partition["source_snapshot_id"],
+        "source_snapshot_fingerprint": partition["source_snapshot_fingerprint"],
+        "code_commit": "c42ab43",
+        "feature_versions": {"basis_bps": "1.0.0", "funding_rate_relative": "1.0.0"},
+        "parameter_fingerprint": sha256(
+            json.dumps({"threshold": 2.5, "lookback": 24}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "cost_model_fingerprint": sha256(
+            json.dumps({"fee_bps": 16.0, "slippage_bps": 9.0}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    return {
+        **identity,
+        "fingerprint": sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _holdout_artifact(experiment_id: str, *, net_pnl_eur: float = 4.5) -> dict[str, object]:
     return {
         "holdout_partition": _holdout_partition(),
         "role": "holdout_review",
         "result_fingerprint": "pytest-final-result-fingerprint",
         "sha256": "pytest-final-result-sha256",
         "data_root": "/sealed/holdout",
+        "shadow_review_evidence": seal_shadow_review_evidence(
+            experiment_id=experiment_id,
+            holdout_evaluation={
+                "verdict": "HOLDOUT_PASSED_RESEARCH_ONLY",
+                "blockers": [],
+                "trade_count": 50,
+                "net_pnl_eur": net_pnl_eur,
+                "provenance": _holdout_provenance(experiment_id),
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+            statistical_gate_summary={
+                "decision": "SHADOW_REVIEW_ELIGIBLE",
+                "blockers": [],
+                "shadow_review_eligible": True,
+                "trade_count": 50,
+                "trial_count": 8,
+                "net_pnl_eur": net_pnl_eur,
+                "out_of_sample_confirmed": True,
+                "net_of_costs": True,
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+        ),
     }
 
 
@@ -179,19 +241,19 @@ def test_final_shadow_review_closes_the_material_experiment(tmp_path):
         registry.record_final_holdout_review(
             experiment_id=experiment.experiment_id,
             metrics={"net_pnl_eur": 4.5, "profit_factor": 1.2},
-            artifact={**_holdout_artifact(), "holdout_partition": {"partition_id": "other"}},
+            artifact={**_holdout_artifact(experiment.experiment_id), "holdout_partition": {"partition_id": "other"}},
         )
     registry.record_final_holdout_review(
         experiment_id=experiment.experiment_id,
         metrics={"net_pnl_eur": 4.5, "profit_factor": 1.2},
         reasons=("final_immutable_holdout",),
-        artifact=_holdout_artifact(),
+        artifact=_holdout_artifact(experiment.experiment_id),
     )
     with pytest.raises(ExperimentRegistryError, match="already recorded"):
         registry.record_final_holdout_review(
             experiment_id=experiment.experiment_id,
             metrics={"net_pnl_eur": 5.0, "profit_factor": 1.3},
-            artifact=_holdout_artifact(),
+            artifact=_holdout_artifact(experiment.experiment_id, net_pnl_eur=5.0),
         )
     state = registry.record_gate_result(experiment_id=experiment.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
 
@@ -226,14 +288,15 @@ def test_immutable_holdout_cannot_be_used_for_optimization(tmp_path):
             optimization=True,
         )
 
-    registry.record_trial(
-        experiment_id=experiment.experiment_id,
-        dimension="final_holdout_review",
-        value={"status": "observed"},
-        uses_holdout=True,
-        optimization=False,
-    )
-    assert registry.get_state(experiment.experiment_id).trial_count == 1
+    with pytest.raises(ExperimentRegistryError, match="must be recorded through record_final_holdout_review"):
+        registry.record_trial(
+            experiment_id=experiment.experiment_id,
+            dimension="final_holdout_review",
+            value={"status": "observed"},
+            uses_holdout=True,
+            optimization=False,
+        )
+    assert registry.get_state(experiment.experiment_id).trial_count == 0
 
 
 def test_holdout_requires_prior_reservation_and_matching_experiment_reference(tmp_path):
@@ -243,7 +306,7 @@ def test_holdout_requires_prior_reservation_and_matching_experiment_reference(tm
     with pytest.raises(ExperimentRegistryError, match="must be reserved"):
         registry.record_trial(
             experiment_id=experiment.experiment_id,
-            dimension="final_holdout_review",
+            dimension="holdout_observation",
             value={"status": "observed"},
             uses_holdout=True,
             optimization=False,
@@ -257,7 +320,7 @@ def test_holdout_requires_prior_reservation_and_matching_experiment_reference(tm
     with pytest.raises(ExperimentRegistryError, match="does not match"):
         registry.record_trial(
             experiment_id=experiment.experiment_id,
-            dimension="final_holdout_review",
+            dimension="holdout_observation",
             value={"status": "observed"},
             uses_holdout=True,
             optimization=False,

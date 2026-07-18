@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 import sqlite3
 from itertools import product
@@ -170,6 +171,29 @@ class ExperimentRegistry:
         optimization: bool = True,
         holdout_id: str | None = None,
     ) -> str:
+        if str(dimension) == FINAL_HOLDOUT_REVIEW_DIMENSION:
+            raise ExperimentRegistryError(
+                "final_holdout_review must be recorded through record_final_holdout_review"
+            )
+        return self._record_trial(
+            experiment_id=experiment_id,
+            dimension=dimension,
+            value=value,
+            uses_holdout=uses_holdout,
+            optimization=optimization,
+            holdout_id=holdout_id,
+        )
+
+    def _record_trial(
+        self,
+        *,
+        experiment_id: str,
+        dimension: str,
+        value: Mapping[str, Any] | Sequence[Any] | str | int | float | bool | None,
+        uses_holdout: bool = False,
+        optimization: bool = True,
+        holdout_id: str | None = None,
+    ) -> str:
         if uses_holdout and optimization:
             raise ExperimentRegistryError("immutable holdout cannot be used for optimization")
         with self._connect() as connection:
@@ -231,10 +255,14 @@ class ExperimentRegistry:
             raise ExperimentRegistryError("final holdout review metrics are required")
         if not isinstance(artifact, Mapping) or not artifact:
             raise ExperimentRegistryError("final holdout review requires a sealed result artifact")
-        self._validate_final_holdout_artifact(experiment_id=experiment_id, artifact=artifact)
+        review_evidence = self._validate_final_holdout_artifact(
+            experiment_id=experiment_id,
+            metrics=metrics,
+            artifact=artifact,
+        )
         if self.has_final_holdout_review(experiment_id):
             raise ExperimentRegistryError("final holdout review is already recorded for this experiment")
-        return self.record_trial(
+        return self._record_trial(
             experiment_id=experiment_id,
             dimension=FINAL_HOLDOUT_REVIEW_DIMENSION,
             value={
@@ -242,6 +270,7 @@ class ExperimentRegistry:
                 "reasons": [str(item) for item in reasons],
                 "review_kind": "final_immutable_holdout",
                 "artifact": dict(artifact),
+                "shadow_review_evidence": review_evidence.to_dict(),
             },
             uses_holdout=True,
             optimization=False,
@@ -710,8 +739,9 @@ class ExperimentRegistry:
         self,
         *,
         experiment_id: str,
+        metrics: Mapping[str, Any],
         artifact: Mapping[str, Any],
-    ) -> None:
+    ) -> Any:
         """Require final-review evidence to match the experiment's sealed partition.
 
         The CLI performs file-system verification before calling this method.
@@ -720,7 +750,16 @@ class ExperimentRegistry:
         metrics for an unrelated or unreserved holdout.
         """
 
-        required = ("holdout_partition", "role", "result_fingerprint", "sha256", "data_root")
+        from .shadow_review_evidence import ShadowReviewEvidenceError, parse_shadow_review_evidence
+
+        required = (
+            "holdout_partition",
+            "role",
+            "result_fingerprint",
+            "sha256",
+            "data_root",
+            "shadow_review_evidence",
+        )
         if any(not artifact.get(key) for key in required):
             raise ExperimentRegistryError("final holdout artifact is incomplete")
         if str(artifact.get("role")) != FINAL_HOLDOUT_REVIEW_DIMENSION.replace("final_", ""):
@@ -756,6 +795,21 @@ class ExperimentRegistry:
                 raise ExperimentRegistryError("holdout reservation manifest is invalid") from exc
             if reservation_manifest != {"partition": dict(expected_partition)}:
                 raise ExperimentRegistryError("holdout reservation provenance does not match the experiment")
+        try:
+            evidence = parse_shadow_review_evidence(
+                artifact["shadow_review_evidence"],
+                experiment_id=experiment_id,
+            )
+        except ShadowReviewEvidenceError as exc:
+            raise ExperimentRegistryError(f"final holdout evidence is invalid: {exc}") from exc
+        _validate_final_holdout_metrics(metrics, evidence=evidence)
+        _validate_final_holdout_provenance(
+            evidence=evidence,
+            experiment_id=experiment_id,
+            experiment_spec=spec,
+            holdout_partition=expected_partition,
+        )
+        return evidence
 
     @staticmethod
     def _has_final_holdout_review(connection: sqlite3.Connection, *, experiment_id: str) -> bool:
@@ -764,23 +818,49 @@ class ExperimentRegistry:
         ).fetchone()
         if not experiment:
             raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
-        holdout_id = str(json.loads(str(experiment[0])).get("holdout_id") or "").strip()
+        try:
+            spec = json.loads(str(experiment[0]))
+        except json.JSONDecodeError:
+            return False
+        holdout_id = str(spec.get("holdout_id") or "").strip()
         if not holdout_id:
             return False
-        return bool(
-            connection.execute(
+        environment = spec.get("environment")
+        expected_partition = environment.get("holdout_partition") if isinstance(environment, Mapping) else None
+        if not isinstance(expected_partition, Mapping):
+            return False
+        rows = connection.execute(
                 """
-                SELECT 1 FROM experiment_trials
+                SELECT value_json FROM experiment_trials
                 WHERE experiment_id = ?
                   AND dimension = ?
                   AND uses_holdout = 1
                   AND optimization = 0
                   AND holdout_id = ?
-                LIMIT 1
                 """,
                 (experiment_id, FINAL_HOLDOUT_REVIEW_DIMENSION, holdout_id),
-            ).fetchone()
-        )
+            ).fetchall()
+        from .shadow_review_evidence import ShadowReviewEvidenceError, parse_shadow_review_evidence
+
+        for row in rows:
+            try:
+                value = json.loads(str(row[0]))
+                artifact = value.get("artifact") if isinstance(value, Mapping) else None
+                evidence = value.get("shadow_review_evidence") if isinstance(value, Mapping) else None
+                if not isinstance(artifact, Mapping) or not isinstance(evidence, Mapping):
+                    continue
+                parsed = parse_shadow_review_evidence(evidence, experiment_id=experiment_id)
+                _validate_final_holdout_metrics(value.get("metrics") or {}, evidence=parsed)
+                _validate_final_holdout_provenance(
+                    evidence=parsed,
+                    experiment_id=experiment_id,
+                    experiment_spec=spec,
+                    holdout_partition=expected_partition,
+                )
+            except (json.JSONDecodeError, ShadowReviewEvidenceError, ExperimentRegistryError, TypeError, ValueError):
+                continue
+            return True
+        return False
 
     @classmethod
     def _require_final_holdout_review(cls, connection: sqlite3.Connection, *, experiment_id: str) -> None:
@@ -940,6 +1020,84 @@ def _next_stage(stage: str) -> str:
         return next_research_stage(stage)
     except ValueError as exc:
         raise ExperimentRegistryError(str(exc)) from exc
+
+
+def _validate_final_holdout_metrics(metrics: Mapping[str, Any], *, evidence: Any) -> None:
+    """Bind the legacy summary fields to the sealed evidence envelope.
+
+    Keeping this check inside the registry means a caller cannot submit one
+    positive number to the old ``metrics`` field while attaching evidence for a
+    different set of closed holdout trades.  The function intentionally accepts
+    no execution concepts and only reads the immutable evidence contract.
+    """
+
+    if not isinstance(metrics, Mapping):
+        raise ExperimentRegistryError("final holdout review metrics are required")
+    try:
+        supplied_net_pnl = float(metrics.get("net_pnl_eur"))
+    except (TypeError, ValueError):
+        raise ExperimentRegistryError("final holdout metrics must include net_pnl_eur") from None
+    if not math.isfinite(supplied_net_pnl):
+        raise ExperimentRegistryError("final holdout net_pnl_eur must be finite")
+    if not math.isclose(supplied_net_pnl, float(evidence.net_pnl_eur), abs_tol=1e-9):
+        raise ExperimentRegistryError("final holdout metrics net_pnl_eur does not match sealed evidence")
+    supplied_count = metrics.get("trade_count")
+    if supplied_count is not None:
+        if isinstance(supplied_count, bool):
+            raise ExperimentRegistryError("final holdout trade_count is invalid")
+        try:
+            normalized_count = int(supplied_count)
+        except (TypeError, ValueError):
+            raise ExperimentRegistryError("final holdout trade_count is invalid") from None
+        if normalized_count != int(evidence.trade_count):
+            raise ExperimentRegistryError("final holdout metrics trade_count does not match sealed evidence")
+
+
+def _validate_final_holdout_provenance(
+    *,
+    evidence: Any,
+    experiment_id: str,
+    experiment_spec: Mapping[str, Any],
+    holdout_partition: Mapping[str, Any],
+) -> None:
+    """Confirm that an evaluated holdout belongs to this frozen experiment.
+
+    The evaluator signs the complete provenance.  The registry repeats the
+    comparison against its immutable ExperimentSpec and physical partition so
+    evidence cannot be copied from a different parameter set, feature bundle,
+    cost profile, code revision or partition.
+    """
+
+    holdout = evidence.holdout_evaluation
+    provenance = holdout.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ExperimentRegistryError("sealed holdout provenance is required")
+    expected = {
+        "experiment_id": str(experiment_id),
+        "code_commit": str(experiment_spec.get("code_commit") or ""),
+        "feature_versions": {
+            str(key): str(value) for key, value in dict(experiment_spec.get("feature_versions") or {}).items()
+        },
+        "parameter_fingerprint": _fingerprint(dict(experiment_spec.get("parameters") or {})),
+        "cost_model_fingerprint": _fingerprint(dict(experiment_spec.get("cost_model") or {})),
+    }
+    for field_name, expected_value in expected.items():
+        if provenance.get(field_name) != expected_value:
+            raise ExperimentRegistryError(f"sealed holdout provenance {field_name} does not match experiment")
+    partition_fields = {
+        "partition_id": holdout_partition.get("partition_id"),
+        "partition_fingerprint": holdout_partition.get("partition_fingerprint")
+        or holdout_partition.get("fingerprint"),
+        "holdout_snapshot_id": holdout_partition.get("holdout_snapshot_id"),
+        "holdout_snapshot_fingerprint": holdout_partition.get("holdout_snapshot_fingerprint"),
+        "source_snapshot_id": holdout_partition.get("source_snapshot_id"),
+        "source_snapshot_fingerprint": holdout_partition.get("source_snapshot_fingerprint"),
+    }
+    for field_name, expected_value in partition_fields.items():
+        if not str(expected_value or "").strip():
+            raise ExperimentRegistryError(f"experiment holdout partition lacks {field_name}")
+        if provenance.get(field_name) != expected_value:
+            raise ExperimentRegistryError(f"sealed holdout provenance {field_name} does not match partition")
 
 
 def _json(value: Any) -> str:

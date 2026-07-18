@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import csv
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from autobot.v2 import cli
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
+from autobot.v2.research.shadow_review_evidence import seal_shadow_review_evidence
 from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
@@ -26,16 +28,90 @@ def _holdout_partition_fixture() -> dict[str, object]:
         "schema_version": 1,
         "partition_id": "holdout_cli_fixture",
         "fingerprint": "holdout-cli-fixture-fingerprint",
+        "holdout_snapshot_id": "holdout-cli-review",
+        "holdout_snapshot_fingerprint": "holdout-cli-review-fingerprint",
+        "source_snapshot_id": "snapshot-cli",
+        "source_snapshot_fingerprint": "snapshot-cli-fingerprint",
     }
 
 
-def _holdout_artifact_fixture() -> dict[str, object]:
+def _holdout_provenance(
+    experiment_id: str,
+    *,
+    feature_versions: dict[str, str],
+    cost_model: dict[str, float],
+) -> dict[str, object]:
+    partition = _holdout_partition_fixture()
+    identity = {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "partition_id": partition["partition_id"],
+        "partition_fingerprint": partition["fingerprint"],
+        "holdout_snapshot_id": partition["holdout_snapshot_id"],
+        "holdout_snapshot_fingerprint": partition["holdout_snapshot_fingerprint"],
+        "source_snapshot_id": partition["source_snapshot_id"],
+        "source_snapshot_fingerprint": partition["source_snapshot_fingerprint"],
+        "code_commit": "pytest-commit",
+        "feature_versions": feature_versions,
+        "parameter_fingerprint": sha256(
+            json.dumps({"threshold": 2.5}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "cost_model_fingerprint": sha256(
+            json.dumps(cost_model, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    return {
+        **identity,
+        "fingerprint": sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _holdout_artifact_fixture(
+    experiment_id: str,
+    *,
+    feature_versions: dict[str, str],
+    cost_model: dict[str, float],
+) -> dict[str, object]:
     return {
         "holdout_partition": _holdout_partition_fixture(),
         "role": "holdout_review",
         "result_fingerprint": "holdout-cli-final-result",
         "sha256": "holdout-cli-final-result-sha256",
         "data_root": "/sealed/holdout-cli",
+        "shadow_review_evidence": seal_shadow_review_evidence(
+            experiment_id=experiment_id,
+            holdout_evaluation={
+                "verdict": "HOLDOUT_PASSED_RESEARCH_ONLY",
+                "blockers": [],
+                "trade_count": 50,
+                "net_pnl_eur": 3.0,
+                "provenance": _holdout_provenance(
+                    experiment_id,
+                    feature_versions=feature_versions,
+                    cost_model=cost_model,
+                ),
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+            statistical_gate_summary={
+                "decision": "SHADOW_REVIEW_ELIGIBLE",
+                "blockers": [],
+                "shadow_review_eligible": True,
+                "trade_count": 50,
+                "trial_count": 8,
+                "net_pnl_eur": 3.0,
+                "out_of_sample_confirmed": True,
+                "net_of_costs": True,
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+        ),
     }
 
 
@@ -143,7 +219,11 @@ def _passed_experiment(registry_path):
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
-        artifact=_holdout_artifact_fixture(),
+        artifact=_holdout_artifact_fixture(
+            state.experiment_id,
+            feature_versions=dict(feature_snapshot["feature_versions"]),
+            cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
+        ),
     )
     state = registry.record_gate_result(experiment_id=state.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
     return registry, state

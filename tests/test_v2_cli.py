@@ -9,7 +9,9 @@ import pytest
 from autobot.v2 import cli
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
 from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
+from autobot.v2.research.holdout_evaluator import HoldoutProvenance
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
+from autobot.v2.research.shadow_review_evidence import seal_shadow_review_evidence
 from autobot.v2.research.trade_journal import TradeJournal, TradeRecord
 
 
@@ -1840,13 +1842,55 @@ def _physical_holdout_fixture(tmp_path):
 
 
 def _write_final_holdout_result_artifact(tmp_path, experiment_id, partition):
+    parameter_fingerprint = sha256(
+        json.dumps({"threshold": 2.5}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    cost_model_fingerprint = sha256(
+        json.dumps({"fee_bps": 16.0}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    provenance = HoldoutProvenance.from_partition(
+        partition,
+        experiment_id=experiment_id,
+        code_commit="pytest-commit",
+        feature_versions={"basis_bps": "1.0.0"},
+        parameter_fingerprint=parameter_fingerprint,
+        cost_model_fingerprint=cost_model_fingerprint,
+    ).to_dict()
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": experiment_id,
         "holdout_partition": partition.identity_dict(),
         "role": "holdout_review",
         "data_root": str(Path(partition.holdout_data_dir).resolve()),
-        "metrics": {"net_pnl_eur": 3.0, "profit_factor": 1.2},
+        "metrics": {"net_pnl_eur": 3.0, "profit_factor": 1.2, "trade_count": 50},
+        "shadow_review_evidence": seal_shadow_review_evidence(
+            experiment_id=experiment_id,
+            holdout_evaluation={
+                "verdict": "HOLDOUT_PASSED_RESEARCH_ONLY",
+                "blockers": [],
+                "trade_count": 50,
+                "net_pnl_eur": 3.0,
+                "provenance": provenance,
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+            statistical_gate_summary={
+                "decision": "SHADOW_REVIEW_ELIGIBLE",
+                "blockers": [],
+                "shadow_review_eligible": True,
+                "trade_count": 50,
+                "trial_count": 8,
+                "net_pnl_eur": 3.0,
+                "out_of_sample_confirmed": True,
+                "net_of_costs": True,
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+        ),
     }
     payload["result_fingerprint"] = sha256(
         json.dumps(payload, default=str, sort_keys=True, separators=(",", ":")).encode("utf-8")

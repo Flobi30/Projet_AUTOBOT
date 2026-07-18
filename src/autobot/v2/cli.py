@@ -2820,8 +2820,8 @@ def _load_final_holdout_result_artifact(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid final holdout result artifact: {path}") from exc
-    if not isinstance(payload, dict) or int(payload.get("schema_version") or 0) != 1:
-        raise ValueError("final holdout result artifact schema_version must be 1")
+    if not isinstance(payload, dict) or int(payload.get("schema_version") or 0) != 2:
+        raise ValueError("final holdout result artifact schema_version must be 2")
     if str(payload.get("experiment_id") or "") != str(experiment_id):
         raise ValueError("final holdout result artifact experiment_id does not match")
     if payload.get("holdout_partition") != partition.identity_dict():
@@ -2833,6 +2833,8 @@ def _load_final_holdout_result_artifact(
     metrics = payload.get("metrics")
     if not isinstance(metrics, dict) or not metrics:
         raise ValueError("final holdout result artifact metrics are required")
+    if not isinstance(payload.get("shadow_review_evidence"), dict):
+        raise ValueError("final holdout result artifact requires sealed shadow_review_evidence")
     supplied_fingerprint = str(payload.get("result_fingerprint") or "")
     material_payload = {key: value for key, value in payload.items() if key != "result_fingerprint"}
     expected_fingerprint = sha256(
@@ -2848,6 +2850,7 @@ def _load_final_holdout_result_artifact(
         "holdout_partition": partition.identity_dict(),
         "role": "holdout_review",
         "data_root": str(Path(partition.holdout_data_dir).resolve()),
+        "shadow_review_evidence": dict(payload["shadow_review_evidence"]),
     }
 
 
