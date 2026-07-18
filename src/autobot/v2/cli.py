@@ -661,6 +661,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default="funding_rate_relative,basis_bps,open_interest_change_24_pct",
         help="Comma-separated registered derivatives feature IDs.",
     )
+    materialize_derivatives_features.add_argument(
+        "--provenance-scope",
+        choices=("all_history", "forward_capture_only"),
+        default="all_history",
+        help=(
+            "Research source scope. all_history preserves point-in-time-valid history; "
+            "forward_capture_only is an opt-in readiness diagnostic and excludes historical backfills."
+        ),
+    )
     materialize_derivatives_features.set_defaults(handler=_cmd_materialize_derivatives_feature_snapshot)
 
     upgrade_feature_manifest = subparsers.add_parser(
@@ -3203,6 +3212,7 @@ def _cmd_materialize_derivatives_feature_snapshot(args: argparse.Namespace) -> i
             output_dir=Path(args.output_dir),
             manifest_dir=Path(args.manifest_dir),
             feature_ids=_csv_tuple(args.feature_ids, "--feature-ids"),
+            provenance_scope=args.provenance_scope,
         )
     )
     json_path, markdown_path = write_derivatives_feature_snapshot_report(snapshot, Path(args.report_dir))

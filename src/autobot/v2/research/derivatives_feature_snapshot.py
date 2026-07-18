@@ -36,6 +36,18 @@ DEFAULT_DERIVATIVES_FEATURE_IDS = (
     "basis_bps",
     "open_interest_change_24_pct",
 )
+ALL_HISTORY_PROVENANCE_SCOPE = "all_history"
+FORWARD_CAPTURE_ONLY_PROVENANCE_SCOPE = "forward_capture_only"
+SUPPORTED_PROVENANCE_SCOPES = {
+    ALL_HISTORY_PROVENANCE_SCOPE,
+    FORWARD_CAPTURE_ONLY_PROVENANCE_SCOPE,
+}
+FORWARD_CAPTURE_TEMPORAL_STATUSES = {
+    "AVAILABLE_AT_EVENT",
+    "AVAILABLE_AFTER_BAR_CLOSE",
+    "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
+    "AVAILABLE_AFTER_FORWARD_CAPTURE",
+}
 FEATURE_DATASET_BY_ID = {
     "funding_rate_relative": "funding",
     "basis_bps": "basis",
@@ -75,6 +87,7 @@ class DerivativesFeatureSnapshotAvailability:
 
     manifest_path: str
     status: str
+    provenance_scope: str
     blockers: tuple[str, ...]
     feature_ids: tuple[str, ...]
     feature_count: int
@@ -90,6 +103,7 @@ class DerivativesFeatureSnapshotAvailability:
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
+            "provenance_scope": self.provenance_scope,
             "blockers": list(self.blockers),
             "feature_ids": list(self.feature_ids),
             "feature_count": self.feature_count,
@@ -158,6 +172,7 @@ def inspect_derivatives_feature_snapshot_manifest(
     return DerivativesFeatureSnapshotAvailability(
         manifest_path=str(manifest_path),
         status=status,
+        provenance_scope=_normalized_provenance_scope(payload.get("provenance_scope")),
         blockers=blockers,
         feature_ids=feature_ids,
         feature_count=feature_count,
@@ -184,12 +199,14 @@ class DerivativesFeatureSnapshotConfig:
     output_dir: Path = Path("data/research/canonical/derivatives_features")
     manifest_dir: Path = Path("data/research/manifests")
     feature_ids: tuple[str, ...] = DEFAULT_DERIVATIVES_FEATURE_IDS
+    provenance_scope: str = ALL_HISTORY_PROVENANCE_SCOPE
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
             raise ValueError("run_id must not be empty")
         if self.as_of_time.tzinfo is None or self.as_of_time.utcoffset() is None:
             raise ValueError("as_of_time must be timezone-aware")
+        object.__setattr__(self, "provenance_scope", _normalized_provenance_scope(self.provenance_scope))
 
 
 @dataclass(frozen=True)
@@ -220,6 +237,7 @@ class DerivativesFeatureSnapshot:
     source_snapshot_fingerprint: str
     provenance_fingerprint: str
     snapshot_kind: str
+    provenance_scope: str
     as_of_time: str
     market_mapping_fingerprint: str
     feature_registry_fingerprint: str
@@ -257,6 +275,7 @@ class DerivativesFeatureSnapshot:
             "source_snapshot_fingerprint": self.source_snapshot_fingerprint,
             "provenance_fingerprint": self.provenance_fingerprint,
             "snapshot_kind": self.snapshot_kind,
+            "provenance_scope": self.provenance_scope,
             "as_of_time": self.as_of_time,
             "market_mapping_fingerprint": self.market_mapping_fingerprint,
             "feature_registry_fingerprint": self.feature_registry_fingerprint,
@@ -321,6 +340,10 @@ def build_derivatives_feature_snapshot(
     ) = _point_in_time_rows(raw_source_rows, as_of_time)
     mappings = _validated_market_mappings(manifest)
     source_rows, mapping_rows_excluded = _filter_rows_by_mapping(source_rows, mappings)
+    source_rows, provenance_scope_exclusions = _filter_rows_by_provenance_scope(
+        source_rows,
+        provenance_scope=config.provenance_scope,
+    )
     invalid_basis_rows = sum(
         1 for row in source_rows.get("basis", ()) if not is_verified_basis_confidence(row.get("confidence_status"))
     )
@@ -332,6 +355,7 @@ def build_derivatives_feature_snapshot(
     source_snapshot_fingerprint = _fingerprint(
         {
             "as_of_time": as_of_time.isoformat(),
+            "provenance_scope": config.provenance_scope,
             "market_mapping_fingerprint": market_mapping_fingerprint,
             "rows": {dataset: rows for dataset, rows in sorted(source_rows.items())},
         }
@@ -341,7 +365,11 @@ def build_derivatives_feature_snapshot(
     payloads_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
     files: list[DerivativesFeatureFile] = []
     parity_ok = True
-    runtime_parity_proven = _runtime_parity_proven(source_rows)
+    runtime_parity_proven = (
+        bool(source_rows)
+        and all(source_rows.get(dataset) for dataset in required_datasets)
+        and _runtime_parity_proven(source_rows)
+    )
     for feature_id in feature_ids:
         dataset = FEATURE_DATASET_BY_ID[feature_id]
         grouped = _group_rows(source_rows[dataset])
@@ -403,8 +431,15 @@ def build_derivatives_feature_snapshot(
         parity_ok=parity_ok,
         runtime_parity_proven=runtime_parity_proven,
         invalid_basis_rows=invalid_basis_rows,
+        provenance_scope=config.provenance_scope,
     )
-    status = _snapshot_status(manifest, output_rows, feature_ids=feature_ids, parity_ok=parity_ok)
+    status = _snapshot_status(
+        manifest,
+        output_rows,
+        feature_ids=feature_ids,
+        parity_ok=parity_ok,
+        provenance_scope=config.provenance_scope,
+    )
     provenance_fingerprint = _fingerprint(
         {
             "collector_snapshot_id": manifest.get("snapshot_id"),
@@ -412,6 +447,7 @@ def build_derivatives_feature_snapshot(
             "source_snapshot_fingerprint": source_snapshot_fingerprint,
             "market_mapping_fingerprint": market_mapping_fingerprint,
             "as_of_time": as_of_time.isoformat(),
+            "provenance_scope": config.provenance_scope,
         }
     )
     snapshot = DerivativesFeatureSnapshot(
@@ -430,6 +466,7 @@ def build_derivatives_feature_snapshot(
         source_snapshot_fingerprint=source_snapshot_fingerprint,
         provenance_fingerprint=provenance_fingerprint,
         snapshot_kind=DERIVATIVES_POINT_IN_TIME_KIND,
+        provenance_scope=config.provenance_scope,
         as_of_time=as_of_time.isoformat(),
         market_mapping_fingerprint=market_mapping_fingerprint,
         feature_registry_fingerprint=active_registry.fingerprint,
@@ -458,6 +495,8 @@ def build_derivatives_feature_snapshot(
             "ingestion_time_unknown_count": ingestion_time_unknown_count,
             "post_as_of_ingestion_rows_excluded": post_as_of_ingestion_rows_excluded,
             "market_mapping_rows_excluded": mapping_rows_excluded,
+            "provenance_scope": config.provenance_scope,
+            "provenance_scope_exclusions": provenance_scope_exclusions,
             "runtime_parity_proven": runtime_parity_proven,
         },
         basis_contract=basis_contract_metadata(
@@ -479,6 +518,7 @@ def render_derivatives_feature_snapshot_report(snapshot: DerivativesFeatureSnaps
         "",
         f"- Feature snapshot: `{snapshot.feature_snapshot_id}`",
         f"- Snapshot kind: `{snapshot.snapshot_kind}`",
+        f"- Provenance scope: `{snapshot.provenance_scope}`",
         f"- As of: `{snapshot.as_of_time}`",
         f"- Status: `{snapshot.status}`",
         f"- Deterministic parity: `{snapshot.parity_ok}`",
@@ -592,6 +632,74 @@ def _point_in_time_rows(
         invalid_temporal_rows,
         ingestion_time_unknown_count,
         post_as_of_ingestion_rows_excluded,
+    )
+
+
+def _normalized_provenance_scope(value: Any) -> str:
+    scope = str(value or ALL_HISTORY_PROVENANCE_SCOPE).strip().lower()
+    if scope not in SUPPORTED_PROVENANCE_SCOPES:
+        allowed = ", ".join(sorted(SUPPORTED_PROVENANCE_SCOPES))
+        raise ValueError(f"unsupported derivatives provenance_scope: {scope or '<empty>'}; expected one of {allowed}")
+    return scope
+
+
+def _filter_rows_by_provenance_scope(
+    datasets: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    provenance_scope: str,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, int]]]:
+    """Keep source provenance explicit without relabelling historical rows.
+
+    The default research scope preserves all point-in-time-valid history.  The
+    opt-in forward scope is only a diagnostic/readiness view: it accepts rows
+    whose original collector status already proves forward availability and
+    reports every excluded status by dataset.
+    """
+
+    scope = _normalized_provenance_scope(provenance_scope)
+    accepted: dict[str, list[dict[str, Any]]] = {}
+    exclusions: dict[str, dict[str, int]] = {}
+    for dataset, rows in datasets.items():
+        accepted_rows: list[dict[str, Any]] = []
+        excluded_by_status: dict[str, int] = {}
+        for row in rows:
+            item = dict(row)
+            status = str(item.get("temporal_status") or "").strip() or "MISSING_TEMPORAL_STATUS"
+            if scope == ALL_HISTORY_PROVENANCE_SCOPE or status in FORWARD_CAPTURE_TEMPORAL_STATUSES:
+                accepted_rows.append(item)
+            else:
+                excluded_by_status[status] = excluded_by_status.get(status, 0) + 1
+        accepted[dataset] = accepted_rows
+        exclusions[dataset] = dict(sorted(excluded_by_status.items()))
+    return accepted, exclusions
+
+
+def _forward_scope_has_ready_latest_values(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    feature_ids: Sequence[str],
+) -> bool:
+    """Require a READY terminal value for every selected feature/market pair."""
+
+    latest_by_feature_market: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for row in rows:
+        feature_id = str(row.get("feature_id") or "")
+        market = str(row.get("symbol") or "")
+        if not feature_id or not market:
+            continue
+        key = (feature_id, market)
+        current = latest_by_feature_market.get(key)
+        if current is None or (
+            str(row.get("available_time") or ""),
+            str(row.get("event_time") or ""),
+        ) >= (
+            str(current.get("available_time") or ""),
+            str(current.get("event_time") or ""),
+        ):
+            latest_by_feature_market[key] = row
+    observed_feature_ids = {feature_id for feature_id, _market in latest_by_feature_market}
+    return set(feature_ids).issubset(observed_feature_ids) and all(
+        str(row.get("status") or "") == "READY" for row in latest_by_feature_market.values()
     )
 
 
@@ -735,12 +843,7 @@ def _runtime_parity_proven(source_rows: Mapping[str, Sequence[Mapping[str, Any]]
         for row in rows:
             if not str(row.get("ingestion_time") or "").strip():
                 return False
-            if str(row.get("temporal_status") or "") not in {
-                "AVAILABLE_AT_EVENT",
-                "AVAILABLE_AFTER_BAR_CLOSE",
-                "AVAILABLE_AFTER_ANALYTICS_BUCKET_CLOSE",
-                "AVAILABLE_AFTER_FORWARD_CAPTURE",
-            }:
+            if str(row.get("temporal_status") or "") not in FORWARD_CAPTURE_TEMPORAL_STATUSES:
                 return False
     return True
 
@@ -753,6 +856,7 @@ def _blockers(
     parity_ok: bool,
     runtime_parity_proven: bool,
     invalid_basis_rows: int,
+    provenance_scope: str,
 ) -> list[str]:
     blockers: list[str] = []
     if not rows:
@@ -770,6 +874,11 @@ def _blockers(
         blockers.append("FEATURE_DATA_MISSING")
     if invalid_basis_rows:
         blockers.append("BASIS_UNVERIFIED_ROWS_EXCLUDED")
+    if provenance_scope == FORWARD_CAPTURE_ONLY_PROVENANCE_SCOPE and not _forward_scope_has_ready_latest_values(
+        rows,
+        feature_ids=feature_ids,
+    ):
+        blockers.append("FORWARD_CAPTURE_WINDOW_WAITING")
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
     if not runtime_parity_proven:
@@ -783,6 +892,7 @@ def _snapshot_status(
     *,
     feature_ids: Sequence[str],
     parity_ok: bool,
+    provenance_scope: str,
 ) -> str:
     if not rows or not parity_ok or any(item.get("status") == "DATA_MISSING" for item in rows):
         return "DATA_MISSING"
@@ -795,6 +905,11 @@ def _snapshot_status(
         or ("open_interest_change_24_pct" in feature_ids and not bool(manifest.get("open_interest_history_ready")))
     )
     if waiting_for_history:
+        return "WAITING_FOR_MORE_DATA"
+    if provenance_scope == FORWARD_CAPTURE_ONLY_PROVENANCE_SCOPE and not _forward_scope_has_ready_latest_values(
+        rows,
+        feature_ids=feature_ids,
+    ):
         return "WAITING_FOR_MORE_DATA"
     return "READY"
 

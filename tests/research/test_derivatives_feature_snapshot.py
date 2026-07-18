@@ -38,6 +38,7 @@ def test_derivatives_snapshot_is_point_in_time_and_keeps_perpetual_usd_identity(
     )
 
     assert snapshot.snapshot_kind == "DERIVATIVES_POINT_IN_TIME"
+    assert snapshot.provenance_scope == "all_history"
     assert snapshot.status == "READY"
     assert snapshot.runtime_parity_proven is False
     assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" in snapshot.blockers
@@ -173,6 +174,7 @@ def test_derivatives_snapshot_readiness_view_requires_same_quote_and_research_on
     availability = inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
 
     assert availability.status == "READY"
+    assert availability.provenance_scope == "all_history"
     assert availability.material_verified is True
     assert availability.basis_same_quote_verified is True
     assert availability.paper_capital_allowed is False
@@ -281,6 +283,20 @@ def test_derivatives_feature_snapshot_cli_is_registered():
 
     assert args.command == "materialize-derivatives-feature-snapshot"
     assert args.as_of_time == "2026-07-12T00:00:00Z"
+    assert args.provenance_scope == "all_history"
+
+    forward_args = parser.parse_args(
+        [
+            "materialize-derivatives-feature-snapshot",
+            "--derivatives-manifest",
+            "data/research/manifests/derivatives.json",
+            "--as-of-time",
+            "2026-07-12T00:00:00Z",
+            "--provenance-scope",
+            "forward_capture_only",
+        ]
+    )
+    assert forward_args.provenance_scope == "forward_capture_only"
 
     runner_args = parser.parse_args(
         [
@@ -304,6 +320,84 @@ def test_forward_captured_derivatives_rows_are_runtime_parity_eligible():
     )
 
     assert _runtime_parity_proven({"funding": [row], "basis": [row], "open_interest": [row]}) is True
+
+
+def test_forward_scope_excludes_backfills_and_reports_each_temporal_status(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_forward_excludes_backfill",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+
+    assert snapshot.status == "DATA_MISSING"
+    assert snapshot.runtime_parity_proven is False
+    assert snapshot.temporal_contract["provenance_scope"] == "forward_capture_only"
+    assert snapshot.temporal_contract["provenance_scope_exclusions"]["funding"] == {
+        "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION": 3
+    }
+
+
+def test_forward_scope_waits_until_each_terminal_feature_value_is_ready(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+    ticker_path = tmp_path / "tickers.csv"
+    ticker_rows = _read_rows(ticker_path)[:10]
+    _write_rows(ticker_path, ticker_rows)
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_forward_waiting",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+
+    assert snapshot.status == "WAITING_FOR_MORE_DATA"
+    assert snapshot.runtime_parity_proven is True
+    assert "FORWARD_CAPTURE_WINDOW_WAITING" in snapshot.blockers
+
+
+def test_fully_forward_scope_can_materialize_a_runtime_parity_ready_bundle(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    _set_temporal_status(tmp_path / "funding.csv", "AVAILABLE_AFTER_FORWARD_CAPTURE")
+
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_fully_forward",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+            provenance_scope="forward_capture_only",
+        )
+    )
+
+    assert snapshot.status == "READY"
+    assert snapshot.runtime_parity_proven is True
+    assert "DERIVATIVES_RUNTIME_PARITY_NOT_PROVEN" not in snapshot.blockers
+    assert "FORWARD_CAPTURE_WINDOW_WAITING" not in snapshot.blockers
+
+
+def test_derivatives_snapshot_rejects_unknown_provenance_scope(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+
+    with pytest.raises(ValueError, match="unsupported derivatives provenance_scope"):
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_invalid_scope",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            provenance_scope="future_magic",
+        )
 
 
 def _derivatives_manifest(
@@ -394,6 +488,18 @@ def _row(event_time: datetime, **overrides: str) -> dict[str, str]:
         "temporal_status": overrides.pop("temporal_status", "AVAILABLE_AT_EVENT"),
         **overrides,
     }
+
+
+def _read_rows(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _set_temporal_status(path: Path, status: str) -> None:
+    rows = _read_rows(path)
+    for row in rows:
+        row["temporal_status"] = status
+    _write_rows(path, rows)
 
 
 def _write_rows(path: Path, rows: list[dict[str, str]]) -> None:
