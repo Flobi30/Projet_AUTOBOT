@@ -11,6 +11,7 @@ from autobot.v2.cli import _build_parser
 from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
+    load_latest_verified_feature_vectors_from_canonical_snapshot,
     load_verified_feature_vector_from_canonical_snapshot,
     upgrade_feature_snapshot_manifest,
     verify_canonical_feature_snapshot_manifest,
@@ -225,6 +226,48 @@ def test_verified_feature_vector_loads_only_materially_verified_ready_snapshot(t
             timeframe="5m",
             event_time=datetime.fromisoformat(event_time),
             observed_at=observed_at,
+        )
+
+
+def test_latest_verified_feature_vectors_select_only_closed_available_ready_values(tmp_path):
+    snapshot = _ready_feature_snapshot(tmp_path)
+    feature_csv = Path(snapshot.files[0].csv_path)
+    with feature_csv.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    ready_events = sorted(
+        {
+            datetime.fromisoformat(row["event_time"])
+            for row in rows
+            if row["status"] == "READY"
+        }
+    )
+    expected_event = ready_events[-2]
+    # The following closed candle is not yet available at this explicit
+    # observation time, so the selector must not look ahead to it.
+    observed_at = expected_event + timedelta(minutes=1)
+
+    vectors = load_latest_verified_feature_vectors_from_canonical_snapshot(
+        Path(str(snapshot.manifest_path)),
+        observed_at=observed_at,
+        symbols=("BTCEUR",),
+        timeframes=("5m",),
+    )
+
+    assert len(vectors) == 1
+    assert vectors[0].market.symbol == "BTCEUR"
+    assert vectors[0].timeframe == "5m"
+    assert {value.event_time for value in vectors[0].values} == {expected_event}
+    assert all(value.available_time <= observed_at for value in vectors[0].values)
+
+
+def test_latest_verified_feature_vectors_fail_closed_when_requested_market_has_no_ready_vector(tmp_path):
+    snapshot = _ready_feature_snapshot(tmp_path)
+
+    with pytest.raises(ValueError, match="unavailable for symbols: ETHEUR"):
+        load_latest_verified_feature_vectors_from_canonical_snapshot(
+            Path(str(snapshot.manifest_path)),
+            observed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            symbols=("ETHEUR",),
         )
 
 

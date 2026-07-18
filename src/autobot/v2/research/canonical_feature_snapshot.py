@@ -559,6 +559,113 @@ def load_verified_feature_vector_from_canonical_snapshot(
     )
 
 
+def load_latest_verified_feature_vectors_from_canonical_snapshot(
+    path: str | Path,
+    *,
+    observed_at: datetime,
+    symbols: Sequence[str] | None = None,
+    timeframes: Sequence[str] | None = None,
+    registry: FeatureRegistry | None = None,
+) -> tuple[VerifiedFeatureVector, ...]:
+    """Select the latest fully available vector for each explicit market file.
+
+    This remains a batch/research reader: callers must supply the observation
+    time explicitly and the function never infers a wall-clock ``now``.  A
+    selected event must be closed, have all registered values in ``READY``
+    status and have become available no later than ``observed_at``.  The
+    material bundle is re-verified before each returned vector is constructed.
+
+    It is intentionally not a runtime signal producer.  It creates a safe,
+    deterministic hand-off candidate for a later runtime integration, while
+    keeping the hot order path free of feature-snapshot filesystem reads.
+    """
+
+    manifest_path = Path(path)
+    target_observed_at = _utc_datetime(observed_at, "latest feature vector observed_at")
+    verification = verify_canonical_feature_snapshot_manifest(manifest_path, registry=registry)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid canonical feature snapshot manifest: {manifest_path}") from exc
+    if not isinstance(payload, Mapping) or str(payload.get("status") or "").upper() != "READY":
+        raise ValueError("canonical feature snapshot must be READY")
+
+    expected_feature_ids = {
+        _required_text(feature_id, "canonical feature snapshot feature_id")
+        for feature_id in payload.get("feature_ids") or ()
+    }
+    if not expected_feature_ids:
+        raise ValueError("canonical feature snapshot feature_ids are required")
+    requested_symbols = {
+        _required_text(symbol, "latest feature vector symbol").upper()
+        for symbol in (symbols or ())
+    }
+    requested_timeframes = {
+        _required_text(timeframe, "latest feature vector timeframe")
+        for timeframe in (timeframes or ())
+    }
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list):
+        raise ValueError("canonical feature snapshot files are required")
+
+    selected: list[VerifiedFeatureVector] = []
+    for raw_file in raw_files:
+        if not isinstance(raw_file, Mapping):
+            raise ValueError("canonical feature snapshot file evidence is invalid")
+        symbol = _required_text(raw_file.get("symbol"), "canonical feature CSV symbol").upper()
+        timeframe = _required_text(raw_file.get("timeframe"), "canonical feature CSV timeframe")
+        if requested_symbols and symbol not in requested_symbols:
+            continue
+        if requested_timeframes and timeframe not in requested_timeframes:
+            continue
+        rows = _read_csv(_resolve_feature_csv_path(manifest_path, raw_file.get("csv_path")))
+        event_rows: dict[datetime, list[Mapping[str, str]]] = {}
+        for row in rows:
+            event_time = _utc_datetime(row.get("event_time"), "canonical feature vector row event_time")
+            if event_time > target_observed_at:
+                continue
+            event_rows.setdefault(event_time, []).append(row)
+
+        chosen_event_time: datetime | None = None
+        for event_time in sorted(event_rows, reverse=True):
+            values = event_rows[event_time]
+            if {str(row.get("feature_id") or "") for row in values} != expected_feature_ids:
+                continue
+            if any(str(row.get("status") or "").upper() != "READY" for row in values):
+                continue
+            if any(
+                _utc_datetime(row.get("available_time"), "canonical feature vector row available_time")
+                > target_observed_at
+                for row in values
+            ):
+                continue
+            chosen_event_time = event_time
+            break
+        if chosen_event_time is None:
+            continue
+        vector = load_verified_feature_vector_from_canonical_snapshot(
+            manifest_path,
+            symbol=symbol,
+            timeframe=timeframe,
+            event_time=chosen_event_time,
+            observed_at=target_observed_at,
+            registry=registry,
+        )
+        if vector.feature_snapshot.bundle_content_fingerprint != verification.bundle_content_fingerprint:
+            raise ValueError("canonical feature vector bundle verification mismatch")
+        selected.append(vector)
+
+    if requested_symbols and {item.market.symbol for item in selected} != requested_symbols:
+        missing = sorted(requested_symbols - {item.market.symbol for item in selected})
+        raise ValueError(f"latest verified feature vector unavailable for symbols: {', '.join(missing)}")
+    if requested_timeframes and {item.timeframe for item in selected} != requested_timeframes:
+        missing = sorted(requested_timeframes - {item.timeframe for item in selected})
+        raise ValueError(f"latest verified feature vector unavailable for timeframes: {', '.join(missing)}")
+    if not selected:
+        raise ValueError("no fully available canonical feature vectors at observed_at")
+    return tuple(sorted(selected, key=lambda item: (item.market.symbol, item.timeframe, item.fingerprint)))
+
+
 def render_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot) -> str:
     lines = [
         f"# Canonical Feature Snapshot - {snapshot.run_id}",
