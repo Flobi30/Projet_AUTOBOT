@@ -52,3 +52,18 @@ def test_daily_research_service_runs_one_isolated_bounded_research_coordinator_p
     assert "--capability-data-paths data/research/canonical/ohlcv,data/research/manifests" in coordinator_section
     assert "--commit \"${SOURCE_COMMIT}\"" in coordinator_section
     assert "--max-variants 3" in coordinator_section
+
+
+def test_daily_research_service_rejects_stale_or_unverifiable_image_before_collection():
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "deploy"
+        / "systemd"
+        / "run-autobot-research-collection.sh"
+    ).read_text(encoding="utf-8")
+
+    collection_section = script.split("docker run --rm", maxsplit=1)[0]
+    assert 'IMAGE_COMMIT="$(docker image inspect' in collection_section
+    assert 'org.opencontainers.image.revision' in collection_section
+    assert '"${IMAGE_COMMIT}" != "${SOURCE_COMMIT}"' in collection_section
+    assert "image provenance mismatch" in collection_section

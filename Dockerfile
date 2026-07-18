@@ -15,6 +15,13 @@ RUN npm run build
 # ==================== STAGE 2: Backend Python ====================
 FROM python:3.11-slim
 
+# Research artifacts must identify the exact source revision baked into the
+# image.  The deployment helper supplies this value from a clean Git checkout;
+# isolated research jobs reject an image whose label does not match their
+# declared source commit.
+ARG AUTOBOT_BUILD_COMMIT=unverified
+LABEL org.opencontainers.image.revision=${AUTOBOT_BUILD_COMMIT}
+
 # Dépendances système
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -44,6 +51,7 @@ COPY --from=frontend-builder /app/dashboard/dist /app/dashboard/dist
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV APP_ENV=production
+ENV AUTOBOT_BUILD_COMMIT=${AUTOBOT_BUILD_COMMIT}
 ENV DASHBOARD_STATIC_DIR=/app/dashboard/dist
 ENV HEALTHCHECK_MODE=internal_http
 ENV HEALTHCHECK_URL_TLS=https://localhost:8080/health

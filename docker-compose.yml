@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Set by deploy/rebuild-autobot-image.sh.  A missing value deliberately
+        # remains unverified so isolated research collection fails closed.
+        AUTOBOT_BUILD_COMMIT: ${AUTOBOT_BUILD_COMMIT:-unverified}
     container_name: autobot-v2
     env_file:
       - path: .env

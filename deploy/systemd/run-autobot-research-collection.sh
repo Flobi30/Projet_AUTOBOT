@@ -40,6 +40,16 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
 fi
 
 SOURCE_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)"
+IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "${IMAGE}" 2>/dev/null || true)"
+
+# The host checkout alone is not enough provenance: a stale Docker image can
+# otherwise execute a different code revision while reports claim SOURCE_COMMIT.
+# Block before the first collector container is created when the image cannot
+# prove that it was built from this exact commit.
+if [[ ! "${IMAGE_COMMIT}" =~ ^[0-9a-f]{40}$ || "${IMAGE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
+  echo "AUTOBOT research collection blocked: image provenance mismatch (source=${SOURCE_COMMIT}, image=${IMAGE_COMMIT:-unverified}). Rebuild with deploy/rebuild-autobot-image.sh." >&2
+  exit 1
+fi
 
 # The image runs as appuser (uid/gid 999). Its only writable data mount is
 # data/research, so this public-data job cannot write the runtime state DB or
