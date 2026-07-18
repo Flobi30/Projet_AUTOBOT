@@ -14,6 +14,13 @@ Environment=AUTOBOT_RUNTIME_RESILIENCE_MAX_DATA_AGE_SECONDS=300
 Environment=AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES=2147483648
 ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh
 TimeoutStartSec=2min
+# ``docker run`` is a daemon client. On a timeout or service stop, clean up
+# only the disposable monitor identified by its unique component label. This
+# can never select the Compose runtime (`autobot-v2`) or a research collector.
+KillMode=control-group
+TimeoutStopSec=30s
+ExecStop=/bin/sh -c '/usr/bin/docker ps -q --filter label=autobot.component=runtime-resilience-audit | xargs -r /usr/bin/docker stop --timeout 15'
+ExecStopPost=/bin/sh -c '/usr/bin/docker ps -aq --filter label=autobot.component=runtime-resilience-audit | xargs -r /usr/bin/docker rm -f'
 Nice=10
 IOSchedulingClass=idle
 IOSchedulingPriority=7
