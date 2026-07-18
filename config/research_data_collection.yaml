@@ -41,6 +41,10 @@ microstructure:
   depth_count: 10
   sample_interval_seconds: 60
   samples_per_run: 60
+  # Public depth requests are deliberately time-boxed so a slow endpoint
+  # cannot hold the isolated daily research container indefinitely. A partial
+  # recording is retained and explicitly marked in its report.
+  max_runtime_seconds: 2700
 
 # Full walk-forward and portfolio orchestration re-read the entire archive.
 # They are deliberately separate, manually reviewed research batches: running

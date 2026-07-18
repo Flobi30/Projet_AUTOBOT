@@ -216,6 +216,7 @@ class DailyResearchDataCollectionConfig:
     microstructure_depth_count: int = 10
     microstructure_sample_interval_seconds: float = 60.0
     microstructure_samples_per_run: int = 60
+    microstructure_max_runtime_seconds: float | None = None
     high_conviction_walk_forward: DailyHighConvictionWalkForwardConfig = DailyHighConvictionWalkForwardConfig()
     strategy_orchestrator: DailyStrategyOrchestratorConfig = DailyStrategyOrchestratorConfig()
     strategy_edge_review: DailyStrategyEdgeReviewConfig = DailyStrategyEdgeReviewConfig()
@@ -247,6 +248,8 @@ class DailyResearchDataCollectionConfig:
             raise ValueError("microstructure.samples_per_run must be positive")
         if self.microstructure_sample_interval_seconds < 0.0:
             raise ValueError("microstructure.sample_interval_seconds cannot be negative")
+        if self.microstructure_max_runtime_seconds is not None and self.microstructure_max_runtime_seconds <= 0.0:
+            raise ValueError("microstructure.max_runtime_seconds must be positive when configured")
         self.high_conviction_walk_forward.validate()
         self.strategy_orchestrator.validate()
         self.strategy_edge_review.validate()
@@ -366,6 +369,11 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
         microstructure_depth_count=int(microstructure.get("depth_count") or 10),
         microstructure_sample_interval_seconds=float(microstructure.get("sample_interval_seconds") or 60.0),
         microstructure_samples_per_run=int(microstructure.get("samples_per_run") or 60),
+        microstructure_max_runtime_seconds=(
+            float(microstructure["max_runtime_seconds"])
+            if microstructure.get("max_runtime_seconds") not in (None, "")
+            else None
+        ),
         high_conviction_walk_forward=DailyHighConvictionWalkForwardConfig(
             enabled=bool(high_conviction.get("enabled", False)),
             output_dir=Path(str(high_conviction.get("output_dir") or "reports/research/high_conviction_walk_forward")),
@@ -500,6 +508,7 @@ def run_daily_research_data_collection(
                 depth_count=config.microstructure_depth_count,
                 samples=config.microstructure_samples_per_run,
                 sleep_seconds=config.microstructure_sample_interval_seconds,
+                max_runtime_seconds=config.microstructure_max_runtime_seconds,
                 export_csv=True,
                 continue_on_error=True,
             ),
@@ -511,11 +520,11 @@ def run_daily_research_data_collection(
                 operation_type="spread_depth",
                 symbol=None,
                 timeframe=None,
-                status="ok" if not micro_result.errors else "partial",
+                status="ok" if not micro_result.errors and not micro_result.stop_reason else "partial",
                 row_count=len(micro_result.snapshots),
                 output_path=micro_result.csv_path,
                 markdown_report_path=micro_result.markdown_report_path,
-                error=f"{len(micro_result.errors)} public depth errors" if micro_result.errors else None,
+                error=_spread_depth_operation_note(micro_result),
             )
         )
     except Exception as exc:
@@ -1127,6 +1136,15 @@ def _run_shadow_observation_sync(
             )
         )
         return None
+
+
+def _spread_depth_operation_note(result: SpreadDepthRecorderResult) -> str | None:
+    notes: list[str] = []
+    if result.errors:
+        notes.append(f"{len(result.errors)} public depth errors")
+    if result.stop_reason:
+        notes.append(result.stop_reason)
+    return "; ".join(notes) or None
 
 
 def _operation_output_path(operations: list[DailyCollectionOperation], operation_type: str) -> str | None:

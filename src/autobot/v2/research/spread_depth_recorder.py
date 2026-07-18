@@ -55,6 +55,7 @@ class SpreadDepthRecorderConfig:
     depth_count: int = 10
     samples: int = 1
     sleep_seconds: float = 0.0
+    max_runtime_seconds: float | None = None
     export_csv: bool = True
     continue_on_error: bool = False
 
@@ -69,6 +70,8 @@ class SpreadDepthRecorderConfig:
             raise ValueError("samples must be positive")
         if self.sleep_seconds < 0.0:
             raise ValueError("sleep_seconds cannot be negative")
+        if self.max_runtime_seconds is not None and self.max_runtime_seconds <= 0.0:
+            raise ValueError("max_runtime_seconds must be positive when configured")
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class SpreadDepthRecorderResult:
     snapshots: tuple[SpreadDepthSnapshot, ...]
     summary_by_symbol: dict[str, dict[str, float]]
     errors: tuple[dict[str, Any], ...] = ()
+    stop_reason: str | None = None
     csv_path: str | None = None
     markdown_report_path: str | None = None
     safety_notes: tuple[str, ...] = (
@@ -97,6 +101,7 @@ class SpreadDepthRecorderResult:
             "snapshots": [snapshot.to_dict() for snapshot in self.snapshots],
             "summary_by_symbol": self.summary_by_symbol,
             "errors": list(self.errors),
+            "stop_reason": self.stop_reason,
             "csv_path": self.csv_path,
             "markdown_report_path": self.markdown_report_path,
             "safety_notes": list(self.safety_notes),
@@ -112,6 +117,8 @@ def record_spread_depth(
     fetcher: DepthFetcher | None = None,
     asset_pairs_fetcher: AssetPairsFetcher | None = None,
     symbol_mappings: Mapping[str, KrakenPublicPairMapping] | None = None,
+    monotonic_clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> SpreadDepthRecorderResult:
     fetch = fetcher or fetch_kraken_depth_page
     mapping_by_symbol, collection_symbols = _resolve_collection_symbols(
@@ -121,8 +128,20 @@ def record_spread_depth(
     )
     snapshots: list[SpreadDepthSnapshot] = []
     errors: list[dict[str, Any]] = []
+    deadline = (
+        monotonic_clock() + config.max_runtime_seconds
+        if config.max_runtime_seconds is not None
+        else None
+    )
+    stop_reason: str | None = None
     for sample_index in range(config.samples):
+        if _deadline_reached(deadline, monotonic_clock):
+            stop_reason = "max_runtime_seconds_elapsed"
+            break
         for symbol in collection_symbols:
+            if _deadline_reached(deadline, monotonic_clock):
+                stop_reason = "max_runtime_seconds_elapsed"
+                break
             requested_symbol = str(symbol).strip().upper()
             canonical_requested = normalize_research_symbol(symbol)
             mapping = (
@@ -156,8 +175,18 @@ def record_spread_depth(
                         "source": config.provider,
                     }
                 )
+        if stop_reason:
+            break
         if sample_index < config.samples - 1 and config.sleep_seconds:
-            time.sleep(config.sleep_seconds)
+            remaining_seconds = _remaining_seconds(deadline, monotonic_clock)
+            if remaining_seconds is not None and remaining_seconds <= 0.0:
+                stop_reason = "max_runtime_seconds_elapsed"
+                break
+            sleep(
+                min(config.sleep_seconds, remaining_seconds)
+                if remaining_seconds is not None
+                else config.sleep_seconds
+            )
     result = SpreadDepthRecorderResult(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -165,6 +194,7 @@ def record_spread_depth(
         snapshots=tuple(snapshots),
         summary_by_symbol=_summary_by_symbol(snapshots),
         errors=tuple(errors),
+        stop_reason=stop_reason,
     )
     return write_spread_depth_recording(result, config.output_dir, export_csv=config.export_csv)
 
@@ -219,6 +249,7 @@ def write_spread_depth_recording(
         snapshots=result.snapshots,
         summary_by_symbol=result.summary_by_symbol,
         errors=result.errors,
+        stop_reason=result.stop_reason,
         csv_path=str(csv_path) if csv_path else None,
         markdown_report_path=str(markdown_path),
         safety_notes=result.safety_notes,
@@ -233,6 +264,7 @@ def render_spread_depth_report(result: SpreadDepthRecorderResult) -> str:
         f"Provider: `{result.provider}`",
         f"Snapshots: `{len(result.snapshots)}`",
         f"Errors: `{len(result.errors)}`",
+        f"Stop reason: `{result.stop_reason or 'completed'}`",
         "",
         "## Summary By Symbol",
         "",
@@ -351,6 +383,14 @@ def _quantile(values: Sequence[float], q: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * q))))
     return ordered[index]
+
+
+def _deadline_reached(deadline: float | None, monotonic_clock: Callable[[], float]) -> bool:
+    return deadline is not None and monotonic_clock() >= deadline
+
+
+def _remaining_seconds(deadline: float | None, monotonic_clock: Callable[[], float]) -> float | None:
+    return None if deadline is None else max(0.0, deadline - monotonic_clock())
 
 
 def _resolve_collection_symbols(

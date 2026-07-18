@@ -7,12 +7,14 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.paper import shadow_observation_sync
+from autobot.v2.research import daily_data_collection_runner as daily_runner
 from autobot.v2.paper.ledger_loader import load_state_db_paper_ledger
 from autobot.v2.research.daily_data_collection_runner import (
     load_daily_research_data_collection_config,
     run_daily_research_data_collection,
 )
 from autobot.v2.research.historical_data_collector import KrakenOHLCPage
+from autobot.v2.research.spread_depth_recorder import SpreadDepthRecorderResult
 from autobot.v2.research.trade_journal import TradeRecord
 
 
@@ -47,6 +49,7 @@ def _write_config(path, tmp_path):
                 "  depth_count: 5",
                 "  sample_interval_seconds: 0",
                 "  samples_per_run: 1",
+                "  max_runtime_seconds: 120",
                 "output_dirs:",
                 f"  ohlcv: {str(tmp_path / 'ohlcv').replace(chr(92), '/')}",
                 f"  microstructure: {str(tmp_path / 'micro').replace(chr(92), '/')}",
@@ -217,6 +220,47 @@ def test_daily_runner_rejects_config_that_is_not_research_only(tmp_path):
 
     with pytest.raises(ValueError, match="safety.research_only must be true"):
         load_daily_research_data_collection_config(config_path)
+
+
+def test_daily_runner_marks_timeboxed_microstructure_collection_partial(tmp_path, monkeypatch):
+    config_path = tmp_path / "research_daily_timeboxed.yaml"
+    _write_config(config_path, tmp_path)
+    received = {}
+
+    def ohlc_fetcher(pair, interval_minutes, since):
+        return KrakenOHLCPage(
+            pair=pair,
+            rows=(
+                (_epoch_minute(0), "100", "101", "99", "100.5", "100", "10", 1),
+                (_epoch_minute(5), "100.5", "102", "100", "101.0", "101", "11", 2),
+            ),
+            last=None,
+        )
+
+    def timeboxed_recording(config, **_kwargs):
+        received["max_runtime_seconds"] = config.max_runtime_seconds
+        return SpreadDepthRecorderResult(
+            run_id=config.run_id,
+            generated_at="2026-07-18T00:00:00+00:00",
+            provider=config.provider,
+            snapshots=(),
+            summary_by_symbol={},
+            stop_reason="max_runtime_seconds_elapsed",
+        )
+
+    monkeypatch.setattr(daily_runner, "record_spread_depth", timeboxed_recording)
+    result = run_daily_research_data_collection(
+        config_path=config_path,
+        run_id="pytest_daily_timeboxed",
+        ohlc_fetcher=ohlc_fetcher,
+        asset_pairs_fetcher=_asset_pairs_fixture,
+    )
+
+    operation = next(item for item in result.operations if item.operation_type == "spread_depth")
+    assert received["max_runtime_seconds"] == pytest.approx(120.0)
+    assert operation.status == "partial"
+    assert operation.error == "max_runtime_seconds_elapsed"
+    assert result.microstructure_result["stop_reason"] == "max_runtime_seconds_elapsed"
 
 
 def test_daily_runner_fails_preflight_for_unknown_active_symbol(tmp_path):
