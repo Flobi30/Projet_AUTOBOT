@@ -40,7 +40,7 @@ AUTOBOT_BUILD_COMMIT="${SOURCE_COMMIT}" \
 
 docker compose --project-directory "${REPO_DIR}" up -d --no-deps autobot
 
-IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' projet_autobot-autobot 2>/dev/null || true)"
+IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' projet_autobot-autobot 2>/dev/null || true)"
 if [[ "${IMAGE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
   echo "AUTOBOT image provenance verification failed after build." >&2
   exit 1

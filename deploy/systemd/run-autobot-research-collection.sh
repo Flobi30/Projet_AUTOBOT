@@ -40,7 +40,7 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
 fi
 
 SOURCE_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)"
-IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "${IMAGE}" 2>/dev/null || true)"
+IMAGE_COMMIT="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${IMAGE}" 2>/dev/null || true)"
 
 # The host checkout alone is not enough provenance: a stale Docker image can
 # otherwise execute a different code revision while reports claim SOURCE_COMMIT.

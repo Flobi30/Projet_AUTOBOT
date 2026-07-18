@@ -64,6 +64,6 @@ def test_daily_research_service_rejects_stale_or_unverifiable_image_before_colle
 
     collection_section = script.split("docker run --rm", maxsplit=1)[0]
     assert 'IMAGE_COMMIT="$(docker image inspect' in collection_section
-    assert 'org.opencontainers.image.revision' in collection_section
+    assert "'{{ index .Config.Labels \"org.opencontainers.image.revision\" }}'" in collection_section
     assert '"${IMAGE_COMMIT}" != "${SOURCE_COMMIT}"' in collection_section
     assert "image provenance mismatch" in collection_section

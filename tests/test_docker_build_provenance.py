@@ -30,5 +30,5 @@ def test_rebuild_helper_binds_image_label_to_clean_checkout_commit():
     assert "reports/research" not in script
     assert 'SOURCE_COMMIT="$(git -C "${REPO_DIR}" rev-parse --verify HEAD)"' in script
     assert 'AUTOBOT_BUILD_COMMIT="${SOURCE_COMMIT}"' in script
-    assert 'org.opencontainers.image.revision' in script
+    assert "'{{ index .Config.Labels \"org.opencontainers.image.revision\" }}'" in script
     assert '"${IMAGE_COMMIT}" != "${SOURCE_COMMIT}"' in script
