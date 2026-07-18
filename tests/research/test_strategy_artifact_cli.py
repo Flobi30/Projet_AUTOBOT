@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import csv
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from autobot.v2 import cli
 from autobot.v2.research.experiment_registry import ExperimentRegistry, ExperimentSpec
+from autobot.v2.research.canonical_feature_snapshot import (
+    CanonicalFeatureSnapshotConfig,
+    build_canonical_feature_snapshot,
+)
+from autobot.v2.research.manifested_experiment import load_feature_snapshot_provenance
 from autobot.v2.research.shadow_governance import ShadowGovernanceError, StrategyArtifactRegistry
 from autobot.v2.research.strategy_risk_mandates import load_strategy_risk_mandates
 
@@ -31,8 +39,79 @@ def _holdout_artifact_fixture() -> dict[str, object]:
     }
 
 
+def _verified_feature_snapshot_evidence(root: Path) -> dict[str, object]:
+    source = root / "canonical_source.csv"
+    fields = (
+        "exchange",
+        "market_type",
+        "symbol",
+        "base_asset",
+        "quote_asset",
+        "market_mapping_status",
+        "timeframe",
+        "event_time",
+        "available_time",
+        "ingestion_time",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index in range(25):
+            event_time = origin + timedelta(minutes=index * 5)
+            close = 100.0 + index
+            writer.writerow(
+                {
+                    "exchange": "kraken",
+                    "market_type": "spot",
+                    "symbol": "BTCEUR",
+                    "base_asset": "BTC",
+                    "quote_asset": "EUR",
+                    "market_mapping_status": "EXPLICIT",
+                    "timeframe": "5m",
+                    "event_time": event_time.isoformat(),
+                    "available_time": event_time.isoformat(),
+                    "ingestion_time": event_time.isoformat(),
+                    "open": str(close - 0.5),
+                    "high": str(close + 1.0),
+                    "low": str(close - 1.0),
+                    "close": str(close),
+                    "volume": "100",
+                }
+            )
+    source_manifest = root / "canonical_source.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "snapshot-pytest",
+                "fingerprint": "source-fingerprint-cli-fixture",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="strategy_artifact_cli_fixture",
+            canonical_manifest_path=source_manifest,
+            output_dir=root / "features",
+            manifest_dir=root / "feature_manifests",
+        )
+    )
+    assert snapshot.status == "READY"
+    return load_feature_snapshot_provenance(Path(str(snapshot.manifest_path))).to_dict()
+
+
 def _passed_experiment(registry_path):
     registry = ExperimentRegistry(registry_path)
+    feature_snapshot = _verified_feature_snapshot_evidence(Path(registry_path).parent)
     state = registry.register_experiment(
         ExperimentSpec(
             hypothesis_id="funding_basis",
@@ -40,26 +119,14 @@ def _passed_experiment(registry_path):
             thesis="Hermetic CLI governance test",
             code_commit="pytest-commit",
             data_snapshot_id="snapshot-pytest",
-            feature_versions={"basis_bps": "1.0.0"},
+            feature_versions=feature_snapshot["feature_versions"],
             parameters={"threshold": 2.5},
             seed=7,
             cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
             environment={
                 "mode": "research",
                 "holdout_partition": _holdout_partition_fixture(),
-                "feature_snapshot": {
-                    "feature_snapshot_id": "features_cli_fixture",
-                    "feature_snapshot_fingerprint": "feature-fingerprint-cli-fixture",
-                    "snapshot_kind": "FEATURE_SNAPSHOT",
-                    "source_snapshot_id": "snapshot-pytest",
-                    "source_snapshot_fingerprint": "source-fingerprint-cli-fixture",
-                    "feature_registry_fingerprint": "registry-fingerprint-cli-fixture",
-                    "feature_versions": {"basis_bps": "1.0.0"},
-                    "feature_count": 20,
-                    "parity_ok": True,
-                    "runtime_parity_proven": True,
-                    "ingestion_time_unknown_count": 0,
-                },
+                "feature_snapshot": feature_snapshot,
             },
             holdout_id="holdout_cli_fixture",
         )

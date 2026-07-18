@@ -80,6 +80,8 @@ def _artifact() -> StrategyArtifactReference:
                 feature_registry_fingerprint="registry-fingerprint-contract-shadow",
                 feature_versions={"basis_bps": "1"},
                 runtime_parity_proven=True,
+                material_verified=True,
+                bundle_content_fingerprint="bundle-content-contract-shadow",
             ),
         ),
         risk_mandate=RiskMandateReference(

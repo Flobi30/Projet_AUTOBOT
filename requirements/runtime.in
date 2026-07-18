@@ -1,7 +1,7 @@
 python-dotenv
 aiohttp
 aiofiles
-uvloop
+uvloop; platform_system != "Windows"
 krakenex
 websocket-client
 websockets

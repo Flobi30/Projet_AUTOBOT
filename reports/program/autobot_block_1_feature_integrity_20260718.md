@@ -23,6 +23,10 @@ the broader shadow-parity gate can be closed.
   evidence are recomputed before the bundle is accepted.
 - The experiment environment records the verified bundle-content fingerprint;
   a local manifest path is not used as experiment identity.
+- A `SHADOW_ELIGIBLE` or `SHADOW` strategy artifact now requires every feature
+  snapshot to carry that material-verification proof and bundle-content root.
+  Legacy or merely declared research evidence may remain archived, but cannot
+  cross the shadow boundary.
 
 ## Validation
 
@@ -32,6 +36,8 @@ the broader shadow-parity gate can be closed.
   regression suite: `73 passed`.
 - Tamper tests prove that a changed feature CSV is rejected for both canonical
   and derivatives bundles.
+- A CLI governance integration test materializes and independently verifies a
+  real canonical feature bundle before registering a shadow-eligible artifact.
 - The incremental replay uses an event-time index with bounded lookback, so a
   historical ingestion batch does not perform a full-history scan for every
   feature value.
@@ -47,8 +53,9 @@ the broader shadow-parity gate can be closed.
 
 ## Remaining Block 1 Gate
 
-The data and batch-replay boundary is now materially verified. The remaining
-work is to feed an immutable, verified feature vector through the actual
-shadow observation boundary and compare it against the same point-in-time
-batch decision. Until then, a snapshot may support research but cannot be
-treated as sufficient proof for a new shadow-capable artifact.
+The data and batch-replay boundary is now materially verified and that proof
+is mandatory for any new shadow-capable artifact. The remaining work is to
+feed an immutable, verified feature vector through the actual shadow
+observation boundary and compare it against the same point-in-time batch
+decision. This remains research/shadow-only and does not authorize paper or
+live execution.

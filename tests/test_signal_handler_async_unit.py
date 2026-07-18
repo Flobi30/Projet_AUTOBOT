@@ -421,6 +421,8 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
                             "feature_count": 20,
                             "parity_ok": True,
                             "runtime_parity_proven": True,
+                            "material_verified": True,
+                            "bundle_content_fingerprint": "bundle-content-handler-fixture",
                             "ingestion_time_unknown_count": 0,
                         }
                     ),

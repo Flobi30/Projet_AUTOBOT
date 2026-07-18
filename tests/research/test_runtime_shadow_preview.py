@@ -65,6 +65,8 @@ def _artifact_payload(*, strategy_version: str = "trend-v3", status: str = "SHAD
                     "feature_count": 20,
                     "parity_ok": True,
                     "runtime_parity_proven": True,
+                    "material_verified": True,
+                    "bundle_content_fingerprint": "bundle-content-preview-fixture",
                     "ingestion_time_unknown_count": 0,
                 }
             ),

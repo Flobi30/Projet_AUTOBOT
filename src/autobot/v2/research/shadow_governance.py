@@ -99,6 +99,12 @@ class StrategyArtifact:
             raise ShadowGovernanceError("feature snapshots must match artifact data_snapshot_id")
         if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES and not snapshots:
             raise ShadowGovernanceError("shadow artifact requires point-in-time feature snapshot evidence")
+        if normalized_status in EXPERIMENT_BOUND_SHADOW_STATUSES and any(
+            not item.material_verified or not item.bundle_content_fingerprint for item in snapshots
+        ):
+            raise ShadowGovernanceError(
+                "shadow artifact requires material-verified feature snapshot evidence"
+            )
         risk_mandate = self.risk_mandate
         if risk_mandate is not None:
             if not isinstance(risk_mandate, RiskMandateReference):
@@ -235,6 +241,10 @@ def feature_snapshot_reference_from_mapping(value: Mapping[str, Any]) -> Feature
             feature_registry_fingerprint=str(value.get("feature_registry_fingerprint") or ""),
             feature_versions=value.get("feature_versions") or {},
             runtime_parity_proven=value.get("runtime_parity_proven") is True,
+            material_verified=value.get("material_verified") is True,
+            bundle_content_fingerprint=(
+                str(value.get("bundle_content_fingerprint") or "").strip() or None
+            ),
             ingestion_time_unknown_count=int(value.get("ingestion_time_unknown_count") or 0),
         )
     except (TypeError, ValueError) as exc:

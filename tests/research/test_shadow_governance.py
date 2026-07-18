@@ -74,6 +74,8 @@ def _feature_snapshot_evidence() -> dict[str, object]:
         "feature_count": 20,
         "parity_ok": True,
         "runtime_parity_proven": True,
+        "material_verified": True,
+        "bundle_content_fingerprint": "bundle-content-shadow-governance-fixture",
         "ingestion_time_unknown_count": 0,
     }
 
@@ -206,6 +208,8 @@ def test_strategy_artifact_binds_data_snapshot_to_feature_evidence():
             "feature_count": 20,
             "parity_ok": True,
             "runtime_parity_proven": True,
+            "material_verified": True,
+            "bundle_content_fingerprint": "bundle-content-derivatives-fixture",
             "ingestion_time_unknown_count": 0,
         }
     )
@@ -225,6 +229,17 @@ def test_strategy_artifact_binds_data_snapshot_to_feature_evidence():
     )
 
     assert combined.data_snapshot_id == combined_snapshot_id
+
+
+def test_shadow_artifact_rejects_feature_snapshot_without_verified_bundle_content():
+    unverified = replace(
+        _feature_snapshot(),
+        material_verified=False,
+        bundle_content_fingerprint=None,
+    )
+
+    with pytest.raises(ShadowGovernanceError, match="material-verified feature snapshot evidence"):
+        replace(_artifact(), feature_snapshots=(unverified,))
 
 
 def test_shadow_artifact_requires_an_experiment_binding_and_human_approval():

@@ -60,6 +60,8 @@ def _artifact_reference() -> StrategyArtifactReference:
                 feature_registry_fingerprint="registry-fingerprint-contract-fixture",
                 feature_versions={"atr": "1"},
                 runtime_parity_proven=True,
+                material_verified=True,
+                bundle_content_fingerprint="bundle-content-contract-fixture",
             ),
         ),
         risk_mandate=_risk_mandate(),
@@ -128,6 +130,34 @@ def test_feature_and_signal_reject_lookahead_timestamps():
             feature_versions={"atr": "1"},
             data_snapshot_id="snapshot",
             expected_edge_bps=float("nan"),
+        )
+
+
+def test_feature_snapshot_rejects_unverified_bundle_content_claim():
+    with pytest.raises(ValueError, match="unverified feature snapshot cannot claim"):
+        FeatureSnapshotReference(
+            feature_snapshot_id="features_unverified",
+            fingerprint="feature-fingerprint-unverified",
+            snapshot_kind="FEATURE_SNAPSHOT",
+            source_snapshot_id="snapshot-1",
+            source_snapshot_fingerprint="source-fingerprint-unverified",
+            feature_registry_fingerprint="registry-fingerprint-unverified",
+            feature_versions={"atr": "1"},
+            runtime_parity_proven=True,
+            bundle_content_fingerprint="claimed-without-verification",
+        )
+
+    with pytest.raises(ValueError, match="material-verified feature snapshot requires"):
+        FeatureSnapshotReference(
+            feature_snapshot_id="features_missing_root",
+            fingerprint="feature-fingerprint-missing-root",
+            snapshot_kind="FEATURE_SNAPSHOT",
+            source_snapshot_id="snapshot-1",
+            source_snapshot_fingerprint="source-fingerprint-missing-root",
+            feature_registry_fingerprint="registry-fingerprint-missing-root",
+            feature_versions={"atr": "1"},
+            runtime_parity_proven=True,
+            material_verified=True,
         )
 
 

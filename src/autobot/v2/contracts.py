@@ -159,6 +159,8 @@ class FeatureSnapshotReference:
     feature_registry_fingerprint: str
     feature_versions: Mapping[str, str]
     runtime_parity_proven: bool
+    material_verified: bool = False
+    bundle_content_fingerprint: str | None = None
     ingestion_time_unknown_count: int = 0
     contract_version: int = CONTRACT_VERSION
 
@@ -182,8 +184,16 @@ class FeatureSnapshotReference:
             raise ValueError("feature snapshot runtime parity must be proven")
         if unknown_count:
             raise ValueError("feature snapshot cannot prove runtime parity with unknown ingestion time")
+        material_verified = bool(self.material_verified)
+        bundle_content_fingerprint = str(self.bundle_content_fingerprint or "").strip() or None
+        if material_verified and bundle_content_fingerprint is None:
+            raise ValueError("material-verified feature snapshot requires bundle_content_fingerprint")
+        if not material_verified and bundle_content_fingerprint is not None:
+            raise ValueError("unverified feature snapshot cannot claim bundle_content_fingerprint")
         object.__setattr__(self, "feature_versions", versions)
         object.__setattr__(self, "snapshot_kind", self.snapshot_kind.upper())
+        object.__setattr__(self, "material_verified", material_verified)
+        object.__setattr__(self, "bundle_content_fingerprint", bundle_content_fingerprint)
         object.__setattr__(self, "ingestion_time_unknown_count", unknown_count)
 
 
