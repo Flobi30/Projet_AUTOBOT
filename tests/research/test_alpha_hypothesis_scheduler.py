@@ -243,6 +243,74 @@ def test_scheduler_reads_derivatives_capabilities_without_expanding_runner_marke
     assert "derivatives_waiting_for_more_data" in candidate.blockers
 
 
+def test_scheduler_reports_forward_derivatives_evidence_without_changing_candidate_status(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    forward_manifest = tmp_path / "derivatives_forward.json"
+    forward_manifest.write_text(
+        json.dumps(
+            {
+                "snapshot_kind": "DERIVATIVES_POINT_IN_TIME",
+                "schema_version": 1,
+                "status": "WAITING_FOR_MORE_DATA",
+                "provenance_scope": "forward_capture_only",
+                "blockers": ["FORWARD_CAPTURE_WINDOW_WAITING"],
+                "feature_ids": ["funding_rate_relative", "basis_bps", "open_interest_change_24_pct"],
+                "feature_count": 12,
+                "parity_ok": True,
+                "runtime_parity_proven": True,
+                "basis_contract": {
+                    "same_quote_required": True,
+                    "implicit_usd_eur_conversion_allowed": False,
+                    "accepted_confidence_statuses": ["MARK_INDEX_SAME_QUOTE"],
+                },
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_forward_derivatives_observability",
+            state_db=None,
+            data_paths=(data_dir,),
+            derivatives_feature_snapshot_manifest=forward_manifest,
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    assert report.derivatives_feature_snapshot is not None
+    assert report.derivatives_feature_snapshot["status"] == "WAITING_FOR_MORE_DATA"
+    assert report.derivatives_feature_snapshot["provenance_scope"] == "forward_capture_only"
+    assert report.derivatives_feature_snapshot["paper_capital_allowed"] is False
+    assert report.derivatives_feature_snapshot["live_allowed"] is False
+    assert report.derivatives_feature_snapshot["promotable"] is False
+    funding = {item.template_id: item for item in report.candidates}["funding_extreme_reversion"]
+    assert funding.status == "DATA_MISSING"
+
+
+def test_scheduler_reports_invalid_forward_derivatives_evidence_fail_closed(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    report = build_alpha_hypothesis_scheduler_report(
+        AlphaSchedulerConfig(
+            run_id="pytest_invalid_forward_derivatives_observability",
+            state_db=None,
+            data_paths=(data_dir,),
+            derivatives_feature_snapshot_manifest=tmp_path / "missing.json",
+            memory_path=tmp_path / "empty_memory.json",
+        )
+    )
+
+    assert report.derivatives_feature_snapshot is not None
+    assert report.derivatives_feature_snapshot["status"] == "INVALID"
+    assert "invalid_derivatives_feature_snapshot" in report.derivatives_feature_snapshot["blockers"]
+    assert report.derivatives_feature_snapshot["paper_capital_allowed"] is False
+    assert report.derivatives_feature_snapshot["live_allowed"] is False
+    assert report.derivatives_feature_snapshot["promotable"] is False
+
+
 def test_cross_sectional_template_rejection_is_recorded_without_blocking_family(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"
@@ -286,6 +354,8 @@ def test_scheduler_cli_is_registered():
             "data/research/daily/ohlcv",
             "--capability-data-paths",
             "data/research/daily/ohlcv,data/research/manifests",
+            "--derivatives-feature-snapshot-manifest",
+            "data/research/manifests/derivatives_forward.json",
         ]
     )
 
@@ -293,6 +363,7 @@ def test_scheduler_cli_is_registered():
     assert args.max_variants == 5
     assert args.max_symbols == 6
     assert args.capability_data_paths == "data/research/daily/ohlcv,data/research/manifests"
+    assert args.derivatives_feature_snapshot_manifest == "data/research/manifests/derivatives_forward.json"
 
 
 def test_memory_backfill_is_idempotent_and_adds_historical_records(tmp_path):

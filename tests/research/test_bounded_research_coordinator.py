@@ -114,6 +114,8 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
             "data/research/canonical/ohlcv,data/research/manifests",
             "--feature-snapshot-manifest",
             "data/research/manifests/features.json",
+            "--derivatives-feature-snapshot-manifest",
+            "data/research/manifests/derivatives_forward.json",
             "--image-commit",
             "pytest-image-commit",
         ]
@@ -124,6 +126,7 @@ def test_coordinator_cli_is_registered_and_has_no_execution_switch():
     assert args.max_symbols == 6
     assert args.max_runtime_seconds == 120
     assert args.capability_data_paths == "data/research/canonical/ohlcv,data/research/manifests"
+    assert args.derivatives_feature_snapshot_manifest == "data/research/manifests/derivatives_forward.json"
     assert args.image_commit == "pytest-image-commit"
     assert not hasattr(args, "enable_live")
     assert not hasattr(args, "enable_paper")

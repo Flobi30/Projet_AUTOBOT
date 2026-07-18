@@ -23,6 +23,24 @@ STRATEGY_EDGE_REPORT_DIR="${REPO_DIR}/reports/research/strategy_edge"
 SHADOW_OBSERVATION_REPORT_DIR="${REPO_DIR}/reports/paper/shadow_observations"
 COORDINATOR_REPORT_DIR="${REPO_DIR}/data/research/reports/bounded_research_coordinator"
 
+# The forward-only derivatives materializer is a separate, network-isolated
+# job.  Its newest manifest is report evidence for the scheduler only: it is
+# never mounted as runner market data and cannot make a candidate executable.
+DERIVATIVES_FORWARD_FEATURE_MANIFEST=""
+for candidate in "${CANONICAL_MANIFEST_DIR}"/derivatives_forward_*_derivatives_feature_snapshot.json; do
+  [[ -r "${candidate}" ]] || continue
+  if [[ -z "${DERIVATIVES_FORWARD_FEATURE_MANIFEST}" || "${candidate}" -nt "${DERIVATIVES_FORWARD_FEATURE_MANIFEST}" ]]; then
+    DERIVATIVES_FORWARD_FEATURE_MANIFEST="${candidate}"
+  fi
+done
+FORWARD_DERIVATIVES_SCHEDULER_ARGS=()
+if [[ -n "${DERIVATIVES_FORWARD_FEATURE_MANIFEST}" ]]; then
+  FORWARD_DERIVATIVES_SCHEDULER_ARGS=(
+    --derivatives-feature-snapshot-manifest
+    "data/research/manifests/$(basename "${DERIVATIVES_FORWARD_FEATURE_MANIFEST}")"
+  )
+fi
+
 exec 9>"${LOCK_PATH}"
 if ! flock -n 9; then
   echo "AUTOBOT research collection is already running; skipping ${RUN_ID}."
@@ -150,7 +168,8 @@ docker run --rm \
     --capability-data-paths data/research/canonical/ohlcv,data/research/manifests \
     --memory-path data/research/alpha_research_memory.sqlite3 \
     --output-dir reports/research/daily_data_collection \
-    --no-memory-backfill
+    --no-memory-backfill \
+    "${FORWARD_DERIVATIVES_SCHEDULER_ARGS[@]}"
 
 # A fourth isolated container may advance exactly one explicitly allowlisted,
 # point-in-time research smoke experiment. It receives no network, no runtime
@@ -189,7 +208,8 @@ if [[ "${COORDINATOR_ENABLED}" == "true" && -r "${FEATURE_MANIFEST}" ]]; then
       --image-commit "${IMAGE_COMMIT}" \
       --max-variants 3 \
       --max-symbols 6 \
-      --max-runtime-seconds 120
+      --max-runtime-seconds 120 \
+      "${FORWARD_DERIVATIVES_SCHEDULER_ARGS[@]}"
 else
   echo "AUTOBOT bounded research coordinator skipped: disabled or no verified feature manifest for ${RUN_ID}."
 fi

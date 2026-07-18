@@ -360,6 +360,11 @@ class AlphaSchedulerConfig:
     # Keeping this separate prevents an OHLCV runner from ingesting unrelated
     # derivatives datasets merely because the scheduler must explain them.
     capability_data_paths: tuple[Path, ...] | None = None
+    # This is deliberately separate from both market-data inputs and the
+    # capability scan.  It records the latest forward-capture evidence for
+    # review, but cannot turn a research candidate into a shadow/paper/live
+    # candidate by itself.
+    derivatives_feature_snapshot_manifest: Path | None = None
     knowledge_base_path: Path = Path("docs/research/alpha_knowledge_base.json")
     templates_path: Path = Path("docs/research/strategy_templates.json")
     hypotheses_path: Path = Path("docs/research/alpha_hypotheses.json")
@@ -390,6 +395,7 @@ class AlphaSchedulerReport:
     templates: tuple[dict[str, Any], ...]
     data_readiness: dict[str, Any]
     data_capabilities: dict[str, Any]
+    derivatives_feature_snapshot: dict[str, Any] | None
     adapter_readiness: dict[str, str]
     trial_counts_by_family: dict[str, int]
     trial_counts_by_template: dict[str, int]
@@ -417,6 +423,9 @@ class AlphaSchedulerReport:
             "templates": [dict(item) for item in self.templates],
             "data_readiness": dict(self.data_readiness),
             "data_capabilities": dict(self.data_capabilities),
+            "derivatives_feature_snapshot": (
+                dict(self.derivatives_feature_snapshot) if self.derivatives_feature_snapshot else None
+            ),
             "adapter_readiness": dict(self.adapter_readiness),
             "trial_counts_by_family": dict(self.trial_counts_by_family),
             "trial_counts_by_template": dict(self.trial_counts_by_template),
@@ -587,6 +596,9 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
         state_db=config.state_db,
         memory_path=config.memory_path,
     )
+    derivatives_feature_snapshot = _derivatives_feature_snapshot_state(
+        config.derivatives_feature_snapshot_manifest
+    )
     adapter_readiness = _adapter_readiness(templates)
     family_counts = memory.trial_count_by_family()
     template_counts = memory.trial_count_by_template()
@@ -644,6 +656,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
             "scheduler_data_state": capability_scan.scheduler_data_state,
             "scheduler_notes": list(capability_scan.scheduler_notes),
         },
+        derivatives_feature_snapshot=derivatives_feature_snapshot,
         adapter_readiness=adapter_readiness,
         trial_counts_by_family=family_counts,
         trial_counts_by_template=template_counts,
@@ -657,6 +670,7 @@ def build_alpha_hypothesis_scheduler_report(config: AlphaSchedulerConfig) -> Alp
             "No free code generation.",
             "No runtime order path, paper capital, live activation, promotion, sizing, leverage, or UI change.",
             "Rejected hypotheses receive zero priority until new data or a new thesis is recorded.",
+            "Forward derivatives feature evidence is report-only here and cannot authorize shadow, paper, live or promotion.",
         ),
     )
 
@@ -706,6 +720,12 @@ def render_alpha_hypothesis_scheduler_report(report: AlphaSchedulerReport) -> st
             )
     for note in report.data_capabilities.get("scheduler_notes", ()):
         lines.append(f"- {note}")
+    lines.extend(["", "## Forward Derivatives Feature Evidence", ""])
+    if report.derivatives_feature_snapshot:
+        for key, value in report.derivatives_feature_snapshot.items():
+            lines.append(f"- `{key}`: `{value}`")
+    else:
+        lines.append("- No explicit forward-capture derivatives feature snapshot was supplied to this scheduler run.")
     lines.extend(["", "## Candidates", ""])
     lines.append("| Rank | Hypothesis | Template | Status | Priority | Reason | Next action |")
     lines.append("|---:|---|---|---|---:|---|---|")
@@ -1290,6 +1310,39 @@ def _schedule_template(
         blockers=tuple(blockers),
         warnings=tuple(warnings),
     )
+
+
+def _derivatives_feature_snapshot_state(path: Path | None) -> dict[str, Any] | None:
+    """Inspect optional forward derivatives evidence without changing readiness.
+
+    A historical research smoke may use independently validated historical
+    data.  A forward-capture snapshot instead answers a different question:
+    whether the currently collected values could eventually support runtime
+    parity.  Keeping the two facts separate prevents an incomplete forward
+    window from being treated as missing historical data, or vice versa.
+    """
+
+    if path is None:
+        return None
+    try:
+        from .derivatives_feature_snapshot import inspect_derivatives_feature_snapshot_manifest
+
+        availability = inspect_derivatives_feature_snapshot_manifest(path)
+    except (OSError, ValueError) as exc:
+        return {
+            "manifest_path": str(path),
+            "status": "INVALID",
+            "blockers": ["invalid_derivatives_feature_snapshot", str(exc)],
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        }
+    return {
+        "manifest_path": availability.manifest_path,
+        **availability.to_dict(),
+        "readiness_scope": "forward_capture_observability_only",
+    }
 
 
 def _safe_load_json(path: Path) -> dict[str, Any] | None:

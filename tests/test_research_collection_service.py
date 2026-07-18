@@ -30,6 +30,10 @@ def test_daily_research_service_runs_read_only_capability_and_scheduler_reports_
     assert "--no-memory-backfill" in script
     assert "--data-paths data/research/canonical/ohlcv" in script
     assert "--capability-data-paths data/research/canonical/ohlcv,data/research/manifests" in script
+    assert 'DERIVATIVES_FORWARD_FEATURE_MANIFEST=""' in script
+    assert "derivatives_forward_*_derivatives_feature_snapshot.json" in script
+    assert "FORWARD_DERIVATIVES_SCHEDULER_ARGS" in script
+    assert "--derivatives-feature-snapshot-manifest" in script
     assert '"${REPO_DIR}/data/research:/app/data/research:ro"' in script
 
 
@@ -49,6 +53,7 @@ def test_daily_research_service_runs_one_isolated_bounded_research_coordinator_p
     assert '"${REPO_DIR}/data:/app/data"' not in coordinator_section
     assert "--state-db" not in coordinator_section
     assert "--feature-snapshot-manifest" in coordinator_section
+    assert '"${FORWARD_DERIVATIVES_SCHEDULER_ARGS[@]}"' in coordinator_section
     assert "--capability-data-paths data/research/canonical/ohlcv,data/research/manifests" in coordinator_section
     assert "--commit \"${SOURCE_COMMIT}\"" in coordinator_section
     assert "--image-commit \"${IMAGE_COMMIT}\"" in coordinator_section

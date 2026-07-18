@@ -366,6 +366,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional capability-manifest roots; never passed to the runner as market data.",
     )
+    bounded_research.add_argument(
+        "--derivatives-feature-snapshot-manifest",
+        default=None,
+        help="Optional forward-capture derivatives evidence for scheduler observability only; never passed to the runner.",
+    )
     bounded_research.add_argument("--feature-snapshot-manifest", required=True)
     bounded_research.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
     bounded_research.add_argument("--templates", default="docs/research/strategy_templates.json")
@@ -496,6 +501,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--capability-data-paths",
         default=None,
         help="Optional research roots used only to scan available capabilities; runner market-data paths remain --data-paths.",
+    )
+    alpha_hypothesis_scheduler.add_argument(
+        "--derivatives-feature-snapshot-manifest",
+        default=None,
+        help="Optional forward-capture derivatives evidence for scheduler observability only; it cannot authorize execution.",
     )
     alpha_hypothesis_scheduler.add_argument("--knowledge-base", default="docs/research/alpha_knowledge_base.json")
     alpha_hypothesis_scheduler.add_argument("--templates", default="docs/research/strategy_templates.json")
@@ -2513,6 +2523,11 @@ def _cmd_bounded_research_coordinator(args: argparse.Namespace) -> int:
                         if args.capability_data_paths
                         else None
                     ),
+                    derivatives_feature_snapshot_manifest=(
+                        Path(args.derivatives_feature_snapshot_manifest)
+                        if args.derivatives_feature_snapshot_manifest
+                        else None
+                    ),
                     knowledge_base_path=Path(args.knowledge_base),
                     templates_path=Path(args.templates),
                     hypotheses_path=Path(args.hypotheses),
@@ -2975,6 +2990,11 @@ def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:
             capability_data_paths=(
                 tuple(Path(path) for path in _csv_tuple(args.capability_data_paths, "--capability-data-paths"))
                 if args.capability_data_paths
+                else None
+            ),
+            derivatives_feature_snapshot_manifest=(
+                Path(args.derivatives_feature_snapshot_manifest)
+                if args.derivatives_feature_snapshot_manifest
                 else None
             ),
             knowledge_base_path=Path(args.knowledge_base),
