@@ -46,6 +46,7 @@ class DailyResearchOutputDirs:
     canonical_quarantine: Path = Path("data/research/quarantine")
     canonical_features: Path = Path("data/research/canonical/features")
     feature_manifests: Path = Path("data/research/manifests")
+    verified_feature_vectors: Path = Path("data/research/canonical/verified_feature_vectors")
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,7 @@ class DailyCanonicalFeatureConfig:
         "volatility_20_bps",
         "atr_14_bps",
     )
+    publish_verified_vectors: bool = True
 
     def validate(self) -> None:
         if self.enabled and not self.feature_ids:
@@ -285,6 +287,7 @@ class DailyResearchDataCollectionResult:
     shadow_observation_sync_report_path: str | None = None
     canonical_manifest_path: str | None = None
     feature_snapshot_manifest_path: str | None = None
+    verified_feature_vector_publication_path: str | None = None
     manifest_path: str | None = None
     markdown_report_path: str | None = None
     live_promotion_allowed: bool = False
@@ -312,6 +315,7 @@ class DailyResearchDataCollectionResult:
             "shadow_observation_sync_report_path": self.shadow_observation_sync_report_path,
             "canonical_manifest_path": self.canonical_manifest_path,
             "feature_snapshot_manifest_path": self.feature_snapshot_manifest_path,
+            "verified_feature_vector_publication_path": self.verified_feature_vector_publication_path,
             "manifest_path": self.manifest_path,
             "markdown_report_path": self.markdown_report_path,
             "live_promotion_allowed": self.live_promotion_allowed,
@@ -343,6 +347,9 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
             canonical_quarantine=Path(str(output_dirs.get("canonical_quarantine") or "data/research/quarantine")),
             canonical_features=Path(str(output_dirs.get("canonical_features") or "data/research/canonical/features")),
             feature_manifests=Path(str(output_dirs.get("feature_manifests") or "data/research/manifests")),
+            verified_feature_vectors=Path(
+                str(output_dirs.get("verified_feature_vectors") or "data/research/canonical/verified_feature_vectors")
+            ),
         ),
         include_runtime_active_symbols=bool(payload.get("include_runtime_active_symbols", False)),
         safety=DailyResearchSafetyConfig(
@@ -426,6 +433,7 @@ def load_daily_research_data_collection_config(path: str | Path) -> DailyResearc
                 canonical_features.get("feature_ids")
                 or ("return_1_bps", "momentum_3_bps", "volatility_20_bps", "atr_14_bps")
             ),
+            publish_verified_vectors=bool(canonical_features.get("publish_verified_vectors", True)),
         ),
     )
     config.validate()
@@ -471,12 +479,14 @@ def run_daily_research_data_collection(
     # long-running microstructure recorder so a later depth timeout, API
     # issue, or resource failure cannot discard the already-collected market
     # bars or defer their research evidence by an hour.
-    canonical_manifest_path, feature_snapshot_manifest_path = _materialize_daily_canonical_features(
-        config=config,
-        run_id=run_id,
-        ohlcv_csv_paths=tuple(ohlcv_csv_paths),
-        symbol_mappings=symbol_mappings,
-        operations=operations,
+    canonical_manifest_path, feature_snapshot_manifest_path, verified_feature_vector_publication_path = (
+        _materialize_daily_canonical_features(
+            config=config,
+            run_id=run_id,
+            ohlcv_csv_paths=tuple(ohlcv_csv_paths),
+            symbol_mappings=symbol_mappings,
+            operations=operations,
+        )
     )
 
     micro_result: SpreadDepthRecorderResult | None = None
@@ -579,6 +589,7 @@ def run_daily_research_data_collection(
         shadow_observation_sync_report_path=shadow_sync_path,
         canonical_manifest_path=canonical_manifest_path,
         feature_snapshot_manifest_path=feature_snapshot_manifest_path,
+        verified_feature_vector_publication_path=verified_feature_vector_publication_path,
     )
     return write_daily_research_data_collection_report(result, run_report_dir)
 
@@ -607,6 +618,7 @@ def write_daily_research_data_collection_report(
         shadow_observation_sync_report_path=result.shadow_observation_sync_report_path,
         canonical_manifest_path=result.canonical_manifest_path,
         feature_snapshot_manifest_path=result.feature_snapshot_manifest_path,
+        verified_feature_vector_publication_path=result.verified_feature_vector_publication_path,
         manifest_path=str(manifest_path),
         markdown_report_path=str(markdown_path),
         live_promotion_allowed=result.live_promotion_allowed,
@@ -646,6 +658,7 @@ def render_daily_research_data_collection_report(result: DailyResearchDataCollec
             f"- Shadow observation sync: `{result.shadow_observation_sync_report_path or 'not enabled'}`",
             f"- Canonical OHLCV manifest: `{result.canonical_manifest_path or 'not generated'}`",
             f"- Feature snapshot manifest: `{result.feature_snapshot_manifest_path or 'not generated'}`",
+            f"- Verified feature-vector publication: `{result.verified_feature_vector_publication_path or 'not generated'}`",
             "",
             "## Safety",
             "",
@@ -663,7 +676,7 @@ def _materialize_daily_canonical_features(
     ohlcv_csv_paths: Sequence[str],
     symbol_mappings: Mapping[str, KrakenPublicPairMapping],
     operations: list[DailyCollectionOperation],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     """Create the point-in-time canonical and feature artifacts for this run.
 
     The source paths are restricted to the current daily collection.  This
@@ -682,7 +695,7 @@ def _materialize_daily_canonical_features(
                 error="canonical_features_disabled",
             )
         )
-        return None, None
+        return None, None, None
     raw_paths = tuple(Path(path) for path in ohlcv_csv_paths if Path(path).exists())
     if not raw_paths:
         operations.append(
@@ -694,7 +707,7 @@ def _materialize_daily_canonical_features(
                 error="canonical_source_ohlcv_missing",
             )
         )
-        return None, None
+        return None, None, None
 
     explicit_mappings = {
         mapping.autobot_symbol: explicit
@@ -734,7 +747,7 @@ def _materialize_daily_canonical_features(
             )
         )
         if canonical_manifest_path is None:
-            return None, None
+            return None, None, None
 
         features = build_canonical_feature_snapshot(
             CanonicalFeatureSnapshotConfig(
@@ -757,7 +770,59 @@ def _materialize_daily_canonical_features(
                 error=",".join(features.blockers) or None,
             )
         )
-        return canonical_manifest_path, feature_manifest_path
+        publication_path: str | None = None
+        if not scheduled.publish_verified_vectors:
+            operations.append(
+                DailyCollectionOperation(
+                    operation_type="verified_feature_vector_publication",
+                    symbol=None,
+                    timeframe=None,
+                    status="skipped",
+                    error="verified_feature_vector_publication_disabled",
+                )
+            )
+        elif features.status != "READY" or not feature_manifest_path:
+            operations.append(
+                DailyCollectionOperation(
+                    operation_type="verified_feature_vector_publication",
+                    symbol=None,
+                    timeframe=None,
+                    status="blocked",
+                    error="feature_snapshot_not_ready",
+                )
+            )
+        else:
+            try:
+                from .verified_feature_vector_publication import publish_verified_feature_vectors
+
+                publication = publish_verified_feature_vectors(
+                    run_id=f"{run_id}_verified_feature_vectors",
+                    feature_snapshot_manifest_path=feature_manifest_path,
+                    observed_at=datetime.fromisoformat(features.generated_at),
+                    output_dir=config.output_dirs.verified_feature_vectors,
+                )
+                publication_path = publication.output_path
+                operations.append(
+                    DailyCollectionOperation(
+                        operation_type="verified_feature_vector_publication",
+                        symbol=None,
+                        timeframe=None,
+                        status="ok",
+                        row_count=publication.vector_count,
+                        output_path=publication_path,
+                    )
+                )
+            except Exception as exc:
+                operations.append(
+                    DailyCollectionOperation(
+                        operation_type="verified_feature_vector_publication",
+                        symbol=None,
+                        timeframe=None,
+                        status="blocked",
+                        error=f"verified_feature_vector_publication_blocked:{type(exc).__name__}:{exc}",
+                    )
+                )
+        return canonical_manifest_path, feature_manifest_path, publication_path
     except Exception as exc:
         operations.append(
             DailyCollectionOperation(
@@ -768,7 +833,7 @@ def _materialize_daily_canonical_features(
                 error=f"canonical_feature_materialization_error:{type(exc).__name__}:{exc}",
             )
         )
-        return None, None
+        return None, None, None
 
 
 def _run_high_conviction_walk_forward(

@@ -56,6 +56,7 @@ def _write_config(path, tmp_path):
                 f"  canonical_quarantine: {str(tmp_path / 'quarantine').replace(chr(92), '/')}",
                 f"  canonical_features: {str(tmp_path / 'canonical_features').replace(chr(92), '/')}",
                 f"  feature_manifests: {str(tmp_path / 'feature_manifests').replace(chr(92), '/')}",
+                f"  verified_feature_vectors: {str(tmp_path / 'verified_feature_vectors').replace(chr(92), '/')}",
                 "safety:",
                 "  public_endpoints_only: true",
                 "  no_private_keys: true",
@@ -186,15 +187,23 @@ def test_daily_runner_collects_public_research_data_and_reports_public_errors(tm
     assert payload["data_readiness_dashboard_path"]
     canonical_ops = [op for op in payload["operations"] if op["operation_type"] == "canonical_ohlcv"]
     feature_ops = [op for op in payload["operations"] if op["operation_type"] == "canonical_feature_snapshot"]
+    vector_publication_ops = [
+        op for op in payload["operations"] if op["operation_type"] == "verified_feature_vector_publication"
+    ]
     assert len(canonical_ops) == 1
     assert canonical_ops[0]["status"] == "ok"
     assert len(feature_ops) == 1
     assert feature_ops[0]["status"] == "ok"
+    assert len(vector_publication_ops) == 1
+    assert vector_publication_ops[0]["status"] in {"ok", "blocked"}
     operation_types = [op["operation_type"] for op in payload["operations"]]
     assert operation_types.index("canonical_ohlcv") < operation_types.index("spread_depth")
     assert operation_types.index("canonical_feature_snapshot") < operation_types.index("spread_depth")
     assert payload["canonical_manifest_path"]
     assert payload["feature_snapshot_manifest_path"]
+    if vector_publication_ops[0]["status"] == "ok":
+        assert payload["verified_feature_vector_publication_path"]
+        assert Path(payload["verified_feature_vector_publication_path"]).exists()
     assert Path(payload["canonical_manifest_path"]).exists()
     assert Path(payload["feature_snapshot_manifest_path"]).exists()
     assert "No paper or live order is created." in payload["safety_notes"]
