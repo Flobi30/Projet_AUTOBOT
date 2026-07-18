@@ -32,6 +32,9 @@ the broader shadow-parity gate can be closed.
   regression suite: `73 passed`.
 - Tamper tests prove that a changed feature CSV is rejected for both canonical
   and derivatives bundles.
+- The incremental replay uses an event-time index with bounded lookback, so a
+  historical ingestion batch does not perform a full-history scan for every
+  feature value.
 
 ## Safety
 

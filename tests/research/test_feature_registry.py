@@ -146,6 +146,42 @@ def test_feature_registry_delays_visibility_until_ingestion_and_replays_identica
     assert parity.parity_ok is True
 
 
+def test_feature_registry_replays_large_single_ingestion_batch_without_lookahead():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    available_at = start + timedelta(days=14)
+    rows = [
+        {
+            "event_time": (start + timedelta(minutes=index)).isoformat(),
+            "available_time": available_at.isoformat(),
+            "ingestion_time": available_at.isoformat(),
+            "open_interest": str(1_000 + index),
+        }
+        for index in range(5_000)
+    ]
+    registry = FeatureRegistry(
+        (
+            FeatureDefinition(
+                "open_interest_change_24_pct",
+                "2",
+                "open_interest_history",
+                "open_interest_change_pct",
+                lookback=24,
+            ),
+        )
+    )
+
+    parity = validate_historical_shadow_parity(
+        rows=rows,
+        market=_market(),
+        timeframe="analytics_bucket",
+        source_snapshot_id="single-ingestion-batch",
+        registry=registry,
+    )
+
+    assert parity.feature_count == 5_000
+    assert parity.parity_ok is True
+
+
 def test_feature_registry_rejects_naive_temporal_rows():
     registry = default_feature_registry()
     with pytest.raises(ValueError, match="timezone-aware"):

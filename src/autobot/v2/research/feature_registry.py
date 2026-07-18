@@ -7,6 +7,7 @@ research and shadow replays so feature definitions cannot silently diverge.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 import hashlib
 import json
 import math
@@ -156,8 +157,24 @@ class FeatureRegistry:
         definitions = tuple(self.get(item) for item in (feature_ids or tuple(self._definitions)))
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
+        max_lookback = max((definition.lookback for definition in definitions), default=1)
+        # A historical backfill commonly becomes available in one ingestion
+        # batch.  Searching every previously published row per target makes
+        # that normal case quadratic.  Keep one event-time index of currently
+        # published rows instead: each feature only needs its largest bounded
+        # lookback ending at the target event.
+        event_order = sorted(
+            range(len(normalized)),
+            key=lambda item: (
+                normalized[item]["event_time"],
+                normalized[item]["available_time"],
+                json.dumps(normalized[item], default=str, sort_keys=True),
+            ),
+        )
+        event_position_by_row = {row_index: position for position, row_index in enumerate(event_order)}
+        event_rows = [normalized[row_index] for row_index in event_order]
         values: list[FeatureValue] = []
-        published: list[dict[str, Any]] = []
+        published_event_positions: list[int] = []
         index = 0
         while index < len(normalized):
             available_time = normalized[index]["available_time"]
@@ -166,13 +183,14 @@ class FeatureRegistry:
             group_end = index + 1
             while group_end < len(normalized) and normalized[group_end]["available_time"] == available_time:
                 group_end += 1
-            group = normalized[index:group_end]
-            published.extend(group)
-            for target in group:
-                observed = sorted(
-                    (row for row in published if row["event_time"] <= target["event_time"]),
-                    key=lambda row: (row["event_time"], row["available_time"]),
-                )
+            group_indices = sorted(event_position_by_row[row_index] for row_index in range(index, group_end))
+            published_event_positions = _merge_sorted_indices(published_event_positions, group_indices)
+            for row_index in range(index, group_end):
+                target = normalized[row_index]
+                target_position = event_position_by_row[row_index]
+                end = bisect_right(published_event_positions, target_position)
+                start = max(0, end - (max_lookback + 1))
+                observed = [event_rows[position] for position in published_event_positions[start:end]]
                 for definition in definitions:
                     values.append(
                         _compute_feature(
@@ -430,6 +448,31 @@ def _event_times_are_monotonic(rows: Sequence[Mapping[str, Any]]) -> bool:
         rows[index - 1]["event_time"] <= rows[index]["event_time"]
         for index in range(1, len(rows))
     )
+
+
+def _merge_sorted_indices(existing: Sequence[int], incoming: Sequence[int]) -> list[int]:
+    """Merge event positions while preserving the replay's bounded history."""
+
+    if not existing:
+        return list(incoming)
+    if not incoming:
+        return list(existing)
+    if existing[-1] < incoming[0]:
+        return [*existing, *incoming]
+    if incoming[-1] < existing[0]:
+        return [*incoming, *existing]
+    merged: list[int] = []
+    left = right = 0
+    while left < len(existing) and right < len(incoming):
+        if existing[left] <= incoming[right]:
+            merged.append(existing[left])
+            left += 1
+        else:
+            merged.append(incoming[right])
+            right += 1
+    merged.extend(existing[left:])
+    merged.extend(incoming[right:])
+    return merged
 
 
 def _row_time(row: Mapping[str, Any], key: str, *, fallback: str) -> datetime | None:
