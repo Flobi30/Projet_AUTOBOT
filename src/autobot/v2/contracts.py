@@ -198,6 +198,89 @@ class FeatureSnapshotReference:
 
 
 @dataclass(frozen=True)
+class VerifiedFeatureVector:
+    """One immutable, point-in-time feature vector bound to a verified bundle.
+
+    This is a research/shadow boundary contract only.  It makes a strategy
+    decision carry the actual feature values and their material feature-bundle
+    provenance, rather than only a declared set of feature versions.
+    """
+
+    feature_snapshot: FeatureSnapshotReference
+    market: MarketIdentity
+    timeframe: str
+    observed_at: datetime
+    values: tuple[FeatureValue, ...]
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.feature_snapshot, FeatureSnapshotReference):
+            raise ValueError("verified feature vector requires FeatureSnapshotReference")
+        if not self.feature_snapshot.material_verified or not self.feature_snapshot.bundle_content_fingerprint:
+            raise ValueError("verified feature vector requires a material-verified feature snapshot")
+        if not isinstance(self.market, MarketIdentity):
+            raise ValueError("verified feature vector requires MarketIdentity")
+        observed_at = _utc(self.observed_at, "observed_at")
+        timeframe = _required(self.timeframe, "timeframe")
+        values = tuple(self.values)
+        if not values or any(not isinstance(item, FeatureValue) for item in values):
+            raise ValueError("verified feature vector requires FeatureValue values")
+        expected_versions = dict(self.feature_snapshot.feature_versions)
+        actual_versions: dict[str, str] = {}
+        for item in values:
+            if item.market != self.market:
+                raise ValueError("feature vector values must share one explicit market identity")
+            if item.timeframe != timeframe:
+                raise ValueError("feature vector values must share one timeframe")
+            if item.source_snapshot_id != self.feature_snapshot.source_snapshot_id:
+                raise ValueError("feature vector source_snapshot_id must match feature snapshot")
+            if item.event_time > observed_at or item.available_time > observed_at:
+                raise ValueError("feature vector contains a value unavailable at observed_at")
+            if str(item.status).lower() != "ready" or item.value is None:
+                raise ValueError("verified feature vector requires ready numeric values")
+            try:
+                numeric_value = float(item.value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("verified feature vector values must be numeric") from exc
+            if not math.isfinite(numeric_value):
+                raise ValueError("verified feature vector values must be finite")
+            if item.feature_id in actual_versions:
+                raise ValueError("verified feature vector feature ids must be unique")
+            actual_versions[item.feature_id] = item.feature_version
+        if actual_versions != expected_versions:
+            raise ValueError("verified feature vector versions must exactly match feature snapshot")
+        object.__setattr__(self, "timeframe", timeframe)
+        object.__setattr__(self, "observed_at", observed_at)
+        object.__setattr__(self, "values", values)
+
+    @property
+    def fingerprint(self) -> str:
+        payload = {
+            "feature_snapshot_id": self.feature_snapshot.feature_snapshot_id,
+            "feature_snapshot_fingerprint": self.feature_snapshot.fingerprint,
+            "bundle_content_fingerprint": self.feature_snapshot.bundle_content_fingerprint,
+            "market": asdict(self.market),
+            "timeframe": self.timeframe,
+            "observed_at": self.observed_at.isoformat(),
+            "values": [
+                {
+                    "feature_id": item.feature_id,
+                    "feature_version": item.feature_version,
+                    "event_time": item.event_time.isoformat(),
+                    "available_time": item.available_time.isoformat(),
+                    "source_snapshot_id": item.source_snapshot_id,
+                    "value": str(item.value),
+                    "status": item.status,
+                    "metadata": dict(item.metadata),
+                }
+                for item in sorted(self.values, key=lambda value: value.feature_id)
+            ],
+        }
+        encoded = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":"))
+        return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
 class RiskMandateReference:
     """Immutable, non-authorizing evidence for a strategy risk mandate.
 

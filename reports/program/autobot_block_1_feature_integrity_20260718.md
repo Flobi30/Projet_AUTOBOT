@@ -38,6 +38,10 @@ the broader shadow-parity gate can be closed.
   and derivatives bundles.
 - A CLI governance integration test materializes and independently verifies a
   real canonical feature bundle before registering a shadow-eligible artifact.
+- Verified-vector contract, runtime-preview and legacy signal-handler tests:
+  `42 passed`.
+- Complete hermetic unit suite: `1345 passed, 6 skipped`.
+- Complete hermetic integration suite: `313 passed`.
 - The incremental replay uses an event-time index with bounded lookback, so a
   historical ingestion batch does not perform a full-history scan for every
   feature value.
@@ -54,8 +58,10 @@ the broader shadow-parity gate can be closed.
 ## Remaining Block 1 Gate
 
 The data and batch-replay boundary is now materially verified and that proof
-is mandatory for any new shadow-capable artifact. The remaining work is to
-feed an immutable, verified feature vector through the actual shadow
-observation boundary and compare it against the same point-in-time batch
-decision. This remains research/shadow-only and does not authorize paper or
-live execution.
+is mandatory for any new shadow-capable artifact. The non-executable runtime
+preview now also rejects an artifact unless it receives one complete immutable
+feature vector per verified bundle, with exact values available at the
+decision time. The remaining shadow work is to connect this proven preview
+boundary to an official observation writer and compare each resulting
+observation with the same point-in-time batch decision. This remains
+research/shadow-only and does not authorize paper or live execution.

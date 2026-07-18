@@ -389,6 +389,34 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
             "net_expected_edge_bps": 24.0,
             "shadow_notional_eur": 20.0,
             "feature_versions": {"momentum": "v1"},
+            "verified_feature_vectors": {
+                "features_handler_fixture": {
+                    "feature_snapshot_id": "features_handler_fixture",
+                    "bundle_content_fingerprint": "bundle-content-handler-fixture",
+                    "feature_registry_fingerprint": "registry-fingerprint-handler-fixture",
+                    "source_snapshot_id": "ohlcv_snapshot_1",
+                    "observed_at": "2026-07-12T10:01:00+00:00",
+                    "market_identity": {
+                        "exchange": "kraken",
+                        "market_type": "spot",
+                        "symbol": "BTCEUR",
+                        "base_asset": "BTC",
+                        "quote_asset": "EUR",
+                    },
+                    "timeframe": "5m",
+                    "values": [
+                        {
+                            "feature_id": "momentum",
+                            "feature_version": "v1",
+                            "event_time": "2026-07-12T10:00:00+00:00",
+                            "available_time": "2026-07-12T10:01:00+00:00",
+                            "source_snapshot_id": "ohlcv_snapshot_1",
+                            "value": 22.0,
+                            "status": "ready",
+                        }
+                    ],
+                }
+            },
             "strategy_artifact": StrategyArtifact(
                 strategy_id="trend_momentum",
                 strategy_version="trend-v3",

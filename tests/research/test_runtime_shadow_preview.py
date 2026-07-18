@@ -19,6 +19,7 @@ def _metadata(**overrides):
         "net_expected_edge_bps": 24.0,
         "shadow_notional_eur": 20.0,
         "feature_versions": {"momentum": "v1", "volatility": "v1"},
+        "verified_feature_vectors": _verified_feature_vectors(),
         "strategy_artifact": _artifact_payload(),
         "market_identity": {
             "exchange": "kraken",
@@ -30,6 +31,47 @@ def _metadata(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _verified_feature_vectors() -> dict:
+    observed_at = "2026-07-12T10:01:00+00:00"
+    return {
+        "features_preview_fixture": {
+            "feature_snapshot_id": "features_preview_fixture",
+            "bundle_content_fingerprint": "bundle-content-preview-fixture",
+            "feature_registry_fingerprint": "registry-fingerprint-preview-fixture",
+            "source_snapshot_id": "ohlcv_snapshot_1",
+            "observed_at": observed_at,
+            "market_identity": {
+                "exchange": "kraken",
+                "market_type": "spot",
+                "symbol": "BTCEUR",
+                "base_asset": "BTC",
+                "quote_asset": "EUR",
+            },
+            "timeframe": "5m",
+            "values": [
+                {
+                    "feature_id": "momentum",
+                    "feature_version": "v1",
+                    "event_time": "2026-07-12T10:00:00+00:00",
+                    "available_time": observed_at,
+                    "source_snapshot_id": "ohlcv_snapshot_1",
+                    "value": 22.0,
+                    "status": "ready",
+                },
+                {
+                    "feature_id": "volatility",
+                    "feature_version": "v1",
+                    "event_time": "2026-07-12T10:00:00+00:00",
+                    "available_time": observed_at,
+                    "source_snapshot_id": "ohlcv_snapshot_1",
+                    "value": 8.0,
+                    "status": "ready",
+                },
+            ],
+        }
+    }
 
 
 def _artifact_payload(*, strategy_version: str = "trend-v3", status: str = "SHADOW") -> dict:
@@ -132,6 +174,14 @@ def test_missing_feature_provenance_is_not_invented():
 
     assert preview.status == "SHADOW_PREVIEW_REJECTED"
     assert preview.reason == "feature_versions_required"
+
+
+def test_missing_concrete_feature_vector_fails_closed():
+    preview = _preview(verified_feature_vectors=None)
+
+    assert preview.status == "SHADOW_PREVIEW_REJECTED"
+    assert preview.reason == "verified_feature_vectors_required"
+    assert preview.order_intent is None
 
 
 def test_shadow_preview_rejects_an_artifact_mismatch():

@@ -16,6 +16,7 @@ from autobot.v2.contracts import (
     RiskMandateReference,
     StrategyArtifactReference,
     TargetPortfolio,
+    VerifiedFeatureVector,
     contract_fingerprint,
     contract_to_dict,
 )
@@ -145,6 +146,50 @@ def test_feature_snapshot_rejects_unverified_bundle_content_claim():
             feature_versions={"atr": "1"},
             runtime_parity_proven=True,
             bundle_content_fingerprint="claimed-without-verification",
+        )
+
+
+def test_verified_feature_vector_binds_values_to_one_verified_snapshot():
+    event = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+    snapshot = _artifact_reference().feature_snapshots[0]
+    vector = VerifiedFeatureVector(
+        feature_snapshot=snapshot,
+        market=_market(),
+        timeframe="1h",
+        observed_at=event,
+        values=(
+            FeatureValue(
+                feature_id="atr",
+                feature_version="1",
+                market=_market(),
+                timeframe="1h",
+                event_time=event - timedelta(hours=1),
+                available_time=event,
+                source_snapshot_id="snapshot-1",
+                value=12.5,
+            ),
+        ),
+    )
+
+    assert vector.fingerprint
+    with pytest.raises(ValueError, match="unavailable at observed_at"):
+        VerifiedFeatureVector(
+            feature_snapshot=snapshot,
+            market=_market(),
+            timeframe="1h",
+            observed_at=event,
+            values=(
+                FeatureValue(
+                    feature_id="atr",
+                    feature_version="1",
+                    market=_market(),
+                    timeframe="1h",
+                    event_time=event,
+                    available_time=event + timedelta(seconds=1),
+                    source_snapshot_id="snapshot-1",
+                    value=12.5,
+                ),
+            ),
         )
 
     with pytest.raises(ValueError, match="material-verified feature snapshot requires"):

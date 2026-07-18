@@ -28,6 +28,7 @@ from autobot.v2.strategy_runtime_policy import is_runtime_engine_retired
 
 from .portfolio_construction import PortfolioConstructionError, build_target_portfolio
 from .shadow_governance import strategy_artifact_reference_from_mapping
+from .verified_feature_vector import VerifiedFeatureVectorError, parse_verified_feature_vectors
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,11 @@ def preview_runtime_buy_signal(
         available_at = _metadata_timestamp(metadata, "data_available_at")
         if available_at < generated_at:
             return _rejected(decision_id, generated_at, "data_available_before_signal")
+        feature_vectors = parse_verified_feature_vectors(
+            metadata.get("verified_feature_vectors"),
+            snapshots=artifact.feature_snapshots,
+            observed_at=available_at,
+        )
         expected_edge_bps = _positive_finite_metadata_number(metadata, "net_expected_edge_bps")
         shadow_notional = _positive_finite_metadata_number(metadata, "shadow_notional_eur")
 
@@ -111,6 +117,10 @@ def preview_runtime_buy_signal(
                 "source": str(metadata.get("execution_source") or "legacy_runtime_signal"),
                 "strategy_artifact_id": artifact.artifact_id,
                 "strategy_artifact_fingerprint": artifact.fingerprint,
+                "verified_feature_vector_fingerprints": {
+                    vector.feature_snapshot.feature_snapshot_id: vector.fingerprint
+                    for vector in feature_vectors
+                },
             },
         )
         target_result = build_target_portfolio(
@@ -156,7 +166,13 @@ def preview_runtime_buy_signal(
                 reasons=("shadow_preview_only_no_execution",),
             ),
         )
-    except (KeyError, TypeError, ValueError, PortfolioConstructionError) as exc:
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        PortfolioConstructionError,
+        VerifiedFeatureVectorError,
+    ) as exc:
         return _rejected(decision_id, _safe_utc(signal_timestamp), str(exc))
 
 
