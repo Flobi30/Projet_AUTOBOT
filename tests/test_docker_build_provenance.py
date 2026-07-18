@@ -23,7 +23,11 @@ def test_rebuild_helper_binds_image_label_to_clean_checkout_commit():
     root = Path(__file__).resolve().parents[1]
     script = (root / "deploy" / "rebuild-autobot-image.sh").read_text(encoding="utf-8")
 
-    assert 'git -C "${REPO_DIR}" diff --quiet -- .' in script
+    assert "BUILD_INPUT_PATHS=(" in script
+    assert 'git -C "${REPO_DIR}" diff --quiet -- "${BUILD_INPUT_PATHS[@]}"' in script
+    assert 'git -C "${REPO_DIR}" diff --cached --quiet -- "${BUILD_INPUT_PATHS[@]}"' in script
+    assert 'git -C "${REPO_DIR}" ls-files --others --exclude-standard -- "${BUILD_INPUT_PATHS[@]}"' in script
+    assert "reports/research" not in script
     assert 'SOURCE_COMMIT="$(git -C "${REPO_DIR}" rev-parse --verify HEAD)"' in script
     assert 'AUTOBOT_BUILD_COMMIT="${SOURCE_COMMIT}"' in script
     assert 'org.opencontainers.image.revision' in script

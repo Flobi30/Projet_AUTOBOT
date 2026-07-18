@@ -10,9 +10,26 @@ set -euo pipefail
 # live execution flags.
 
 REPO_DIR="${AUTOBOT_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+BUILD_INPUT_PATHS=(
+  Dockerfile
+  Dockerfile.pypy
+  .dockerignore
+  docker-compose.yml
+  requirements.txt
+  .env.example
+  src
+  dashboard
+  docs/research
+  docs/architecture
+)
 
-if ! git -C "${REPO_DIR}" diff --quiet -- .; then
-  echo "Refusing to build AUTOBOT from tracked uncommitted changes." >&2
+if ! git -C "${REPO_DIR}" diff --quiet -- "${BUILD_INPUT_PATHS[@]}" \
+  || ! git -C "${REPO_DIR}" diff --cached --quiet -- "${BUILD_INPUT_PATHS[@]}"; then
+  echo "Refusing to build AUTOBOT from tracked uncommitted build inputs." >&2
+  exit 1
+fi
+if [[ -n "$(git -C "${REPO_DIR}" ls-files --others --exclude-standard -- "${BUILD_INPUT_PATHS[@]}")" ]]; then
+  echo "Refusing to build AUTOBOT from untracked build inputs." >&2
   exit 1
 fi
 
