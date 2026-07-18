@@ -16,11 +16,15 @@ from pathlib import Path
 import tempfile
 from typing import Any, Sequence
 
-from autobot.v2.contracts import VerifiedFeatureVector
+from autobot.v2.contracts import FeatureSnapshotReference, VerifiedFeatureVector
 
-from .canonical_feature_snapshot import load_latest_verified_feature_vectors_from_canonical_snapshot
+from .canonical_feature_snapshot import (
+    CANONICAL_FEATURE_SNAPSHOT_KIND,
+    load_latest_verified_feature_vectors_from_canonical_snapshot,
+    load_verified_feature_vector_from_canonical_snapshot,
+)
 from .feature_registry import FeatureRegistry
-from .verified_feature_vector import verified_feature_vector_to_mapping
+from .verified_feature_vector import parse_verified_feature_vectors, verified_feature_vector_to_mapping
 
 
 VERIFIED_FEATURE_VECTOR_PUBLICATION_SCHEMA_VERSION = 1
@@ -112,6 +116,80 @@ def publish_verified_feature_vectors(
     return _publication_from_payload(payload, output_path=target_path)
 
 
+def load_published_verified_feature_vector(
+    path: str | Path,
+    *,
+    symbol: str,
+    timeframe: str,
+    registry: FeatureRegistry | None = None,
+) -> VerifiedFeatureVector:
+    """Re-verify one published vector against its canonical feature bundle.
+
+    A publication is not trusted merely because its JSON structure is valid:
+    this reader verifies its evidence fingerprint, parses its strict vector
+    contract, reloads the exact canonical event and requires both vectors to
+    have the same immutable fingerprint.  It is still research-only and has no
+    dependency on a scheduler, signal handler, router or executor.
+    """
+
+    publication_path = Path(path)
+    payload = _load_existing(publication_path)
+    _publication_from_payload(payload, output_path=publication_path)
+    target_symbol = _required_text(symbol, "published feature vector symbol").upper()
+    target_timeframe = _required_text(timeframe, "published feature vector timeframe")
+    raw_vectors = payload.get("vectors")
+    if not isinstance(raw_vectors, list):
+        raise ValueError("verified feature vector publication vectors are required")
+    matching = [
+        item
+        for item in raw_vectors
+        if isinstance(item, dict)
+        and str((item.get("market_identity") or {}).get("symbol") or "").upper() == target_symbol
+        and str(item.get("timeframe") or "") == target_timeframe
+    ]
+    if len(matching) != 1:
+        raise ValueError("published feature vector market/timeframe is ambiguous or missing")
+    observed_at = _parse_utc(payload.get("observed_at"), "published feature vector observed_at")
+    snapshot = FeatureSnapshotReference(
+        feature_snapshot_id=_required_text(payload.get("feature_snapshot_id"), "published feature snapshot id"),
+        fingerprint=_required_text(payload.get("feature_snapshot_fingerprint"), "published feature snapshot fingerprint"),
+        snapshot_kind=CANONICAL_FEATURE_SNAPSHOT_KIND,
+        source_snapshot_id=_required_text(payload.get("source_snapshot_id"), "published source snapshot id"),
+        source_snapshot_fingerprint=_required_text(
+            payload.get("source_snapshot_fingerprint"), "published source snapshot fingerprint"
+        ),
+        feature_registry_fingerprint=_required_text(
+            payload.get("feature_registry_fingerprint"), "published feature registry fingerprint"
+        ),
+        feature_versions=_required_mapping(payload.get("feature_versions"), "published feature versions"),
+        runtime_parity_proven=payload.get("runtime_parity_proven") is True,
+        material_verified=payload.get("material_verified") is True,
+        bundle_content_fingerprint=_required_text(
+            payload.get("bundle_content_fingerprint"), "published feature bundle fingerprint"
+        ),
+        ingestion_time_unknown_count=int(payload.get("ingestion_time_unknown_count") or 0),
+    )
+    published = parse_verified_feature_vectors(
+        {snapshot.feature_snapshot_id: matching[0]},
+        snapshots=(snapshot,),
+        observed_at=observed_at,
+    )[0]
+    event_times = {item.event_time for item in published.values}
+    if len(event_times) != 1:
+        raise ValueError("published feature vector values must share one event_time")
+    canonical = load_verified_feature_vector_from_canonical_snapshot(
+        _required_text(payload.get("feature_snapshot_manifest_path"), "published feature snapshot manifest path"),
+        symbol=target_symbol,
+        timeframe=target_timeframe,
+        event_time=next(iter(event_times)),
+        observed_at=observed_at,
+        registry=registry,
+    )
+    if canonical.fingerprint != published.fingerprint:
+        raise ValueError("published feature vector does not match canonical bundle")
+    return published
+
+
 def _publication_payload(
     *,
     run_id: str,
@@ -139,6 +217,11 @@ def _publication_payload(
         "bundle_content_fingerprint": snapshot.bundle_content_fingerprint,
         "feature_registry_fingerprint": snapshot.feature_registry_fingerprint,
         "source_snapshot_id": snapshot.source_snapshot_id,
+        "source_snapshot_fingerprint": snapshot.source_snapshot_fingerprint,
+        "feature_versions": dict(snapshot.feature_versions),
+        "runtime_parity_proven": snapshot.runtime_parity_proven,
+        "material_verified": snapshot.material_verified,
+        "ingestion_time_unknown_count": snapshot.ingestion_time_unknown_count,
         "observed_at": observed_at.isoformat(),
         "vectors": vector_payload,
         "research_only": True,
@@ -223,6 +306,24 @@ def _required_text(value: Any, field_name: str) -> str:
     if not result:
         raise ValueError(f"{field_name} is required")
     return result
+
+
+def _required_mapping(value: Any, field_name: str) -> dict[str, str]:
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{field_name} is required")
+    result = {str(key).strip(): str(item).strip() for key, item in value.items()}
+    if not all(result) or not all(result.values()):
+        raise ValueError(f"{field_name} is invalid")
+    return result
+
+
+def _parse_utc(value: Any, field_name: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} is required")
+    try:
+        return _utc(datetime.fromisoformat(value.replace("Z", "+00:00")), field_name)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} is invalid") from exc
 
 
 def _require_equal(payload: dict[str, Any], key: str, expected: Any) -> None:

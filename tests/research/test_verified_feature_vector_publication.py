@@ -1,4 +1,5 @@
 import csv
+from hashlib import sha256
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,7 +10,10 @@ from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
 )
-from autobot.v2.research.verified_feature_vector_publication import publish_verified_feature_vectors
+from autobot.v2.research.verified_feature_vector_publication import (
+    load_published_verified_feature_vector,
+    publish_verified_feature_vectors,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -111,6 +115,7 @@ def test_verified_feature_vector_publication_is_atomic_idempotent_and_research_o
     assert payload["live_allowed"] is False
     assert payload["promotable"] is False
     assert payload["vectors"][0]["market_identity"]["symbol"] == "BTCEUR"
+    assert load_published_verified_feature_vector(first.output_path, symbol="BTCEUR", timeframe="5m").fingerprint
 
 
 def test_verified_feature_vector_publication_rejects_tampered_existing_evidence(tmp_path):
@@ -134,6 +139,27 @@ def test_verified_feature_vector_publication_rejects_tampered_existing_evidence(
             observed_at=observed_at,
             output_dir=tmp_path / "publications",
         )
+
+
+def test_published_vector_is_rechecked_against_the_canonical_bundle(tmp_path):
+    snapshot = _ready_snapshot(tmp_path)
+    publication = publish_verified_feature_vectors(
+        run_id="daily_20260102_source_check",
+        feature_snapshot_manifest_path=Path(str(snapshot.manifest_path)),
+        observed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        output_dir=tmp_path / "publications",
+    )
+    path = Path(publication.output_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["vectors"][0]["values"][0]["value"] = 999.0
+    evidence = {key: value for key, value in payload.items() if key not in {"publication_id", "publication_fingerprint"}}
+    fingerprint = sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    payload["publication_fingerprint"] = fingerprint
+    payload["publication_id"] = f"verified_vectors_{fingerprint[:20]}"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not match canonical bundle"):
+        load_published_verified_feature_vector(path, symbol="BTCEUR", timeframe="5m")
 
 
 def test_verified_feature_vector_publication_does_not_import_runtime_or_execution_paths():

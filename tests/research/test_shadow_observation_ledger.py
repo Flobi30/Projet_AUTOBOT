@@ -33,6 +33,10 @@ from autobot.v2.research.canonical_feature_snapshot import (
 )
 from autobot.v2.research.runtime_shadow_preview import preview_runtime_buy_signal
 from autobot.v2.research.verified_feature_vector import verified_feature_vector_to_mapping
+from autobot.v2.research.verified_feature_vector_publication import (
+    load_published_verified_feature_vector,
+    publish_verified_feature_vectors,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -65,7 +69,7 @@ def _vector() -> VerifiedFeatureVector:
     )
 
 
-def _canonical_vector(tmp_path) -> VerifiedFeatureVector:
+def _canonical_vector(tmp_path, *, include_manifest: bool = False) -> VerifiedFeatureVector | tuple[VerifiedFeatureVector, Path]:
     """Create one actual READY canonical bundle for the cross-boundary test."""
 
     source_file = tmp_path / "canonical_shadow_source.csv"
@@ -124,13 +128,14 @@ def _canonical_vector(tmp_path) -> VerifiedFeatureVector:
         for event, values in sorted(grouped.items())
         if {row["feature_id"] for row in values} == set(snapshot.feature_ids)
     )
-    return load_verified_feature_vector_from_canonical_snapshot(
+    vector = load_verified_feature_vector_from_canonical_snapshot(
         Path(str(snapshot.manifest_path)),
         symbol="BTCEUR",
         timeframe="5m",
         event_time=datetime.fromisoformat(event_time),
         observed_at=max(datetime.fromisoformat(row["available_time"]) for row in event_rows),
     )
+    return (vector, Path(str(snapshot.manifest_path))) if include_manifest else vector
 
 
 def _artifact(vector: VerifiedFeatureVector, *, status: str = "SHADOW_ELIGIBLE") -> StrategyArtifact:
@@ -223,7 +228,15 @@ def test_shadow_observation_ledger_rejects_unproven_artifact_or_feature_mismatch
 
 
 def test_batch_target_preview_and_ledgered_shadow_observation_have_exact_parity(tmp_path):
-    vector = _canonical_vector(tmp_path)
+    source_vector, feature_manifest = _canonical_vector(tmp_path, include_manifest=True)
+    publication = publish_verified_feature_vectors(
+        run_id="shadow_parity_publication",
+        feature_snapshot_manifest_path=feature_manifest,
+        observed_at=source_vector.observed_at,
+        output_dir=tmp_path / "feature_publications",
+    )
+    vector = load_published_verified_feature_vector(publication.output_path, symbol="BTCEUR", timeframe="5m")
+    assert vector.fingerprint == source_vector.fingerprint
     artifact = _artifact(vector)
     available_at = vector.observed_at
     alpha = AlphaSignal(

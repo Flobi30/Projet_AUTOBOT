@@ -19,6 +19,11 @@ prove at least one fully available vector. The output remains under
   feature was available at the observation timestamp.
 - Re-running the same daily run accepts identical evidence and rejects a path
   already containing different or tampered evidence.
+- A research consumer re-verifies the publication fingerprint and reloads the
+  exact canonical event; a publication whose values are changed and then
+  re-fingerprinted still fails this source comparison.
+- The re-verified vector crosses the existing non-executable preview and
+  shadow-observation parity test without changing any runtime order path.
 - The daily report records `ok`, `blocked` or `skipped`; insufficient features
   never become a fabricated vector.
 - The publisher imports no router, signal handler or paper engine and cannot
@@ -31,6 +36,8 @@ prove at least one fully available vector. The output remains under
   `tests/research/test_verified_feature_vector_publication.py`.
 - Daily data-collection report includes the publication outcome:
   `tests/research/test_daily_data_collection_runner.py`.
+- The publication-to-preview-to-shadow-ledger boundary is exercised in
+  `tests/research/test_shadow_observation_ledger.py`.
 - Feature timing, bundle integrity and strict vector parsing remain covered by
   `test_canonical_feature_snapshot.py` and `test_verified_feature_vector.py`.
 
