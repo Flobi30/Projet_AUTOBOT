@@ -173,6 +173,7 @@ def test_derivatives_snapshot_readiness_view_requires_same_quote_and_research_on
     availability = inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
 
     assert availability.status == "READY"
+    assert availability.material_verified is True
     assert availability.basis_same_quote_verified is True
     assert availability.paper_capital_allowed is False
     assert availability.live_allowed is False
@@ -182,6 +183,28 @@ def test_derivatives_snapshot_readiness_view_requires_same_quote_and_research_on
     payload["basis_contract"]["implicit_usd_eur_conversion_allowed"] = True
     Path(str(snapshot.manifest_path)).write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(DerivativesFeatureSnapshotManifestError, match="same-quote"):
+        inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
+
+
+def test_derivatives_snapshot_material_verification_detects_tampered_csv(tmp_path):
+    manifest = _derivatives_manifest(tmp_path, basis_ready=True, oi_ready=True)
+    snapshot = build_derivatives_feature_snapshot(
+        DerivativesFeatureSnapshotConfig(
+            run_id="derivatives_material_verification",
+            derivatives_manifest_path=manifest,
+            as_of_time=AS_OF,
+            output_dir=tmp_path / "output",
+            manifest_dir=tmp_path / "manifests",
+        )
+    )
+
+    availability = inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
+
+    assert availability.material_verified is True
+    assert snapshot.bundle_content_fingerprint
+    feature_csv = Path(snapshot.files[0].csv_path)
+    feature_csv.write_text(feature_csv.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(DerivativesFeatureSnapshotManifestError, match="content hash mismatch"):
         inspect_derivatives_feature_snapshot_manifest(snapshot.manifest_path)
 
 
@@ -230,6 +253,8 @@ def test_manifested_experiment_binds_derivatives_materially_without_local_paths(
 
     assert spec.data_snapshot_id.startswith("combined_")
     assert spec.environment["derivatives_snapshot"]["snapshot_kind"] == "DERIVATIVES_POINT_IN_TIME"
+    assert spec.environment["derivatives_snapshot"]["material_verified"] is True
+    assert spec.environment["derivatives_snapshot"]["bundle_content_fingerprint"] == derivatives_snapshot.bundle_content_fingerprint
     assert "manifest_path" not in spec.environment["feature_snapshot"]
     assert "manifest_path" not in spec.environment["derivatives_snapshot"]
     assert spec.environment["runtime_parity_proven"] is False

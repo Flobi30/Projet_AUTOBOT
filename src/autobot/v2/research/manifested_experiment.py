@@ -34,12 +34,16 @@ class FeatureSnapshotProvenance:
     feature_count: int
     parity_ok: bool
     ingestion_time_unknown_count: int
+    material_verified: bool = False
+    bundle_content_fingerprint: str | None = None
     runtime_parity_verified: bool | None = None
     holdout_partition: Mapping[str, Any] | None = None
     holdout_partition_role: str | None = None
 
     @property
     def runtime_parity_proven(self) -> bool:
+        if not self.material_verified:
+            return False
         if self.runtime_parity_verified is not None:
             return self.parity_ok and self.runtime_parity_verified
         return self.parity_ok and self.ingestion_time_unknown_count == 0
@@ -56,6 +60,8 @@ class FeatureSnapshotProvenance:
             "feature_count": self.feature_count,
             "parity_ok": self.parity_ok,
             "ingestion_time_unknown_count": self.ingestion_time_unknown_count,
+            "material_verified": self.material_verified,
+            "bundle_content_fingerprint": self.bundle_content_fingerprint,
             "runtime_parity_proven": self.runtime_parity_proven,
             "holdout_partition": dict(self.holdout_partition) if self.holdout_partition else None,
             "holdout_partition_role": self.holdout_partition_role,
@@ -98,11 +104,32 @@ def load_feature_snapshot_provenance(path: str | Path) -> FeatureSnapshotProvena
     holdout_partition_role = str(payload.get("holdout_partition_role") or "").strip() or None
     if raw_holdout_partition is not None and not holdout_partition_role:
         raise ManifestedExperimentError("feature snapshot holdout partition role is required")
+    snapshot_kind = str(payload.get("snapshot_kind") or "FEATURE_SNAPSHOT")
+    material_verified = False
+    bundle_content_fingerprint = None
+    if snapshot_kind == "CANONICAL_FEATURE_SNAPSHOT":
+        try:
+            from .canonical_feature_snapshot import verify_canonical_feature_snapshot_manifest
+
+            verification = verify_canonical_feature_snapshot_manifest(manifest_path)
+        except (OSError, ValueError) as exc:
+            raise ManifestedExperimentError(f"feature snapshot material verification failed: {exc}") from exc
+        material_verified = True
+        bundle_content_fingerprint = verification.bundle_content_fingerprint
+    elif snapshot_kind == "DERIVATIVES_POINT_IN_TIME":
+        try:
+            from .derivatives_feature_snapshot import inspect_derivatives_feature_snapshot_manifest
+
+            availability = inspect_derivatives_feature_snapshot_manifest(manifest_path)
+        except (OSError, ValueError) as exc:
+            raise ManifestedExperimentError(f"feature snapshot material verification failed: {exc}") from exc
+        material_verified = availability.material_verified
+        bundle_content_fingerprint = availability.bundle_content_fingerprint
     return FeatureSnapshotProvenance(
         manifest_path=str(manifest_path),
         feature_snapshot_id=_required(payload.get("feature_snapshot_id"), "feature_snapshot_id"),
         feature_snapshot_fingerprint=_required(payload.get("fingerprint"), "feature snapshot fingerprint"),
-        snapshot_kind=str(payload.get("snapshot_kind") or "FEATURE_SNAPSHOT"),
+        snapshot_kind=snapshot_kind,
         source_snapshot_id=_required(payload.get("source_snapshot_id"), "source_snapshot_id"),
         source_snapshot_fingerprint=_required(payload.get("source_snapshot_fingerprint"), "source snapshot fingerprint"),
         feature_registry_fingerprint=_required(payload.get("feature_registry_fingerprint"), "feature registry fingerprint"),
@@ -110,6 +137,8 @@ def load_feature_snapshot_provenance(path: str | Path) -> FeatureSnapshotProvena
         feature_count=feature_count,
         parity_ok=True,
         ingestion_time_unknown_count=max(0, int(payload.get("ingestion_time_unknown_count") or 0)),
+        material_verified=material_verified,
+        bundle_content_fingerprint=bundle_content_fingerprint,
         runtime_parity_verified=(
             bool(payload.get("runtime_parity_proven"))
             if "runtime_parity_proven" in payload

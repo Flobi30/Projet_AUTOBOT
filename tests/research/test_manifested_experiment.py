@@ -11,6 +11,7 @@ from autobot.v2.research.manifested_experiment import (
     build_manifested_experiment_spec,
     load_feature_snapshot_provenance,
 )
+from autobot.v2.research.canonical_feature_snapshot import CanonicalFeatureSnapshotConfig, build_canonical_feature_snapshot
 from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
 
 
@@ -36,24 +37,86 @@ def _manifest(tmp_path, **overrides):
     return path
 
 
+def _verified_manifest(tmp_path):
+    source = tmp_path / "canonical_features_source.csv"
+    fieldnames = (
+        "exchange",
+        "market_type",
+        "symbol",
+        "base_asset",
+        "quote_asset",
+        "market_mapping_status",
+        "timeframe",
+        "event_time",
+        "available_time",
+        "ingestion_time",
+        "close",
+    )
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for index in range(25):
+            event = origin + timedelta(minutes=5 * index)
+            writer.writerow(
+                {
+                    "exchange": "kraken",
+                    "market_type": "spot",
+                    "symbol": "BTCEUR",
+                    "base_asset": "BTC",
+                    "quote_asset": "EUR",
+                    "market_mapping_status": "EXPLICIT",
+                    "timeframe": "5m",
+                    "event_time": event.isoformat(),
+                    "available_time": event.isoformat(),
+                    "ingestion_time": event.isoformat(),
+                    "close": str(100 + index),
+                }
+            )
+    source_manifest = tmp_path / "canonical_features_source.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "canonical_features_source",
+                "fingerprint": "canonical-features-source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="manifested_experiment_verified",
+            canonical_manifest_path=source_manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+    assert snapshot.status == "READY"
+    return snapshot.manifest_path
+
+
 def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_path):
     spec, provenance = build_manifested_experiment_spec(
         hypothesis_id="long_trend",
         template_id="regime_filtered_trend",
         thesis="test thesis",
         code_commit="abc123",
-        feature_snapshot_manifest=_manifest(tmp_path),
+        feature_snapshot_manifest=_verified_manifest(tmp_path),
         parameters={"lookback": 24},
         seed=7,
         cost_model={"profile": "research_stress"},
     )
 
-    assert spec.data_snapshot_id == "ohlcv_v2_test"
-    assert spec.feature_versions == {"momentum_3_bps": "1.0.0"}
-    assert spec.environment["feature_snapshot"]["feature_snapshot_id"] == "features_v1_test"
+    assert spec.data_snapshot_id == "canonical_features_source"
+    assert spec.feature_versions["momentum_3_bps"] == "1.0.0"
+    assert spec.environment["feature_snapshot"]["material_verified"] is True
+    assert spec.environment["feature_snapshot"]["bundle_content_fingerprint"]
     assert "manifest_path" not in spec.environment["feature_snapshot"]
-    assert spec.environment["runtime_parity_proven"] is False
-    assert provenance.runtime_parity_proven is False
+    assert spec.environment["runtime_parity_proven"] is True
+    assert provenance.runtime_parity_proven is True
 
 
 def test_manifested_experiment_refuses_unready_or_unproven_feature_snapshot(tmp_path):
@@ -74,7 +137,7 @@ def test_manifested_experiment_cannot_relax_research_only_safety(tmp_path):
             template_id="regime_filtered_trend",
             thesis="test thesis",
             code_commit="abc123",
-            feature_snapshot_manifest=_manifest(tmp_path),
+            feature_snapshot_manifest=_verified_manifest(tmp_path),
             parameters={},
             seed=7,
             cost_model={},
@@ -88,7 +151,7 @@ def test_manifested_experiment_fingerprint_changes_for_material_inputs_not_runne
         "template_id": "regime_filtered_trend",
         "thesis": "test thesis",
         "code_commit": "abc123",
-        "feature_snapshot_manifest": _manifest(tmp_path),
+        "feature_snapshot_manifest": _verified_manifest(tmp_path),
         "parameters": {"max_variants": 3, "symbols": ["BTCZEUR"]},
         "seed": 7,
         "cost_model": {"profile": "research_stress"},

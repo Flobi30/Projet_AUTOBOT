@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .claude-skills/
 .codex_python_deps/
+.codex_test_deps/
+.pytest_runtime/
 
 # SEC-05: Fichiers sensibles et données locales
 .env

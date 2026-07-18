@@ -108,6 +108,44 @@ def test_feature_registry_historical_shadow_parity_is_deterministic():
     assert result.differences == ()
 
 
+def test_feature_registry_delays_visibility_until_ingestion_and_replays_identically():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [
+        {
+            "event_time": start.isoformat(),
+            "available_time": (start + timedelta(minutes=5)).isoformat(),
+            "ingestion_time": (start + timedelta(minutes=15)).isoformat(),
+            "close": "100",
+        },
+        {
+            "event_time": (start + timedelta(minutes=5)).isoformat(),
+            "available_time": (start + timedelta(minutes=10)).isoformat(),
+            "ingestion_time": (start + timedelta(minutes=10)).isoformat(),
+            "close": "101",
+        },
+    ]
+    registry = FeatureRegistry((FeatureDefinition("return_1", "1", "canonical_ohlcv", "return_bps"),))
+
+    values = registry.compute_series(
+        rows=rows,
+        market=_market(),
+        timeframe="5m",
+        source_snapshot_id="delayed-ingestion",
+    )
+    second_bar = next(item for item in values if item.event_time == start + timedelta(minutes=5))
+    parity = validate_historical_shadow_parity(
+        rows=rows,
+        market=_market(),
+        timeframe="5m",
+        source_snapshot_id="delayed-ingestion",
+        registry=registry,
+    )
+
+    assert second_bar.status == WAITING_FOR_MORE_DATA
+    assert second_bar.available_time == start + timedelta(minutes=10)
+    assert parity.parity_ok is True
+
+
 def test_feature_registry_rejects_naive_temporal_rows():
     registry = default_feature_registry()
     with pytest.raises(ValueError, match="timezone-aware"):

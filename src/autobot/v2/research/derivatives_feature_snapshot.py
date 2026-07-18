@@ -28,8 +28,9 @@ from .derivatives_basis_contract import (
 from .feature_registry import FeatureRegistry, default_feature_registry, validate_historical_shadow_parity
 
 
-DERIVATIVES_FEATURE_SNAPSHOT_SCHEMA_VERSION = 1
+DERIVATIVES_FEATURE_SNAPSHOT_SCHEMA_VERSION = 2
 DERIVATIVES_POINT_IN_TIME_KIND = "DERIVATIVES_POINT_IN_TIME"
+MATERIAL_HASH_ALGORITHM = "sha256"
 DEFAULT_DERIVATIVES_FEATURE_IDS = (
     "funding_rate_relative",
     "basis_bps",
@@ -79,6 +80,8 @@ class DerivativesFeatureSnapshotAvailability:
     feature_count: int
     parity_ok: bool
     runtime_parity_proven: bool
+    material_verified: bool
+    bundle_content_fingerprint: str | None
     basis_same_quote_verified: bool
     paper_capital_allowed: bool
     live_allowed: bool
@@ -92,6 +95,8 @@ class DerivativesFeatureSnapshotAvailability:
             "feature_count": self.feature_count,
             "parity_ok": self.parity_ok,
             "runtime_parity_proven": self.runtime_parity_proven,
+            "material_verified": self.material_verified,
+            "bundle_content_fingerprint": self.bundle_content_fingerprint,
             "basis_same_quote_verified": self.basis_same_quote_verified,
             "research_only": True,
             "paper_capital_allowed": self.paper_capital_allowed,
@@ -146,6 +151,10 @@ def inspect_derivatives_feature_snapshot_manifest(
         raise DerivativesFeatureSnapshotManifestError(
             "derivatives snapshot cannot enable paper capital, live or promotion"
         )
+    material_verified = False
+    if int(payload.get("schema_version") or 0) >= DERIVATIVES_FEATURE_SNAPSHOT_SCHEMA_VERSION:
+        _verify_derivatives_feature_snapshot_bundle(manifest_path, payload)
+        material_verified = True
     return DerivativesFeatureSnapshotAvailability(
         manifest_path=str(manifest_path),
         status=status,
@@ -154,6 +163,12 @@ def inspect_derivatives_feature_snapshot_manifest(
         feature_count=feature_count,
         parity_ok=payload.get("parity_ok") is True,
         runtime_parity_proven=payload.get("runtime_parity_proven") is True,
+        material_verified=material_verified,
+        bundle_content_fingerprint=(
+            str(payload.get("bundle_content_fingerprint") or "").strip() or None
+            if material_verified
+            else None
+        ),
         basis_same_quote_verified=basis_same_quote_verified,
         paper_capital_allowed=False,
         live_allowed=False,
@@ -186,6 +201,9 @@ class DerivativesFeatureFile:
     waiting_count: int
     missing_count: int
     csv_path: str
+    content_sha256: str
+    byte_count: int
+    csv_row_count: int
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -197,6 +215,7 @@ class DerivativesFeatureSnapshot:
     generated_at: str
     feature_snapshot_id: str
     fingerprint: str
+    bundle_content_fingerprint: str
     source_snapshot_id: str
     source_snapshot_fingerprint: str
     provenance_fingerprint: str
@@ -232,6 +251,8 @@ class DerivativesFeatureSnapshot:
             "generated_at": self.generated_at,
             "feature_snapshot_id": self.feature_snapshot_id,
             "fingerprint": self.fingerprint,
+            "bundle_content_fingerprint": self.bundle_content_fingerprint,
+            "bundle_content_hash_algorithm": MATERIAL_HASH_ALGORITHM,
             "source_snapshot_id": self.source_snapshot_id,
             "source_snapshot_fingerprint": self.source_snapshot_fingerprint,
             "provenance_fingerprint": self.provenance_fingerprint,
@@ -368,7 +389,10 @@ def build_derivatives_feature_snapshot(
                 ready_count=sum(item["status"] == "READY" for item in payloads),
                 waiting_count=sum(item["status"] == "WAITING_FOR_MORE_DATA" for item in payloads),
                 missing_count=sum(item["status"] == "DATA_MISSING" for item in payloads),
-                csv_path=str(path),
+                csv_path=str(path.resolve()),
+                content_sha256=_file_sha256(path),
+                byte_count=path.stat().st_size,
+                csv_row_count=len(payloads),
             )
         )
 
@@ -395,6 +419,13 @@ def build_derivatives_feature_snapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
         feature_snapshot_id=feature_snapshot_id,
         fingerprint=fingerprint,
+        bundle_content_fingerprint=_bundle_content_fingerprint(
+            source_snapshot_id=source_snapshot_id,
+            source_snapshot_fingerprint=source_snapshot_fingerprint,
+            registry_fingerprint=active_registry.fingerprint,
+            feature_versions={feature_id: active_registry.get(feature_id).version for feature_id in feature_ids},
+            files=files,
+        ),
         source_snapshot_id=source_snapshot_id,
         source_snapshot_fingerprint=source_snapshot_fingerprint,
         provenance_fingerprint=provenance_fingerprint,
@@ -624,6 +655,11 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return [dict(row) for row in csv.DictReader(handle) if row.get("timestamp")]
 
 
+def _read_feature_csv(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
 def _group_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -791,6 +827,128 @@ def _write_feature_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         writer.writeheader()
         writer.writerows({field: row.get(field, "") for field in FEATURE_CSV_FIELDS} for row in rows)
     temporary.replace(path)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1_048_576), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bundle_content_fingerprint(
+    *,
+    source_snapshot_id: str,
+    source_snapshot_fingerprint: str,
+    registry_fingerprint: str,
+    feature_versions: Mapping[str, str],
+    files: Sequence[DerivativesFeatureFile],
+) -> str:
+    return _fingerprint(
+        {
+            "algorithm": MATERIAL_HASH_ALGORITHM,
+            "schema_version": DERIVATIVES_FEATURE_SNAPSHOT_SCHEMA_VERSION,
+            "source_snapshot_id": source_snapshot_id,
+            "source_snapshot_fingerprint": source_snapshot_fingerprint,
+            "feature_registry_fingerprint": registry_fingerprint,
+            "feature_versions": dict(feature_versions),
+            "files": [
+                {
+                    "source_dataset": item.source_dataset,
+                    "futures_symbol": item.futures_symbol,
+                    "feature_count": item.feature_count,
+                    "csv_row_count": item.csv_row_count,
+                    "byte_count": item.byte_count,
+                    "content_sha256": item.content_sha256,
+                }
+                for item in files
+            ],
+        }
+    )
+
+
+def _verify_derivatives_feature_snapshot_bundle(manifest_path: Path, payload: Mapping[str, Any]) -> None:
+    """Verify CSV bytes and logical feature values before accepting a v2 manifest."""
+
+    if str(payload.get("bundle_content_hash_algorithm") or "") != MATERIAL_HASH_ALGORITHM:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot bundle hash algorithm is invalid")
+    active_registry = default_feature_registry()
+    if str(payload.get("feature_registry_fingerprint") or "") != active_registry.fingerprint:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot registry fingerprint does not match the active registry")
+    feature_ids = tuple(str(item).strip() for item in payload.get("feature_ids") or () if str(item).strip())
+    expected_versions = {feature_id: active_registry.get(feature_id).version for feature_id in feature_ids}
+    if dict(payload.get("feature_versions") or {}) != expected_versions:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot feature versions do not match the active registry")
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list) or not raw_files:
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot files are required")
+    files: list[DerivativesFeatureFile] = []
+    output_rows: list[dict[str, str]] = []
+    for raw_file in raw_files:
+        if not isinstance(raw_file, Mapping):
+            raise DerivativesFeatureSnapshotManifestError("derivatives snapshot file evidence is invalid")
+        csv_path = _resolve_feature_csv_path(manifest_path, raw_file.get("csv_path"))
+        actual_hash = _file_sha256(csv_path)
+        if actual_hash != str(raw_file.get("content_sha256") or ""):
+            raise DerivativesFeatureSnapshotManifestError(f"derivatives feature CSV content hash mismatch: {csv_path}")
+        actual_bytes = csv_path.stat().st_size
+        if actual_bytes != int(raw_file.get("byte_count") or -1):
+            raise DerivativesFeatureSnapshotManifestError(f"derivatives feature CSV byte count mismatch: {csv_path}")
+        rows = _read_feature_csv(csv_path)
+        expected_count = int(raw_file.get("feature_count") or 0)
+        if expected_count <= 0 or len(rows) != expected_count or int(raw_file.get("csv_row_count") or -1) != len(rows):
+            raise DerivativesFeatureSnapshotManifestError(f"derivatives feature CSV row count mismatch: {csv_path}")
+        if any(tuple(row) != FEATURE_CSV_FIELDS for row in rows):
+            raise DerivativesFeatureSnapshotManifestError(f"derivatives feature CSV schema mismatch: {csv_path}")
+        output_rows.extend({field: row.get(field, "") for field in FEATURE_CSV_FIELDS} for row in rows)
+        files.append(
+            DerivativesFeatureFile(
+                source_dataset=str(raw_file.get("source_dataset") or ""),
+                futures_symbol=str(raw_file.get("futures_symbol") or ""),
+                feature_count=expected_count,
+                ready_count=max(0, int(raw_file.get("ready_count") or 0)),
+                waiting_count=max(0, int(raw_file.get("waiting_count") or 0)),
+                missing_count=max(0, int(raw_file.get("missing_count") or 0)),
+                csv_path=str(csv_path),
+                content_sha256=actual_hash,
+                byte_count=actual_bytes,
+                csv_row_count=len(rows),
+            )
+        )
+    if len(output_rows) != int(payload.get("feature_count") or 0):
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot total feature count mismatch")
+    logical_fingerprint = _fingerprint(
+        {
+            "source_snapshot_id": str(payload.get("source_snapshot_id") or ""),
+            "source_snapshot_fingerprint": str(payload.get("source_snapshot_fingerprint") or ""),
+            "feature_registry_fingerprint": active_registry.fingerprint,
+            "feature_ids": feature_ids,
+            "rows": output_rows,
+        }
+    )
+    if logical_fingerprint != str(payload.get("fingerprint") or ""):
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot logical fingerprint mismatch")
+    bundle_fingerprint = _bundle_content_fingerprint(
+        source_snapshot_id=str(payload.get("source_snapshot_id") or ""),
+        source_snapshot_fingerprint=str(payload.get("source_snapshot_fingerprint") or ""),
+        registry_fingerprint=active_registry.fingerprint,
+        feature_versions=expected_versions,
+        files=files,
+    )
+    if bundle_fingerprint != str(payload.get("bundle_content_fingerprint") or ""):
+        raise DerivativesFeatureSnapshotManifestError("derivatives snapshot bundle content fingerprint mismatch")
+
+
+def _resolve_feature_csv_path(manifest_path: Path, value: Any) -> Path:
+    raw_path = Path(str(value or "").strip())
+    if not str(raw_path):
+        raise DerivativesFeatureSnapshotManifestError("derivatives feature CSV path is required")
+    candidates = (raw_path,) if raw_path.is_absolute() else (raw_path, manifest_path.resolve().parent / raw_path)
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+    raise DerivativesFeatureSnapshotManifestError(f"derivatives feature CSV missing: {raw_path}")
 
 
 def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:

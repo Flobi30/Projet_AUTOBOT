@@ -21,6 +21,7 @@ from autobot.v2.research.bounded_research_coordinator import (
     run_bounded_research_coordinator,
 )
 from autobot.v2.research.experiment_registry import ExperimentRegistry
+from autobot.v2.research.canonical_feature_snapshot import CanonicalFeatureSnapshotConfig, build_canonical_feature_snapshot
 from autobot.v2.research.research_memory_store import ResearchMemoryStore
 
 
@@ -195,21 +196,65 @@ def _reject_long_trend(memory_path: Path) -> None:
 
 
 def _feature_manifest(path_root: Path, **overrides: object) -> Path:
-    payload: dict[str, object] = {
-        "status": "READY",
-        "parity_ok": True,
-        "runtime_parity_proven": True,
-        "feature_count": 16,
-        "feature_snapshot_id": "features_test",
-        "fingerprint": "feature-fingerprint",
-        "source_snapshot_id": "source-test",
-        "source_snapshot_fingerprint": "source-fingerprint",
-        "feature_registry_fingerprint": "registry-fingerprint",
-        "feature_versions": {"momentum_3_bps": "1.0.0"},
-        "ingestion_time_unknown_count": 0,
-    }
+    source = path_root / "feature_source.csv"
+    fields = (
+        "exchange",
+        "market_type",
+        "symbol",
+        "base_asset",
+        "quote_asset",
+        "market_mapping_status",
+        "timeframe",
+        "event_time",
+        "available_time",
+        "ingestion_time",
+        "close",
+    )
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with source.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index in range(30):
+            timestamp = origin + timedelta(minutes=index * 5)
+            writer.writerow(
+                {
+                    "exchange": "kraken",
+                    "market_type": "spot",
+                    "symbol": "BTCEUR",
+                    "base_asset": "BTC",
+                    "quote_asset": "EUR",
+                    "market_mapping_status": "EXPLICIT",
+                    "timeframe": "5m",
+                    "event_time": timestamp.isoformat(),
+                    "available_time": timestamp.isoformat(),
+                    "ingestion_time": timestamp.isoformat(),
+                    "close": str(100 + index),
+                }
+            )
+    canonical_manifest = path_root / "feature_source_manifest.json"
+    canonical_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "snapshot_id": "source-test",
+                "fingerprint": "source-fingerprint",
+                "market_type": "spot",
+                "files": [{"csv_path": str(source)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="bounded_research_features",
+            canonical_manifest_path=canonical_manifest,
+            output_dir=path_root / "features",
+            manifest_dir=path_root / "feature_manifests",
+        )
+    )
+    path = Path(str(snapshot.manifest_path))
+    payload: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
     payload.update(overrides)
-    path = path_root / "feature_snapshot.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 

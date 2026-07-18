@@ -22,7 +22,9 @@ from autobot.v2.contracts import MarketIdentity, contract_to_dict
 from .feature_registry import FeatureRegistry, default_feature_registry, validate_historical_shadow_parity
 
 
-CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION = 1
+CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION = 2
+CANONICAL_FEATURE_SNAPSHOT_KIND = "CANONICAL_FEATURE_SNAPSHOT"
+MATERIAL_HASH_ALGORITHM = "sha256"
 DEFAULT_CANONICAL_OHLCV_FEATURE_IDS = (
     "return_1_bps",
     "momentum_3_bps",
@@ -66,6 +68,7 @@ class CanonicalFeatureFile:
     waiting_count: int
     missing_count: int
     csv_path: str
+    content_sha256: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,6 +80,7 @@ class CanonicalFeatureSnapshot:
     generated_at: str
     feature_snapshot_id: str
     fingerprint: str
+    bundle_content_fingerprint: str
     source_snapshot_id: str
     source_snapshot_fingerprint: str
     feature_registry_fingerprint: str
@@ -110,6 +114,9 @@ class CanonicalFeatureSnapshot:
             "generated_at": self.generated_at,
             "feature_snapshot_id": self.feature_snapshot_id,
             "fingerprint": self.fingerprint,
+            "bundle_content_fingerprint": self.bundle_content_fingerprint,
+            "bundle_content_hash_algorithm": MATERIAL_HASH_ALGORITHM,
+            "snapshot_kind": CANONICAL_FEATURE_SNAPSHOT_KIND,
             "source_snapshot_id": self.source_snapshot_id,
             "source_snapshot_fingerprint": self.source_snapshot_fingerprint,
             "feature_registry_fingerprint": self.feature_registry_fingerprint,
@@ -141,8 +148,24 @@ class CanonicalFeatureSnapshot:
                 "No runtime order path, shadow activation, paper capital, promotion or live trading.",
                 "Rows without exchange-declared base/quote mapping are excluded rather than inferred.",
                 "Unknown ingestion time remains explicit and prevents this bundle from proving runtime parity.",
+                "Feature CSV content and the logical feature fingerprint are re-verified before a bundle can prove shadow parity.",
             ],
         }
+
+
+@dataclass(frozen=True)
+class FeatureSnapshotMaterialVerification:
+    """Evidence that a feature manifest still matches its feature CSV bundle."""
+
+    manifest_path: str
+    feature_snapshot_id: str
+    fingerprint: str
+    bundle_content_fingerprint: str
+    file_count: int
+
+    @property
+    def material_verified(self) -> bool:
+        return True
 
 
 def build_canonical_feature_snapshot(
@@ -293,7 +316,8 @@ def build_canonical_feature_snapshot(
                     ready_count=item["ready_count"],
                     waiting_count=item["waiting_count"],
                     missing_count=item["missing_count"],
-                    csv_path=str(path),
+                    csv_path=str(path.resolve()),
+                    content_sha256=_file_sha256(path),
                 )
             )
 
@@ -307,11 +331,13 @@ def build_canonical_feature_snapshot(
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
     status = "READY" if feature_count and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
+    bundle_content_fingerprint = _bundle_content_fingerprint(files)
     snapshot = CanonicalFeatureSnapshot(
         run_id=config.run_id,
         generated_at=datetime.now(timezone.utc).isoformat(),
         feature_snapshot_id=feature_snapshot_id,
         fingerprint=fingerprint,
+        bundle_content_fingerprint=bundle_content_fingerprint,
         source_snapshot_id=source_snapshot_id,
         source_snapshot_fingerprint=source_fingerprint,
         feature_registry_fingerprint=active_registry.fingerprint,
@@ -341,6 +367,100 @@ def build_canonical_feature_snapshot(
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     (snapshot_dir / "manifest.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return replace(snapshot, manifest_path=str(manifest_path))
+
+
+def verify_canonical_feature_snapshot_manifest(
+    path: str | Path,
+    *,
+    registry: FeatureRegistry | None = None,
+) -> FeatureSnapshotMaterialVerification:
+    """Recompute canonical bundle evidence before it is consumed downstream.
+
+    A manifest is not treated as proof by itself.  Every listed CSV must keep
+    its declared byte hash and row count, the bundle root must still match, and
+    the logical feature fingerprint is rebuilt from the stored feature rows.
+    This stays research-only and does not import strategy, runtime or order
+    modules.
+    """
+
+    manifest_path = Path(path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid canonical feature snapshot manifest: {manifest_path}") from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError("canonical feature snapshot manifest must be an object")
+    if int(payload.get("schema_version") or 0) != CANONICAL_FEATURE_SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError("canonical feature snapshot manifest schema v2 is required for material verification")
+    if str(payload.get("snapshot_kind") or "") != CANONICAL_FEATURE_SNAPSHOT_KIND:
+        raise ValueError("canonical feature snapshot kind is invalid")
+    if str(payload.get("bundle_content_hash_algorithm") or "") != MATERIAL_HASH_ALGORITHM:
+        raise ValueError("canonical feature snapshot bundle hash algorithm is invalid")
+
+    active_registry = registry or default_feature_registry()
+    if str(payload.get("feature_registry_fingerprint") or "") != active_registry.fingerprint:
+        raise ValueError("canonical feature snapshot registry fingerprint does not match the active registry")
+    feature_ids = tuple(str(item).strip() for item in payload.get("feature_ids") or () if str(item).strip())
+    if not feature_ids:
+        raise ValueError("canonical feature snapshot feature_ids are required")
+    expected_versions = {feature_id: active_registry.get(feature_id).version for feature_id in feature_ids}
+    if dict(payload.get("feature_versions") or {}) != expected_versions:
+        raise ValueError("canonical feature snapshot feature_versions do not match the active registry")
+
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list) or not raw_files:
+        raise ValueError("canonical feature snapshot files are required")
+    digest = _feature_fingerprint_digest(
+        source_snapshot_id=_required_text(payload.get("source_snapshot_id"), "source_snapshot_id"),
+        source_fingerprint=_required_text(payload.get("source_snapshot_fingerprint"), "source_snapshot_fingerprint"),
+        registry_fingerprint=active_registry.fingerprint,
+        feature_ids=feature_ids,
+    )
+    verified_files: list[CanonicalFeatureFile] = []
+    total_feature_count = 0
+    for raw_file in raw_files:
+        if not isinstance(raw_file, Mapping):
+            raise ValueError("canonical feature snapshot file evidence is invalid")
+        csv_path = _resolve_feature_csv_path(manifest_path, raw_file.get("csv_path"))
+        expected_hash = _required_text(raw_file.get("content_sha256"), "canonical feature CSV content_sha256")
+        actual_hash = _file_sha256(csv_path)
+        if actual_hash != expected_hash:
+            raise ValueError(f"canonical feature CSV content hash mismatch: {csv_path}")
+        rows = _read_csv(csv_path)
+        expected_count = int(raw_file.get("feature_count") or 0)
+        if expected_count <= 0 or len(rows) != expected_count:
+            raise ValueError(f"canonical feature CSV row count mismatch: {csv_path}")
+        if any(tuple(row) != FEATURE_CSV_FIELDS for row in rows):
+            raise ValueError(f"canonical feature CSV schema mismatch: {csv_path}")
+        for row in rows:
+            _update_feature_fingerprint(digest, {field: row.get(field, "") for field in FEATURE_CSV_FIELDS})
+        verified_files.append(
+            CanonicalFeatureFile(
+                symbol=_required_text(raw_file.get("symbol"), "canonical feature CSV symbol"),
+                timeframe=_required_text(raw_file.get("timeframe"), "canonical feature CSV timeframe"),
+                feature_count=expected_count,
+                ready_count=max(0, int(raw_file.get("ready_count") or 0)),
+                waiting_count=max(0, int(raw_file.get("waiting_count") or 0)),
+                missing_count=max(0, int(raw_file.get("missing_count") or 0)),
+                csv_path=str(csv_path),
+                content_sha256=actual_hash,
+            )
+        )
+        total_feature_count += expected_count
+    if total_feature_count != int(payload.get("feature_count") or 0):
+        raise ValueError("canonical feature snapshot total feature count mismatch")
+    if digest.hexdigest() != _required_text(payload.get("fingerprint"), "canonical feature snapshot fingerprint"):
+        raise ValueError("canonical feature snapshot logical fingerprint mismatch")
+    bundle_fingerprint = _bundle_content_fingerprint(verified_files)
+    if bundle_fingerprint != _required_text(payload.get("bundle_content_fingerprint"), "canonical feature bundle content fingerprint"):
+        raise ValueError("canonical feature snapshot bundle content fingerprint mismatch")
+    return FeatureSnapshotMaterialVerification(
+        manifest_path=str(manifest_path),
+        feature_snapshot_id=_required_text(payload.get("feature_snapshot_id"), "feature_snapshot_id"),
+        fingerprint=str(payload["fingerprint"]),
+        bundle_content_fingerprint=bundle_fingerprint,
+        file_count=len(verified_files),
+    )
 
 
 def render_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot) -> str:
@@ -433,6 +553,36 @@ def _load_manifest(path: Path) -> Mapping[str, Any]:
 def _read_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", newline="", encoding="utf-8") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
+
+
+def _resolve_feature_csv_path(manifest_path: Path, value: Any) -> Path:
+    raw_path = Path(_required_text(value, "canonical feature CSV path"))
+    candidates = (raw_path,) if raw_path.is_absolute() else (raw_path, manifest_path.resolve().parent / raw_path)
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(f"canonical feature CSV missing: {raw_path}")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1_048_576), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bundle_content_fingerprint(files: Sequence[CanonicalFeatureFile]) -> str:
+    payload = [
+        {
+            "symbol": item.symbol,
+            "timeframe": item.timeframe,
+            "feature_count": item.feature_count,
+            "content_sha256": item.content_sha256,
+        }
+        for item in files
+    ]
+    return _fingerprint({"algorithm": MATERIAL_HASH_ALGORITHM, "files": payload})
 
 
 def _market_from_row(row: Mapping[str, Any]) -> MarketIdentity:

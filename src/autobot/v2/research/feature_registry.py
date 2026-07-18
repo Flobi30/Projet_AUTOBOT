@@ -34,6 +34,11 @@ SUPPORTED_FEATURE_KINDS = {
     "open_interest_change_pct",
 }
 
+# The registry fingerprint is a provenance boundary, not merely a list of
+# feature declarations.  Increment this whenever the shared calculation or
+# point-in-time semantics change in a way that can alter a materialized value.
+FEATURE_REGISTRY_ENGINE_VERSION = "2.0.0"
+
 
 @dataclass(frozen=True)
 class FeatureDefinition:
@@ -99,7 +104,10 @@ class FeatureRegistry:
 
     @property
     def fingerprint(self) -> str:
-        payload = [asdict(item) for item in self.definitions()]
+        payload = {
+            "engine_version": FEATURE_REGISTRY_ENGINE_VERSION,
+            "definitions": [asdict(item) for item in self.definitions()],
+        }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def compute_series(
@@ -124,6 +132,60 @@ class FeatureRegistry:
                 as_of_time=as_of_time,
             )
         )
+
+    def compute_shadow_replay_series(
+        self,
+        *,
+        rows: Sequence[Mapping[str, Any]],
+        market: MarketIdentity,
+        timeframe: str,
+        source_snapshot_id: str,
+        feature_ids: Sequence[str] | None = None,
+        as_of_time: datetime | None = None,
+    ) -> tuple[FeatureValue, ...]:
+        """Replay feature availability as a stream, without a batch look-ahead.
+
+        This deliberately has a different control flow than ``iter_series``:
+        rows sharing one effective availability timestamp become visible to the
+        replay together, then each target observes only events known at that
+        moment.  Comparing its output to batch materialization is therefore a
+        meaningful producer/consumer parity check rather than two invocations
+        of the same batch iterator.
+        """
+
+        definitions = tuple(self.get(item) for item in (feature_ids or tuple(self._definitions)))
+        cutoff = _utc(as_of_time) if as_of_time else None
+        normalized = _normalize_rows(rows)
+        values: list[FeatureValue] = []
+        published: list[dict[str, Any]] = []
+        index = 0
+        while index < len(normalized):
+            available_time = normalized[index]["available_time"]
+            if cutoff and available_time > cutoff:
+                break
+            group_end = index + 1
+            while group_end < len(normalized) and normalized[group_end]["available_time"] == available_time:
+                group_end += 1
+            group = normalized[index:group_end]
+            published.extend(group)
+            for target in group:
+                observed = sorted(
+                    (row for row in published if row["event_time"] <= target["event_time"]),
+                    key=lambda row: (row["event_time"], row["available_time"]),
+                )
+                for definition in definitions:
+                    values.append(
+                        _compute_feature(
+                            definition,
+                            observed=observed,
+                            target=target,
+                            market=market,
+                            timeframe=timeframe,
+                            source_snapshot_id=source_snapshot_id,
+                        )
+                    )
+            index = group_end
+        return tuple(values)
 
     def iter_series(
         self,
@@ -160,11 +222,15 @@ class FeatureRegistry:
             if monotonic_event_time:
                 observed = normalized[max(0, index - max_lookback) : index + 1]
             else:
-                observed = [
-                    row
-                    for row in normalized
-                    if row["event_time"] <= target["event_time"] and row["available_time"] <= target["available_time"]
-                ]
+                observed = sorted(
+                    (
+                        row
+                        for row in normalized
+                        if row["event_time"] <= target["event_time"]
+                        and row["available_time"] <= target["available_time"]
+                    ),
+                    key=lambda row: (row["event_time"], row["available_time"]),
+                )
             for definition in definitions:
                 yield _compute_feature(
                     definition,
@@ -212,8 +278,8 @@ def validate_historical_shadow_parity(
         source_snapshot_id=source_snapshot_id,
         feature_ids=feature_ids,
     )
-    shadow = active_registry.compute_series(
-        rows=tuple(reversed(tuple(rows))),
+    shadow = active_registry.compute_shadow_replay_series(
+        rows=rows,
         market=market,
         timeframe=timeframe,
         source_snapshot_id=source_snapshot_id,
@@ -340,12 +406,22 @@ def _normalize_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for row in rows:
         event_time = _row_time(row, "event_time", fallback="open_timestamp")
-        available_time = _row_time(row, "available_time", fallback="bar_close_time")
-        if event_time is None or available_time is None:
+        declared_available_time = _row_time(row, "available_time", fallback="bar_close_time")
+        ingestion_time = _optional_row_time(row, "ingestion_time")
+        if event_time is None or declared_available_time is None:
             raise ValueError("feature rows require timezone-aware event_time and available_time")
-        if available_time < event_time:
+        if declared_available_time < event_time:
             raise ValueError("feature row available_time cannot precede event_time")
-        normalized.append({**dict(row), "event_time": event_time, "available_time": available_time})
+        effective_available_time = max(declared_available_time, ingestion_time) if ingestion_time else declared_available_time
+        normalized.append(
+            {
+                **dict(row),
+                "event_time": event_time,
+                "declared_available_time": declared_available_time,
+                "ingestion_time": ingestion_time,
+                "available_time": effective_available_time,
+            }
+        )
     return sorted(normalized, key=lambda item: (item["available_time"], item["event_time"], json.dumps(item, default=str, sort_keys=True)))
 
 
@@ -365,6 +441,15 @@ def _row_time(row: Mapping[str, Any], key: str, *, fallback: str) -> datetime | 
     text = str(value).replace("Z", "+00:00")
     parsed = datetime.fromisoformat(text)
     return _utc(parsed)
+
+
+def _optional_row_time(row: Mapping[str, Any], key: str) -> datetime | None:
+    value = row.get(key)
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return _utc(value)
+    return _utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
 
 
 def _utc(value: datetime) -> datetime:

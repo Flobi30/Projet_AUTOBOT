@@ -12,6 +12,7 @@ from autobot.v2.research.canonical_feature_snapshot import (
     CanonicalFeatureSnapshotConfig,
     build_canonical_feature_snapshot,
     upgrade_feature_snapshot_manifest,
+    verify_canonical_feature_snapshot_manifest,
 )
 from autobot.v2.research.canonical_ohlcv_store import CanonicalOHLCVConfig, build_canonical_ohlcv_snapshot
 from autobot.v2.research.holdout_partition import HoldoutPartitionConfig, materialize_holdout_partition
@@ -86,6 +87,28 @@ def test_materialized_feature_snapshot_is_deterministic_and_has_feature_parity(t
     assert first.ingestion_time_unknown_count == 25
     assert "INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN" in first.blockers
     assert Path(str(first.manifest_path)).exists()
+
+
+def test_feature_snapshot_material_verification_detects_tampered_csv(tmp_path):
+    manifest = _canonical_manifest(tmp_path, explicit_mapping=True)
+    snapshot = build_canonical_feature_snapshot(
+        CanonicalFeatureSnapshotConfig(
+            run_id="features_material_verification",
+            canonical_manifest_path=manifest,
+            output_dir=tmp_path / "features",
+            manifest_dir=tmp_path / "feature_manifests",
+        )
+    )
+
+    verification = verify_canonical_feature_snapshot_manifest(Path(str(snapshot.manifest_path)))
+
+    assert verification.material_verified is True
+    assert verification.feature_snapshot_id == snapshot.feature_snapshot_id
+    assert verification.bundle_content_fingerprint == snapshot.bundle_content_fingerprint
+    feature_csv = Path(snapshot.files[0].csv_path)
+    feature_csv.write_text(feature_csv.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="content hash mismatch"):
+        verify_canonical_feature_snapshot_manifest(Path(str(snapshot.manifest_path)))
 
 
 def test_materialized_feature_snapshot_excludes_unverified_market_mappings(tmp_path):
