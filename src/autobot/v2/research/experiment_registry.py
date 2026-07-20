@@ -45,6 +45,7 @@ class ExperimentSpec:
     cost_model: Mapping[str, Any]
     environment: Mapping[str, Any]
     holdout_id: str | None = None
+    research_campaign_id: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("hypothesis_id", "template_id", "thesis", "code_commit", "image_ref", "data_snapshot_id"):
@@ -56,10 +57,20 @@ class ExperimentSpec:
         object.__setattr__(self, "parameters", dict(self.parameters))
         object.__setattr__(self, "cost_model", dict(self.cost_model))
         object.__setattr__(self, "environment", dict(self.environment))
+        campaign_id = str(self.research_campaign_id or "").strip().lower() or None
+        if campaign_id is not None and not all(character.isalnum() or character in "_.-" for character in campaign_id):
+            raise ValueError("research_campaign_id must contain only letters, digits, _, . or -")
+        object.__setattr__(self, "research_campaign_id", campaign_id)
 
     @property
     def material_fingerprint(self) -> str:
-        return _fingerprint(asdict(self))
+        payload = asdict(self)
+        # Keep the identity of pre-campaign experiment specifications stable.
+        # A schema migration must never turn an identical legacy experiment
+        # into a fresh material fingerprint that could be run a second time.
+        if payload.get("research_campaign_id") is None:
+            payload.pop("research_campaign_id", None)
+        return _fingerprint(payload)
 
     @property
     def experiment_id(self) -> str:
@@ -113,16 +124,17 @@ class ExperimentRegistry:
             connection.execute(
                 """
                 INSERT INTO experiments (
-                    experiment_id, material_fingerprint, hypothesis_id, template_id,
+                    experiment_id, material_fingerprint, hypothesis_id, template_id, research_campaign_id,
                     created_at, spec_json, research_only, paper_capital_allowed,
                     live_allowed, promotable
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0)
                 """,
                 (
                     spec.experiment_id,
                     spec.material_fingerprint,
                     spec.hypothesis_id,
                     spec.template_id,
+                    spec.research_campaign_id,
                     _now(),
                     _json(spec.to_dict()),
                 ),
@@ -552,30 +564,52 @@ class ExperimentRegistry:
                 ).fetchone()[0]
             )
 
-    def validation_trial_count(self, *, hypothesis_id: str) -> int:
+    def validation_trial_count(self, *, hypothesis_id: str, research_campaign_id: str | None = None) -> int:
         """Return the conservative count used by multiple-testing validation.
 
         Block 2 candidate configurations are preferred because they encode the
-        actual crossed decision surface.  Older registry evidence predating the
-        candidate schema remains conservatively countable instead of silently
+        actual crossed decision surface.  When an explicit campaign is
+        supplied, every material experiment in that campaign contributes to
+        the correction.  Older registry evidence predating the campaign schema
+        remains conservatively scoped to its hypothesis instead of silently
         disappearing from the correction.
         """
 
-        if not str(hypothesis_id or "").strip() or not self.path.exists():
+        normalized_hypothesis_id = str(hypothesis_id or "").strip()
+        normalized_campaign_id = str(research_campaign_id or "").strip().lower() or None
+        if not normalized_hypothesis_id or not self.path.exists():
             return 0
+        if normalized_campaign_id is not None and not all(
+            character.isalnum() or character in "_.-" for character in normalized_campaign_id
+        ):
+            raise ExperimentRegistryError("research_campaign_id must contain only letters, digits, _, . or -")
+        scope_column = "experiment.research_campaign_id" if normalized_campaign_id is not None else "experiment.hypothesis_id"
+        scope_value = normalized_campaign_id if normalized_campaign_id is not None else normalized_hypothesis_id
         with self._connect() as connection:
             self._initialize(connection)
             candidate_count = int(
                 connection.execute(
-                    """
+                    f"""
                     SELECT COUNT(*) FROM experiment_trials AS trial
                     JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
-                    WHERE experiment.hypothesis_id = ? AND trial.dimension = 'candidate_configuration'
+                    WHERE {scope_column} = ? AND trial.dimension = 'candidate_configuration'
                     """,
-                    (hypothesis_id,),
+                    (scope_value,),
                 ).fetchone()[0]
             )
-        return candidate_count or self.trial_count(hypothesis_id=hypothesis_id)
+            if candidate_count:
+                return candidate_count
+            fallback_count = int(
+                connection.execute(
+                    f"""
+                    SELECT COUNT(*) FROM experiment_trials AS trial
+                    JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
+                    WHERE {scope_column} = ?
+                    """,
+                    (scope_value,),
+                ).fetchone()[0]
+            )
+        return fallback_count
 
     def has_final_holdout_review(self, experiment_id: str) -> bool:
         """Return whether immutable final-holdout evidence exists for one experiment."""
@@ -907,6 +941,7 @@ class ExperimentRegistry:
                 material_fingerprint TEXT NOT NULL UNIQUE,
                 hypothesis_id TEXT NOT NULL,
                 template_id TEXT NOT NULL,
+                research_campaign_id TEXT,
                 created_at TEXT NOT NULL,
                 spec_json TEXT NOT NULL,
                 research_only INTEGER NOT NULL CHECK (research_only = 1),
@@ -1000,8 +1035,12 @@ class ExperimentRegistry:
             )
             """
         )
+        _ensure_column(connection, "experiments", "research_campaign_id", "TEXT")
         _ensure_column(connection, "experiment_trials", "holdout_id", "TEXT REFERENCES holdout_reservations(holdout_id)")
         _ensure_column(connection, "holdout_reservations", "manifest_json", "TEXT NOT NULL DEFAULT '{}'")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_experiments_research_campaign_id ON experiments(research_campaign_id)"
+        )
         for table in (
             "experiments",
             "experiment_trials",

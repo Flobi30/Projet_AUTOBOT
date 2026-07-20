@@ -164,6 +164,7 @@ def build_manifested_experiment_spec(
     derivatives_snapshot_manifest: str | Path | None = None,
     holdout_id: str | None = None,
     holdout_partition_manifest: str | Path | None = None,
+    research_campaign_id: str | None = None,
 ) -> tuple[ExperimentSpec, FeatureSnapshotProvenance]:
     """Build a reproducible research spec from one verified feature bundle."""
 
@@ -261,6 +262,7 @@ def build_manifested_experiment_spec(
             cost_model=dict(cost_model),
             environment=resolved_environment,
             holdout_id=normalized_holdout_id,
+            research_campaign_id=research_campaign_id,
         ),
         provenance,
     )

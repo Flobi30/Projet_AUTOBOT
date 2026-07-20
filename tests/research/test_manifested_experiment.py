@@ -109,6 +109,7 @@ def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_pat
         parameters={"lookback": 24},
         seed=7,
         cost_model={"profile": "research_stress"},
+        research_campaign_id="family_trend_momentum",
     )
 
     assert spec.data_snapshot_id == "canonical_features_source"
@@ -117,6 +118,7 @@ def test_manifested_experiment_binds_all_feature_and_source_fingerprints(tmp_pat
     assert spec.environment["feature_snapshot"]["bundle_content_fingerprint"]
     assert "manifest_path" not in spec.environment["feature_snapshot"]
     assert spec.environment["runtime_parity_proven"] is True
+    assert spec.research_campaign_id == "family_trend_momentum"
     assert provenance.runtime_parity_proven is True
 
 

@@ -248,7 +248,10 @@ def run_bounded_research_coordinator(
         symbols=symbols,
         timeframes=timeframes,
     )
-    trial_floor = registry.validation_trial_count(hypothesis_id=spec.hypothesis_id)
+    trial_floor = registry.validation_trial_count(
+        hypothesis_id=spec.hypothesis_id,
+        research_campaign_id=spec.research_campaign_id,
+    )
     try:
         runner = write_alpha_hypothesis_runner_report(
             build_alpha_hypothesis_runner_report(
@@ -438,6 +441,7 @@ def _build_material_experiment(
             "scheduler_run_id": config.scheduler.run_id,
             **RESEARCH_ONLY_CAPITAL_FLAGS,
         },
+        research_campaign_id=f"family_{str(template['alpha_family_id']).strip().lower()}",
     )
     if not provenance.runtime_parity_proven:
         raise ManifestedExperimentError("runtime parity must be proven before automated research smoke")

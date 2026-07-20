@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import asdict
 from hashlib import sha256
 import json
 import sqlite3
@@ -13,6 +14,7 @@ from autobot.v2.research.experiment_registry import (
     ExperimentRegistry,
     ExperimentRegistryError,
     ExperimentSpec,
+    _fingerprint,
 )
 from autobot.v2.research.shadow_review_evidence import seal_shadow_review_evidence
 
@@ -98,10 +100,17 @@ def _holdout_artifact(experiment_id: str, *, net_pnl_eur: float = 4.5) -> dict[s
     }
 
 
-def _spec(*, snapshot: str = "ohlcv_v2_snapshot", thesis: str = "funding mean reversion") -> ExperimentSpec:
+def _spec(
+    *,
+    snapshot: str = "ohlcv_v2_snapshot",
+    thesis: str = "funding mean reversion",
+    hypothesis_id: str = "funding_basis",
+    template_id: str = "funding_extreme_reversion",
+    research_campaign_id: str | None = None,
+) -> ExperimentSpec:
     return ExperimentSpec(
-        hypothesis_id="funding_basis",
-        template_id="funding_extreme_reversion",
+        hypothesis_id=hypothesis_id,
+        template_id=template_id,
         thesis=thesis,
         code_commit="c42ab43",
         image_ref="projet_autobot-autobot@sha256:test",
@@ -112,6 +121,7 @@ def _spec(*, snapshot: str = "ohlcv_v2_snapshot", thesis: str = "funding mean re
         cost_model={"fee_bps": 16.0, "slippage_bps": 9.0},
         environment={"python": "3.11", "mode": "research", "holdout_partition": _holdout_partition()},
         holdout_id="holdout_2026_q3",
+        research_campaign_id=research_campaign_id,
     )
 
 
@@ -164,6 +174,89 @@ def test_trial_plan_is_idempotent_and_counts_candidate_configurations_across_exp
     )
     assert registry.validation_trial_count(hypothesis_id="funding_basis") == 9
     assert registry.trial_count(hypothesis_id="funding_basis") == 19
+
+
+def test_validation_trial_count_uses_explicit_campaign_without_mixing_legacy_rows(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    campaign = "family_funding_basis"
+    first = registry.register_experiment(
+        _spec(snapshot="ohlcv_v2_first", research_campaign_id=campaign)
+    )
+    registry.record_trial_plan(
+        experiment_id=first.experiment_id,
+        variant_count=2,
+        symbols=("BTCZEUR", "ETHZEUR"),
+        timeframes=("1h",),
+    )
+    second = registry.register_experiment(
+        _spec(
+            snapshot="ohlcv_v2_second",
+            hypothesis_id="basis_reversion_variant",
+            template_id="basis_reversion_variant",
+            research_campaign_id=campaign,
+        )
+    )
+    registry.record_trial_plan(
+        experiment_id=second.experiment_id,
+        variant_count=1,
+        symbols=("BTCZEUR",),
+        timeframes=("1h",),
+    )
+    legacy = registry.register_experiment(_spec(snapshot="ohlcv_v2_legacy"))
+    registry.record_trial_plan(
+        experiment_id=legacy.experiment_id,
+        variant_count=5,
+        symbols=("BTCZEUR",),
+        timeframes=("1h",),
+    )
+
+    assert registry.validation_trial_count(hypothesis_id="funding_basis") == 9
+    assert registry.validation_trial_count(
+        hypothesis_id="funding_basis",
+        research_campaign_id=campaign,
+    ) == 5
+    with pytest.raises(ExperimentRegistryError, match="research_campaign_id"):
+        registry.validation_trial_count(hypothesis_id="funding_basis", research_campaign_id="unsafe scope")
+
+
+def test_campaign_schema_migrates_an_existing_append_only_registry_without_rewriting_rows(tmp_path):
+    path = tmp_path / "legacy_registry.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE experiments (
+                experiment_id TEXT PRIMARY KEY,
+                material_fingerprint TEXT NOT NULL UNIQUE,
+                hypothesis_id TEXT NOT NULL,
+                template_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                spec_json TEXT NOT NULL,
+                research_only INTEGER NOT NULL CHECK (research_only = 1),
+                paper_capital_allowed INTEGER NOT NULL CHECK (paper_capital_allowed = 0),
+                live_allowed INTEGER NOT NULL CHECK (live_allowed = 0),
+                promotable INTEGER NOT NULL CHECK (promotable = 0)
+            )
+            """
+        )
+    registry = ExperimentRegistry(path)
+    state = registry.register_experiment(_spec(research_campaign_id="family_funding_basis"))
+
+    with sqlite3.connect(path) as connection:
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(experiments)")}
+        stored_campaign = connection.execute(
+            "SELECT research_campaign_id FROM experiments WHERE experiment_id = ?",
+            (state.experiment_id,),
+        ).fetchone()[0]
+    assert "research_campaign_id" in columns
+    assert stored_campaign == "family_funding_basis"
+
+
+def test_legacy_experiment_identity_remains_stable_when_no_campaign_is_declared():
+    spec = _spec()
+    historical_payload = asdict(spec)
+    historical_payload.pop("research_campaign_id")
+
+    assert spec.material_fingerprint == _fingerprint(historical_payload)
 
 
 def test_bounded_research_execution_claim_is_atomic_and_append_only(tmp_path):

@@ -2775,6 +2775,7 @@ def _prepare_alpha_experiment_context(
         holdout_partition_manifest=(
             Path(args.holdout_partition_manifest) if args.holdout_partition_manifest else None
         ),
+        research_campaign_id=f"family_{str(template['alpha_family_id']).strip().lower()}",
     )
     registry = ExperimentRegistry(Path(args.experiment_registry))
     if holdout_partition is not None:
@@ -2798,7 +2799,10 @@ def _prepare_alpha_experiment_context(
         "spec": spec,
         "provenance": provenance,
         "state": state,
-        "validation_trial_count": registry.validation_trial_count(hypothesis_id=spec.hypothesis_id),
+        "validation_trial_count": registry.validation_trial_count(
+            hypothesis_id=spec.hypothesis_id,
+            research_campaign_id=spec.research_campaign_id,
+        ),
         "derivatives_availability": derivatives_availability,
         "holdout_partition": holdout_partition,
     }
