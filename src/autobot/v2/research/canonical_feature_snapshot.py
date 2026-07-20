@@ -54,6 +54,10 @@ FEATURE_CSV_FIELDS = (
     "metadata_json",
 )
 FEATURE_PARITY_MAX_ROWS = 2_048
+HISTORICAL_RUNTIME_PARITY_UNPROVEN_STATUSES = {
+    "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
+    "HISTORICAL_ARCHIVE_AVAILABLE_AT_INGESTION",
+}
 
 
 @dataclass(frozen=True)
@@ -97,11 +101,13 @@ class CanonicalFeatureSnapshot:
     eligible_row_count: int
     rejected_unverified_mapping_count: int
     ingestion_time_unknown_count: int
+    historical_runtime_parity_unproven_count: int
     feature_count: int
     ready_count: int
     waiting_count: int
     missing_count: int
     parity_ok: bool
+    runtime_parity_proven: bool
     status: str
     blockers: tuple[str, ...]
     files: tuple[CanonicalFeatureFile, ...]
@@ -133,11 +139,13 @@ class CanonicalFeatureSnapshot:
             "eligible_row_count": self.eligible_row_count,
             "rejected_unverified_mapping_count": self.rejected_unverified_mapping_count,
             "ingestion_time_unknown_count": self.ingestion_time_unknown_count,
+            "historical_runtime_parity_unproven_count": self.historical_runtime_parity_unproven_count,
             "feature_count": self.feature_count,
             "ready_count": self.ready_count,
             "waiting_count": self.waiting_count,
             "missing_count": self.missing_count,
             "parity_ok": self.parity_ok,
+            "runtime_parity_proven": self.runtime_parity_proven,
             "parity_sample_row_count": self.parity_sample_row_count,
             "parity_validation_scope": self.parity_validation_scope,
             "holdout_partition": dict(self.holdout_partition) if self.holdout_partition else None,
@@ -154,6 +162,7 @@ class CanonicalFeatureSnapshot:
                 "No runtime order path, shadow activation, paper capital, promotion or live trading.",
                 "Rows without exchange-declared base/quote mapping are excluded rather than inferred.",
                 "Unknown ingestion time remains explicit and prevents this bundle from proving runtime parity.",
+                "Historical archive/backfill rows remain research-only and cannot prove runtime parity.",
                 "Feature CSV content and the logical feature fingerprint are re-verified before a bundle can prove shadow parity.",
             ],
         }
@@ -204,6 +213,7 @@ def build_canonical_feature_snapshot(
     eligible_row_count = 0
     rejected_unverified_mapping_count = 0
     ingestion_time_unknown_count = 0
+    historical_runtime_parity_unproven_count = 0
     parity_ok = True
     parity_sample_row_count = 0
     feature_count = 0
@@ -239,6 +249,10 @@ def build_canonical_feature_snapshot(
             eligible_row_count += len(eligible_rows)
             ingestion_time_unknown_count += sum(
                 not str(row.get("ingestion_time") or "").strip() for row in eligible_rows
+            )
+            historical_runtime_parity_unproven_count += sum(
+                str(row.get("temporal_status") or "").strip() in HISTORICAL_RUNTIME_PARITY_UNPROVEN_STATUSES
+                for row in eligible_rows
             )
             market = _market_from_row(eligible_rows[0])
             timeframe = str(eligible_rows[0].get("timeframe") or "")
@@ -334,9 +348,16 @@ def build_canonical_feature_snapshot(
         blockers.append("UNVERIFIED_MARKET_MAPPING_ROWS_EXCLUDED")
     if ingestion_time_unknown_count:
         blockers.append("INGESTION_TIME_UNKNOWN_RUNTIME_PARITY_NOT_PROVEN")
+    if historical_runtime_parity_unproven_count:
+        blockers.append("HISTORICAL_DATA_RUNTIME_PARITY_NOT_PROVEN")
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
     status = "READY" if feature_count and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
+    runtime_parity_proven = bool(
+        parity_ok
+        and ingestion_time_unknown_count == 0
+        and historical_runtime_parity_unproven_count == 0
+    )
     bundle_content_fingerprint = _bundle_content_fingerprint(files)
     snapshot = CanonicalFeatureSnapshot(
         run_id=config.run_id,
@@ -354,11 +375,13 @@ def build_canonical_feature_snapshot(
         eligible_row_count=eligible_row_count,
         rejected_unverified_mapping_count=rejected_unverified_mapping_count,
         ingestion_time_unknown_count=ingestion_time_unknown_count,
+        historical_runtime_parity_unproven_count=historical_runtime_parity_unproven_count,
         feature_count=feature_count,
         ready_count=ready_count,
         waiting_count=waiting_count,
         missing_count=missing_count,
         parity_ok=parity_ok,
+        runtime_parity_proven=runtime_parity_proven,
         status=status,
         blockers=tuple(blockers),
         files=tuple(files),
@@ -529,9 +552,15 @@ def load_verified_feature_vector_from_canonical_snapshot(
     # when its stored parity result is true and no source row had an unknown
     # ingestion time.  Keep accepting an explicit value for future manifests,
     # but never infer parity from a bare status or from the caller.
-    runtime_parity_proven = payload.get("runtime_parity_proven") is True or (
-        payload.get("parity_ok") is True
-        and int(payload.get("ingestion_time_unknown_count") or 0) == 0
+    explicit_runtime_parity = payload.get("runtime_parity_proven")
+    runtime_parity_proven = (
+        explicit_runtime_parity
+        if isinstance(explicit_runtime_parity, bool)
+        else (
+            payload.get("parity_ok") is True
+            and int(payload.get("ingestion_time_unknown_count") or 0) == 0
+            and int(payload.get("historical_runtime_parity_unproven_count") or 0) == 0
+        )
     )
     snapshot = FeatureSnapshotReference(
         feature_snapshot_id=verification.feature_snapshot_id,

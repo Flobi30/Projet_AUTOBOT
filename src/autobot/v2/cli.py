@@ -118,6 +118,23 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_history.add_argument("--no-parquet", action="store_true")
     collect_history.set_defaults(handler=_cmd_collect_history)
 
+    import_kraken_ohlcvt_archive = subparsers.add_parser(
+        "import-kraken-ohlcvt-archive",
+        help="Import selected official Kraken OHLCVT archive members for research only",
+    )
+    import_kraken_ohlcvt_archive.add_argument("--run-id", required=True)
+    import_kraken_ohlcvt_archive.add_argument("--archive-path", required=True, help="Operator-supplied official Kraken OHLCVT ZIP archive")
+    import_kraken_ohlcvt_archive.add_argument("--symbols", required=True, help="Comma-separated explicit AUTOBOT/Kraken symbols")
+    import_kraken_ohlcvt_archive.add_argument("--timeframes", required=True, help="Comma-separated bounded archive timeframes: 1m,5m,15m,1h,4h,1d")
+    import_kraken_ohlcvt_archive.add_argument("--raw-dir", default="data/research/raw/kraken_official_ohlcvt")
+    import_kraken_ohlcvt_archive.add_argument("--normalized-dir", default="data/research/imports/kraken_official_ohlcvt")
+    import_kraken_ohlcvt_archive.add_argument("--manifest-dir", default="data/research/manifests")
+    import_kraken_ohlcvt_archive.add_argument("--report-dir", default="reports/research")
+    import_kraken_ohlcvt_archive.add_argument("--max-archive-bytes", type=int, default=8 * 1024 * 1024 * 1024)
+    import_kraken_ohlcvt_archive.add_argument("--max-selected-uncompressed-bytes", type=int, default=2 * 1024 * 1024 * 1024)
+    import_kraken_ohlcvt_archive.add_argument("--max-rows-per-member", type=int, default=500_000)
+    import_kraken_ohlcvt_archive.set_defaults(handler=_cmd_import_kraken_ohlcvt_archive)
+
     collect_research_daily = subparsers.add_parser(
         "collect-research-daily",
         help="Run the isolated daily research data collection bundle",
@@ -1552,6 +1569,31 @@ def _cmd_collect_history(args: argparse.Namespace) -> int:
             fail_on_gaps=bool(args.fail_on_gaps),
             export_csv=not bool(args.no_csv),
             export_parquet=bool(args.parquet) and not bool(args.no_parquet),
+        )
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_import_kraken_ohlcvt_archive(args: argparse.Namespace) -> int:
+    from autobot.v2.research.kraken_ohlcvt_archive import (
+        KrakenOhlcvtArchiveImportConfig,
+        import_kraken_ohlcvt_archive,
+    )
+
+    result = import_kraken_ohlcvt_archive(
+        KrakenOhlcvtArchiveImportConfig(
+            run_id=args.run_id,
+            archive_path=Path(args.archive_path),
+            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+            timeframes=_csv_tuple(args.timeframes, "--timeframes"),
+            raw_dir=Path(args.raw_dir),
+            normalized_dir=Path(args.normalized_dir),
+            manifest_dir=Path(args.manifest_dir),
+            report_dir=Path(args.report_dir),
+            max_archive_bytes=args.max_archive_bytes,
+            max_selected_uncompressed_bytes=args.max_selected_uncompressed_bytes,
+            max_rows_per_member=args.max_rows_per_member,
         )
     )
     _print_json(result.to_dict())

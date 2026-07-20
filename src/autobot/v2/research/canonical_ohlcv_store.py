@@ -702,6 +702,20 @@ def _canonical_row(
         row.get("ingestion_time") or row.get("ingested_at") or row.get("collected_at") or row.get("fetched_at")
     )
     ingestion_time = max(available_time, explicit_ingestion) if explicit_ingestion else None
+    availability_basis = str(
+        row.get("availability_basis")
+        or ("EXPLICIT_SOURCE" if explicit_available else "DERIVED_BAR_CLOSE")
+    ).strip()
+    temporal_status = str(
+        row.get("temporal_status")
+        or (
+            "EXPLICIT_SOURCE_TIMES"
+            if explicit_ingestion or explicit_available
+            else "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN"
+        )
+    ).strip()
+    if not availability_basis or not temporal_status:
+        raise ValueError("empty_temporal_provenance")
     mapping = _explicit_market_mapping(
         symbol,
         row=row,
@@ -721,8 +735,8 @@ def _canonical_row(
         "ingestion_time": ingestion_time.isoformat() if ingestion_time else "",
         "bar_close_time": bar_close_time.isoformat(),
         "source_timestamp_role": source_timestamp_role,
-        "availability_basis": "EXPLICIT_SOURCE" if explicit_available else "DERIVED_BAR_CLOSE",
-        "temporal_status": "EXPLICIT_SOURCE_TIMES" if explicit_ingestion or explicit_available else "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN",
+        "availability_basis": availability_basis,
+        "temporal_status": temporal_status,
         "open_timestamp": open_time.isoformat(),
         "timestamp": open_time.isoformat(),
         "open": _stable_number(bar.open),

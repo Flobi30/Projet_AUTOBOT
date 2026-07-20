@@ -384,6 +384,7 @@ def _scan_ohlcv(files: Sequence[Path], *, canonical_manifest: Mapping[str, Any] 
         if path.suffix.lower() == ".csv"
         and _looks_like_ohlcv(path)
         and not _is_post_trade_historical_ohlcv(path)
+        and not _is_official_archive_historical_ohlcv(path)
     ]
     symbols: set[str] = set()
     timeframes: set[str] = set()
@@ -1290,6 +1291,17 @@ def _is_post_trade_historical_ohlcv(path: Path) -> bool:
         if str(row.get("source") or "").strip() == "kraken_spot_post_trade":
             return True
         if str(row.get("temporal_status") or "").strip() == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION":
+            return True
+    return False
+
+
+def _is_official_archive_historical_ohlcv(path: Path) -> bool:
+    """Keep operator-imported OHLCVT history out of runtime capability scans."""
+
+    for row in _read_csv_sample(path, max_rows=1):
+        if str(row.get("source") or "").strip() == "kraken_official_ohlcvt_archive":
+            return True
+        if str(row.get("temporal_status") or "").strip() == "HISTORICAL_ARCHIVE_AVAILABLE_AT_INGESTION":
             return True
     return False
 

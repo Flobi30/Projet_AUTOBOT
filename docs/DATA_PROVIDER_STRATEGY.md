@@ -15,7 +15,11 @@ Use public Kraken OHLCV history first:
 
 No Kraken private key is required for OHLCV collection.
 
-Kraken REST OHLC should be treated as a convenient public bootstrap source, not a complete archive. The official endpoint documents that it returns up to 720 recent entries. AUTOBOT therefore records requested `start_at` and `end_at` in collection manifests, but long histories must come from one of these paths:
+Kraken REST OHLC should be treated as a convenient public bootstrap source, not a complete archive. The official endpoint documents that it returns up to 720 recent entries. AUTOBOT therefore records requested `start_at` and `end_at` in collection manifests. For long spot histories, prefer Kraken's official downloadable OHLCVT CSV archive (complete history plus quarterly updates) through `import-kraken-ohlcvt-archive`.
+
+The archive importer is intentionally bounded: an operator provides the ZIP, selects exact symbols and timeframes, and sets explicit archive/storage budgets. It stores selected raw members, hashes, manifests and normalized rows, but labels every row `HISTORICAL_ARCHIVE_AVAILABLE_AT_INGESTION`. Archive evidence is valid for offline research only; it cannot establish runtime/shadow parity or enable paper/live execution.
+
+Other fallback paths remain:
 
 - repeated local accumulation over time;
 - a CCXT/Kraken historical workflow if it can produce older OHLCV without private keys;
