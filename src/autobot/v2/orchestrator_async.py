@@ -3311,6 +3311,15 @@ class OrchestratorAsync:
 
         try:
             lifecycle = PersistedOrderStateMachine(persistence)
+            if await lifecycle.is_duplicate_active(symbol, "sell"):
+                logger.warning(
+                    "Exit %s blocked: active canonical SELL already exists inst=%s pos=%s symbol=%s",
+                    reason,
+                    instance.id,
+                    pos_id,
+                    symbol,
+                )
+                return False
             order = await lifecycle.new_order(
                 instance_id=instance.id,
                 symbol=symbol,

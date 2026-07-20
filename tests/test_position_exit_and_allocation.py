@@ -19,12 +19,19 @@ class _Ledger:
         self.transitions = []
 
     async def upsert_order(self, **kwargs):
-        self.orders.append(kwargs)
+        self.orders.append(dict(kwargs))
         return True
 
     async def transition_order_state(self, **kwargs):
-        self.transitions.append(kwargs)
+        self.transitions.append(dict(kwargs))
+        for order in self.orders:
+            if order.get("client_order_id") == kwargs.get("client_order_id"):
+                order["status"] = kwargs.get("to_status")
         return True
+
+    async def get_non_terminal_orders(self):
+        terminal = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+        return [order for order in self.orders if order.get("status") not in terminal]
 
     async def append_trade_ledger(self, **kwargs):
         self.rows.append(kwargs)
@@ -208,6 +215,12 @@ async def test_paper_take_profit_partial_fill_blocks_full_position_close():
     assert instance.close_calls == []
     assert instance._persistence.rows == []
     assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "PARTIAL"]
+
+    second_attempt = await orch._check_exit_conditions(instance)
+
+    assert second_attempt == 0
+    assert len(orch.order_executor.market_orders) == 1
+    assert len(instance._persistence.orders) == 1
 
 
 def test_dynamic_paper_allocation_scales_with_edge_without_touching_live():
