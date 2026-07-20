@@ -12,6 +12,7 @@ Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
 Environment=AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED=true
 Environment=AUTOBOT_RUNTIME_RESILIENCE_MAX_DATA_AGE_SECONDS=300
 Environment=AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES=2147483648
+Environment=AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS=45
 ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh
 TimeoutStartSec=2min
 # ``docker run`` is a daemon client. On a timeout or service stop, clean up

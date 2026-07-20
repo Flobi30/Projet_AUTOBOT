@@ -17,7 +17,10 @@ def test_runtime_resilience_audit_script_has_a_read_only_non_authorizing_boundar
     script = _deployment_file("run-autobot-runtime-resilience-audit.sh")
 
     assert 'AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED:-false' in script
+    assert 'AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS:-45' in script
     assert 'curl --fail --silent --max-time 5 http://127.0.0.1:8080/health' in script
+    assert 'health_deadline=$((SECONDS + HEALTH_WAIT_SECONDS))' in script
+    assert 'websocket_status="connected"' in script
     assert "--network none" in script
     assert "--read-only" in script
     assert "--cap-drop ALL" in script
@@ -37,6 +40,7 @@ def test_runtime_resilience_audit_systemd_timer_is_isolated_and_operational_only
     timer = _deployment_file("autobot-runtime-resilience-audit.timer")
 
     assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED=true" in service
+    assert "Environment=AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS=45" in service
     assert "NoNewPrivileges=true" in service
     assert "ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-runtime-resilience-audit.sh" in service
     assert "TimeoutStartSec=2min" in service

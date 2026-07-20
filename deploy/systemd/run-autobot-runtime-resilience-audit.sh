@@ -10,6 +10,7 @@ IMAGE="${AUTOBOT_RESEARCH_IMAGE:-projet_autobot-autobot}"
 AUDIT_ENABLED="${AUTOBOT_RUNTIME_RESILIENCE_AUDIT_ENABLED:-false}"
 MAX_DATA_AGE_SECONDS="${AUTOBOT_RUNTIME_RESILIENCE_MAX_DATA_AGE_SECONDS:-300}"
 MIN_FREE_DISK_BYTES="${AUTOBOT_RUNTIME_RESILIENCE_MIN_FREE_DISK_BYTES:-2147483648}"
+HEALTH_WAIT_SECONDS="${AUTOBOT_RUNTIME_RESILIENCE_HEALTH_WAIT_SECONDS:-45}"
 LOCK_PATH="${AUTOBOT_RUNTIME_RESILIENCE_AUDIT_LOCK_PATH:-/run/lock/autobot-runtime-resilience-audit.lock}"
 REPORT_DIR="${AUTOBOT_RUNTIME_RESILIENCE_REPORT_DIR:-${REPO_DIR}/data/research/reports/runtime_resilience}"
 REPORT_PATH="${REPORT_DIR}/latest.json"
@@ -18,6 +19,10 @@ TEMP_REPORT_PATH="${REPORT_DIR}/latest.json.tmp"
 if [[ "${AUDIT_ENABLED}" != "true" ]]; then
   echo "AUTOBOT runtime resilience audit is disabled."
   exit 0
+fi
+if ! [[ "${HEALTH_WAIT_SECONDS}" =~ ^[0-9]+$ ]]; then
+  echo "AUTOBOT runtime resilience health wait must be a non-negative integer." >&2
+  exit 1
 fi
 
 exec 9>"${LOCK_PATH}"
@@ -35,13 +40,23 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   exit 1
 fi
 
-health_payload="$(curl --fail --silent --max-time 5 http://127.0.0.1:8080/health || true)"
 websocket_status="unknown"
-if [[ "${health_payload}" =~ \"websocket\"[[:space:]]*:[[:space:]]*\"connected\" ]]; then
-  websocket_status="connected"
-elif [[ "${health_payload}" =~ \"websocket\"[[:space:]]*:[[:space:]]*\"disconnected\" ]]; then
-  websocket_status="disconnected"
-fi
+health_payload=""
+health_deadline=$((SECONDS + HEALTH_WAIT_SECONDS))
+while true; do
+  health_payload="$(curl --fail --silent --max-time 5 http://127.0.0.1:8080/health || true)"
+  if [[ "${health_payload}" =~ \"websocket\"[[:space:]]*:[[:space:]]*\"connected\" ]]; then
+    websocket_status="connected"
+    break
+  fi
+  if [[ "${health_payload}" =~ \"websocket\"[[:space:]]*:[[:space:]]*\"disconnected\" ]]; then
+    websocket_status="disconnected"
+  fi
+  if (( SECONDS >= health_deadline )); then
+    break
+  fi
+  sleep 3
+done
 
 umask 027
 install -d -m 0750 "${REPORT_DIR}"
