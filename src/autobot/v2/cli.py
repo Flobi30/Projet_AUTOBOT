@@ -633,6 +633,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
     )
     runtime_oms_ledger_audit.add_argument("--state-db", required=True)
+    runtime_oms_ledger_audit.add_argument(
+        "--cutover-at",
+        default=None,
+        help="Optional timezone-aware ISO-8601 UTC cutover for post-cutover traceability evidence",
+    )
     runtime_oms_ledger_audit.set_defaults(handler=_cmd_runtime_oms_ledger_audit)
 
     runtime_oms_ledger_migration_plan = subparsers.add_parser(
@@ -3308,7 +3313,7 @@ def _cmd_runtime_resilience_audit(args: argparse.Namespace) -> int:
 def _cmd_runtime_oms_ledger_audit(args: argparse.Namespace) -> int:
     from autobot.v2.research.runtime_oms_ledger_audit import audit_runtime_oms_ledger
 
-    _print_json(audit_runtime_oms_ledger(Path(args.state_db)).to_dict())
+    _print_json(audit_runtime_oms_ledger(Path(args.state_db), cutover_at=args.cutover_at).to_dict())
     return 0
 
 
