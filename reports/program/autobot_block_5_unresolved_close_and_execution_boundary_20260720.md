@@ -60,11 +60,11 @@ API and that the full explicit flag set is required for a mocked mutation.
 
 ## VPS evidence
 
-The source revision `f57fb3a` was deployed before this increment; its checkout
-and image label matched, the container was healthy, `/health` was healthy, and
-the global kill switch was not tripped. The deployment accompanying this report
-must fast-forward to the final GitHub revision and repeat the same controlled
-smoke check.
+The deployment checkout and AUTOBOT image label matched the final GitHub
+revision containing this report and source revision `d52e91b`. The container
+was `running` and `healthy`; `/health` was healthy with a running orchestrator,
+connected WebSocket and 14 instances. The global kill switch was not tripped.
+All four isolated research timers were active after the controlled rebuild.
 
 In all observed deployments, the following safety settings remained unchanged:
 
@@ -76,6 +76,8 @@ In all observed deployments, the following safety settings remained unchanged:
 The pre-existing `PAPER_TRADING=true` setting was not changed. No paper-capital
 route, promotion, real order, or real order-path activation occurred. Generated
 runtime entries on the VPS worktree remain user data and must be preserved.
+Filtered recent logs contained no traceback, critical error, live order, or
+live-trading activation.
 
 ## Residual risks / next gate
 
