@@ -273,6 +273,7 @@ def run_bounded_research_coordinator(
                     max_variants=min(config.scheduler.max_variants, int(template["max_variants"])),
                     max_symbols=min(config.scheduler.max_symbols, int(template["max_symbols"])),
                     validation_trial_count_floor=trial_floor,
+                    validation_trial_scope_id=spec.research_campaign_id,
                     feature_snapshot_manifest=config.feature_snapshot_manifest,
                 ),
                 commit=config.code_commit,

@@ -273,6 +273,7 @@ def test_alpha_runner_requires_consolidated_statistical_gate_before_keep_researc
         reasons=("legacy_validation_would_keep_research",),
         trade_count=60,
         assumed_trial_count=1,
+        trial_scope_id="family_funding_basis",
         deflated_sharpe={"acceptable": True},
         probabilistic_sharpe={"acceptable": True},
         robustness={"verdict": "observation_ready_not_promoted"},
@@ -306,5 +307,6 @@ def test_alpha_runner_requires_consolidated_statistical_gate_before_keep_researc
     assert "consolidated_statistical_gate_blocked" in gate.reasons
     assert "statistical_gate_net_pnl_not_positive_after_costs" in gate.reasons
     assert gate.artifacts["statistical_gate"]["decision"] == "RESEARCH_BLOCKED"
+    assert gate.metrics["trial_scope_id"] == "family_funding_basis"
     assert gate.safety["paper_capital_allowed"] is False
     assert gate.safety["live_allowed"] is False

@@ -21,6 +21,7 @@ def test_funding_basis_statistical_validation_is_deterministic_and_never_promote
     config = FundingBasisStatisticalValidationConfig(
         run_id="pytest_funding_statistics",
         assumed_trial_count=12,
+        trial_scope_id="family_funding_basis",
         min_trade_count=50,
         bootstrap_iterations=100,
         seed=7,
@@ -37,6 +38,7 @@ def test_funding_basis_statistical_validation_is_deterministic_and_never_promote
     assert first.statistical_gate == second.statistical_gate
     assert first.trade_count == 60
     assert first.assumed_trial_count == 12
+    assert first.trial_scope_id == "family_funding_basis"
     assert first.deflated_sharpe["research_only"] is True
     assert first.probabilistic_sharpe["paper_candidate_allowed"] is False
     assert first.robustness["live_promotion_allowed"] is False
@@ -59,6 +61,7 @@ def test_funding_basis_statistical_validation_requires_walk_forward_first():
     assert report.decision == "INSUFFICIENT_DATA"
     assert report.reasons == ("walk_forward_gate_not_passed",)
     assert report.trade_count == 0
+    assert report.trial_scope_id == "hypothesis_funding_basis"
     assert report.deflated_sharpe == {}
     assert report.statistical_gate == {}
     assert report.paper_capital_allowed is False

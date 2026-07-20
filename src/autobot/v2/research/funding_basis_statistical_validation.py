@@ -37,12 +37,17 @@ class FundingBasisStatisticalValidationConfig:
     min_trade_count: int = 50
     bootstrap_iterations: int = 1_000
     seed: int = 260624
+    trial_scope_id: str = "hypothesis_funding_basis"
 
     def __post_init__(self) -> None:
         if not self.run_id.strip():
             raise ValueError("run_id is required")
         if self.assumed_trial_count < 1:
             raise ValueError("assumed_trial_count must be positive")
+        scope_id = str(self.trial_scope_id or "").strip().lower()
+        if not scope_id or not all(character.isalnum() or character in "_.-" for character in scope_id):
+            raise ValueError("trial_scope_id must contain only letters, digits, _, . or -")
+        object.__setattr__(self, "trial_scope_id", scope_id)
         if self.initial_capital_eur <= 0.0:
             raise ValueError("initial_capital_eur must be positive")
         if self.min_trade_count < 2:
@@ -61,6 +66,7 @@ class FundingBasisStatisticalValidationReport:
     deflated_sharpe: Mapping[str, Any]
     probabilistic_sharpe: Mapping[str, Any]
     robustness: Mapping[str, Any]
+    trial_scope_id: str = "hypothesis_funding_basis"
     statistical_gate: Mapping[str, Any] = field(default_factory=dict)
     safety: Mapping[str, bool] = field(default_factory=lambda: dict(RESEARCH_ONLY_CAPITAL_FLAGS))
     paper_capital_allowed: bool = False
@@ -96,6 +102,7 @@ def build_funding_basis_statistical_validation_report(
             reasons=("walk_forward_gate_not_passed",),
             trade_count=0,
             assumed_trial_count=config.assumed_trial_count,
+            trial_scope_id=config.trial_scope_id,
             deflated_sharpe={},
             probabilistic_sharpe={},
             robustness={},
@@ -161,6 +168,7 @@ def build_funding_basis_statistical_validation_report(
         reasons=tuple(reasons),
         trade_count=len(records),
         assumed_trial_count=config.assumed_trial_count,
+        trial_scope_id=config.trial_scope_id,
         deflated_sharpe=dsr.to_dict(),
         probabilistic_sharpe=psr.to_dict(),
         robustness=robustness.to_dict(),

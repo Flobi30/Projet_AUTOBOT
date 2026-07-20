@@ -94,6 +94,7 @@ class AlphaHypothesisRunnerConfig:
     max_symbols: int = 6
     max_data_rows: int = 250_000
     validation_trial_count_floor: int = 0
+    validation_trial_scope_id: str | None = None
     feature_snapshot_manifest: Path | None = None
     derivatives_feature_snapshot_manifest: Path | None = None
 
@@ -112,6 +113,10 @@ class AlphaHypothesisRunnerConfig:
             raise ValueError("max_data_rows must be positive")
         if self.validation_trial_count_floor < 0:
             raise ValueError("validation_trial_count_floor cannot be negative")
+        scope_id = str(self.validation_trial_scope_id or "").strip().lower() or None
+        if scope_id is not None and not all(character.isalnum() or character in "_.-" for character in scope_id):
+            raise ValueError("validation_trial_scope_id must contain only letters, digits, _, . or -")
+        object.__setattr__(self, "validation_trial_scope_id", scope_id)
 
 
 @dataclass(frozen=True)
@@ -796,6 +801,9 @@ def _stress_placeholder(
                 # The registry floor is prepared before the runner starts and
                 # can only make the multiple-testing correction stricter.
                 assumed_trial_count=_validation_trial_count(config, len(report.folds)),
+                trial_scope_id=(
+                    config.validation_trial_scope_id or f"hypothesis_{str(hypothesis_id).strip().lower()}"
+                ),
             ),
             walk_forward_passed=True,
         )
@@ -823,6 +831,7 @@ def _stress_placeholder(
             metrics={
                 "trade_count": validation.trade_count,
                 "assumed_trial_count": validation.assumed_trial_count,
+                "trial_scope_id": validation.trial_scope_id,
                 "deflated_sharpe": dict(validation.deflated_sharpe),
                 "probabilistic_sharpe": dict(validation.probabilistic_sharpe),
                 "robustness": dict(validation.robustness),

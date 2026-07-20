@@ -2552,6 +2552,9 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
                 max_symbols=args.max_symbols,
                 max_data_rows=args.max_data_rows,
                 validation_trial_count_floor=validation_trial_count_floor,
+                validation_trial_scope_id=(
+                    str(pre_run_context.get("validation_trial_scope_id") or "") if pre_run_context else None
+                ),
                 feature_snapshot_manifest=(
                     Path(args.feature_snapshot_manifest) if args.feature_snapshot_manifest else None
                 ),
@@ -2803,6 +2806,7 @@ def _prepare_alpha_experiment_context(
             hypothesis_id=spec.hypothesis_id,
             research_campaign_id=spec.research_campaign_id,
         ),
+        "validation_trial_scope_id": spec.research_campaign_id or f"hypothesis_{spec.hypothesis_id}",
         "derivatives_availability": derivatives_availability,
         "holdout_partition": holdout_partition,
     }
