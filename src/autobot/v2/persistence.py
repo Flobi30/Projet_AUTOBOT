@@ -15,6 +15,7 @@ from typing import Optional, Dict, List, Any
 from pathlib import Path
 
 from .strategy_runtime_policy import (
+    canonical_order_append_block_reason,
     canonical_trade_ledger_append_block_reason,
     LEGACY_UNATTRIBUTED_STRATEGY_ID,
     normalize_execution_mode,
@@ -120,10 +121,19 @@ class OrderRepository(_PersistenceRepositoryBase):
         signal_id: Optional[str] = None,
         strategy_id: Optional[str] = None,
     ) -> bool:
-        normalized_strategy_id = str(strategy_id or "").strip()
-        if not normalized_strategy_id:
-            logger.warning("Order creation rejected: strategy_id is required (client_order_id=%s)", client_order_id)
+        block_reason = canonical_order_append_block_reason(
+            strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
+        if block_reason is not None:
+            logger.warning(
+                "Order creation rejected: %s (client_order_id=%s)",
+                block_reason,
+                client_order_id,
+            )
             return False
+        normalized_strategy_id = str(strategy_id).strip()
         now = datetime.now(timezone.utc).isoformat()
         try:
             async def _write() -> bool:

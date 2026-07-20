@@ -80,6 +80,24 @@ def shadow_paper_strategy_block_reason(strategy_id: Any) -> str | None:
     return None
 
 
+def canonical_order_append_block_reason(
+    strategy_id: Any,
+    *,
+    decision_id: Any,
+    signal_id: Any,
+) -> str | None:
+    """Return why a new persisted order lacks canonical provenance."""
+
+    base_reason = official_paper_strategy_block_reason(strategy_id)
+    if base_reason is not None:
+        return base_reason
+    if not normalize_strategy_id(decision_id):
+        return "decision_id_required"
+    if not normalize_strategy_id(signal_id):
+        return "signal_id_required"
+    return None
+
+
 def trade_ledger_append_block_reason(
     strategy_id: Any,
     *,

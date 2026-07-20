@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .persistence import StatePersistence, get_persistence
+from .strategy_runtime_policy import canonical_order_append_block_reason
 
 
 TERMINAL_STATES = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
@@ -38,9 +39,14 @@ class PersistedOrderStateMachine:
         client_order_id: Optional[str] = None,
         userref: Optional[int] = None,
     ) -> OrderLifecycleRecord:
-        normalized_strategy_id = str(strategy_id or "").strip()
-        if not normalized_strategy_id:
-            raise ValueError("strategy_id is required for a persisted order")
+        block_reason = canonical_order_append_block_reason(
+            strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
+        if block_reason is not None:
+            raise ValueError(f"{block_reason} for a persisted order")
+        normalized_strategy_id = str(strategy_id).strip()
         oid = client_order_id or f"ord_{uuid.uuid4().hex}"
         uref = userref or (time.time_ns() % 2147483647)
         persisted = await self._persistence.upsert_order(

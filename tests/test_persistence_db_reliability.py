@@ -79,6 +79,8 @@ async def test_order_upsert_retries_temporary_sqlite_lock_without_duplicate_crea
         order_type="market",
         requested_qty=1.0,
         strategy_id="trend_momentum",
+        decision_id="dec-order-retry",
+        signal_id="sig-order-retry",
     )
     await persistence.close()
 
@@ -243,6 +245,8 @@ async def test_order_transition_records_explicit_from_status_and_rejects_orphans
         requested_qty=1.0,
         status="NEW",
         strategy_id="trend_momentum",
+        decision_id="dec-order-1",
+        signal_id="sig-order-1",
     )
 
     assert await persistence.transition_order_state(
@@ -273,38 +277,67 @@ async def test_order_transition_records_explicit_from_status_and_rejects_orphans
 
 
 @pytest.mark.asyncio
-async def test_order_creation_rejects_missing_strategy_provenance(tmp_path):
+@pytest.mark.parametrize(
+    ("missing_field", "reason"),
+    [
+        ("strategy_id", "strategy_id_required"),
+        ("decision_id", "decision_id_required"),
+        ("signal_id", "signal_id_required"),
+    ],
+)
+async def test_order_creation_rejects_missing_canonical_provenance(tmp_path, caplog, missing_field, reason):
     persistence = StatePersistence(str(tmp_path / "state.db"))
     await persistence.initialize()
-
-    created = await persistence.upsert_order(
+    payload = dict(
         client_order_id="missing-strategy",
         instance_id="instance-1",
         symbol="TRXEUR",
         side="buy",
         order_type="market",
         requested_qty=1.0,
+        strategy_id="trend_momentum",
+        decision_id="dec-missing-field",
+        signal_id="sig-missing-field",
     )
+    payload.pop(missing_field)
+    created = await persistence.upsert_order(**payload)
     await persistence.close()
 
     assert created is False
+    assert reason in caplog.text
     with sqlite3.connect(tmp_path / "state.db") as connection:
         assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
 
 
 @pytest.mark.asyncio
-async def test_order_state_machine_requires_strategy_id(tmp_path):
+@pytest.mark.parametrize(
+    ("strategy_id", "decision_id", "signal_id", "reason"),
+    [
+        ("", "dec-order", "sig-order", "strategy_id_required"),
+        ("trend_momentum", None, "sig-order", "decision_id_required"),
+        ("trend_momentum", "dec-order", None, "signal_id_required"),
+    ],
+)
+async def test_order_state_machine_requires_canonical_provenance(
+    tmp_path,
+    strategy_id,
+    decision_id,
+    signal_id,
+    reason,
+):
     persistence = StatePersistence(str(tmp_path / "state.db"))
     machine = PersistedOrderStateMachine(persistence)
 
-    with pytest.raises(ValueError, match="strategy_id is required"):
+    with pytest.raises(ValueError, match=reason):
         await machine.new_order(
             instance_id="instance-1",
             symbol="TRXEUR",
             side="buy",
             order_type="market",
             requested_qty=1.0,
-            strategy_id="",
+            strategy_id=strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
         )
     await persistence.close()
 
@@ -326,5 +359,7 @@ async def test_order_state_machine_stops_when_persistence_rejects_new_order(tmp_
             order_type="market",
             requested_qty=1.0,
             strategy_id="trend_momentum",
+            decision_id="dec-persistence-rejected",
+            signal_id="sig-persistence-rejected",
         )
     await persistence.close()
