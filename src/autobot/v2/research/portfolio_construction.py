@@ -13,11 +13,17 @@ from datetime import datetime, timedelta, timezone
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import AlphaSignal, TargetPortfolio
+from autobot.v2.contracts import AlphaSignal, MarketIdentity, TargetPortfolio
 
 
 class PortfolioConstructionError(ValueError):
     """Raised when a research portfolio cannot be built safely."""
+
+
+def _utc(value: datetime, field_name: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise PortfolioConstructionError(f"{field_name} must be timezone-aware")
+    return value.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -104,20 +110,44 @@ class CapacityInput:
 class CapacityObservation:
     """Point-in-time liquidity evidence used only for a research review."""
 
-    symbol: str
+    market: MarketIdentity
+    source_snapshot_id: str
+    event_time: datetime
+    available_time: datetime
+    ingestion_time: datetime
     observed_liquidity_eur: float | None = None
     observed_volume_eur: float | None = None
-    observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        # Reuse the validation rules without inventing a trading notional.
+        if not isinstance(self.market, MarketIdentity):
+            raise PortfolioConstructionError("capacity observation requires MarketIdentity")
+        source_snapshot_id = str(self.source_snapshot_id).strip()
+        if not source_snapshot_id:
+            raise PortfolioConstructionError("capacity observation source_snapshot_id is required")
+        event_time = _utc(self.event_time, "capacity event_time")
+        available_time = _utc(self.available_time, "capacity available_time")
+        ingestion_time = _utc(self.ingestion_time, "capacity ingestion_time")
+        if available_time < event_time:
+            raise PortfolioConstructionError("capacity available_time cannot precede event_time")
+        if ingestion_time < available_time:
+            raise PortfolioConstructionError("capacity ingestion_time cannot precede available_time")
+        # Reuse the numeric validation without inventing a trading notional.
         CapacityInput(
-            symbol=self.symbol,
+            symbol=self.market.symbol,
             desired_notional_eur=1.0,
             observed_liquidity_eur=self.observed_liquidity_eur,
             observed_volume_eur=self.observed_volume_eur,
-            observed_at=self.observed_at,
         )
+        object.__setattr__(self, "source_snapshot_id", source_snapshot_id)
+        object.__setattr__(self, "event_time", event_time)
+        object.__setattr__(self, "available_time", available_time)
+        object.__setattr__(self, "ingestion_time", ingestion_time)
+
+    @property
+    def symbol(self) -> str:
+        """Explicit convenience alias; never infer a market from this symbol."""
+
+        return self.market.symbol
 
 
 @dataclass(frozen=True)
@@ -177,6 +207,7 @@ class PortfolioCapacityReview:
     estimates: tuple[CapacityEstimate, ...]
     status: str
     reasons: tuple[str, ...]
+    capacity_source_snapshot_ids: tuple[str, ...] = ()
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -192,6 +223,10 @@ class PortfolioCapacityReview:
             "target_notionals_eur",
             {str(symbol).upper(): float(notional) for symbol, notional in sorted(self.target_notionals_eur.items())},
         )
+        snapshot_ids = tuple(str(value).strip() for value in self.capacity_source_snapshot_ids)
+        if not all(snapshot_ids) or len(snapshot_ids) != len(set(snapshot_ids)):
+            raise PortfolioConstructionError("capacity source snapshot ids must be non-empty and unique")
+        object.__setattr__(self, "capacity_source_snapshot_ids", tuple(sorted(snapshot_ids)))
 
 
 def build_target_portfolio(
@@ -216,6 +251,7 @@ def build_target_portfolio(
     cash_asset = config.cash_asset.upper()
     scores: dict[str, float] = {}
     strategy_ids: dict[str, set[str]] = {}
+    market_identities: dict[str, MarketIdentity] = {}
     data_snapshot_ids: set[str] = set()
     feature_versions: dict[str, str] = {}
     accepted: list[str] = []
@@ -239,8 +275,13 @@ def build_target_portfolio(
             continue
         expected_edge = float(signal.expected_edge_bps or 0.0)
         symbol = signal.market.symbol.upper()
+        existing_market = market_identities.get(symbol)
+        if existing_market is not None and existing_market != signal.market:
+            rejected.append(SignalRejection(signal.signal_id, "market_identity_conflict"))
+            continue
         scores[symbol] = scores.get(symbol, 0.0) + expected_edge
         strategy_ids.setdefault(symbol, set()).add(signal.strategy_id)
+        market_identities[symbol] = signal.market
         data_snapshot_ids.add(signal.data_snapshot_id)
         feature_versions.update(signal.feature_versions)
         accepted.append(signal.signal_id)
@@ -288,6 +329,11 @@ def build_target_portfolio(
         source_strategy_ids=tuple(sorted({strategy_id for values in strategy_ids.values() for strategy_id in values})),
         source_data_snapshot_ids=tuple(sorted(data_snapshot_ids)),
         source_feature_versions=dict(sorted(feature_versions.items())),
+        source_markets={
+            symbol: market_identities[symbol]
+            for symbol, weight in sorted(target_weights.items())
+            if weight > 0.0 and symbol in market_identities
+        },
     )
     return PortfolioConstructionResult(
         target=target,
@@ -413,14 +459,18 @@ def review_target_portfolio_capacity(
     *,
     capital_eur: float,
     observations: Mapping[str, CapacityObservation],
+    expected_markets: Mapping[str, MarketIdentity] | None = None,
     max_liquidity_participation: float,
     max_observation_age: timedelta = timedelta(minutes=2),
 ) -> PortfolioCapacityReview:
     """Review all target weights against fresh point-in-time capacity evidence.
 
-    Missing, future-dated or stale observations are never replaced with a
-    guessed depth. The resulting ``WAITING_FOR_MORE_DATA`` status prevents an
-    optimistic capacity conclusion while preserving a clear audit trail.
+    Missing, unproven-market, future-dated or stale observations are never
+    replaced with a guessed depth.  Callers must bind every target symbol to
+    an explicit ``MarketIdentity``: a symbol alone is insufficient because it
+    could hide an exchange or quote-currency mismatch.  The resulting
+    ``WAITING_FOR_MORE_DATA`` status prevents an optimistic capacity conclusion
+    while preserving a clear audit trail.
     """
 
     capital = float(capital_eur)
@@ -434,6 +484,11 @@ def review_target_portfolio_capacity(
 
     decision_at = target.generated_at.astimezone(timezone.utc)
     normalized_observations = {str(symbol).upper(): observation for symbol, observation in observations.items()}
+    normalized_markets = {str(symbol).upper(): market for symbol, market in (expected_markets or {}).items()}
+    if any(not isinstance(market, MarketIdentity) for market in normalized_markets.values()):
+        raise PortfolioConstructionError("expected_markets values must be MarketIdentity")
+    if any(symbol != market.symbol for symbol, market in normalized_markets.items()):
+        raise PortfolioConstructionError("expected market symbol must match its mapping key")
     target_notionals = {
         symbol.upper(): capital * float(weight)
         for symbol, weight in target.target_weights.items()
@@ -448,11 +503,57 @@ def review_target_portfolio_capacity(
             estimates=(),
             status="NO_TARGET_EXPOSURE",
             reasons=("target_contains_no_investable_weight",),
+            capacity_source_snapshot_ids=(),
         )
 
     estimates: list[CapacityEstimate] = []
     reasons: list[str] = []
+    source_snapshot_ids: set[str] = set()
     for symbol, desired_notional in sorted(target_notionals.items()):
+        target_market = target.source_markets.get(symbol)
+        supplied_market = normalized_markets.get(symbol)
+        if target_market is None:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=None,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_target_market_identity_missing",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_target_market_identity_missing")
+            continue
+        if target_market.market_type != "spot":
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=None,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_target_market_not_spot",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_target_market_not_spot")
+            continue
+        if supplied_market is not None and supplied_market != target_market:
+            estimates.append(
+                CapacityEstimate(
+                    symbol=symbol,
+                    desired_notional_eur=desired_notional,
+                    observed_liquidity_eur=None,
+                    participation_limit=float(max_liquidity_participation),
+                    maximum_capacity_eur=None,
+                    status="WAITING_FOR_MORE_DATA",
+                    reason="capacity_expected_market_identity_mismatch",
+                )
+            )
+            reasons.append(f"{symbol}:capacity_expected_market_identity_mismatch")
+            continue
         observation = normalized_observations.get(symbol)
         if observation is None:
             estimates.append(
@@ -470,8 +571,7 @@ def review_target_portfolio_capacity(
             continue
         if observation.symbol.upper() != symbol:
             raise PortfolioConstructionError("capacity observation symbol must match its mapping key")
-        observed_at = observation.observed_at
-        if observed_at is None:
+        if observation.market != target_market:
             estimates.append(
                 CapacityEstimate(
                     symbol=symbol,
@@ -480,13 +580,20 @@ def review_target_portfolio_capacity(
                     participation_limit=float(max_liquidity_participation),
                     maximum_capacity_eur=None,
                     status="WAITING_FOR_MORE_DATA",
-                    reason="capacity_observation_timestamp_missing",
+                    reason="capacity_market_identity_mismatch",
                 )
             )
-            reasons.append(f"{symbol}:capacity_observation_timestamp_missing")
+            reasons.append(f"{symbol}:capacity_market_identity_mismatch")
             continue
-        observed_at = observed_at.astimezone(timezone.utc)
-        if observed_at > decision_at:
+        # A market source may publish a value before AUTOBOT ingests it, and an
+        # old book can be re-ingested late. Every time boundary must therefore
+        # be current at the decision, not just the ingestion timestamp.
+        effective_available_at = max(
+            observation.event_time,
+            observation.available_time,
+            observation.ingestion_time,
+        )
+        if effective_available_at > decision_at:
             estimates.append(
                 CapacityEstimate(
                     symbol=symbol,
@@ -495,12 +602,12 @@ def review_target_portfolio_capacity(
                     participation_limit=float(max_liquidity_participation),
                     maximum_capacity_eur=None,
                     status="WAITING_FOR_MORE_DATA",
-                    reason="capacity_observation_after_decision",
+                    reason="capacity_observation_not_ingested_at_decision",
                 )
             )
-            reasons.append(f"{symbol}:capacity_observation_after_decision")
+            reasons.append(f"{symbol}:capacity_observation_not_ingested_at_decision")
             continue
-        if decision_at - observed_at > max_observation_age:
+        if decision_at - observation.event_time > max_observation_age:
             estimates.append(
                 CapacityEstimate(
                     symbol=symbol,
@@ -514,13 +621,14 @@ def review_target_portfolio_capacity(
             )
             reasons.append(f"{symbol}:capacity_observation_stale")
             continue
+        source_snapshot_ids.add(observation.source_snapshot_id)
         estimate = estimate_capacity(
             CapacityInput(
                 symbol=symbol,
                 desired_notional_eur=desired_notional,
                 observed_liquidity_eur=observation.observed_liquidity_eur,
                 observed_volume_eur=observation.observed_volume_eur,
-                observed_at=observed_at,
+                observed_at=observation.event_time,
             ),
             max_liquidity_participation=max_liquidity_participation,
         )
@@ -542,6 +650,7 @@ def review_target_portfolio_capacity(
         estimates=tuple(estimates),
         status=status,
         reasons=tuple(reasons) or ("all_target_notionals_within_observed_participation_limit",),
+        capacity_source_snapshot_ids=tuple(sorted(source_snapshot_ids)),
     )
 
 

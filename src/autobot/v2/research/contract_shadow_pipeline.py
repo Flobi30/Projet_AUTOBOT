@@ -121,6 +121,7 @@ def evaluate_alpha_signal_in_shadow(
         target_result.target,
         capital_eur=capital_eur,
         observations=capacity_observations,
+        expected_markets={signal.market.symbol: signal.market},
         max_liquidity_participation=max_liquidity_participation,
     )
     if capacity_review.status != "CAPACITY_OK":

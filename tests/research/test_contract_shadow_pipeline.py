@@ -113,6 +113,19 @@ def _risk_decision(*, approved: bool = True) -> RiskDecision:
     )
 
 
+def _capacity_observation(*, at: datetime | None = None, market: MarketIdentity | None = None) -> CapacityObservation:
+    timestamp = at or _timestamp()
+    identity = market or MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR")
+    return CapacityObservation(
+        market=identity,
+        source_snapshot_id="microstructure-contract-shadow",
+        event_time=timestamp,
+        available_time=timestamp,
+        ingestion_time=timestamp,
+        observed_liquidity_eur=20_000.0,
+    )
+
+
 def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
     signal = _signal()
     review = evaluate_alpha_signal_in_shadow(
@@ -120,9 +133,7 @@ def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
         decision_id="decision-contract-shadow",
         strategy_artifact=_artifact(),
         capital_eur=1_000.0,
-        capacity_observations={
-            "BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=20_000.0, observed_at=_timestamp())
-        },
+        capacity_observations={"BTCEUR": _capacity_observation()},
         max_liquidity_participation=0.05,
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
@@ -157,9 +168,7 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
         strategy_artifact=_artifact(),
         capital_eur=1_000.0,
         capacity_observations={
-            "BTCEUR": CapacityObservation(
-                "BTCEUR", observed_liquidity_eur=20_000.0, observed_at=_timestamp() - timedelta(minutes=3)
-            )
+            "BTCEUR": _capacity_observation(at=_timestamp() - timedelta(minutes=3))
         },
         max_liquidity_participation=0.05,
         base_cost_config=_base_cost_config(),
@@ -186,6 +195,33 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
     assert mismatch.status == "CONTRACT_REJECTED"
     assert mismatch.reason == "strategy_artifact_data_snapshot_mismatch"
     assert mismatch.order_intent is None
+
+
+def test_contract_shadow_pipeline_rejects_capacity_from_a_different_market_identity():
+    signal = _signal()
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={
+            "BTCEUR": _capacity_observation(
+                market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "USD")
+            )
+        },
+        max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
+        simulator=_simulator(),
+        snapshots=(),
+        risk_decision=_risk_decision(),
+    )
+
+    assert review.status == "CAPACITY_BLOCKED"
+    assert review.reason == "waiting_for_more_data"
+    assert review.capacity_review is not None
+    assert review.capacity_review.reasons == ("BTCEUR:capacity_market_identity_mismatch",)
+    assert review.order_intent is None
+    assert review.outcome is None
 
 
 def test_contract_shadow_pipeline_blocks_missing_or_pessimistic_cost_evidence():

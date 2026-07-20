@@ -46,6 +46,34 @@ def _signal(
     )
 
 
+def _spot_market(symbol: str) -> MarketIdentity:
+    return MarketIdentity("kraken", "spot", symbol, symbol.removesuffix("EUR"), "EUR")
+
+
+def _capacity_observation(
+    symbol: str,
+    *,
+    at: datetime,
+    observed_liquidity_eur: float | None = None,
+    observed_volume_eur: float | None = None,
+    market: MarketIdentity | None = None,
+    source_snapshot_id: str | None = None,
+    available_at: datetime | None = None,
+    ingestion_at: datetime | None = None,
+    event_time: datetime | None = None,
+) -> CapacityObservation:
+    effective_available_at = available_at or at
+    return CapacityObservation(
+        market=market or _spot_market(symbol),
+        source_snapshot_id=source_snapshot_id or f"microstructure-{symbol.lower()}",
+        event_time=event_time or at,
+        available_time=effective_available_at,
+        ingestion_time=ingestion_at or effective_available_at,
+        observed_liquidity_eur=observed_liquidity_eur,
+        observed_volume_eur=observed_volume_eur,
+    )
+
+
 def test_target_portfolio_uses_only_available_long_only_spot_eur_signals():
     now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
     result = build_target_portfolio(
@@ -69,6 +97,7 @@ def test_target_portfolio_uses_only_available_long_only_spot_eur_signals():
     assert result.target.source_strategy_ids == ("funding_basis",)
     assert result.target.source_data_snapshot_ids == ("ohlcv_snapshot",)
     assert result.target.source_feature_versions == {"basis_bps": "1.0.0"}
+    assert result.target.source_markets == {"BTCEUR": _spot_market("BTCEUR")}
     assert {item.reason for item in result.rejected_signals} == {
         "short_not_allowed",
         "signal_not_yet_available",
@@ -138,6 +167,21 @@ def test_target_portfolio_rejects_conflicting_feature_versions_and_keeps_lineage
     assert result.target.source_data_snapshot_ids == ("ohlcv_snapshot",)
     assert result.target.source_feature_versions == {"basis_bps": "1.0.0"}
     assert result.rejected_signals == (SignalRejection("second", "feature_version_conflict:basis_bps"),)
+
+
+def test_target_portfolio_rejects_same_symbol_from_a_different_market_identity():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    first = _signal(signal_id="kraken", edge=20.0)
+    other_exchange = replace(
+        _signal(signal_id="other-exchange", edge=10.0),
+        market=MarketIdentity("other_exchange", "spot", "BTCEUR", "BTC", "EUR"),
+    )
+
+    result = build_target_portfolio((first, other_exchange), decision_id="market-conflict", decision_at=now)
+
+    assert result.accepted_signal_ids == ("kraken",)
+    assert result.rejected_signals == (SignalRejection("other-exchange", "market_identity_conflict"),)
+    assert result.target.source_markets == {"BTCEUR": _spot_market("BTCEUR")}
 
 
 def test_capacity_requires_observed_liquidity_and_enforces_participation_limit():
@@ -214,41 +258,112 @@ def test_target_capacity_review_requires_fresh_point_in_time_observations():
         target,
         capital_eur=1_000.0,
         observations={
-            "BTCEUR": CapacityObservation(
-                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now
-            )
+            "BTCEUR": _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=10_000.0)
         },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR")},
         max_liquidity_participation=0.05,
     )
     stale = review_target_portfolio_capacity(
         target,
         capital_eur=1_000.0,
         observations={
-            "BTCEUR": CapacityObservation(
-                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now - timedelta(minutes=3)
+            "BTCEUR": _capacity_observation(
+                "BTCEUR", at=now - timedelta(minutes=3), observed_liquidity_eur=10_000.0
             )
         },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR")},
         max_liquidity_participation=0.05,
     )
     future = review_target_portfolio_capacity(
         target,
         capital_eur=1_000.0,
         observations={
-            "BTCEUR": CapacityObservation(
-                "BTCEUR", observed_liquidity_eur=10_000.0, observed_at=now + timedelta(seconds=1)
+            "BTCEUR": _capacity_observation(
+                "BTCEUR", at=now + timedelta(seconds=1), observed_liquidity_eur=10_000.0
             )
         },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR")},
+        max_liquidity_participation=0.05,
+    )
+    late_ingestion = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": _capacity_observation(
+                "BTCEUR",
+                at=now - timedelta(seconds=1),
+                observed_liquidity_eur=10_000.0,
+                ingestion_at=now + timedelta(seconds=1),
+            )
+        },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR")},
+        max_liquidity_participation=0.05,
+    )
+    stale_event_reingested = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": _capacity_observation(
+                "BTCEUR",
+                at=now,
+                event_time=now - timedelta(minutes=3),
+                observed_liquidity_eur=10_000.0,
+            )
+        },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR")},
         max_liquidity_participation=0.05,
     )
 
     assert ready.status == "CAPACITY_OK"
     assert ready.target_notionals_eur == {"BTCEUR": pytest.approx(350.0)}
+    assert ready.capacity_source_snapshot_ids == ("microstructure-btceur",)
     assert ready.paper_capital_allowed is False
     assert ready.live_allowed is False
     assert stale.status == "WAITING_FOR_MORE_DATA"
     assert "BTCEUR:capacity_observation_stale" in stale.reasons
     assert future.status == "WAITING_FOR_MORE_DATA"
-    assert "BTCEUR:capacity_observation_after_decision" in future.reasons
+    assert "BTCEUR:capacity_observation_not_ingested_at_decision" in future.reasons
+    assert late_ingestion.status == "WAITING_FOR_MORE_DATA"
+    assert "BTCEUR:capacity_observation_not_ingested_at_decision" in late_ingestion.reasons
+    assert stale_event_reingested.status == "WAITING_FOR_MORE_DATA"
+    assert "BTCEUR:capacity_observation_stale" in stale_event_reingested.reasons
+
+
+def test_target_capacity_review_fails_closed_without_matching_explicit_market_identity():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    target = build_target_portfolio(
+        (_signal(signal_id="btc", edge=20.0),),
+        decision_id="decision-capacity-identity",
+        decision_at=now,
+    ).target
+
+    missing = review_target_portfolio_capacity(
+        replace(target, source_markets={}),
+        capital_eur=1_000.0,
+        observations={"BTCEUR": _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=20_000.0)},
+        max_liquidity_participation=0.05,
+    )
+    mismatched = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={
+            "BTCEUR": _capacity_observation(
+                "BTCEUR",
+                at=now,
+                observed_liquidity_eur=20_000.0,
+                market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "USD"),
+            )
+        },
+        expected_markets={"BTCEUR": MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "USD")},
+        max_liquidity_participation=0.05,
+    )
+
+    assert missing.status == "WAITING_FOR_MORE_DATA"
+    assert missing.reasons == ("BTCEUR:capacity_target_market_identity_missing",)
+    assert mismatched.status == "WAITING_FOR_MORE_DATA"
+    assert mismatched.reasons == ("BTCEUR:capacity_expected_market_identity_mismatch",)
+    assert missing.capacity_source_snapshot_ids == ()
+    assert mismatched.capacity_source_snapshot_ids == ()
 
 
 def test_target_capacity_review_blocks_any_symbol_that_exceeds_or_lacks_capacity_data():
@@ -264,15 +379,17 @@ def test_target_capacity_review_blocks_any_symbol_that_exceeds_or_lacks_capacity
         target,
         capital_eur=1_000.0,
         observations={
-            "BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=1_000.0, observed_at=now),
-            "ETHEUR": CapacityObservation("ETHEUR", observed_liquidity_eur=100.0, observed_at=now),
+            "BTCEUR": _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=1_000.0),
+            "ETHEUR": _capacity_observation("ETHEUR", at=now, observed_liquidity_eur=100.0),
         },
+        expected_markets={"BTCEUR": _spot_market("BTCEUR"), "ETHEUR": _spot_market("ETHEUR")},
         max_liquidity_participation=0.05,
     )
     missing = review_target_portfolio_capacity(
         target,
         capital_eur=1_000.0,
-        observations={"BTCEUR": CapacityObservation("BTCEUR", observed_liquidity_eur=20_000.0, observed_at=now)},
+        observations={"BTCEUR": _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=20_000.0)},
+        expected_markets={"BTCEUR": _spot_market("BTCEUR"), "ETHEUR": _spot_market("ETHEUR")},
         max_liquidity_participation=0.05,
     )
 

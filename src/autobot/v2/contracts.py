@@ -408,6 +408,7 @@ class TargetPortfolio:
     source_strategy_ids: tuple[str, ...] = ()
     source_data_snapshot_ids: tuple[str, ...] = ()
     source_feature_versions: Mapping[str, str] = field(default_factory=dict)
+    source_markets: Mapping[str, MarketIdentity] = field(default_factory=dict)
     contract_version: int = CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -424,8 +425,18 @@ class TargetPortfolio:
         strategy_ids = tuple(_required(value, "source strategy id").lower() for value in self.source_strategy_ids)
         snapshot_ids = tuple(_required(value, "source data snapshot id") for value in self.source_data_snapshot_ids)
         feature_versions = {str(key).strip(): str(value).strip() for key, value in self.source_feature_versions.items()}
+        source_markets = {str(symbol).strip().upper(): market for symbol, market in self.source_markets.items()}
         if not all(feature_versions.keys()) or not all(feature_versions.values()):
             raise ValueError("target portfolio source feature versions must be non-empty")
+        if any(not isinstance(market, MarketIdentity) for market in source_markets.values()):
+            raise ValueError("target portfolio source markets must be MarketIdentity values")
+        if any(symbol != market.symbol for symbol, market in source_markets.items()):
+            raise ValueError("target portfolio source market symbol must match its mapping key")
+        if any(symbol not in weights for symbol in source_markets):
+            raise ValueError("target portfolio source market requires a target weight")
+        cash_asset = _required(self.cash_asset, "cash_asset").upper()
+        if any(market.quote_asset != cash_asset for market in source_markets.values()):
+            raise ValueError("target portfolio source markets must match cash_asset")
         if (
             len(signal_ids) != len(set(signal_ids))
             or len(strategy_ids) != len(set(strategy_ids))
@@ -437,11 +448,12 @@ class TargetPortfolio:
         object.__setattr__(self, "target_weights", weights)
         object.__setattr__(self, "reserve_cash_weight", reserve)
         object.__setattr__(self, "rationale", dict(self.rationale))
-        object.__setattr__(self, "cash_asset", _required(self.cash_asset, "cash_asset").upper())
+        object.__setattr__(self, "cash_asset", cash_asset)
         object.__setattr__(self, "source_signal_ids", signal_ids)
         object.__setattr__(self, "source_strategy_ids", strategy_ids)
         object.__setattr__(self, "source_data_snapshot_ids", snapshot_ids)
         object.__setattr__(self, "source_feature_versions", feature_versions)
+        object.__setattr__(self, "source_markets", dict(sorted(source_markets.items())))
 
 
 @dataclass(frozen=True)
