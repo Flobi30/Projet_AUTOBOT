@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -158,6 +158,25 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_microstructure_forward.add_argument("--sample-interval-seconds", type=float, default=0.0)
     collect_microstructure_forward.add_argument("--max-runtime-seconds", type=float, default=300.0)
     collect_microstructure_forward.set_defaults(handler=_cmd_collect_microstructure_forward)
+
+    profile_canonical_microstructure = subparsers.add_parser(
+        "profile-canonical-microstructure",
+        help="Build a read-only multi-session cost and capacity research profile from canonical top-of-book data",
+    )
+    profile_canonical_microstructure.add_argument("--run-id", required=True)
+    profile_canonical_microstructure.add_argument(
+        "--canonical-paths",
+        required=True,
+        help="Comma-separated canonical microstructure roots or canonical CSV files",
+    )
+    profile_canonical_microstructure.add_argument(
+        "--output-dir",
+        default="reports/research/canonical_microstructure_profiles",
+    )
+    profile_canonical_microstructure.add_argument("--min-samples-per-symbol", type=int, default=96)
+    profile_canonical_microstructure.add_argument("--min-distinct-utc-hours", type=int, default=12)
+    profile_canonical_microstructure.add_argument("--min-observation-span-seconds", type=float, default=86_400.0)
+    profile_canonical_microstructure.set_defaults(handler=_cmd_profile_canonical_microstructure)
 
     data_quality = subparsers.add_parser(
         "data-quality",
@@ -1648,6 +1667,30 @@ def _cmd_collect_microstructure_forward(args: argparse.Namespace) -> int:
         )
     )
     _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_profile_canonical_microstructure(args: argparse.Namespace) -> int:
+    from autobot.v2.research.canonical_microstructure_profile import (
+        CanonicalMicrostructureProfileConfig,
+        build_canonical_microstructure_profile,
+        write_canonical_microstructure_profile_report,
+    )
+
+    report = write_canonical_microstructure_profile_report(
+        build_canonical_microstructure_profile(
+            CanonicalMicrostructureProfileConfig(
+                run_id=args.run_id,
+                canonical_paths=tuple(Path(path) for path in _csv_tuple(args.canonical_paths, "--canonical-paths")),
+                output_dir=Path(args.output_dir),
+                min_samples_per_symbol=args.min_samples_per_symbol,
+                min_distinct_utc_hours=args.min_distinct_utc_hours,
+                min_observation_span=timedelta(seconds=args.min_observation_span_seconds),
+            )
+        ),
+        Path(args.output_dir),
+    )
+    _print_json(report.to_dict())
     return 0
 
 
