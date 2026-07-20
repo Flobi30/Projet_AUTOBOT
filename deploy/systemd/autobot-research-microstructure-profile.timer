@@ -1,0 +1,12 @@
+[Unit]
+Description=Build AUTOBOT canonical microstructure research profile daily
+
+[Timer]
+OnCalendar=*-*-* 03:13:00 UTC
+Persistent=true
+RandomizedDelaySec=45s
+AccuracySec=30s
+Unit=autobot-research-microstructure-profile.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=AUTOBOT canonical microstructure research profile
+Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/canonical_microstructure_profile.py
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-microstructure-profile.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-research-microstructure-profile.sh
+TimeoutStartSec=3min
+Nice=15
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
