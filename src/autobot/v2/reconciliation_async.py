@@ -11,7 +11,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from .order_executor_async import OrderExecutorAsync, OrderStatus
 from .reconciliation_models import Divergence
@@ -27,6 +27,7 @@ class ReconciliationManagerAsync:
         order_executor: OrderExecutorAsync,
         instances: Union[Dict[str, Any], Callable[[], Dict[str, Any]]],
         check_interval: int = 3600,
+        on_critical_divergence: Optional[Callable[[List[Divergence]], Awaitable[None]]] = None,
     ) -> None:
         self.order_executor = order_executor
         # ARCH-06: accept either a static dict or a callable returning current dict
@@ -34,19 +35,23 @@ class ReconciliationManagerAsync:
             instances if callable(instances) else (lambda: instances)  # type: ignore[arg-type]
         )
         self.check_interval = check_interval
+        self._on_critical_divergence = on_critical_divergence
 
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._count = 0
         self._last: Optional[datetime] = None
+        self._last_divergence_count = 0
+        self._last_critical_divergence_count = 0
 
         logger.info("🔄 ReconciliationManagerAsync initialisé")
 
     async def reconcile_all(self) -> List[Divergence]:
         all_div: List[Divergence] = []
         logger.info("🔄 Réconciliation complète (async)...")
-        # ROB-02: cleanup orphaned orders
-        await self._cleanup_orphaned_orders()
+        # Reconciliation is detection-only. It must never manufacture a close
+        # or cancel a protective order from incomplete local evidence.
+        all_div.extend(await self._detect_orphaned_orders())
 
         # ARCH-06: use callable to get the current (dynamic) instances snapshot
         for inst_id, inst in self._get_instances().items():
@@ -57,6 +62,14 @@ class ReconciliationManagerAsync:
                 logger.exception(f"❌ Erreur réconciliation {inst_id}: {exc}")
         self._count += 1
         self._last = datetime.now(timezone.utc)
+        self._last_divergence_count = len(all_div)
+        critical = [divergence for divergence in all_div if divergence.severity == "critical"]
+        self._last_critical_divergence_count = len(critical)
+        if critical and self._on_critical_divergence is not None:
+            try:
+                await self._on_critical_divergence(critical)
+            except Exception:
+                logger.exception("Critical reconciliation callback failed")
         if all_div:
             logger.warning(f"⚠️ {len(all_div)} divergence(s) trouvée(s)")
         else:
@@ -75,21 +88,28 @@ class ReconciliationManagerAsync:
             if not txid:
                 divs.append(Divergence(
                     type="orphan_local", position_id=pos_id, kraken_txid=None,
-                    details={"reason": "Position sans TXID"}, severity="critical",
+                    details={
+                        "reason": "Position sans TXID; reconciliation required",
+                        "remediation": "blocked_no_synthetic_close",
+                    },
+                    severity="critical",
                 ))
-                await instance.close_position(pos_id, pos.get("buy_price", 0))
                 continue
 
             status = await self.order_executor.get_order_status(txid)
             if status and status.status == "closed":
                 sold = await self._check_if_sold(txid, instance.config.symbol)
                 if sold:
-                    divs.append(Divergence(
-                        type="orphan_local", position_id=pos_id, kraken_txid=txid,
-                        details={"reason": "Vendu sur Kraken"}, severity="critical",
-                    ))
                     sell_price = await self._get_avg_sell_price(txid, instance.config.symbol)
-                    await instance.close_position(pos_id, sell_price)
+                    divs.append(Divergence(
+                        type="unattributed_external_sell", position_id=pos_id, kraken_txid=txid,
+                        details={
+                            "reason": "Possible external sell detected; reconciliation required",
+                            "observed_sell_price": sell_price,
+                            "remediation": "blocked_no_heuristic_close",
+                        },
+                        severity="critical",
+                    ))
 
         return divs
 
@@ -125,15 +145,15 @@ class ReconciliationManagerAsync:
         except Exception:
             return 0.0
 
-    async def _cleanup_orphaned_orders(self) -> int:
+    async def _detect_orphaned_orders(self) -> List[Divergence]:
         """
-        ROB-02: Search for SL orders on Kraken that have no local position.
-        Returns number of canceled orders.
+        Detect protective orders that have no local position without cancelling.
+        A local snapshot cannot prove that a remote order is safe to mutate.
         """
         try:
             open_kraken = await self.order_executor.get_open_orders()
             if not open_kraken:
-                return 0
+                return []
             
             # Map all local active txids (buy orders, sl orders)
             active_txids = set()
@@ -144,19 +164,28 @@ class ReconciliationManagerAsync:
                 # Also include pending orders from signal handler if possible
                 # But here we focus on SL orphans
             
-            canceled = 0
+            divergences: List[Divergence] = []
             for txid, info in open_kraken.items():
                 if txid not in active_txids:
                     descr = info.get("descr", {})
-                    # We only cancel SL orders that are orphaned
+                    # Report, but never mutate, an unmatched protective order.
                     if descr.get("ordertype") in ("stop-loss", "take-profit"):
-                        logger.warning(f"🧹 Annulation SL orphelin détecté: {txid}")
-                        await self.order_executor.cancel_order(txid)
-                        canceled += 1
-            return canceled
+                        logger.warning("Protective orphan order detected; remediation blocked: %s", txid)
+                        divergences.append(Divergence(
+                            type="orphan_exchange_order",
+                            position_id=None,
+                            kraken_txid=txid,
+                            details={
+                                "reason": "Protective order has no local position",
+                                "order_type": descr.get("ordertype"),
+                                "remediation": "blocked_no_auto_cancel",
+                            },
+                            severity="critical",
+                        ))
+            return divergences
         except Exception as exc:
-            logger.error(f"❌ Erreur cleanup SL orphelins: {exc}")
-            return 0
+            logger.error("Unable to detect orphaned protective orders: %s", exc)
+            return []
 
     async def _loop(self) -> None:
         logger.info("🔄 Boucle réconciliation démarrée (async)")
@@ -197,4 +226,6 @@ class ReconciliationManagerAsync:
             "last_reconciliation": self._last.isoformat() if self._last else None,
             "check_interval": self.check_interval,
             "is_running": self._running,
+            "last_divergence_count": self._last_divergence_count,
+            "last_critical_divergence_count": self._last_critical_divergence_count,
         }

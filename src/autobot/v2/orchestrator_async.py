@@ -571,6 +571,10 @@ class OrchestratorAsync:
             "signals": {},
         }
         self._global_kill_store: Optional[GlobalKillSwitchStore] = None
+        try:
+            self._global_kill_store = GlobalKillSwitchStore()
+        except Exception:
+            logger.exception("Global kill-switch store unavailable")
         if ENABLE_SCALABILITY_GUARD:
             self.scalability_guard = ScalabilityGuard(
                 GuardThresholds(
@@ -582,10 +586,6 @@ class OrchestratorAsync:
                     reconciliation_mismatch_max=SCALING_GUARD_RECON_MISMATCH_MAX,
                 )
             )
-            try:
-                self._global_kill_store = GlobalKillSwitchStore()
-            except Exception:
-                self._global_kill_store = None
 
         self.instance_activation_manager: Optional[InstanceActivationManager] = None
         self._activation_target_instances = self.config["max_instances"] if hasattr(self, "config") else 2000
@@ -1449,6 +1449,24 @@ class OrchestratorAsync:
         self._last_capital_snapshot = snapshot
         return snapshot
 
+    async def _on_critical_reconciliation_divergence(self, divergences: List[Any]) -> None:
+        """Fail closed when runtime reconciliation lacks durable evidence."""
+
+        if not divergences:
+            return
+        reason = ",".join(sorted({str(getattr(divergence, "type", "unknown")) for divergence in divergences}))
+        if self._global_kill_store is None:
+            logger.critical("Reconciliation required but global kill-switch store is unavailable: %s", reason)
+            return
+        try:
+            self._global_kill_store.trip(
+                "reconciliation_required",
+                f"critical runtime reconciliation divergence: {reason}",
+            )
+            logger.critical("Runtime reconciliation blocked new entries: %s", reason)
+        except Exception:
+            logger.exception("Unable to persist reconciliation kill-switch state")
+
     async def _evaluate_scalability_guard(self) -> None:
         if self.scalability_guard is None:
             return
@@ -1485,7 +1503,10 @@ class OrchestratorAsync:
         reconciliation_mismatch_ratio = 0.0
         try:
             rec_stats = self.reconciliation_manager.get_stats() if self.reconciliation_manager else {}
-            if rec_stats and not rec_stats.get("is_running", True):
+            if rec_stats and (
+                not rec_stats.get("is_running", True)
+                or int(rec_stats.get("last_critical_divergence_count", 0)) > 0
+            ):
                 reconciliation_mismatch_ratio = 1.0
         except Exception:
             pass
@@ -3987,6 +4008,7 @@ class OrchestratorAsync:
         self.reconciliation_manager = ReconciliationManagerAsync(
             order_executor=self.order_executor,
             instances=lambda: dict(self._instances),
+            on_critical_divergence=self._on_critical_reconciliation_divergence,
         )
         await self.reconciliation_manager.start()
 
