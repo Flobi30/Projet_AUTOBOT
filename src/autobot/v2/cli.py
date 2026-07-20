@@ -143,6 +143,22 @@ def _build_parser() -> argparse.ArgumentParser:
     collect_research_daily.add_argument("--run-id", required=True)
     collect_research_daily.set_defaults(handler=_cmd_collect_research_daily)
 
+    collect_microstructure_forward = subparsers.add_parser(
+        "collect-microstructure-forward",
+        help="Capture bounded public Kraken top-of-book data into research-only canonical storage",
+    )
+    collect_microstructure_forward.add_argument("--run-id", required=True)
+    collect_microstructure_forward.add_argument("--symbols", required=True, help="Comma-separated explicit EUR-quote AUTOBOT symbols")
+    collect_microstructure_forward.add_argument("--raw-output-dir", default="data/research/forward/microstructure")
+    collect_microstructure_forward.add_argument("--canonical-output-dir", default="data/research/canonical/microstructure")
+    collect_microstructure_forward.add_argument("--manifest-dir", default="data/research/manifests")
+    collect_microstructure_forward.add_argument("--report-dir", default="data/research/reports/microstructure")
+    collect_microstructure_forward.add_argument("--depth-count", type=int, default=10)
+    collect_microstructure_forward.add_argument("--samples", type=int, default=1)
+    collect_microstructure_forward.add_argument("--sample-interval-seconds", type=float, default=0.0)
+    collect_microstructure_forward.add_argument("--max-runtime-seconds", type=float, default=300.0)
+    collect_microstructure_forward.set_defaults(handler=_cmd_collect_microstructure_forward)
+
     data_quality = subparsers.add_parser(
         "data-quality",
         help="Analyze CSV/Parquet research datasets for gaps, volume and book availability",
@@ -1606,6 +1622,30 @@ def _cmd_collect_research_daily(args: argparse.Namespace) -> int:
     result = run_daily_research_data_collection(
         config_path=Path(args.config),
         run_id=args.run_id,
+    )
+    _print_json(result.to_dict())
+    return 0
+
+
+def _cmd_collect_microstructure_forward(args: argparse.Namespace) -> int:
+    from autobot.v2.research.forward_microstructure_collection import (
+        ForwardMicrostructureCollectionConfig,
+        collect_forward_microstructure,
+    )
+
+    result = collect_forward_microstructure(
+        ForwardMicrostructureCollectionConfig(
+            run_id=args.run_id,
+            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+            raw_output_dir=Path(args.raw_output_dir),
+            canonical_output_dir=Path(args.canonical_output_dir),
+            manifest_dir=Path(args.manifest_dir),
+            report_dir=Path(args.report_dir),
+            depth_count=args.depth_count,
+            samples=args.samples,
+            sample_interval_seconds=args.sample_interval_seconds,
+            max_runtime_seconds=args.max_runtime_seconds,
+        )
     )
     _print_json(result.to_dict())
     return 0

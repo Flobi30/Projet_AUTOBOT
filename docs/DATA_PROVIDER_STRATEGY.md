@@ -52,6 +52,25 @@ Grid/scalping-style strategies are highly sensitive to costs. OHLCV close prices
 - latency assumptions;
 - minimum order constraints.
 
+### Forward public microstructure capture
+
+AUTOBOT now has a separate bounded `collect-microstructure-forward` job for
+the EUR-quoted Kraken research universe.  It records public top-of-book
+snapshots at a low fixed cadence, then writes a raw export plus a canonical
+snapshot with:
+
+- exchange-declared base/quote mapping (no inferred USD/EUR conversion);
+- UTC `event_time`, `available_time` and `ingestion_time`;
+- raw-file hashes, row-level source identifiers and snapshot fingerprints;
+- bid/ask, spread, depth in the explicit quote currency and collection latency;
+- an explicit `runtime_parity_proven=false` boundary.
+
+This is a cost/capacity research dataset, not a runtime market-data feed.  A
+REST snapshot may be delayed, sparse, or differ from the runtime WebSocket;
+it cannot make a strategy shadow-, paper- or live-eligible.  The scheduler
+must retain it as public research evidence and keep full order-book replay
+claims out of scope until matching event-stream data exists.
+
 AUTOBOT now separates data usability tiers:
 
 - `ready_for_ohlcv_research`: candles are usable for signal research, but not enough for cost-sensitive execution conclusions.

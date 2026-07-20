@@ -14,8 +14,8 @@ pytestmark = pytest.mark.unit
 
 def _asset_pairs_fixture():
     return {
-        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"},
-        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR"},
+        "TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR", "base": "TRX", "quote": "ZEUR"},
+        "XXRPZEUR": {"altname": "XRPEUR", "wsname": "XRP/EUR", "base": "XXRP", "quote": "ZEUR"},
     }
 
 
@@ -55,6 +55,14 @@ def test_spread_depth_recorder_uses_public_depth_payload_without_private_keys(tm
     assert snapshot.spread_bps == pytest.approx((1.0 / 100.5) * 10_000.0)
     assert snapshot.bid_depth_eur == pytest.approx(200.0)
     assert snapshot.ask_depth_eur == pytest.approx(303.0)
+    assert snapshot.base_asset == "TRX"
+    assert snapshot.quote_asset == "EUR"
+    assert snapshot.market_mapping_status == "EXPLICIT"
+    assert snapshot.event_time == snapshot.timestamp_exchange
+    assert snapshot.available_time == snapshot.ingestion_time == snapshot.timestamp_local
+    assert snapshot.temporal_status == "FORWARD_PUBLIC_REST_INGESTED"
+    assert snapshot.runtime_parity_proven is False
+    assert snapshot.source_snapshot_id.startswith("kraken_depth_")
     assert result.csv_path
     assert result.markdown_report_path
     assert "No API key is read or exposed." in result.safety_notes
@@ -143,3 +151,32 @@ def test_spread_depth_recorder_stops_cleanly_at_configured_deadline(tmp_path):
     assert len(result.snapshots) == 1
     assert result.stop_reason == "max_runtime_seconds_elapsed"
     assert "Stop reason: `max_runtime_seconds_elapsed`" in Path(result.markdown_report_path).read_text(encoding="utf-8")
+
+
+def test_spread_depth_recorder_rejects_unmapped_or_non_eur_depth_without_implicit_conversion(tmp_path):
+    def fetcher(pair, depth_count):
+        return {
+            "error": [],
+            "result": {
+                pair: {
+                    "bids": [["100.0", "2.0", "1780272000"]],
+                    "asks": [["100.2", "2.0", "1780272001"]],
+                }
+            },
+        }
+
+    with pytest.raises(ValueError, match="explicit Kraken base/quote mapping"):
+        record_spread_depth(
+            SpreadDepthRecorderConfig(run_id="pytest_unmapped", symbols=("TRXEUR",), output_dir=tmp_path),
+            fetcher=fetcher,
+            asset_pairs_fetcher=lambda: {"TRXEUR": {"altname": "TRXEUR", "wsname": "TRX/EUR"}},
+        )
+
+    with pytest.raises(ValueError, match="EUR-quote only"):
+        record_spread_depth(
+            SpreadDepthRecorderConfig(run_id="pytest_usd", symbols=("TRXUSD",), output_dir=tmp_path),
+            fetcher=fetcher,
+            asset_pairs_fetcher=lambda: {
+                "TRXUSD": {"altname": "TRXUSD", "wsname": "TRX/USD", "base": "TRX", "quote": "ZUSD"}
+            },
+        )

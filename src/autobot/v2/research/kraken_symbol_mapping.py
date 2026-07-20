@@ -47,6 +47,8 @@ KRAKEN_EXPLICIT_ASSET_ALIASES = {
     "AAVE": "AAVE",
     "ZEUR": "EUR",
     "EUR": "EUR",
+    "ZUSD": "USD",
+    "USD": "USD",
 }
 
 # Central AUTOBOT research universe fallback. Runtime-configured TRADING_PAIRS

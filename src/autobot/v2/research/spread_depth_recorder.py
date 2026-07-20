@@ -7,6 +7,7 @@ private keys, never submits orders, and is not wired into runtime trading.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import statistics
 import time
@@ -26,13 +27,33 @@ from .symbol_normalization import normalize_research_symbol
 
 
 KRAKEN_REST_DEPTH_URL = "https://api.kraken.com/0/public/Depth"
+MAX_EXCHANGE_CLOCK_AHEAD_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
 class SpreadDepthSnapshot:
+    """One forward-captured public top-of-book observation.
+
+    ``timestamp_local`` and ``timestamp_exchange`` are retained for legacy
+    CSV readers.  The explicit point-in-time fields are the canonical source
+    for any new research consumer.  A REST capture is useful research evidence
+    but does *not* prove runtime-feed parity, so it cannot by itself authorize
+    shadow, paper or live activity.
+    """
+
     timestamp_local: str
     timestamp_exchange: str | None
+    event_time: str
+    available_time: str
+    ingestion_time: str
     symbol: str
+    base_asset: str
+    quote_asset: str
+    market_mapping_status: str
+    source_snapshot_id: str
+    temporal_status: str
+    runtime_parity_proven: bool
+    exchange_clock_ahead_seconds: float
     source: str
     best_bid: float
     best_ask: float
@@ -159,7 +180,7 @@ def record_spread_depth(
                 snapshots.append(
                     _snapshot_from_depth_payload(
                         payload,
-                        symbol=canonical_symbol,
+                        mapping=mapping,
                         provider=config.provider,
                         latency_ms=latency_ms,
                     )
@@ -227,7 +248,17 @@ def write_spread_depth_recording(
                 fieldnames=[
                     "timestamp_local",
                     "timestamp_exchange",
+                    "event_time",
+                    "available_time",
+                    "ingestion_time",
                     "symbol",
+                    "base_asset",
+                    "quote_asset",
+                    "market_mapping_status",
+                    "source_snapshot_id",
+                    "temporal_status",
+                    "runtime_parity_proven",
+                    "exchange_clock_ahead_seconds",
                     "source",
                     "best_bid",
                     "best_ask",
@@ -296,10 +327,21 @@ def render_spread_depth_report(result: SpreadDepthRecorderResult) -> str:
 def _snapshot_from_depth_payload(
     payload: Mapping[str, Any],
     *,
-    symbol: str,
+    mapping: KrakenPublicPairMapping,
     provider: str,
     latency_ms: float,
 ) -> SpreadDepthSnapshot:
+    if mapping.market_mapping_status != "EXPLICIT" or not mapping.base_asset or not mapping.quote_asset:
+        raise ValueError(
+            f"explicit Kraken base/quote mapping is required for {mapping.autobot_symbol}; "
+            "refusing an implicit depth-currency conversion"
+        )
+    if mapping.quote_asset != "EUR":
+        raise ValueError(
+            f"spread/depth recorder is EUR-quote only for now; {mapping.autobot_symbol} "
+            f"has explicit quote {mapping.quote_asset} and cannot be silently converted"
+        )
+    symbol = mapping.autobot_symbol
     result = payload.get("result") or {}
     pair_key = next(iter(result), None)
     if pair_key is None:
@@ -315,10 +357,43 @@ def _snapshot_from_depth_payload(
         raise ValueError(f"invalid bid/ask for {symbol}")
     mid = (best_bid + best_ask) / 2.0
     timestamp_exchange = _book_timestamp(bids[0], asks[0])
+    local_received_at = datetime.now(timezone.utc)
+    event_at = _parse_timestamp(timestamp_exchange) if timestamp_exchange else local_received_at
+    clock_ahead_seconds = max(0.0, (event_at - local_received_at).total_seconds())
+    if clock_ahead_seconds > MAX_EXCHANGE_CLOCK_AHEAD_SECONDS:
+        raise ValueError(f"future exchange timestamp rejected for {symbol}")
+    # Public book timestamps are whole seconds while the local receive clock
+    # has microsecond precision.  A small exchange/local clock skew is normal;
+    # normalize *forward* to the later timestamp so research never treats a
+    # quote as known before the exchange says it existed.
+    ingestion_at = max(local_received_at, event_at)
+    # The REST response becomes usable only when AUTOBOT has received it.
+    # Kraken does not expose a separate public availability timestamp, so the
+    # conservative availability bound is this local ingestion instant.
+    ingestion_time = ingestion_at.isoformat()
+    source_snapshot_id = _source_snapshot_id(
+        provider=provider,
+        mapping=mapping,
+        event_time=event_at.isoformat(),
+        best_bid=best_bid,
+        best_ask=best_ask,
+        bid_depth_eur=_depth_eur(bids),
+        ask_depth_eur=_depth_eur(asks),
+    )
     return SpreadDepthSnapshot(
-        timestamp_local=datetime.now(timezone.utc).isoformat(),
+        timestamp_local=local_received_at.isoformat(),
         timestamp_exchange=timestamp_exchange,
+        event_time=event_at.isoformat(),
+        available_time=ingestion_time,
+        ingestion_time=ingestion_time,
         symbol=symbol,
+        base_asset=mapping.base_asset,
+        quote_asset=mapping.quote_asset,
+        market_mapping_status=mapping.market_mapping_status,
+        source_snapshot_id=source_snapshot_id,
+        temporal_status="FORWARD_PUBLIC_REST_INGESTED",
+        runtime_parity_proven=False,
+        exchange_clock_ahead_seconds=clock_ahead_seconds,
         source=provider,
         best_bid=best_bid,
         best_ask=best_ask,
@@ -354,6 +429,41 @@ def _book_timestamp(*rows: Sequence[Any]) -> str | None:
     if not timestamps:
         return None
     return datetime.fromtimestamp(max(timestamps), tz=timezone.utc).isoformat()
+
+
+def _parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("exchange timestamp must be timezone-aware")
+    return parsed.astimezone(timezone.utc)
+
+
+def _source_snapshot_id(
+    *,
+    provider: str,
+    mapping: KrakenPublicPairMapping,
+    event_time: str,
+    best_bid: float,
+    best_ask: float,
+    bid_depth_eur: float,
+    ask_depth_eur: float,
+) -> str:
+    """Return a deterministic identity for an economic depth observation."""
+
+    payload = {
+        "provider": provider,
+        "symbol": mapping.autobot_symbol,
+        "kraken_symbol": mapping.kraken_ohlcv_symbol,
+        "base_asset": mapping.base_asset,
+        "quote_asset": mapping.quote_asset,
+        "event_time": event_time,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "bid_depth_eur": bid_depth_eur,
+        "ask_depth_eur": ask_depth_eur,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f"kraken_depth_{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:24]}"
 
 
 def _summary_by_symbol(snapshots: Sequence[SpreadDepthSnapshot]) -> dict[str, dict[str, float]]:

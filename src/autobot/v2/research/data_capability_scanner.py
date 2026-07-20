@@ -539,17 +539,29 @@ def _multi_symbol_ohlcv_capability(ohlcv: DataCapability) -> DataCapability:
 
 
 def _scan_spread_depth(files: Sequence[Path]) -> dict[str, DataCapability]:
-    csv_files = [path for path in files if path.suffix.lower() == ".csv" and _looks_like_spread_depth(path)]
+    all_csv_files = [path for path in files if path.suffix.lower() == ".csv" and _looks_like_spread_depth(path)]
+    # When a forward-captured canonical store exists, prefer it over raw daily
+    # captures.  Counting both would inflate sample coverage and let legacy
+    # rows with unknown temporal provenance masquerade as canonical evidence.
+    canonical_files = [path for path in all_csv_files if _is_canonical_microstructure_path(path)]
+    csv_files = canonical_files or all_csv_files
     symbols: set[str] = set()
     starts: list[str] = []
     ends: list[str] = []
     row_count = 0
     has_depth = False
     has_spread = False
+    canonical_forward_rows = 0
     for path in csv_files:
         for row in _read_csv_sample(path, max_rows=None):
             symbol = str(row.get("symbol") or _symbol_from_filename(path)).strip().upper()
-            timestamp = str(row.get("timestamp_local") or row.get("timestamp") or row.get("time") or "").strip()
+            timestamp = str(
+                row.get("event_time")
+                or row.get("timestamp_local")
+                or row.get("timestamp")
+                or row.get("time")
+                or ""
+            ).strip()
             if symbol:
                 symbols.add(symbol)
             if timestamp:
@@ -557,8 +569,16 @@ def _scan_spread_depth(files: Sequence[Path]) -> dict[str, DataCapability]:
                 ends.append(timestamp)
             if row.get("spread_bps") not in (None, ""):
                 has_spread = True
+            if row.get("bid_depth_quote") not in (None, "") or row.get("ask_depth_quote") not in (None, ""):
+                has_depth = True
             if row.get("bid_depth_eur") not in (None, "") or row.get("ask_depth_eur") not in (None, ""):
                 has_depth = True
+            if (
+                str(row.get("temporal_status") or "") == "FORWARD_PUBLIC_REST_INGESTED"
+                and str(row.get("market_mapping_status") or "") == "EXPLICIT"
+                and str(row.get("runtime_parity_proven") or "").lower() in {"false", "0"}
+            ):
+                canonical_forward_rows += 1
             row_count += 1
     base = {
         "source_paths": tuple(str(path) for path in csv_files[:50]),
@@ -570,23 +590,41 @@ def _scan_spread_depth(files: Sequence[Path]) -> dict[str, DataCapability]:
         "storage_size_bytes": _storage_size(csv_files),
         "freshness_seconds": _freshness_seconds(csv_files),
     }
+    quality_status = (
+        "forward_captured_research_only"
+        if canonical_forward_rows
+        else "sampled_public_top_of_book"
+        if has_spread
+        else "missing"
+    )
+    depth_quality_status = (
+        "forward_captured_research_only"
+        if canonical_forward_rows
+        else "sampled_top_of_book_depth"
+        if has_depth
+        else "missing"
+    )
+    temporal_notes = (
+        "canonical_forward_rest_capture_no_runtime_parity",
+        "top_of_book_depth_only_not_full_replay",
+    ) if canonical_forward_rows else ("public_depth_snapshot_history",)
     return {
         "spread_history": DataCapability(
             capability_id="spread_history",
             available=has_spread,
-            quality_status="sampled_public_top_of_book" if has_spread else "missing",
+            quality_status=quality_status,
             alpha_families_unlocked=ALPHA_UNLOCKS["spread_history"] if has_spread else (),
             blockers=() if has_spread else ("spread_history_missing",),
-            notes=("public_depth_snapshot_history",) if has_spread else (),
+            notes=temporal_notes if has_spread else (),
             **base,
         ),
         "orderbook_depth_snapshots": DataCapability(
             capability_id="orderbook_depth_snapshots",
             available=has_depth,
-            quality_status="sampled_top_of_book_depth" if has_depth else "missing",
+            quality_status=depth_quality_status,
             alpha_families_unlocked=ALPHA_UNLOCKS["orderbook_depth_snapshots"] if has_depth else (),
             blockers=() if has_depth else ("orderbook_depth_missing",),
-            notes=("top_of_book_depth_only_not_full_replay",) if has_depth else (),
+            notes=temporal_notes if has_depth else (),
             **base,
         ),
     }
@@ -1313,6 +1351,23 @@ def _looks_like_spread_depth(path: Path) -> bool:
     for row in _read_csv_sample(path, max_rows=1):
         fields = set(row)
         return "spread_bps" in fields or {"best_bid", "best_ask"}.issubset(fields)
+    return False
+
+
+def _is_canonical_microstructure_path(path: Path) -> bool:
+    parts = {part.lower() for part in path.parts}
+    if "canonical" in parts and "microstructure" in parts:
+        return True
+    for row in _read_csv_sample(path, max_rows=1):
+        fields = set(row)
+        return {
+            "schema_version",
+            "source_snapshot_id",
+            "event_time",
+            "available_time",
+            "ingestion_time",
+            "data_quality_status",
+        }.issubset(fields)
     return False
 
 
