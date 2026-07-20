@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
 import math
 from typing import Mapping, Sequence
 
@@ -112,6 +114,7 @@ class CapacityObservation:
 
     market: MarketIdentity
     source_snapshot_id: str
+    source_snapshot_fingerprint: str
     event_time: datetime
     available_time: datetime
     ingestion_time: datetime
@@ -124,6 +127,7 @@ class CapacityObservation:
         source_snapshot_id = str(self.source_snapshot_id).strip()
         if not source_snapshot_id:
             raise PortfolioConstructionError("capacity observation source_snapshot_id is required")
+        source_snapshot_fingerprint = _fingerprint(self.source_snapshot_fingerprint, "capacity source_snapshot_fingerprint")
         event_time = _utc(self.event_time, "capacity event_time")
         available_time = _utc(self.available_time, "capacity available_time")
         ingestion_time = _utc(self.ingestion_time, "capacity ingestion_time")
@@ -139,6 +143,7 @@ class CapacityObservation:
             observed_volume_eur=self.observed_volume_eur,
         )
         object.__setattr__(self, "source_snapshot_id", source_snapshot_id)
+        object.__setattr__(self, "source_snapshot_fingerprint", source_snapshot_fingerprint)
         object.__setattr__(self, "event_time", event_time)
         object.__setattr__(self, "available_time", available_time)
         object.__setattr__(self, "ingestion_time", ingestion_time)
@@ -148,6 +153,29 @@ class CapacityObservation:
         """Explicit convenience alias; never infer a market from this symbol."""
 
         return self.market.symbol
+
+    @property
+    def fingerprint(self) -> str:
+        """Immutable identity of the exact capacity evidence consumed."""
+
+        payload = {
+            "market": {
+                "exchange": self.market.exchange,
+                "market_type": self.market.market_type,
+                "symbol": self.market.symbol,
+                "base_asset": self.market.base_asset,
+                "quote_asset": self.market.quote_asset,
+            },
+            "source_snapshot_id": self.source_snapshot_id,
+            "source_snapshot_fingerprint": self.source_snapshot_fingerprint,
+            "event_time": self.event_time.isoformat(),
+            "available_time": self.available_time.isoformat(),
+            "ingestion_time": self.ingestion_time.isoformat(),
+            "observed_liquidity_eur": self.observed_liquidity_eur,
+            "observed_volume_eur": self.observed_volume_eur,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -208,6 +236,7 @@ class PortfolioCapacityReview:
     status: str
     reasons: tuple[str, ...]
     capacity_source_snapshot_ids: tuple[str, ...] = ()
+    capacity_evidence_fingerprints: tuple[str, ...] = ()
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -227,6 +256,12 @@ class PortfolioCapacityReview:
         if not all(snapshot_ids) or len(snapshot_ids) != len(set(snapshot_ids)):
             raise PortfolioConstructionError("capacity source snapshot ids must be non-empty and unique")
         object.__setattr__(self, "capacity_source_snapshot_ids", tuple(sorted(snapshot_ids)))
+        evidence_fingerprints = tuple(
+            _fingerprint(value, "capacity evidence fingerprint") for value in self.capacity_evidence_fingerprints
+        )
+        if len(evidence_fingerprints) != len(set(evidence_fingerprints)):
+            raise PortfolioConstructionError("capacity evidence fingerprints must be unique")
+        object.__setattr__(self, "capacity_evidence_fingerprints", tuple(sorted(evidence_fingerprints)))
 
 
 def build_target_portfolio(
@@ -504,11 +539,13 @@ def review_target_portfolio_capacity(
             status="NO_TARGET_EXPOSURE",
             reasons=("target_contains_no_investable_weight",),
             capacity_source_snapshot_ids=(),
+            capacity_evidence_fingerprints=(),
         )
 
     estimates: list[CapacityEstimate] = []
     reasons: list[str] = []
     source_snapshot_ids: set[str] = set()
+    evidence_fingerprints: set[str] = set()
     for symbol, desired_notional in sorted(target_notionals.items()):
         target_market = target.source_markets.get(symbol)
         supplied_market = normalized_markets.get(symbol)
@@ -622,6 +659,7 @@ def review_target_portfolio_capacity(
             reasons.append(f"{symbol}:capacity_observation_stale")
             continue
         source_snapshot_ids.add(observation.source_snapshot_id)
+        evidence_fingerprints.add(observation.fingerprint)
         estimate = estimate_capacity(
             CapacityInput(
                 symbol=symbol,
@@ -651,7 +689,15 @@ def review_target_portfolio_capacity(
         status=status,
         reasons=tuple(reasons) or ("all_target_notionals_within_observed_participation_limit",),
         capacity_source_snapshot_ids=tuple(sorted(source_snapshot_ids)),
+        capacity_evidence_fingerprints=tuple(sorted(evidence_fingerprints)),
     )
+
+
+def _fingerprint(value: object, field_name: str) -> str:
+    normalized = str(value).strip().lower()
+    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        raise PortfolioConstructionError(f"{field_name} must be a SHA-256 hex digest")
+    return normalized
 
 
 def _signal_rejection_reason(

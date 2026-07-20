@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 
 import pytest
 
@@ -10,6 +11,7 @@ from autobot.v2.research.portfolio_construction import (
     CapacityInput,
     CapacityObservation,
     PortfolioConstructionConfig,
+    PortfolioConstructionError,
     SignalRejection,
     build_target_portfolio,
     estimate_capacity,
@@ -66,6 +68,9 @@ def _capacity_observation(
     return CapacityObservation(
         market=market or _spot_market(symbol),
         source_snapshot_id=source_snapshot_id or f"microstructure-{symbol.lower()}",
+        source_snapshot_fingerprint=sha256(
+            (source_snapshot_id or f"microstructure-{symbol.lower()}").encode("utf-8")
+        ).hexdigest(),
         event_time=event_time or at,
         available_time=effective_available_at,
         ingestion_time=ingestion_at or effective_available_at,
@@ -317,6 +322,7 @@ def test_target_capacity_review_requires_fresh_point_in_time_observations():
     assert ready.status == "CAPACITY_OK"
     assert ready.target_notionals_eur == {"BTCEUR": pytest.approx(350.0)}
     assert ready.capacity_source_snapshot_ids == ("microstructure-btceur",)
+    assert len(ready.capacity_evidence_fingerprints) == 1
     assert ready.paper_capital_allowed is False
     assert ready.live_allowed is False
     assert stale.status == "WAITING_FOR_MORE_DATA"
@@ -364,6 +370,26 @@ def test_target_capacity_review_fails_closed_without_matching_explicit_market_id
     assert mismatched.reasons == ("BTCEUR:capacity_expected_market_identity_mismatch",)
     assert missing.capacity_source_snapshot_ids == ()
     assert mismatched.capacity_source_snapshot_ids == ()
+
+
+def test_capacity_observation_fingerprint_binds_snapshot_market_time_and_liquidity():
+    now = datetime(2026, 7, 11, 12, tzinfo=timezone.utc)
+    first = _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=20_000.0)
+    same = _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=20_000.0)
+    changed = _capacity_observation("BTCEUR", at=now, observed_liquidity_eur=21_000.0)
+
+    assert first.fingerprint == same.fingerprint
+    assert changed.fingerprint != first.fingerprint
+    with pytest.raises(PortfolioConstructionError, match="SHA-256"):
+        CapacityObservation(
+            market=_spot_market("BTCEUR"),
+            source_snapshot_id="microstructure-btceur",
+            source_snapshot_fingerprint="not-a-digest",
+            event_time=now,
+            available_time=now,
+            ingestion_time=now,
+            observed_liquidity_eur=20_000.0,
+        )
 
 
 def test_target_capacity_review_blocks_any_symbol_that_exceeds_or_lacks_capacity_data():

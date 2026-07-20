@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,7 @@ def _capacity_observation(*, at: datetime | None = None, market: MarketIdentity 
     return CapacityObservation(
         market=identity,
         source_snapshot_id="microstructure-contract-shadow",
+        source_snapshot_fingerprint=sha256(b"microstructure-contract-shadow").hexdigest(),
         event_time=timestamp,
         available_time=timestamp,
         ingestion_time=timestamp,
