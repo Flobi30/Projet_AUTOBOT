@@ -3363,12 +3363,33 @@ class OrchestratorAsync:
             kwargs["signal_id"] = signal_id or None
             kwargs["regime"] = str((metadata.get("regime_context") or {}).get("regime") or metadata.get("regime") or "")
 
-        result = await self.order_executor.execute_market_order(
-            symbol,
-            OrderSide.SELL,
-            float(volume),
-            **kwargs,
-        )
+        try:
+            result = await self.order_executor.execute_market_order(
+                symbol,
+                OrderSide.SELL,
+                float(volume),
+                **kwargs,
+            )
+        except Exception as exc:
+            # A timeout/transport failure after SENT is an uncertain execution
+            # state, not a rejected order.  Preserve the non-terminal lifecycle
+            # so duplicate protection and later reconciliation remain active.
+            await lifecycle.transition(
+                order.client_order_id,
+                "UNKNOWN",
+                "auto_exit_execution_exception_requires_reconciliation",
+                source="orchestrator_auto_exit",
+                last_error_message=str(exc),
+            )
+            logger.warning(
+                "Exit %s moved to reconciliation after executor exception: inst=%s pos=%s symbol=%s error=%s",
+                reason,
+                instance.id,
+                pos_id,
+                symbol,
+                exc,
+            )
+            return False
         if not getattr(result, "success", False):
             await lifecycle.transition(
                 order.client_order_id,
@@ -3384,6 +3405,22 @@ class OrchestratorAsync:
                 pos_id,
                 symbol,
                 getattr(result, "error", None),
+            )
+            return False
+
+        acknowledged = await lifecycle.transition(
+            order.client_order_id,
+            "ACK",
+            "auto_exit_execution_ack",
+            source="orchestrator_auto_exit",
+            exchange_order_id=getattr(result, "txid", None),
+        )
+        if not acknowledged:
+            logger.warning(
+                "Exit %s blocked: canonical OMS ACK persistence failed inst=%s pos=%s",
+                reason,
+                instance.id,
+                pos_id,
             )
             return False
 
@@ -3404,16 +3441,61 @@ class OrchestratorAsync:
                 symbol,
             )
             return False
-        if executed_volume < float(volume) - 1e-12:
+        if executed_volume > float(volume) + 1e-12:
             await lifecycle.transition(
+                order.client_order_id,
+                "UNKNOWN",
+                "auto_exit_overfill_requires_reconciliation",
+                source="orchestrator_auto_exit",
+                exchange_order_id=getattr(result, "txid", None),
+                filled_qty=executed_volume,
+                avg_fill_price=getattr(result, "executed_price", None),
+            )
+            logger.warning(
+                "Exit %s blocked after overfill: inst=%s pos=%s requested=%.12f filled=%.12f",
+                reason,
+                instance.id,
+                pos_id,
+                float(volume),
+                executed_volume,
+            )
+            return False
+        executed_price = self._safe_positive_float(getattr(result, "executed_price", None))
+        if executed_price is None:
+            await lifecycle.transition(
+                order.client_order_id,
+                "UNKNOWN",
+                "auto_exit_missing_fill_price_requires_reconciliation",
+                source="orchestrator_auto_exit",
+                exchange_order_id=getattr(result, "txid", None),
+                filled_qty=executed_volume,
+            )
+            logger.warning(
+                "Exit %s blocked after missing fill price: inst=%s pos=%s symbol=%s",
+                reason,
+                instance.id,
+                pos_id,
+                symbol,
+            )
+            return False
+        if executed_volume < float(volume) - 1e-12:
+            partial_recorded = await lifecycle.transition(
                 order.client_order_id,
                 "PARTIAL",
                 "auto_exit_partial_fill_requires_reconciliation",
                 source="orchestrator_auto_exit",
                 exchange_order_id=getattr(result, "txid", None),
                 filled_qty=executed_volume,
-                avg_fill_price=getattr(result, "executed_price", None),
+                avg_fill_price=executed_price,
             )
+            if not partial_recorded:
+                logger.warning(
+                    "Exit %s blocked: partial-fill OMS persistence failed inst=%s pos=%s",
+                    reason,
+                    instance.id,
+                    pos_id,
+                )
+                return False
             logger.warning(
                 "Exit %s blocked after partial fill: inst=%s pos=%s requested=%.12f filled=%.12f",
                 reason,
@@ -3424,23 +3506,23 @@ class OrchestratorAsync:
             )
             return False
 
-        await lifecycle.transition(
-            order.client_order_id,
-            "ACK",
-            "auto_exit_execution_ack",
-            source="orchestrator_auto_exit",
-            exchange_order_id=getattr(result, "txid", None),
-        )
-        await lifecycle.transition(
+        filled = await lifecycle.transition(
             order.client_order_id,
             "FILLED",
             "auto_exit_full_fill",
             source="orchestrator_auto_exit",
             exchange_order_id=getattr(result, "txid", None),
             filled_qty=executed_volume,
-            avg_fill_price=getattr(result, "executed_price", None),
+            avg_fill_price=executed_price,
         )
-        executed_price = float(getattr(result, "executed_price", 0.0) or current_price)
+        if not filled:
+            logger.warning(
+                "Exit %s blocked: canonical OMS fill persistence failed inst=%s pos=%s",
+                reason,
+                instance.id,
+                pos_id,
+            )
+            return False
         realized_pnl = await instance.close_position(
             pos_id,
             executed_price,

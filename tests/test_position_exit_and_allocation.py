@@ -187,6 +187,124 @@ async def test_paper_take_profit_is_blocked_when_oms_send_transition_fails():
     assert instance.close_calls == []
 
 
+@pytest.mark.asyncio
+async def test_paper_take_profit_is_blocked_when_oms_ack_transition_fails():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = PaperTradingExecutor()
+    instance = _Instance()
+    original_transition = instance._persistence.transition_order_state
+
+    async def reject_ack(**kwargs):
+        if kwargs.get("to_status") == "ACK":
+            instance._persistence.transitions.append(dict(kwargs))
+            return False
+        return await original_transition(**kwargs)
+
+    instance._persistence.transition_order_state = reject_ack
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "ACK"]
+
+    second_attempt = await orch._check_exit_conditions(instance)
+
+    assert second_attempt == 0
+    assert len(orch.order_executor.market_orders) == 1
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_is_blocked_when_oms_fill_transition_fails():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = PaperTradingExecutor()
+    instance = _Instance()
+    original_transition = instance._persistence.transition_order_state
+
+    async def reject_fill(**kwargs):
+        if kwargs.get("to_status") == "FILLED":
+            instance._persistence.transitions.append(dict(kwargs))
+            return False
+        return await original_transition(**kwargs)
+
+    instance._persistence.transition_order_state = reject_fill
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "ACK", "FILLED"]
+
+    second_attempt = await orch._check_exit_conditions(instance)
+
+    assert second_attempt == 0
+    assert len(orch.order_executor.market_orders) == 1
+
+
+class _TimeoutPaperTradingExecutor(PaperTradingExecutor):
+    async def execute_market_order(self, symbol, side, volume, **kwargs):
+        self.market_orders.append((symbol, side, volume, kwargs))
+        raise TimeoutError("simulated executor timeout")
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_timeout_is_quarantined_without_closing_position():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = _TimeoutPaperTradingExecutor()
+    instance = _Instance()
+
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "UNKNOWN"]
+
+    second_attempt = await orch._check_exit_conditions(instance)
+
+    assert second_attempt == 0
+    assert len(orch.order_executor.market_orders) == 1
+
+
+class _MissingPricePaperTradingExecutor(PaperTradingExecutor):
+    async def execute_market_order(self, symbol, side, volume, **kwargs):
+        self.market_orders.append((symbol, side, volume, kwargs))
+        return OrderResult(
+            success=True,
+            txid="missing-price-sell-1",
+            executed_volume=volume,
+            executed_price=0.0,
+            fees=0.20,
+            liquidity="taker",
+        )
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_missing_fill_price_is_quarantined_without_pnl():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = _MissingPricePaperTradingExecutor()
+    instance = _Instance()
+
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "ACK", "UNKNOWN"]
+
+
 class _PartialPaperTradingExecutor(PaperTradingExecutor):
     async def execute_market_order(self, symbol, side, volume, **kwargs):
         self.market_orders.append((symbol, side, volume, kwargs))
@@ -214,7 +332,7 @@ async def test_paper_take_profit_partial_fill_blocks_full_position_close():
     assert closed == 0
     assert instance.close_calls == []
     assert instance._persistence.rows == []
-    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "PARTIAL"]
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "ACK", "PARTIAL"]
 
     second_attempt = await orch._check_exit_conditions(instance)
 
