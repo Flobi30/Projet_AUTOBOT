@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .instance_async import TradingInstanceAsync
-from .orchestrator import InstanceConfig
+from .instance_config import InstanceConfig
 
 
 class OrchestratorCore:

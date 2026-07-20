@@ -74,6 +74,9 @@ class Position:
     metadata: Optional[Dict[str, Any]] = None
 
 
+from .instance_models import InstanceStatus, LeverageLevel, Position, Trade
+
+
 class TradingInstance:
     """
     Instance de trading autonome gérée par l'Orchestrateur.

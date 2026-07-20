@@ -42,7 +42,7 @@ from .order_router import OrderRouter, get_order_router, OrderPriority
 from .stop_loss_manager_async import StopLossManagerAsync
 from .reconciliation_async import ReconciliationManagerAsync
 from .validator import ValidatorEngine, ValidationResult, ValidationStatus
-from .orchestrator import InstanceConfig  # Reuse config dataclass
+from .instance_config import InstanceConfig
 from .risk_manager import get_risk_manager
 from .persistence import close_persistence, get_persistence
 from .hot_path_optimizer import HotPathOptimizer, get_hot_path_optimizer

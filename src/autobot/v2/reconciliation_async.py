@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from .order_executor_async import OrderExecutorAsync, OrderStatus
-from .reconciliation import Divergence
+from .reconciliation_models import Divergence
 
 logger = logging.getLogger(__name__)
 

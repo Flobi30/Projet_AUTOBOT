@@ -46,7 +46,7 @@ if _src_path.exists() and _src_path.is_dir():
 from autobot.v2.utils import setup_structured_logging  # noqa: E402
 
 from autobot.v2.orchestrator_async import OrchestratorAsync
-from autobot.v2.orchestrator import InstanceConfig
+from autobot.v2.instance_config import InstanceConfig
 from autobot.v2.os_tuning import OSTuner
 from autobot.v2.api.dashboard import DashboardServer
 from autobot.v2.order_executor_async import OrderExecutorAsync

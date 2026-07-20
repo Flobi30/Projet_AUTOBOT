@@ -34,6 +34,9 @@ class Divergence:
     severity: str  # 'critical', 'warning', 'info'
 
 
+from .reconciliation_models import Divergence
+
+
 class ReconciliationManager:
     """
     Gestionnaire de réconciliation état local ↔ Kraken.

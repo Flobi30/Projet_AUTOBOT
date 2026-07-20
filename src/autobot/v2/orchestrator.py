@@ -93,6 +93,9 @@ class InstanceConfig:
     grid_config: Optional[Dict] = None
     
 
+from .instance_config import InstanceConfig
+
+
 class Orchestrator:
     """
     Orchestrateur principal AUTOBOT V2.

@@ -36,7 +36,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from .websocket_client import TickerData
 from .persistence import get_persistence
-from .instance import (
+from .instance_models import (
     InstanceStatus,
     LeverageLevel,
     Position,

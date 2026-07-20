@@ -24,9 +24,9 @@ __all__ = [
 
 _LAZY_EXPORTS = {
     "Orchestrator": ("orchestrator", "Orchestrator"),
-    "InstanceConfig": ("orchestrator", "InstanceConfig"),
+    "InstanceConfig": ("instance_config", "InstanceConfig"),
     "TradingInstance": ("instance", "TradingInstance"),
-    "InstanceStatus": ("instance", "InstanceStatus"),
+    "InstanceStatus": ("instance_models", "InstanceStatus"),
     "ValidatorEngine": ("validator", "ValidatorEngine"),
     "ValidationResult": ("validator", "ValidationResult"),
     "ValidationStatus": ("validator", "ValidationStatus"),
