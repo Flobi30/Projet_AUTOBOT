@@ -34,11 +34,16 @@ def test_funding_basis_statistical_validation_is_deterministic_and_never_promote
     assert first.probabilistic_sharpe == second.probabilistic_sharpe
     assert first.robustness["monte_carlo"] == second.robustness["monte_carlo"]
     assert first.robustness["stress_scenarios"] == second.robustness["stress_scenarios"]
+    assert first.statistical_gate == second.statistical_gate
     assert first.trade_count == 60
     assert first.assumed_trial_count == 12
     assert first.deflated_sharpe["research_only"] is True
     assert first.probabilistic_sharpe["paper_candidate_allowed"] is False
     assert first.robustness["live_promotion_allowed"] is False
+    assert first.statistical_gate["research_only"] is True
+    assert first.statistical_gate["paper_capital_allowed"] is False
+    assert first.statistical_gate["live_allowed"] is False
+    assert first.statistical_gate["promotable"] is False
     assert first.paper_capital_allowed is False
     assert first.live_allowed is False
     assert first.promotable is False
@@ -55,6 +60,7 @@ def test_funding_basis_statistical_validation_requires_walk_forward_first():
     assert report.reasons == ("walk_forward_gate_not_passed",)
     assert report.trade_count == 0
     assert report.deflated_sharpe == {}
+    assert report.statistical_gate == {}
     assert report.paper_capital_allowed is False
 
 

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -242,5 +243,68 @@ def test_alpha_runner_statistical_gate_stays_blocked_without_walk_forward_pass(t
     assert gate.gate == "STRESS_MONTE_CARLO"
     assert gate.status == "REJECTED"
     assert "walk_forward_gate_not_passed" in gate.reasons
+    assert gate.safety["paper_capital_allowed"] is False
+    assert gate.safety["live_allowed"] is False
+
+
+def test_alpha_runner_requires_consolidated_statistical_gate_before_keep_research(tmp_path, monkeypatch):
+    """A legacy validation decision cannot bypass the consolidated summary."""
+    spot_dir = _spot_data(tmp_path)
+    snapshot = _derivatives_snapshot(tmp_path, status="READY")
+    config = AlphaHypothesisRunnerConfig(
+        run_id="pytest_funding_runner_consolidated_gate",
+        hypothesis_id="funding_basis",
+        mode="full_research",
+        data_paths=(spot_dir,),
+        derivatives_feature_snapshot_manifest=snapshot,
+        template_id="funding_extreme_reversion",
+        symbols=("BTCZEUR",),
+        max_variants=1,
+        max_symbols=1,
+    )
+    walk_forward = SimpleNamespace(
+        decision="KEEP_RESEARCH",
+        oos_trades=(),
+        folds=(object(),),
+        overall_oos=SimpleNamespace(to_dict=lambda: {"trade_count": 60}),
+    )
+    validation = SimpleNamespace(
+        decision="KEEP_RESEARCH",
+        reasons=("legacy_validation_would_keep_research",),
+        trade_count=60,
+        assumed_trial_count=1,
+        deflated_sharpe={"acceptable": True},
+        probabilistic_sharpe={"acceptable": True},
+        robustness={"verdict": "observation_ready_not_promoted"},
+        statistical_gate={
+            "decision": "RESEARCH_BLOCKED",
+            "blockers": ["net_pnl_not_positive_after_costs"],
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        },
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner._funding_basis_walk_forward_report",
+        lambda _: walk_forward,
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner.build_funding_basis_statistical_validation_report",
+        lambda *_args, **_kwargs: validation,
+    )
+
+    gate = _stress_placeholder(
+        config,
+        "funding_basis",
+        load_alpha_autonomy_policy(config.autonomy_policy_path),
+        time.perf_counter(),
+    )
+
+    assert gate.status == "REJECTED"
+    assert gate.passed is False
+    assert "consolidated_statistical_gate_blocked" in gate.reasons
+    assert "statistical_gate_net_pnl_not_positive_after_costs" in gate.reasons
+    assert gate.artifacts["statistical_gate"]["decision"] == "RESEARCH_BLOCKED"
     assert gate.safety["paper_capital_allowed"] is False
     assert gate.safety["live_allowed"] is False

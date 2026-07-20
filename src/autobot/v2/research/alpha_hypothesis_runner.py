@@ -799,13 +799,25 @@ def _stress_placeholder(
             ),
             walk_forward_passed=True,
         )
-        passed = validation.decision == "KEEP_RESEARCH"
+        statistical_gate = dict(validation.statistical_gate)
+        passed = (
+            validation.decision == "KEEP_RESEARCH"
+            and statistical_gate.get("decision") == "SHADOW_REVIEW_ELIGIBLE"
+        )
+        reasons = list(validation.reasons)
+        if not passed and "consolidated_statistical_gate_blocked" not in reasons:
+            reasons.append("consolidated_statistical_gate_blocked")
+            reasons.extend(
+                f"statistical_gate_{item}"
+                for item in statistical_gate.get("blockers", [])
+                if isinstance(item, str)
+            )
         return _gate(
             "STRESS_MONTE_CARLO",
-            validation.decision,
+            "KEEP_RESEARCH" if passed else "REJECTED",
             passed,
             not passed,
-            validation.reasons,
+            tuple(dict.fromkeys(reasons)),
             policy,
             started,
             metrics={
@@ -814,7 +826,10 @@ def _stress_placeholder(
                 "deflated_sharpe": dict(validation.deflated_sharpe),
                 "probabilistic_sharpe": dict(validation.probabilistic_sharpe),
                 "robustness": dict(validation.robustness),
+                "statistical_gate_decision": statistical_gate.get("decision"),
+                "statistical_gate_blockers": list(statistical_gate.get("blockers", [])),
             },
+            artifacts={"statistical_gate": statistical_gate},
         )
     return _gate(
         "STRESS_MONTE_CARLO",

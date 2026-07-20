@@ -22,6 +22,11 @@ from .statistical_validation import (
     assess_deflated_sharpe,
     assess_probabilistic_sharpe,
 )
+from .statistical_gate_summary import (
+    StatisticalGateConfig,
+    StatisticalGateEvidence,
+    summarize_statistical_gate,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,7 @@ class FundingBasisStatisticalValidationReport:
     deflated_sharpe: Mapping[str, Any]
     probabilistic_sharpe: Mapping[str, Any]
     robustness: Mapping[str, Any]
+    statistical_gate: Mapping[str, Any] = field(default_factory=dict)
     safety: Mapping[str, bool] = field(default_factory=lambda: dict(RESEARCH_ONLY_CAPITAL_FLAGS))
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -67,6 +73,7 @@ class FundingBasisStatisticalValidationReport:
             "deflated_sharpe": dict(self.deflated_sharpe),
             "probabilistic_sharpe": dict(self.probabilistic_sharpe),
             "robustness": dict(self.robustness),
+            "statistical_gate": dict(self.statistical_gate),
             "safety": dict(self.safety),
             "paper_capital_allowed": False,
             "live_allowed": False,
@@ -92,6 +99,7 @@ def build_funding_basis_statistical_validation_report(
             deflated_sharpe={},
             probabilistic_sharpe={},
             robustness={},
+            statistical_gate={},
         )
     records = funding_basis_trade_records(trades, run_id=config.run_id)
     dsr = assess_deflated_sharpe(
@@ -121,6 +129,19 @@ def build_funding_basis_statistical_validation_report(
             ),
         ),
     )
+    statistical_gate = summarize_statistical_gate(
+        StatisticalGateEvidence(
+            trade_count=len(records),
+            trial_count=config.assumed_trial_count,
+            net_pnl_eur=sum(record.net_pnl_eur for record in records),
+            out_of_sample_confirmed=True,
+            net_of_costs=True,
+            probabilistic_sharpe=psr,
+            deflated_sharpe=dsr,
+            robustness=robustness,
+        ),
+        StatisticalGateConfig(min_trade_count=config.min_trade_count),
+    )
     reasons: list[str] = ["research_only_statistical_gate_after_fixed_walk_forward"]
     if len(records) < config.min_trade_count:
         reasons.append("oos_trade_count_below_statistical_minimum")
@@ -130,6 +151,9 @@ def build_funding_basis_statistical_validation_report(
         reasons.append("probabilistic_sharpe_proxy_not_acceptable")
     if robustness.verdict != "observation_ready_not_promoted":
         reasons.append(f"robustness_{robustness.verdict}")
+    if not statistical_gate.shadow_review_eligible:
+        reasons.append("consolidated_statistical_gate_blocked")
+        reasons.extend(f"statistical_gate_{blocker}" for blocker in statistical_gate.blockers)
     decision = "KEEP_RESEARCH" if len(reasons) == 1 else "REJECTED"
     return FundingBasisStatisticalValidationReport(
         run_id=config.run_id,
@@ -140,4 +164,5 @@ def build_funding_basis_statistical_validation_report(
         deflated_sharpe=dsr.to_dict(),
         probabilistic_sharpe=psr.to_dict(),
         robustness=robustness.to_dict(),
+        statistical_gate=statistical_gate.to_dict(),
     )
