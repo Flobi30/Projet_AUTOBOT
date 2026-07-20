@@ -4,12 +4,14 @@ Goal: keep a compact, high-signal test surface for orchestrator hardening.
 """
 
 import asyncio
+from collections import deque
 
 import pytest
 from types import SimpleNamespace
 
 from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.instance_async import TradingInstanceAsync
+from autobot.v2.instance import InstanceStatus, Position
 from autobot.v2.modules.black_swan import BlackSwanCatcher
 from autobot.v2.rebalance_manager import RebalanceManager
 from autobot.v2.strategies.grid_async import GridStrategyAsync
@@ -80,6 +82,63 @@ class _FakePersistence:
 
     async def recover_instance_state(self, instance_id):
         return {"current_capital": 500.0, "win_count": 2, "loss_count": 1}
+
+
+class _RejectingClosePersistence:
+    def __init__(self):
+        self.close_requests = []
+
+    async def close_position_and_record_trade(self, position_id, trade_data, *, instance_state=None):
+        self.close_requests.append((position_id, trade_data, instance_state))
+        return False
+
+
+class _RecordingClosePersistence(_RejectingClosePersistence):
+    def __init__(self):
+        super().__init__()
+        self.reservations = []
+
+    async def reserve_position_close(self, position_id):
+        self.reservations.append(position_id)
+        return True
+
+    async def close_position_and_record_trade(self, position_id, trade_data, *, instance_state=None):
+        self.close_requests.append((position_id, trade_data, instance_state))
+        return True
+
+
+def _close_test_instance(persistence, *, position_status):
+    inst = object.__new__(TradingInstanceAsync)
+    inst.id = "inst-close"
+    inst.status = InstanceStatus.RUNNING
+    inst._lock = asyncio.Lock()
+    inst._positions = {
+        "pos-close": Position(
+            id="pos-close",
+            buy_price=100.0,
+            volume=0.1,
+            status=position_status,
+        )
+    }
+    inst._position_fee_hints = {
+        "pos-close": {"buy_fee": 0.10, "buy_fee_source": "test"}
+    }
+    inst._execution_fee_cache = {}
+    inst._fee_optimizer = None
+    inst._current_capital = 100.0
+    inst._allocated_capital = 10.0
+    inst._initial_capital = 100.0
+    inst._peak_capital = 100.0
+    inst._win_count = 0
+    inst._loss_count = 0
+    inst._win_streak = 0
+    inst._max_drawdown = 0.0
+    inst._pnl_quality_counts = {"exact": 0, "mixed": 0, "estimated": 0}
+    inst._last_pnl_quality = "unknown"
+    inst._trades = deque()
+    inst._on_position_close = None
+    inst._persistence = persistence
+    return inst
 
 
 def test_rebalance_manager_smoke():
@@ -180,6 +239,45 @@ def test_instance_recovery_decodes_json_metadata_and_rebuilds_allocated_capital(
     assert inst._positions["pos-1"].buy_txid == "buy-1"
     assert inst._position_fee_hints["pos-1"]["buy_fee"] == pytest.approx(0.04)
     assert inst._execution_fee_cache["buy-1"]["source"] == "paper"
+
+
+def test_instance_close_does_not_mutate_memory_when_durable_close_fails():
+    async def _run():
+        persistence = _RejectingClosePersistence()
+        inst = _close_test_instance(persistence, position_status="closing")
+
+        result = await inst.close_position("pos-close", 110.0, sell_fee=0.20)
+
+        assert result is None
+        assert inst._positions["pos-close"].status == "closing"
+        assert inst._positions["pos-close"].sell_price is None
+        assert inst._current_capital == pytest.approx(100.0)
+        assert inst._allocated_capital == pytest.approx(10.0)
+        assert list(inst._trades) == []
+        assert len(persistence.close_requests) == 1
+        assert persistence.close_requests[0][2]["current_capital"] == pytest.approx(100.7)
+
+    asyncio.run(_run())
+
+
+def test_instance_close_reserves_open_position_and_commits_memory_after_persistence():
+    async def _run():
+        persistence = _RecordingClosePersistence()
+        inst = _close_test_instance(persistence, position_status="open")
+
+        result = await inst.close_position("pos-close", 110.0, sell_fee=0.20)
+
+        assert result == pytest.approx(0.7)
+        assert persistence.reservations == ["pos-close"]
+        assert len(persistence.close_requests) == 1
+        assert inst._positions["pos-close"].status == "closed"
+        assert inst._positions["pos-close"].sell_price == pytest.approx(110.0)
+        assert inst._current_capital == pytest.approx(100.7)
+        assert inst._allocated_capital == pytest.approx(0.0)
+        assert inst._win_count == 1
+        assert len(inst._trades) == 1
+
+    asyncio.run(_run())
 
 
 def test_grid_pauses_buy_when_recovered_positions_exhaust_available_capital():

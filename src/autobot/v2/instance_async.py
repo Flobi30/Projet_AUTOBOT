@@ -620,6 +620,58 @@ class TradingInstanceAsync:
         await self.save_state()
         return position
 
+    async def reserve_position_close(self, position_id: str) -> bool:
+        """Reserve an open position before an automatic close can be submitted.
+
+        The persisted ``closing`` state survives a restart and therefore blocks
+        a duplicate automatic exit when execution becomes uncertain.
+        """
+
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status != "open":
+                return False
+
+        reserved = await self._persistence.reserve_position_close(position_id)
+        if not reserved:
+            return False
+
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status != "open":
+                logger.error(
+                    "Position close reservation persisted but memory changed: %s/%s",
+                    self.id,
+                    position_id,
+                )
+                return False
+            position.status = "closing"
+            return True
+
+    async def release_position_close(self, position_id: str) -> bool:
+        """Release a close reservation only after a known non-execution."""
+
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status != "closing":
+                return False
+
+        released = await self._persistence.release_position_close(position_id)
+        if not released:
+            return False
+
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status != "closing":
+                logger.error(
+                    "Position close release persisted but memory changed: %s/%s",
+                    self.id,
+                    position_id,
+                )
+                return False
+            position.status = "open"
+            return True
+
     async def close_position(
         self,
         position_id: str,
@@ -627,25 +679,41 @@ class TradingInstanceAsync:
         sell_txid: Optional[str] = None,
         sell_fee: Optional[float] = None,
     ) -> Optional[float]:
-        """Close a position and compute P&L."""
-        position_snapshot: Optional[Position] = None
-        buy_fee_hint = None
+        """Persist a close before finalizing in-memory position and capital."""
+
         async with self._lock:
-            if position_id not in self._positions:
+            position = self._positions.get(position_id)
+            if position is None or position.status not in ("open", "closing"):
                 return None
-            position = self._positions[position_id]
-            if position.status not in ("open", "closing"):
+            needs_reservation = position.status == "open"
+
+        # Direct legacy close callers (for example an exchange stop callback)
+        # do not own an OMS reservation.  Reserve here too so a durable
+        # ``closing`` marker exists before any close persistence can fail.
+        if needs_reservation and not await self.reserve_position_close(position_id):
+            logger.error(
+                "Position close blocked: durable reservation unavailable: %s/%s",
+                self.id,
+                position_id,
+            )
+            return None
+
+        position_snapshot: Optional[Position] = None
+        fee_hint: Dict[str, Any] = {}
+        async with self._lock:
+            position = self._positions.get(position_id)
+            if position is None or position.status != "closing":
                 return None
             position_snapshot = position
-            buy_fee_hint = self._position_fee_hints.get(position_id, {}).get("buy_fee")
+            fee_hint = dict(self._position_fee_hints.get(position_id, {}))
 
         if position_snapshot is None:
             return None
 
         buy_fee_value, buy_fee_source, buy_fee_quality = await self._resolve_fee(
             txid=position_snapshot.buy_txid,
-            explicit_fee=buy_fee_hint,
-            explicit_source=self._position_fee_hints.get(position_id, {}).get("buy_fee_source"),
+            explicit_fee=fee_hint.get("buy_fee"),
+            explicit_source=fee_hint.get("buy_fee_source"),
             notional=position_snapshot.buy_price * position_snapshot.volume,
             assumed_leg="buy",
         )
@@ -656,7 +724,6 @@ class TradingInstanceAsync:
             notional=sell_price * position_snapshot.volume,
             assumed_leg="sell",
         )
-
         pnl_quality = self._combine_pnl_quality(buy_fee_quality, sell_fee_quality)
 
         async with self._lock:
@@ -666,29 +733,59 @@ class TradingInstanceAsync:
 
             gross_profit = (sell_price - position.buy_price) * position.volume
             net_profit = gross_profit - buy_fee_value - sell_fee_value
+            next_current_capital = self._current_capital + net_profit
+            next_allocated_capital = self._allocated_capital - position.buy_price * position.volume
+            next_win_count = self._win_count + (1 if net_profit > 0 else 0)
+            next_loss_count = self._loss_count + (1 if net_profit <= 0 else 0)
+            persisted = await self._persistence.close_position_and_record_trade(
+                position_id,
+                {
+                    "instance_id": self.id,
+                    "side": "sell",
+                    "price": sell_price,
+                    "volume": position.volume,
+                    "profit": net_profit,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                instance_state={
+                    "instance_id": self.id,
+                    "status": self.status.value,
+                    "current_capital": next_current_capital,
+                    "allocated_capital": next_allocated_capital,
+                    "win_count": next_win_count,
+                    "loss_count": next_loss_count,
+                    "initial_capital": self._initial_capital,
+                },
+            )
+            if not persisted:
+                # Do not manufacture a local PnL after a failed durable write.
+                # ``closing`` keeps automated exits blocked until reconciliation.
+                position.status = "closing"
+                logger.error(
+                    "Position close persistence failed; reconciliation required: %s/%s",
+                    self.id,
+                    position_id,
+                )
+                return None
 
             position.sell_price = sell_price
             position.status = "closed"
             position.close_time = datetime.now(timezone.utc)
             position.profit = net_profit
             position.sell_txid = sell_txid
-
-            self._current_capital += net_profit
-            self._allocated_capital -= position.buy_price * position.volume
-
+            self._current_capital = next_current_capital
+            self._allocated_capital = next_allocated_capital
+            self._win_count = next_win_count
+            self._loss_count = next_loss_count
             if net_profit > 0:
-                self._win_count += 1
                 self._win_streak += 1
             else:
-                self._loss_count += 1
                 self._win_streak = 0
-
             if self._current_capital > self._peak_capital:
                 self._peak_capital = self._current_capital
             else:
                 dd = (self._peak_capital - self._current_capital) / self._peak_capital
                 self._max_drawdown = max(self._max_drawdown, dd)
-
             self._last_pnl_quality = pnl_quality
             self._pnl_quality_counts[pnl_quality] += 1
             position_copy = position
@@ -709,22 +806,8 @@ class TradingInstanceAsync:
             f"📉 Position fermée {self.id}/{position_id}: Profit {net_profit:.2f}€"
             f" (fees buy={buy_fee_value:.6f} [{buy_fee_source}], sell={sell_fee_value:.6f} [{sell_fee_source}], quality={pnl_quality})"
         )
-
-        await self._persistence.close_position_and_record_trade(position_id,
-            {
-                "instance_id": self.id,
-                "side": "sell",
-                "price": sell_price,
-                "volume": position_copy.volume,
-                "profit": profit_copy,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-
         if self._on_position_close:
             self._on_position_close(self, position_copy)
-
-        await self.save_state()
         return profit_copy
 
     def record_spin_off(self, amount: float) -> None:

@@ -1704,6 +1704,39 @@ class SignalHandlerAsync:
                 logger.warning(f"🔁 Ordre SELL dupliqué bloqué (idempotency): {symbol}")
                 continue
 
+            # A protective exit may only be submitted after the position has a
+            # durable ``closing`` reservation. An uncertain persistence state
+            # must never result in a duplicate sell after a restart.
+            try:
+                close_reserved = await self.instance.reserve_position_close(pos_id)
+            except Exception as exc:
+                logger.warning(
+                    "SELL blocked: close reservation failed inst=%s pos=%s error=%s",
+                    self.instance.id,
+                    pos_id,
+                    exc,
+                )
+                close_reserved = False
+            if not close_reserved:
+                self._record_runtime_event(
+                    "_last_decision_event",
+                    event="sell_rejected",
+                    reason="close_reservation_rejected",
+                    blocking_condition="durable_close_reservation",
+                    symbol=symbol,
+                    side="sell",
+                    position_id=pos_id,
+                    signal_id=signal_id,
+                    execution_engine=signal_engine,
+                    source=signal_source,
+                )
+                logger.warning(
+                    "SELL blocked: close reservation was not persisted inst=%s pos=%s",
+                    self.instance.id,
+                    pos_id,
+                )
+                continue
+
             decision_id = f"dec_sell_{uuid.uuid4().hex}"
             await self._record_and_persist_runtime_event(
                 "_last_decision_event",
@@ -1746,6 +1779,98 @@ class SignalHandlerAsync:
             )
             if result.success:
                 price = result.executed_price or signal.price
+                executed_volume = self._safe_float(result.executed_volume, 0.0)
+                requested_volume = float(vol)
+                if executed_volume <= 0.0:
+                    rejected = await self._maybe_await(self._osm.transition(
+                        rec.client_order_id,
+                        "REJECTED",
+                        "zero_fill",
+                        exchange_order_id=result.txid,
+                    ))
+                    if rejected:
+                        await self.instance.release_position_close(pos_id)
+                    self._record_runtime_event(
+                        "_last_order_event",
+                        event="order_rejected",
+                        reason="zero_fill",
+                        symbol=symbol,
+                        side="sell",
+                        order_type="market",
+                        txid=result.txid,
+                        decision_id=decision_id,
+                        signal_id=signal_id,
+                        execution_engine=signal_engine,
+                        source=signal_source,
+                    )
+                    logger.warning("SELL zero fill blocked: %s/%s", self.instance.id, pos_id)
+                    continue
+                if executed_volume + 1e-12 < requested_volume:
+                    await self._maybe_await(self._osm.transition(
+                        rec.client_order_id,
+                        "PARTIAL",
+                        "partial_fill_requires_reconciliation",
+                        exchange_order_id=result.txid,
+                        filled_qty=executed_volume,
+                        avg_fill_price=price,
+                    ))
+                    self._record_runtime_event(
+                        "_last_order_event",
+                        event="order_partial",
+                        reason="partial_fill_requires_reconciliation",
+                        symbol=symbol,
+                        side="sell",
+                        order_type="market",
+                        txid=result.txid,
+                        requested_volume=requested_volume,
+                        executed_volume=executed_volume,
+                        decision_id=decision_id,
+                        signal_id=signal_id,
+                        execution_engine=signal_engine,
+                        source=signal_source,
+                    )
+                    logger.warning(
+                        "SELL partial fill held for reconciliation: %s/%s requested=%.12f executed=%.12f",
+                        self.instance.id,
+                        pos_id,
+                        requested_volume,
+                        executed_volume,
+                    )
+                    await self._post_trade_reconcile()
+                    continue
+                if executed_volume > requested_volume + 1e-12:
+                    await self._maybe_await(self._osm.transition(
+                        rec.client_order_id,
+                        "UNKNOWN",
+                        "overfill_requires_reconciliation",
+                        exchange_order_id=result.txid,
+                        filled_qty=executed_volume,
+                        avg_fill_price=price,
+                    ))
+                    self._record_runtime_event(
+                        "_last_order_event",
+                        event="order_unknown",
+                        reason="overfill_requires_reconciliation",
+                        symbol=symbol,
+                        side="sell",
+                        order_type="market",
+                        txid=result.txid,
+                        requested_volume=requested_volume,
+                        executed_volume=executed_volume,
+                        decision_id=decision_id,
+                        signal_id=signal_id,
+                        execution_engine=signal_engine,
+                        source=signal_source,
+                    )
+                    logger.error(
+                        "SELL overfill held for reconciliation: %s/%s requested=%.12f executed=%.12f",
+                        self.instance.id,
+                        pos_id,
+                        requested_volume,
+                        executed_volume,
+                    )
+                    await self._post_trade_reconcile()
+                    continue
                 realized_pnl = await self.instance.close_position(
                     pos_id,
                     price,
@@ -1753,12 +1878,36 @@ class SignalHandlerAsync:
                     sell_fee=result.fees,
                 )
                 if realized_pnl is None:
-                    realized_pnl = self._compute_close_realized_pnl(
-                        pos,
-                        sell_price=price,
-                        sell_fee=float(result.fees or 0.0),
-                        volume=float(vol),
+                    await self._maybe_await(self._osm.transition(
+                        rec.client_order_id,
+                        "UNKNOWN",
+                        "durable_position_close_failed",
+                        exchange_order_id=result.txid,
+                        filled_qty=executed_volume,
+                        avg_fill_price=price,
+                    ))
+                    self._record_runtime_event(
+                        "_last_order_event",
+                        event="order_unknown",
+                        reason="durable_position_close_failed",
+                        symbol=symbol,
+                        side="sell",
+                        order_type="market",
+                        txid=result.txid,
+                        requested_volume=requested_volume,
+                        executed_volume=executed_volume,
+                        decision_id=decision_id,
+                        signal_id=signal_id,
+                        execution_engine=signal_engine,
+                        source=signal_source,
                     )
+                    logger.error(
+                        "SELL close persistence failed; reconciliation required: %s/%s",
+                        self.instance.id,
+                        pos_id,
+                    )
+                    await self._post_trade_reconcile()
+                    continue
                 await self._osm.transition(
                     rec.client_order_id,
                     "FILLED",
@@ -1839,6 +1988,20 @@ class SignalHandlerAsync:
                     source=signal_source,
                 )
                 logger.error(f"❌ Échec vente: {result.error}")
+                rejected = await self._maybe_await(self._osm.transition(
+                    rec.client_order_id,
+                    "REJECTED",
+                    "execution_rejected",
+                    last_error_message=str(result.error or "unknown"),
+                ))
+                if rejected:
+                    released = await self.instance.release_position_close(pos_id)
+                    if not released:
+                        logger.error(
+                            "SELL rejected but close reservation could not be released: %s/%s",
+                            self.instance.id,
+                            pos_id,
+                        )
                 if not self._is_local_order_validation_error(result.error):
                     await self._kill_switch.record_api_failure(result.error or "sell failed")
 

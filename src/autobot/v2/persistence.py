@@ -11,7 +11,7 @@ import orjson
 import hashlib
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Mapping
 from pathlib import Path
 
 from .strategy_runtime_policy import (
@@ -399,24 +399,159 @@ class PositionRepository(_PersistenceRepositoryBase):
             logger.exception(f"❌ Erreur update_position_status {position_id}: {e}")
             return False
 
-    async def close_position_and_record_trade(self, position_id: str, trade_data: Dict[str, Any]) -> bool:
-        now = datetime.now(timezone.utc).isoformat()
+    async def reserve_position_close(self, position_id: str) -> bool:
+        """Persist a fail-closed close reservation for one open position."""
+
         try:
-            conn = await self.get_conn()
-            # Atomique : update position + insert trade
-            await conn.execute("UPDATE positions SET status = 'closed' WHERE id = ?", (position_id,))
-            await conn.execute(
-                """
-                INSERT INTO trades (position_id, instance_id, side, price, volume, profit, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    position_id, trade_data['instance_id'], 'sell', trade_data['price'],
-                    trade_data['volume'], trade_data.get('profit'), now
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                cursor = await conn.execute(
+                    "UPDATE positions SET status = 'closing' WHERE id = ? AND status = 'open'",
+                    (position_id,),
                 )
-            )
-            await conn.commit()
-            return True
+                await conn.commit()
+                return int(cursor.rowcount or 0) == 1
+
+            return await self._with_write_retries("reserve_position_close", _write)
+        except Exception as e:
+            logger.exception(f"❌ Erreur reserve_position_close {position_id}: {e}")
+            return False
+
+    async def release_position_close(self, position_id: str) -> bool:
+        """Re-open a reserved close only when execution is known not to occur."""
+
+        try:
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                cursor = await conn.execute(
+                    "UPDATE positions SET status = 'open' WHERE id = ? AND status = 'closing'",
+                    (position_id,),
+                )
+                await conn.commit()
+                return int(cursor.rowcount or 0) == 1
+
+            return await self._with_write_retries("release_position_close", _write)
+        except Exception as e:
+            logger.exception(f"❌ Erreur release_position_close {position_id}: {e}")
+            return False
+
+    async def close_position_and_record_trade(
+        self,
+        position_id: str,
+        trade_data: Dict[str, Any],
+        *,
+        instance_state: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        """Atomically persist a close, its sell trade and optional instance state.
+
+        The operation is idempotent for a position: a retry after an uncertain
+        SQLite commit observes the already-closed position and its existing
+        sell trade instead of appending a duplicate.  The shared write lock and
+        short transaction keep the position, trade and instance-capital view
+        consistent before in-memory state is allowed to move.
+        """
+
+        now = datetime.now(timezone.utc).isoformat()
+        normalized_state = dict(instance_state or {})
+        if normalized_state:
+            required_state_fields = {
+                "instance_id",
+                "status",
+                "current_capital",
+                "allocated_capital",
+                "win_count",
+                "loss_count",
+            }
+            missing_state_fields = required_state_fields.difference(normalized_state)
+            if missing_state_fields:
+                logger.warning(
+                    "Position close rejected: incomplete instance state (position_id=%s missing=%s)",
+                    position_id,
+                    sorted(missing_state_fields),
+                )
+                return False
+        try:
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                try:
+                    await conn.execute("BEGIN IMMEDIATE")
+                    async with conn.execute(
+                        "SELECT status FROM positions WHERE id = ?",
+                        (position_id,),
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                    if row is None:
+                        await conn.rollback()
+                        logger.warning("Position close rejected: position does not exist (position_id=%s)", position_id)
+                        return False
+                    prior_status = str(row["status"] or "").strip().lower()
+                    if prior_status not in {"open", "closing", "closed"}:
+                        await conn.rollback()
+                        logger.warning(
+                            "Position close rejected: unsupported status %s (position_id=%s)",
+                            prior_status,
+                            position_id,
+                        )
+                        return False
+
+                    async with conn.execute(
+                        "SELECT 1 FROM trades WHERE position_id = ? AND side = 'sell' LIMIT 1",
+                        (position_id,),
+                    ) as cursor:
+                        existing_sell = await cursor.fetchone()
+
+                    if prior_status != "closed":
+                        await conn.execute("UPDATE positions SET status = 'closed' WHERE id = ?", (position_id,))
+                    if existing_sell is None:
+                        await conn.execute(
+                            """
+                            INSERT INTO trades (position_id, instance_id, side, price, volume, profit, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                position_id,
+                                trade_data["instance_id"],
+                                "sell",
+                                trade_data["price"],
+                                trade_data["volume"],
+                                trade_data.get("profit"),
+                                trade_data.get("timestamp") or now,
+                            ),
+                        )
+
+                    if normalized_state:
+                        await conn.execute(
+                            """
+                            INSERT INTO instance_state
+                            (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(instance_id) DO UPDATE SET
+                                status=excluded.status,
+                                current_capital=excluded.current_capital,
+                                allocated_capital=excluded.allocated_capital,
+                                win_count=excluded.win_count,
+                                loss_count=excluded.loss_count,
+                                initial_capital=COALESCE(excluded.initial_capital, instance_state.initial_capital),
+                                updated_at=excluded.updated_at
+                            """,
+                            (
+                                normalized_state["instance_id"],
+                                normalized_state["status"],
+                                normalized_state["current_capital"],
+                                normalized_state["allocated_capital"],
+                                normalized_state["win_count"],
+                                normalized_state["loss_count"],
+                                normalized_state.get("initial_capital"),
+                                now,
+                            ),
+                        )
+                    await conn.commit()
+                    return True
+                except Exception:
+                    await conn.rollback()
+                    raise
+
+            return await self._with_write_retries("close_position_and_record_trade", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur close_position_and_record_trade {position_id}: {e}")
             return False
@@ -858,9 +993,27 @@ class StatePersistence:
         await self.initialize()
         return await self.positions.update_position_status(position_id, status)
 
-    async def close_position_and_record_trade(self, position_id: str, trade_data: Dict[str, Any]) -> bool:
+    async def reserve_position_close(self, position_id: str) -> bool:
         await self.initialize()
-        return await self.positions.close_position_and_record_trade(position_id, trade_data)
+        return await self.positions.reserve_position_close(position_id)
+
+    async def release_position_close(self, position_id: str) -> bool:
+        await self.initialize()
+        return await self.positions.release_position_close(position_id)
+
+    async def close_position_and_record_trade(
+        self,
+        position_id: str,
+        trade_data: Dict[str, Any],
+        *,
+        instance_state: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        await self.initialize()
+        return await self.positions.close_position_and_record_trade(
+            position_id,
+            trade_data,
+            instance_state=instance_state,
+        )
 
     async def recover_positions(self, instance_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         await self.initialize()

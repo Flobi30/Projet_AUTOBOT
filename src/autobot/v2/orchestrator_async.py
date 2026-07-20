@@ -3354,6 +3354,32 @@ class OrchestratorAsync:
             )
             return False
 
+        try:
+            close_reserved = await instance.reserve_position_close(pos_id)
+        except Exception as exc:
+            logger.warning(
+                "Exit %s blocked: close reservation failed inst=%s pos=%s error=%s",
+                reason,
+                instance.id,
+                pos_id,
+                exc,
+            )
+            close_reserved = False
+        if not close_reserved:
+            await lifecycle.transition(
+                order.client_order_id,
+                "REJECTED",
+                "auto_exit_close_reservation_rejected",
+                source="orchestrator_auto_exit",
+            )
+            logger.warning(
+                "Exit %s blocked: close reservation was not persisted inst=%s pos=%s",
+                reason,
+                instance.id,
+                pos_id,
+            )
+            return False
+
         kwargs: Dict[str, Any] = {}
         if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
             kwargs["price_hint"] = float(current_price)
@@ -3391,13 +3417,22 @@ class OrchestratorAsync:
             )
             return False
         if not getattr(result, "success", False):
-            await lifecycle.transition(
+            rejected = await lifecycle.transition(
                 order.client_order_id,
                 "REJECTED",
                 "auto_exit_execution_rejected",
                 source="orchestrator_auto_exit",
                 last_error_message=str(getattr(result, "error", None) or "unknown"),
             )
+            if rejected:
+                released = await instance.release_position_close(pos_id)
+                if not released:
+                    logger.error(
+                        "Exit %s rejected but close reservation could not be released: inst=%s pos=%s",
+                        reason,
+                        instance.id,
+                        pos_id,
+                    )
             logger.warning(
                 "Exit %s rejected: inst=%s pos=%s symbol=%s error=%s",
                 reason,
@@ -3426,13 +3461,22 @@ class OrchestratorAsync:
 
         executed_volume = self._safe_positive_float(getattr(result, "executed_volume", None))
         if executed_volume is None:
-            await lifecycle.transition(
+            rejected = await lifecycle.transition(
                 order.client_order_id,
                 "REJECTED",
                 "auto_exit_zero_fill",
                 source="orchestrator_auto_exit",
                 exchange_order_id=getattr(result, "txid", None),
             )
+            if rejected:
+                released = await instance.release_position_close(pos_id)
+                if not released:
+                    logger.error(
+                        "Exit %s zero-fill but close reservation could not be released: inst=%s pos=%s",
+                        reason,
+                        instance.id,
+                        pos_id,
+                    )
             logger.warning(
                 "Exit %s blocked after zero fill: inst=%s pos=%s symbol=%s",
                 reason,

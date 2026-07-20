@@ -45,6 +45,8 @@ class _Instance:
     def __init__(self):
         self._persistence = _Ledger()
         self.close_calls = []
+        self.close_reservations = []
+        self.close_releases = []
 
     def get_status(self):
         return {"last_price": 111.0}
@@ -73,6 +75,14 @@ class _Instance:
     async def close_position(self, *args, **kwargs):
         self.close_calls.append((args, kwargs))
         return 5.35
+
+    async def reserve_position_close(self, position_id):
+        self.close_reservations.append(position_id)
+        return True
+
+    async def release_position_close(self, position_id):
+        self.close_releases.append(position_id)
+        return True
 
 
 class PaperTradingExecutor:
@@ -185,6 +195,56 @@ async def test_paper_take_profit_is_blocked_when_oms_send_transition_fails():
     assert len(instance._persistence.orders) == 1
     assert instance._persistence.rows == []
     assert instance.close_calls == []
+
+
+class _ReservationRejectedInstance(_Instance):
+    async def reserve_position_close(self, position_id):
+        self.close_reservations.append(position_id)
+        return False
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_is_blocked_before_executor_when_close_reservation_fails():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = PaperTradingExecutor()
+    instance = _ReservationRejectedInstance()
+
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_reservations == ["pos-1"]
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert orch.order_executor.market_orders == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "REJECTED"]
+
+
+class _RejectedPaperTradingExecutor(PaperTradingExecutor):
+    async def execute_market_order(self, symbol, side, volume, **kwargs):
+        self.market_orders.append((symbol, side, volume, kwargs))
+        return OrderResult(success=False, error="simulated rejected sell")
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_releases_close_reservation_after_known_rejection():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = _RejectedPaperTradingExecutor()
+    instance = _Instance()
+
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_reservations == ["pos-1"]
+    assert instance.close_releases == ["pos-1"]
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "REJECTED"]
 
 
 @pytest.mark.asyncio

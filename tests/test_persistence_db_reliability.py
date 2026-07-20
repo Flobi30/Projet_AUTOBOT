@@ -363,3 +363,67 @@ async def test_order_state_machine_stops_when_persistence_rejects_new_order(tmp_
             signal_id="sig-persistence-rejected",
         )
     await persistence.close()
+
+
+@pytest.mark.asyncio
+async def test_position_close_reservation_and_durable_close_are_idempotent(tmp_path):
+    db_path = tmp_path / "state.db"
+    persistence = StatePersistence(str(db_path))
+    assert await persistence.save_position(
+        position_id="pos-close",
+        instance_id="instance-close",
+        buy_price=100.0,
+        volume=0.1,
+        status="open",
+        strategy="trend_momentum",
+        symbol="XETHZEUR",
+    ) is True
+
+    assert await persistence.reserve_position_close("pos-close") is True
+    assert await persistence.reserve_position_close("pos-close") is False
+    assert await persistence.release_position_close("pos-close") is True
+    assert await persistence.reserve_position_close("pos-close") is True
+
+    trade_data = {
+        "instance_id": "instance-close",
+        "price": 110.0,
+        "volume": 0.1,
+        "profit": 0.7,
+        "timestamp": "2026-07-20T00:00:00+00:00",
+    }
+    instance_state = {
+        "instance_id": "instance-close",
+        "status": "running",
+        "current_capital": 100.7,
+        "allocated_capital": 0.0,
+        "win_count": 1,
+        "loss_count": 0,
+        "initial_capital": 100.0,
+    }
+    assert await persistence.close_position_and_record_trade(
+        "pos-close",
+        trade_data,
+        instance_state=instance_state,
+    ) is True
+    # A retry after an uncertain commit must not produce a second closing row.
+    assert await persistence.close_position_and_record_trade(
+        "pos-close",
+        trade_data,
+        instance_state=instance_state,
+    ) is True
+    await persistence.close()
+
+    with sqlite3.connect(db_path) as connection:
+        position_status = connection.execute(
+            "SELECT status FROM positions WHERE id = 'pos-close'"
+        ).fetchone()[0]
+        closing_trades = connection.execute(
+            "SELECT COUNT(*) FROM trades WHERE position_id = 'pos-close' AND side = 'sell'"
+        ).fetchone()[0]
+        state = connection.execute(
+            "SELECT current_capital, allocated_capital, win_count, loss_count FROM instance_state WHERE instance_id = 'instance-close'"
+        ).fetchone()
+
+    assert position_status == "closed"
+    assert closing_trades == 1
+    assert state == pytest.approx((100.7, 0.0, 1, 0))

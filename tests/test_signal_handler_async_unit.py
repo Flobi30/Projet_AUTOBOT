@@ -56,6 +56,8 @@ class _Instance:
         self._last_price = 100.0
         self._persistence = SimpleNamespace(append_audit_event=lambda **_: None)
         self.opened = []
+        self.close_reservations = []
+        self.close_releases = []
 
     def get_available_capital(self):
         return 1_000.0
@@ -75,6 +77,14 @@ class _Instance:
 
     async def emergency_stop(self):
         return None
+
+    async def reserve_position_close(self, position_id):
+        self.close_reservations.append(position_id)
+        return True
+
+    async def release_position_close(self, position_id):
+        self.close_releases.append(position_id)
+        return True
 
 
 class _SellInstance(_Instance):
@@ -134,6 +144,18 @@ class _SuccessfulSellInstance(_Instance):
     async def close_position(self, *args, **kwargs):
         self.close_calls.append((args, kwargs))
         return 3.4
+
+
+class _UnpersistedSellInstance(_SuccessfulSellInstance):
+    async def close_position(self, *args, **kwargs):
+        self.close_calls.append((args, kwargs))
+        return None
+
+
+class _ReservationRejectedSellInstance(_SuccessfulSellInstance):
+    async def reserve_position_close(self, position_id):
+        self.close_reservations.append(position_id)
+        return False
 
 
 class _Validator:
@@ -284,6 +306,12 @@ class _SellExecutor(_Executor):
             fees=0.2,
             liquidity="taker",
         )
+
+
+class _RejectedSellExecutor(_SellExecutor):
+    async def execute_market_order(self, *args, **kwargs):
+        self.market_calls += 1
+        return OrderResult(success=False, error="simulated rejected sell")
 
 
 class _RecoverExecutor(_Executor):
@@ -787,6 +815,89 @@ async def test_execute_sell_records_realized_pnl_from_close_result(monkeypatch):
     assert instance._persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
     assert instance._persistence.ledger_rows[0]["execution_mode"] == "shadow_paper"
     assert handler._last_order_event["realized_pnl"] == pytest.approx(3.4)
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_blocks_before_order_when_close_reservation_is_rejected():
+    instance = _ReservationRejectedSellInstance()
+    executor = _SellExecutor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._osm = _SuccessfulSellOSM()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit close reservation rejection",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert instance.close_reservations == ["pos-sell-1"]
+    assert instance.close_calls == []
+    assert executor.market_calls == 0
+    assert instance._persistence.ledger_rows == []
+    assert handler._last_decision_event["reason"] == "close_reservation_rejected"
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_requires_durable_close_before_ledger_or_pnl():
+    instance = _UnpersistedSellInstance()
+    executor = _SellExecutor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._osm = _SuccessfulSellOSM()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+    handler._post_trade_reconcile = _noop_reconcile
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit durable close failure",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert executor.market_calls == 1
+    assert instance.close_reservations == ["pos-sell-1"]
+    assert instance.close_calls[0][1]["sell_fee"] == pytest.approx(0.2)
+    assert instance._persistence.ledger_rows == []
+    assert handler._last_order_event["event"] == "order_unknown"
+    assert handler._last_order_event["reason"] == "durable_position_close_failed"
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_releases_reservation_after_known_execution_rejection():
+    instance = _SuccessfulSellInstance()
+    executor = _RejectedSellExecutor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    handler._osm = _SuccessfulSellOSM()
+    handler._passes_order_size_guard = lambda **_kwargs: True
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit rejected close",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert executor.market_calls == 1
+    assert instance.close_reservations == ["pos-sell-1"]
+    assert instance.close_releases == ["pos-sell-1"]
+    assert instance.close_calls == []
+    assert instance._persistence.ledger_rows == []
 
 
 @pytest.mark.asyncio
