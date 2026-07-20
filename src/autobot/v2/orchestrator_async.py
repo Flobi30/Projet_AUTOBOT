@@ -33,6 +33,7 @@ from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
 from .order_executor_async import OrderExecutorAsync, OrderSide, get_order_executor_async
+from .order_state_machine import PersistedOrderStateMachine
 try:
     from .paper_trading import PaperTradingExecutor
 except ImportError:
@@ -3298,6 +3299,51 @@ class OrchestratorAsync:
         )
         decision_id = str(metadata.get("decision_id") or "").strip()
         signal_id = str(metadata.get("signal_id") or "").strip()
+        persistence = getattr(instance, "_persistence", None)
+        if persistence is None:
+            logger.warning(
+                "Exit %s blocked: missing persistence boundary inst=%s pos=%s",
+                reason,
+                instance.id,
+                pos_id,
+            )
+            return False
+
+        try:
+            lifecycle = PersistedOrderStateMachine(persistence)
+            order = await lifecycle.new_order(
+                instance_id=instance.id,
+                symbol=symbol,
+                side="sell",
+                order_type="market",
+                requested_qty=float(volume),
+                strategy_id=strategy_id,
+                decision_id=decision_id,
+                signal_id=signal_id,
+            )
+            sent = await lifecycle.transition(
+                order.client_order_id,
+                "SENT",
+                f"auto_exit_{reason}_submitted",
+                source="orchestrator_auto_exit",
+            )
+            if not sent:
+                logger.warning(
+                    "Exit %s blocked: canonical OMS send transition rejected inst=%s pos=%s",
+                    reason,
+                    instance.id,
+                    pos_id,
+                )
+                return False
+        except (RuntimeError, ValueError) as exc:
+            logger.warning(
+                "Exit %s blocked by canonical OMS provenance inst=%s pos=%s: %s",
+                reason,
+                instance.id,
+                pos_id,
+                exc,
+            )
+            return False
 
         kwargs: Dict[str, Any] = {}
         if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
@@ -3315,6 +3361,13 @@ class OrchestratorAsync:
             **kwargs,
         )
         if not getattr(result, "success", False):
+            await lifecycle.transition(
+                order.client_order_id,
+                "REJECTED",
+                "auto_exit_execution_rejected",
+                source="orchestrator_auto_exit",
+                last_error_message=str(getattr(result, "error", None) or "unknown"),
+            )
             logger.warning(
                 "Exit %s rejected: inst=%s pos=%s symbol=%s error=%s",
                 reason,
@@ -3325,6 +3378,59 @@ class OrchestratorAsync:
             )
             return False
 
+        executed_volume = self._safe_positive_float(getattr(result, "executed_volume", None))
+        if executed_volume is None:
+            await lifecycle.transition(
+                order.client_order_id,
+                "REJECTED",
+                "auto_exit_zero_fill",
+                source="orchestrator_auto_exit",
+                exchange_order_id=getattr(result, "txid", None),
+            )
+            logger.warning(
+                "Exit %s blocked after zero fill: inst=%s pos=%s symbol=%s",
+                reason,
+                instance.id,
+                pos_id,
+                symbol,
+            )
+            return False
+        if executed_volume < float(volume) - 1e-12:
+            await lifecycle.transition(
+                order.client_order_id,
+                "PARTIAL",
+                "auto_exit_partial_fill_requires_reconciliation",
+                source="orchestrator_auto_exit",
+                exchange_order_id=getattr(result, "txid", None),
+                filled_qty=executed_volume,
+                avg_fill_price=getattr(result, "executed_price", None),
+            )
+            logger.warning(
+                "Exit %s blocked after partial fill: inst=%s pos=%s requested=%.12f filled=%.12f",
+                reason,
+                instance.id,
+                pos_id,
+                float(volume),
+                executed_volume,
+            )
+            return False
+
+        await lifecycle.transition(
+            order.client_order_id,
+            "ACK",
+            "auto_exit_execution_ack",
+            source="orchestrator_auto_exit",
+            exchange_order_id=getattr(result, "txid", None),
+        )
+        await lifecycle.transition(
+            order.client_order_id,
+            "FILLED",
+            "auto_exit_full_fill",
+            source="orchestrator_auto_exit",
+            exchange_order_id=getattr(result, "txid", None),
+            filled_qty=executed_volume,
+            avg_fill_price=getattr(result, "executed_price", None),
+        )
         executed_price = float(getattr(result, "executed_price", 0.0) or current_price)
         realized_pnl = await instance.close_position(
             pos_id,
@@ -3348,8 +3454,7 @@ class OrchestratorAsync:
             except Exception as exc:
                 logger.debug("Paper stop-loss cancel ignored (%s): %s", sl_txid, exc)
 
-        persistence = getattr(instance, "_persistence", None)
-        if persistence is not None and hasattr(persistence, "append_trade_ledger"):
+        if hasattr(persistence, "append_trade_ledger"):
             try:
                 await persistence.append_trade_ledger(
                     trade_id=f"trd_{uuid.uuid4().hex}",

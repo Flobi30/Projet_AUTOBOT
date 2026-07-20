@@ -15,6 +15,16 @@ pytestmark = pytest.mark.unit
 class _Ledger:
     def __init__(self):
         self.rows = []
+        self.orders = []
+        self.transitions = []
+
+    async def upsert_order(self, **kwargs):
+        self.orders.append(kwargs)
+        return True
+
+    async def transition_order_state(self, **kwargs):
+        self.transitions.append(kwargs)
+        return True
 
     async def append_trade_ledger(self, **kwargs):
         self.rows.append(kwargs)
@@ -116,6 +126,88 @@ async def test_paper_take_profit_executes_sell_and_writes_ledger():
     assert instance._persistence.rows[0]["decision_id"] == "dec-position-1"
     assert instance._persistence.rows[0]["signal_id"] == "sig-position-1"
     assert instance._persistence.rows[0]["execution_mode"] == "shadow_paper"
+    assert instance._persistence.orders[0]["strategy_id"] == "trend_momentum"
+    assert instance._persistence.orders[0]["decision_id"] == "dec-position-1"
+    assert instance._persistence.orders[0]["signal_id"] == "sig-position-1"
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "ACK", "FILLED"]
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_without_trace_is_blocked_before_executor():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = PaperTradingExecutor()
+    instance = _Instance()
+    position = instance.get_positions_snapshot()[0]
+    position["metadata"].pop("decision_id")
+
+    closed = await orch._execute_position_exit(
+        instance,
+        position,
+        111.0,
+        reason="take_profit",
+        trigger_price=110.0,
+    )
+
+    assert closed is False
+    assert orch.order_executor.market_orders == []
+    assert instance._persistence.orders == []
+    assert instance._persistence.rows == []
+    assert instance.close_calls == []
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_is_blocked_when_oms_send_transition_fails():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = PaperTradingExecutor()
+    instance = _Instance()
+
+    async def reject_transition(**_kwargs):
+        return False
+
+    instance._persistence.transition_order_state = reject_transition
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert orch.order_executor.market_orders == []
+    assert len(instance._persistence.orders) == 1
+    assert instance._persistence.rows == []
+    assert instance.close_calls == []
+
+
+class _PartialPaperTradingExecutor(PaperTradingExecutor):
+    async def execute_market_order(self, symbol, side, volume, **kwargs):
+        self.market_orders.append((symbol, side, volume, kwargs))
+        return OrderResult(
+            success=True,
+            txid="partial-sell-1",
+            executed_volume=volume / 2.0,
+            executed_price=111.0,
+            fees=0.10,
+            liquidity="taker",
+        )
+
+
+@pytest.mark.asyncio
+async def test_paper_take_profit_partial_fill_blocks_full_position_close():
+    orch = object.__new__(OrchestratorAsync)
+    orch.paper_mode = True
+    orch.trailing_stops = {}
+    orch._repeated_auto_actions = {}
+    orch.order_executor = _PartialPaperTradingExecutor()
+    instance = _Instance()
+
+    closed = await orch._check_exit_conditions(instance)
+
+    assert closed == 0
+    assert instance.close_calls == []
+    assert instance._persistence.rows == []
+    assert [row["to_status"] for row in instance._persistence.transitions] == ["SENT", "PARTIAL"]
 
 
 def test_dynamic_paper_allocation_scales_with_edge_without_touching_live():
