@@ -80,11 +80,27 @@ class ReconciliationManagerAsync:
         divs: List[Divergence] = []
         instance.recalculate_allocated_capital()
 
-        local_open = [p for p in instance.get_positions_snapshot() if p.get("status") == "open"]
+        local_open = [
+            position
+            for position in instance.get_positions_snapshot()
+            if position.get("status") in {"open", "closing"}
+        ]
 
         for pos in local_open:
             txid = pos.get("txid")
             pos_id = pos.get("id")
+            if pos.get("status") == "closing":
+                divs.append(Divergence(
+                    type="closing_position_unresolved",
+                    position_id=pos_id,
+                    kraken_txid=txid,
+                    details={
+                        "reason": "Persisted close reservation requires fill reconciliation",
+                        "remediation": "blocked_pending_canonical_fill",
+                    },
+                    severity="critical",
+                ))
+                continue
             if not txid:
                 divs.append(Divergence(
                     type="orphan_local", position_id=pos_id, kraken_txid=None,

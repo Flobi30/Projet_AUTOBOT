@@ -595,7 +595,7 @@ class PositionRepository(_PersistenceRepositoryBase):
                     LEFT JOIN trade_ledger tl
                       ON tl.position_id = p.id
                      AND COALESCE(tl.is_opening_leg, 1) = 1
-                    WHERE p.status = 'open'
+                    WHERE p.status IN ('open', 'closing')
                       AND (
                         p.instance_id = ?
                         OR UPPER(COALESCE(p.symbol, '')) = UPPER(?)
@@ -605,7 +605,7 @@ class PositionRepository(_PersistenceRepositoryBase):
                 """
                 args = (instance_id, symbol, symbol, symbol)
             else:
-                query = "SELECT * FROM positions WHERE instance_id = ? AND status = 'open'"
+                query = "SELECT * FROM positions WHERE instance_id = ? AND status IN ('open', 'closing')"
                 args = (instance_id,)
             async with conn.execute(query, args) as cursor:
                 rows = await cursor.fetchall()

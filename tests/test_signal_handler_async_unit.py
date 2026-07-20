@@ -221,6 +221,15 @@ class _SuccessfulSellOSM(_OSM):
         return True
 
 
+class _TrackingSellOSM(_SuccessfulSellOSM):
+    def __init__(self):
+        self.transitions = []
+
+    async def transition(self, _client_order_id, to_status, *_args, **_kwargs):
+        self.transitions.append(to_status)
+        return True
+
+
 class _CanonicalTraceOSM(_OSM):
     def __init__(self, persistence, accepted_status):
         self.persistence = persistence
@@ -315,6 +324,19 @@ class _RejectedSellExecutor(_SellExecutor):
     async def execute_market_order(self, *args, **kwargs):
         self.market_calls += 1
         return OrderResult(success=False, error="simulated rejected sell")
+
+
+class _ZeroFillSellExecutor(_SellExecutor):
+    async def execute_market_order(self, *args, **kwargs):
+        self.market_calls += 1
+        return OrderResult(
+            success=True,
+            txid="sell-zero-fill",
+            executed_volume=0.0,
+            executed_price=0.0,
+            fees=0.0,
+            liquidity="unknown",
+        )
 
 
 class _RecoverExecutor(_Executor):
@@ -901,6 +923,37 @@ async def test_execute_sell_releases_reservation_after_known_execution_rejection
     assert instance.close_releases == ["pos-sell-1"]
     assert instance.close_calls == []
     assert instance._persistence.ledger_rows == []
+
+
+@pytest.mark.asyncio
+async def test_execute_sell_zero_fill_keeps_reservation_and_requires_reconciliation():
+    instance = _SuccessfulSellInstance()
+    executor = _ZeroFillSellExecutor()
+    handler = SignalHandlerAsync(instance=instance, order_executor=executor)
+    osm = _TrackingSellOSM()
+    handler._osm = osm
+    handler._passes_order_size_guard = lambda **_kwargs: True
+    handler._post_trade_reconcile = _noop_reconcile
+
+    signal = TradingSignal(
+        type=SignalType.SELL,
+        symbol="XXRPZEUR",
+        price=101.5,
+        volume=2.0,
+        reason="unit zero fill close",
+        timestamp=datetime.now(timezone.utc),
+        metadata={},
+    )
+
+    await handler._execute_sell(signal)
+
+    assert executor.market_calls == 1
+    assert instance.close_reservations == ["pos-sell-1"]
+    assert instance.close_releases == []
+    assert instance.close_calls == []
+    assert instance._persistence.ledger_rows == []
+    assert osm.transitions == ["SENT", "ACK", "UNKNOWN"]
+    assert handler._last_order_event["reason"] == "zero_fill_requires_reconciliation"
 
 
 @pytest.mark.asyncio

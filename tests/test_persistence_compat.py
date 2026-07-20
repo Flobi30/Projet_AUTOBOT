@@ -109,6 +109,27 @@ async def test_recover_positions_can_match_orphan_by_ledger_symbol(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_recover_positions_retains_closing_reservations(tmp_path):
+    db_path = tmp_path / "state.db"
+    persistence = StatePersistence(str(db_path))
+
+    assert await persistence.save_position(
+        "pos-closing",
+        "inst-1",
+        120.0,
+        0.5,
+        "closing",
+        "trend_momentum",
+        {"symbol": "XETHZEUR", "buy_txid": "buy-closing"},
+    )
+
+    recovered = await persistence.recover_positions("inst-1", symbol="XETHZEUR")
+    await persistence.close()
+
+    assert [(row["id"], row["status"]) for row in recovered] == [("pos-closing", "closing")]
+
+
+@pytest.mark.asyncio
 async def test_instance_state_persists_initial_capital(tmp_path):
     db_path = tmp_path / "state.db"
     persistence = StatePersistence(str(db_path))

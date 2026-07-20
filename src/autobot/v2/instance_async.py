@@ -202,11 +202,20 @@ class TradingInstanceAsync:
                             open_time = datetime.fromisoformat(str(open_time_raw).replace("Z", "+00:00"))
                         except Exception:
                             open_time = datetime.now(timezone.utc)
+                        persisted_status = str(pos_data.get("status") or "open").strip().lower()
+                        if persisted_status not in {"open", "closing"}:
+                            logger.error(
+                                "Recovered position has unsupported non-terminal status; keeping it closing: %s/%s/%s",
+                                self.id,
+                                pos_data.get("id"),
+                                persisted_status,
+                            )
+                            persisted_status = "closing"
                         position = Position(
                             id=pos_data["id"],
                             buy_price=pos_data["buy_price"],
                             volume=pos_data["volume"],
-                            status="open",
+                            status=persisted_status,
                             open_time=open_time,
                             stop_loss=metadata.get("stop_loss"),
                             take_profit=metadata.get("take_profit"),

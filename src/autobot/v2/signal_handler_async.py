@@ -1810,18 +1810,16 @@ class SignalHandlerAsync:
                     await self._post_trade_reconcile()
                     continue
                 if executed_volume <= 0.0:
-                    rejected = await self._maybe_await(self._osm.transition(
+                    await self._maybe_await(self._osm.transition(
                         rec.client_order_id,
-                        "REJECTED",
-                        "zero_fill",
+                        "UNKNOWN",
+                        "zero_fill_requires_reconciliation",
                         exchange_order_id=result.txid,
                     ))
-                    if rejected:
-                        await self.instance.release_position_close(pos_id)
                     self._record_runtime_event(
                         "_last_order_event",
-                        event="order_rejected",
-                        reason="zero_fill",
+                        event="order_unknown",
+                        reason="zero_fill_requires_reconciliation",
                         symbol=symbol,
                         side="sell",
                         order_type="market",
@@ -1831,7 +1829,8 @@ class SignalHandlerAsync:
                         execution_engine=signal_engine,
                         source=signal_source,
                     )
-                    logger.warning("SELL zero fill blocked: %s/%s", self.instance.id, pos_id)
+                    logger.warning("SELL zero fill held for reconciliation: %s/%s", self.instance.id, pos_id)
+                    await self._post_trade_reconcile()
                     continue
                 if executed_volume + 1e-12 < requested_volume:
                     await self._maybe_await(self._osm.transition(

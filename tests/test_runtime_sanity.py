@@ -84,6 +84,13 @@ class _FakePersistence:
         return {"current_capital": 500.0, "win_count": 2, "loss_count": 1}
 
 
+class _ClosingPositionPersistence(_FakePersistence):
+    async def recover_positions(self, instance_id, symbol=None):
+        rows = await super().recover_positions(instance_id, symbol)
+        rows[0]["status"] = "closing"
+        return rows
+
+
 class _RejectingClosePersistence:
     def __init__(self):
         self.close_requests = []
@@ -239,6 +246,26 @@ def test_instance_recovery_decodes_json_metadata_and_rebuilds_allocated_capital(
     assert inst._positions["pos-1"].buy_txid == "buy-1"
     assert inst._position_fee_hints["pos-1"]["buy_fee"] == pytest.approx(0.04)
     assert inst._execution_fee_cache["buy-1"]["source"] == "paper"
+
+
+def test_instance_recovery_preserves_closing_reservation_after_restart():
+    inst = object.__new__(TradingInstanceAsync)
+    inst.id = "inst-1"
+    inst.config = SimpleNamespace(symbol="XETHZEUR")
+    inst._persistence = _ClosingPositionPersistence()
+    inst._positions = {}
+    inst._allocated_capital = 0.0
+    inst._current_capital = 0.0
+    inst._win_count = 0
+    inst._loss_count = 0
+    inst._position_fee_hints = {}
+    inst._execution_fee_cache = {}
+    inst._lock = asyncio.Lock()
+
+    asyncio.run(inst.recover_state())
+
+    assert inst._positions["pos-1"].status == "closing"
+    assert inst._allocated_capital == pytest.approx(25.0)
 
 
 def test_instance_close_does_not_mutate_memory_when_durable_close_fails():

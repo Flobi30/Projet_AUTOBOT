@@ -106,6 +106,19 @@ async def test_orphaned_protective_order_is_detected_not_cancelled():
 
 
 @pytest.mark.asyncio
+async def test_closing_position_stays_visible_and_requires_fill_reconciliation():
+    instance = _Instance([{"id": "pos-closing", "status": "closing", "txid": "buy-1"}])
+    manager = ReconciliationManagerAsync(_Executor(), {"inst": instance})
+
+    divergences = await manager.reconcile_all()
+
+    assert instance.close_calls == []
+    assert [(item.type, item.details["remediation"]) for item in divergences] == [
+        ("closing_position_unresolved", "blocked_pending_canonical_fill"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_critical_divergence_notifies_the_fail_closed_callback():
     observed = []
 
