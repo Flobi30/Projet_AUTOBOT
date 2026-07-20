@@ -3296,14 +3296,16 @@ class OrchestratorAsync:
             or position.get("engine")
             or ""
         )
+        decision_id = str(metadata.get("decision_id") or "").strip()
+        signal_id = str(metadata.get("signal_id") or "").strip()
 
         kwargs: Dict[str, Any] = {}
         if self.order_executor.__class__.__name__ == "PaperTradingExecutor":
             kwargs["price_hint"] = float(current_price)
             kwargs["strategy_id"] = strategy_id
             kwargs["signal_source"] = str(metadata.get("execution_source") or "position_exit")
-            kwargs["decision_id"] = metadata.get("decision_id")
-            kwargs["signal_id"] = metadata.get("signal_id")
+            kwargs["decision_id"] = decision_id or None
+            kwargs["signal_id"] = signal_id or None
             kwargs["regime"] = str((metadata.get("regime_context") or {}).get("regime") or metadata.get("regime") or "")
 
         result = await self.order_executor.execute_market_order(
@@ -3368,8 +3370,9 @@ class OrchestratorAsync:
                     regime=str((metadata.get("regime_context") or {}).get("regime") or metadata.get("regime") or ""),
                     realized_pnl=realized_pnl,
                     exchange_order_id=getattr(result, "txid", None),
-                    decision_id=None,
-                    signal_id=None,
+                    decision_id=decision_id,
+                    signal_id=signal_id,
+                    execution_mode="shadow_paper",
                     is_opening_leg=False,
                     is_closing_leg=True,
                     execution_liquidity=getattr(result, "liquidity", "unknown"),

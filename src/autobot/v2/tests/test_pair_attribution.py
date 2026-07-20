@@ -26,6 +26,10 @@ async def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         realized_pnl=100.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t1",
+        signal_id="sig-t1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
     assert await p.append_trade_ledger(
         trade_id="t2",
@@ -38,6 +42,10 @@ async def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         realized_pnl=-40.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t2",
+        signal_id="sig-t2",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
     # ETH: +20 only => PF=999 fallback
     assert await p.append_trade_ledger(
@@ -51,6 +59,10 @@ async def test_pair_attribution_metrics_correctness_known_inputs(tmp_path):
         realized_pnl=20.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t3",
+        signal_id="sig-t3",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     report = p.get_pair_attribution_report()
@@ -92,6 +104,10 @@ async def test_pair_attribution_report_schema_validity(tmp_path):
         realized_pnl=5.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-schema-t1",
+        signal_id="sig-schema-t1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     report = p.get_pair_attribution_report(window_hours=24, limit=5)
@@ -135,10 +151,15 @@ async def test_pair_attribution_sparse_or_absent_data_safe_behavior(tmp_path):
         side="buy",
         executed_price=100.0,
         volume=1.0,
+        fees=0.0,
+        slippage_bps=0.0,
         realized_pnl=None,
         is_opening_leg=True,
         is_closing_leg=False,
         strategy_id="trend_momentum",
+        decision_id="dec-open-only",
+        signal_id="sig-open-only",
+        execution_mode="shadow_paper",
     )
     still_empty = p.get_pair_attribution_report()
     assert still_empty["pair_count"] == 0

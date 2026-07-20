@@ -94,8 +94,12 @@ async def test_recover_positions_can_match_orphan_by_ledger_symbol(tmp_path):
         executed_price=120.0,
         volume=0.5,
         fees=0.1,
+        slippage_bps=0.0,
         is_opening_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-legacy-recovery",
+        signal_id="sig-legacy-recovery",
+        execution_mode="shadow_paper",
     )
 
     recovered = await persistence.recover_positions("new-inst", symbol="XETHZEUR")

@@ -104,6 +104,8 @@ async def test_trade_ledger_duplicate_trade_id_is_not_double_counted(tmp_path):
         slippage_bps=1.0,
         is_opening_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-dup-trade",
+        signal_id="sig-dup-trade",
         execution_mode="shadow_paper",
     )
 
@@ -121,6 +123,75 @@ async def test_trade_ledger_duplicate_trade_id_is_not_double_counted(tmp_path):
 
     assert count == 1
     assert "idx_trade_ledger_trade_id_unique" in unique_indexes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("missing_field", "reason"),
+    [
+        ("decision_id", "decision_id_required"),
+        ("signal_id", "signal_id_required"),
+        ("fees", "fees_required"),
+        ("slippage_bps", "slippage_bps_required"),
+        ("execution_mode", "execution_mode_required"),
+    ],
+)
+async def test_new_trade_ledger_rows_require_canonical_provenance(tmp_path, caplog, missing_field, reason):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    payload = {
+        "trade_id": f"canonical-{missing_field}",
+        "position_id": "pos",
+        "instance_id": "inst",
+        "symbol": "TRXEUR",
+        "side": "buy",
+        "expected_price": 1.0,
+        "executed_price": 1.0,
+        "volume": 10.0,
+        "fees": 0.1,
+        "slippage_bps": 1.0,
+        "is_opening_leg": True,
+        "strategy_id": "trend_momentum",
+        "decision_id": "dec-canonical",
+        "signal_id": "sig-canonical",
+        "execution_mode": "shadow_paper",
+    }
+    payload.pop(missing_field)
+
+    assert await persistence.append_trade_ledger(**payload) is False
+    await persistence.close()
+
+    with sqlite3.connect(tmp_path / "state.db") as conn:
+        persisted_rows = conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0]
+
+    assert persisted_rows == 0
+    assert reason in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_new_trade_ledger_rows_reject_legacy_execution_mode(tmp_path, caplog):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+
+    accepted = await persistence.append_trade_ledger(
+        trade_id="legacy-mode",
+        position_id="pos",
+        instance_id="inst",
+        symbol="TRXEUR",
+        side="buy",
+        expected_price=1.0,
+        executed_price=1.0,
+        volume=10.0,
+        fees=0.1,
+        slippage_bps=1.0,
+        is_opening_leg=True,
+        strategy_id="trend_momentum",
+        decision_id="dec-legacy-mode",
+        signal_id="sig-legacy-mode",
+        execution_mode="legacy_unspecified",
+    )
+    await persistence.close()
+
+    assert accepted is False
+    assert "execution_mode_required" in caplog.text
 
 
 @pytest.mark.asyncio

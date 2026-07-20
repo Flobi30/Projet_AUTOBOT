@@ -7,6 +7,7 @@ dynamic_grid is deliberately absent from runtime routing and paper execution.
 from __future__ import annotations
 
 import os
+import math
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -105,6 +106,52 @@ def trade_ledger_append_block_reason(
     if mode not in REPORTABLE_PAPER_EXECUTION_MODES:
         return f"invalid_execution_mode:{mode}"
     return None
+
+
+def canonical_trade_ledger_append_block_reason(
+    strategy_id: Any,
+    *,
+    decision_id: Any,
+    signal_id: Any,
+    fees: Any,
+    slippage_bps: Any,
+    execution_mode: Any,
+    paper_capital_gate_attested: bool = False,
+) -> str | None:
+    """Return why a *new* runtime ledger row lacks canonical provenance.
+
+    Historical rows remain preserved in SQLite but must not be created through
+    the current persistence API.  A future writer must make an explicit
+    execution-mode choice and carry the minimum evidence required to audit
+    strategy, decision, signal and transaction costs end-to-end.
+    """
+
+    if not normalize_strategy_id(decision_id):
+        return "decision_id_required"
+    if not normalize_strategy_id(signal_id):
+        return "signal_id_required"
+    if execution_mode is None or not str(execution_mode).strip():
+        return "execution_mode_required"
+    normalized_mode = normalize_execution_mode(execution_mode)
+    if normalized_mode == EXECUTION_MODE_LEGACY_UNSPECIFIED:
+        return "execution_mode_required"
+    try:
+        parsed_fees = float(fees)
+    except (TypeError, ValueError):
+        return "fees_required"
+    if not math.isfinite(parsed_fees) or parsed_fees < 0.0:
+        return "fees_invalid"
+    try:
+        parsed_slippage = float(slippage_bps)
+    except (TypeError, ValueError):
+        return "slippage_bps_required"
+    if not math.isfinite(parsed_slippage):
+        return "slippage_bps_invalid"
+    return trade_ledger_append_block_reason(
+        strategy_id,
+        execution_mode=normalized_mode,
+        paper_capital_gate_attested=paper_capital_gate_attested,
+    )
 
 
 def retired_grid_snapshot(symbols: Iterable[Any] = ()) -> dict[str, Any]:

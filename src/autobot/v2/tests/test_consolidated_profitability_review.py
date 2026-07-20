@@ -43,6 +43,10 @@ async def test_consolidated_review_schema_validity(tmp_path):
         realized_pnl=12.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t1",
+        signal_id="sig-t1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal_path), runtime_context={"paper_trading": True})
@@ -85,6 +89,10 @@ async def test_consolidated_review_safe_when_one_source_absent(tmp_path):
         realized_pnl=4.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t1",
+        signal_id="sig-t1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     # Journal absent, pair attribution present

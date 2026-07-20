@@ -785,6 +785,7 @@ async def test_execute_sell_records_realized_pnl_from_close_result(monkeypatch):
 
     assert instance.close_calls[0][1]["sell_fee"] == pytest.approx(0.2)
     assert instance._persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
+    assert instance._persistence.ledger_rows[0]["execution_mode"] == "shadow_paper"
     assert handler._last_order_event["realized_pnl"] == pytest.approx(3.4)
 
 
@@ -820,6 +821,7 @@ async def test_sell_signal_persists_canonical_decision_before_order_and_trade():
     assert osm.new_order_calls[0]["signal_id"] == signal_id
     assert persistence.ledger_rows[0]["decision_id"] == decision_id
     assert persistence.ledger_rows[0]["signal_id"] == signal_id
+    assert persistence.ledger_rows[0]["execution_mode"] == "shadow_paper"
     assert persistence.ledger_rows[0]["realized_pnl"] == pytest.approx(3.4)
 
 

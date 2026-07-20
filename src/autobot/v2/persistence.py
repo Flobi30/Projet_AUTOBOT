@@ -15,11 +15,10 @@ from typing import Optional, Dict, List, Any
 from pathlib import Path
 
 from .strategy_runtime_policy import (
-    EXECUTION_MODE_LEGACY_UNSPECIFIED,
+    canonical_trade_ledger_append_block_reason,
     LEGACY_UNATTRIBUTED_STRATEGY_ID,
     normalize_execution_mode,
     official_paper_strategy_block_reason,
-    trade_ledger_append_block_reason,
 )
 
 logger = logging.getLogger(__name__)
@@ -997,8 +996,12 @@ class StatePersistence:
             strategy_id = kwargs.get("strategy_id")
             explicit_execution_mode = kwargs.get("execution_mode")
             execution_mode = normalize_execution_mode(explicit_execution_mode)
-            block_reason = trade_ledger_append_block_reason(
+            block_reason = canonical_trade_ledger_append_block_reason(
                 strategy_id,
+                decision_id=kwargs.get("decision_id"),
+                signal_id=kwargs.get("signal_id"),
+                fees=kwargs.get("fees"),
+                slippage_bps=kwargs.get("slippage_bps"),
                 execution_mode=execution_mode,
                 paper_capital_gate_attested=bool(kwargs.get("paper_capital_gate_attested", False)),
             )
@@ -1026,7 +1029,7 @@ class StatePersistence:
                 kwargs.get("exchange_order_id"), kwargs.get("decision_id"), kwargs.get("signal_id"),
                 strategy_id, kwargs.get("timeframe"), kwargs.get("signal_source"),
                 kwargs.get("gross_pnl"), kwargs.get("net_pnl"), kwargs.get("regime"),
-                kwargs.get("execution_liquidity"), execution_mode or EXECUTION_MODE_LEGACY_UNSPECIFIED, now
+                kwargs.get("execution_liquidity"), execution_mode, now
             ]
             query = f"INSERT OR IGNORE INTO trade_ledger ({', '.join(cols)}) VALUES ({', '.join(['?']*len(cols))})"
 

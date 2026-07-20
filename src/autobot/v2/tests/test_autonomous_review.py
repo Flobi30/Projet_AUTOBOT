@@ -42,6 +42,10 @@ async def test_autonomous_review_schema_validity(tmp_path):
         realized_pnl=10.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-t1",
+        signal_id="sig-t1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal), runtime_context={"paper_trading": True})
@@ -85,6 +89,10 @@ async def test_autonomous_review_recommendation_output_correctness(tmp_path):
         realized_pnl=-25.0,
         is_closing_leg=True,
         strategy_id="trend_momentum",
+        decision_id="dec-neg-1",
+        signal_id="sig-neg-1",
+        slippage_bps=0.0,
+        execution_mode="shadow_paper",
     )
 
     j = DecisionJournal(enabled=True, journal_path=str(journal), runtime_context={})

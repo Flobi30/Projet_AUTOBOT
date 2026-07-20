@@ -46,6 +46,8 @@ class _Instance:
                 "metadata": {
                     "strategy_id": "trend_momentum",
                     "signal_source": "position_exit_test",
+                    "decision_id": "dec-position-1",
+                    "signal_id": "sig-position-1",
                     "regime": "trend",
                 },
             }
@@ -98,8 +100,8 @@ async def test_paper_take_profit_executes_sell_and_writes_ledger():
                 "price_hint": 111.0,
                 "strategy_id": "trend_momentum",
                 "signal_source": "position_exit",
-                "decision_id": None,
-                "signal_id": None,
+                "decision_id": "dec-position-1",
+                "signal_id": "sig-position-1",
                 "regime": "trend",
             },
         )
@@ -111,6 +113,9 @@ async def test_paper_take_profit_executes_sell_and_writes_ledger():
     assert instance._persistence.rows[0]["is_closing_leg"] is True
     assert instance._persistence.rows[0]["realized_pnl"] == pytest.approx(5.35)
     assert instance._persistence.rows[0]["strategy_id"] == "trend_momentum"
+    assert instance._persistence.rows[0]["decision_id"] == "dec-position-1"
+    assert instance._persistence.rows[0]["signal_id"] == "sig-position-1"
+    assert instance._persistence.rows[0]["execution_mode"] == "shadow_paper"
 
 
 def test_dynamic_paper_allocation_scales_with_edge_without_touching_live():

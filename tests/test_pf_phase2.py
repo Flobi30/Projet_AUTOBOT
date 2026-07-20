@@ -31,6 +31,10 @@ async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
             realized_pnl=10.0,
             is_closing_leg=True,
             strategy_id="trend_momentum",
+            decision_id="dec-t1",
+            signal_id="sig-t1",
+            slippage_bps=0.0,
+            execution_mode="shadow_paper",
         )
         await p.append_trade_ledger(
             trade_id="t2",
@@ -43,6 +47,10 @@ async def test_trade_ledger_metrics_profit_factor_expectancy(tmp_path):
             realized_pnl=-5.0,
             is_closing_leg=True,
             strategy_id="trend_momentum",
+            decision_id="dec-t2",
+            signal_id="sig-t2",
+            slippage_bps=0.0,
+            execution_mode="shadow_paper",
         )
         metrics = await p.get_trade_ledger_metrics("i1")
         assert metrics["trade_count"] == 2.0
@@ -72,6 +80,10 @@ async def test_trade_ledger_blocks_missing_strategy_and_retired_grid(tmp_path):
             fees=0.2,
             realized_pnl=10.0,
             is_closing_leg=True,
+            decision_id="dec-missing-strategy",
+            signal_id="sig-missing-strategy",
+            slippage_bps=0.0,
+            execution_mode="shadow_paper",
         )
         grid = await p.append_trade_ledger(
             trade_id="grid-strategy",
@@ -84,6 +96,10 @@ async def test_trade_ledger_blocks_missing_strategy_and_retired_grid(tmp_path):
             realized_pnl=10.0,
             is_closing_leg=True,
             strategy_id="dynamic_grid",
+            decision_id="dec-grid-strategy",
+            signal_id="sig-grid-strategy",
+            slippage_bps=0.0,
+            execution_mode="shadow_paper",
         )
         by_strategy = await p.get_trade_ledger_metrics_by_strategy("i1")
 
@@ -135,6 +151,10 @@ async def test_legacy_unattributed_trades_are_excluded_from_official_strategy_me
             net_pnl=-5.0,
             is_closing_leg=True,
             strategy_id="trend_momentum",
+            decision_id="dec-official-loss",
+            signal_id="sig-official-loss",
+            slippage_bps=0.0,
+            execution_mode="shadow_paper",
         )
 
         official = await p.get_trade_ledger_metrics_by_strategy("i1")
