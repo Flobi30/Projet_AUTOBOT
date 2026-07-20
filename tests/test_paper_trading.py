@@ -12,6 +12,14 @@ from autobot.v2.order_executor import OrderSide
 pytestmark = pytest.mark.unit
 
 
+def _trace(name: str) -> dict[str, str]:
+    return {
+        "strategy_id": "trend_momentum",
+        "decision_id": f"dec-{name}",
+        "signal_id": f"sig-{name}",
+    }
+
+
 def test_paper_symbol_asset_roundtrip_for_altcoins():
     pairs = {
         "XLTCZEUR": "XLTC",
@@ -52,6 +60,39 @@ async def test_paper_market_order_rejects_missing_strategy_id(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("order_type", ["market", "limit", "stop_loss"])
+@pytest.mark.parametrize(
+    ("missing_field", "reason"),
+    [("decision_id", "decision_id_required"), ("signal_id", "signal_id_required")],
+)
+async def test_paper_orders_reject_missing_canonical_trace_before_writing(
+    tmp_path,
+    order_type,
+    missing_field,
+    reason,
+):
+    executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
+    kwargs = {
+        "strategy_id": "trend_momentum",
+        "decision_id": "dec-canonical",
+        "signal_id": "sig-canonical",
+    }
+    kwargs.pop(missing_field)
+
+    if order_type == "market":
+        result = await executor.execute_market_order("XETHZEUR", OrderSide.SELL, 0.01, **kwargs)
+    elif order_type == "limit":
+        result = await executor.execute_limit_order("XETHZEUR", OrderSide.SELL, 0.01, 100.0, **kwargs)
+    else:
+        result = await executor.execute_stop_loss_order("XETHZEUR", OrderSide.SELL, 0.01, 95.0, **kwargs)
+
+    assert result.success is False
+    assert result.error == reason
+    with sqlite3.connect(executor.db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
 async def test_paper_market_order_refuses_missing_price_without_hint(tmp_path, monkeypatch):
     executor = PaperTradingExecutor(db_path=str(tmp_path / "paper_trades.db"), initial_capital=1000.0)
 
@@ -65,7 +106,7 @@ async def test_paper_market_order_refuses_missing_price_without_hint(tmp_path, m
         OrderSide.SELL,
         0.01,
         userref=1234,
-        strategy_id="trend_momentum",
+        **_trace("missing-price"),
     )
 
     assert result.success is False
@@ -88,7 +129,7 @@ async def test_paper_market_order_can_use_legacy_synthetic_fallback_when_explici
         OrderSide.SELL,
         0.01,
         userref=1234,
-        strategy_id="trend_momentum",
+        **_trace("synthetic-fallback"),
     )
 
     assert result.success is True
@@ -112,7 +153,7 @@ async def test_paper_market_order_prefers_signal_price_hint(tmp_path, monkeypatc
         0.01,
         userref=1234,
         price_hint=1969.53,
-        strategy_id="trend_momentum",
+        **_trace("signal-price"),
     )
 
     assert result.success is True
@@ -143,7 +184,7 @@ async def test_paper_market_buy_executes_at_book_ask_when_available(tmp_path, mo
         1.0,
         userref=4321,
         price_hint=100.0,
-        strategy_id="trend_momentum",
+        **_trace("market-book-ask"),
     )
 
     assert result.success is True
@@ -176,7 +217,7 @@ async def test_paper_market_sell_executes_at_book_bid_when_available(tmp_path, m
         1.0,
         userref=4322,
         price_hint=100.0,
-        strategy_id="trend_momentum",
+        **_trace("market-book-bid"),
     )
 
     assert result.success is True
@@ -209,7 +250,7 @@ async def test_paper_market_order_falls_back_to_signal_price_when_book_invalid(t
         1.0,
         userref=4323,
         price_hint=100.0,
-        strategy_id="trend_momentum",
+        **_trace("market-invalid-book"),
     )
 
     assert result.success is True
@@ -232,7 +273,7 @@ async def test_paper_find_order_by_userref(tmp_path, monkeypatch):
         1.0,
         userref=9876,
         price_hint=91.0,
-        strategy_id="trend_momentum",
+        **_trace("find-userref"),
     )
 
     found = await executor.find_order_by_userref(9876)
@@ -269,7 +310,7 @@ async def test_post_only_limit_uses_realistic_maker_fee_when_book_is_touchable(t
         1.0,
         100.0,
         post_only=True,
-        strategy_id="trend_momentum",
+        **_trace("maker-touch"),
     )
 
     assert result.success is True
@@ -291,7 +332,7 @@ async def test_post_only_limit_rejects_missing_book_when_required(tmp_path, monk
         1.0,
         100.0,
         post_only=True,
-        strategy_id="trend_momentum",
+        **_trace("maker-no-book"),
     )
 
     assert result.success is False
@@ -317,7 +358,7 @@ async def test_post_only_limit_missing_book_can_fallback_to_taker_when_enabled(t
         1.0,
         100.0,
         post_only=True,
-        strategy_id="trend_momentum",
+        **_trace("maker-taker-fallback"),
     )
 
     assert result.success is True
@@ -353,7 +394,7 @@ async def test_post_only_limit_rejects_crossing_or_adverse_book(tmp_path, monkey
         1.0,
         100.05,
         post_only=True,
-        strategy_id="trend_momentum",
+        **_trace("maker-crossing"),
     )
     adverse = await executor.execute_limit_order(
         "XXBTZEUR",
@@ -361,7 +402,7 @@ async def test_post_only_limit_rejects_crossing_or_adverse_book(tmp_path, monkey
         1.0,
         100.0,
         post_only=True,
-        strategy_id="trend_momentum",
+        **_trace("maker-adverse"),
     )
 
     assert crossing.success is False

@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Coroutine
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
-from .strategy_runtime_policy import official_paper_strategy_block_reason
+from .strategy_runtime_policy import canonical_order_append_block_reason
 
 logger = logging.getLogger(__name__)
 
@@ -396,9 +396,13 @@ class PaperTradingExecutor:
     ) -> OrderResult:
         """Simule un ordre MARKET avec exécution immédiate."""
         logger.info(f"📊 [PAPER] Ordre MARKET {side.value.upper()} {volume:.6f} {symbol}")
-        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
-        if strategy_block_reason is not None:
-            return OrderResult(success=False, error=strategy_block_reason)
+        provenance_block_reason = canonical_order_append_block_reason(
+            strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
+        if provenance_block_reason is not None:
+            return OrderResult(success=False, error=provenance_block_reason)
         
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
@@ -505,9 +509,13 @@ class PaperTradingExecutor:
             limit_price,
             post_only,
         )
-        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
-        if strategy_block_reason is not None:
-            return OrderResult(success=False, error=strategy_block_reason)
+        provenance_block_reason = canonical_order_append_block_reason(
+            strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
+        if provenance_block_reason is not None:
+            return OrderResult(success=False, error=provenance_block_reason)
 
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
@@ -623,9 +631,13 @@ class PaperTradingExecutor:
     ) -> OrderResult:
         """Simule un ordre STOP-LOSS (enregistré comme pending)."""
         logger.info(f"📊 [PAPER] Ordre STOP-LOSS {side.value.upper()} {volume:.6f} {symbol} @ {stop_price:.2f}")
-        strategy_block_reason = official_paper_strategy_block_reason(strategy_id)
-        if strategy_block_reason is not None:
-            return OrderResult(success=False, error=strategy_block_reason)
+        provenance_block_reason = canonical_order_append_block_reason(
+            strategy_id,
+            decision_id=decision_id,
+            signal_id=signal_id,
+        )
+        if provenance_block_reason is not None:
+            return OrderResult(success=False, error=provenance_block_reason)
         
         MIN_VOLUME = 0.0001
         if volume < MIN_VOLUME:
