@@ -186,6 +186,14 @@ def _env_bool(name: str, default: bool) -> bool:
     return value in ("1", "true", "yes", "on")
 
 
+def _require_paper_executor(paper_mode: bool) -> None:
+    """Fail closed instead of falling back from paper mode to Kraken execution."""
+    if paper_mode and PaperTradingExecutor is None:
+        raise RuntimeError(
+            "paper_executor_unavailable: refusing fallback to real Kraken executor"
+        )
+
+
 def _env_float(name: str, default: float, minimum: float | None = None) -> float:
     try:
         value = float(os.getenv(name, str(default)))
@@ -263,6 +271,7 @@ class OrchestratorAsync:
         # Order executor (async) — PaperTrading si PAPER_TRADING=true
         import os as _os
         self.paper_mode = _os.getenv("PAPER_TRADING", "false").lower() == "true"
+        _require_paper_executor(self.paper_mode)
         
         if self.paper_mode and PaperTradingExecutor is not None:
             initial_capital = float(_os.getenv("INITIAL_CAPITAL", "1000.0"))
