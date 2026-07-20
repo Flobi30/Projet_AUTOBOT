@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 
 PF_PROMOTION_THRESHOLD: float = 1.5
 MIN_TRADES_FOR_PROMOTION: int = 30
-MAX_TRANSFER_RATIO: float = 0.25  # max 25% of paper_capital per promotion
+PROMOTION_DISABLED_REASON = (
+    "automatic promotion and capital transfer are disabled; "
+    "use the versioned strategy-artifact human-review workflow"
+)
 
 class Mode(Enum):
     CRYPTO = "crypto"
@@ -113,9 +116,11 @@ class ShadowInstance:
 # ── manager ──────────────────────────────────────────────────────────────────
 
 class ShadowTradingManager:
-    """Manages shadow (paper) trading instances alongside live trading.
+    """Manages research-only shadow instances.
 
-    All public methods are O(1) per instance and thread-safe (RLock).
+    This legacy manager may record research performance but cannot promote an
+    instance, transfer capital, or authorize any execution path. All public
+    methods are O(1) per instance and thread-safe (RLock).
     """
 
     def __init__(self) -> None:
@@ -175,8 +180,9 @@ class ShadowTradingManager:
         If individual trades have been recorded via ``record_trade()``,
         the PF is recalculated internally and the passed *pf* is ignored.
 
-        Returns ``True`` when the instance now qualifies for promotion
-        (PF ≥ 1.5, validation period elapsed, and ≥ 30 trades).
+        Returns ``True`` when the instance meets the legacy *research* numeric
+        threshold (PF ≥ 1.5, validation period elapsed, and ≥ 30 trades). This
+        is not a promotion decision and cannot authorize capital or execution.
 
         Raises
         ------
@@ -215,7 +221,7 @@ class ShadowTradingManager:
                            instance_id)
             return False
 
-        status = "ELIGIBLE" if qualifies else "SHADOW"
+        status = "ELIGIBLE_RESEARCH_ONLY" if qualifies else "SHADOW"
         logger.info(
             "Shadow [%s]: PF=%.2f après %d jours → %s",
             instance_id, current_pf, int(days), status,
@@ -223,74 +229,33 @@ class ShadowTradingManager:
         return qualifies
 
     def should_promote_to_live(self, instance_id: str) -> bool:
-        """Check whether a shadow instance should be promoted to live.
+        """Return ``False`` because legacy promotion is permanently disabled.
 
-        Criteria:
-        1. Instance still in SHADOW state.
-        2. PF ≥ 1.5
-        3. Validation period for its mode has elapsed.
-        4. At least 30 trades recorded.
+        Numeric shadow performance is research evidence only. Promotion now
+        requires the separate versioned strategy-artifact workflow and an
+        explicit human review; this legacy API must never create that state.
         """
         with self._lock:
-            inst = self._get_instance(instance_id)
-            if inst.state != InstanceState.SHADOW:
-                return False
-            return (inst.meets_pf_threshold
-                    and inst.validation_complete
-                    and inst.trades >= MIN_TRADES_FOR_PROMOTION)
+            self._get_instance(instance_id)
+        logger.info("Shadow [%s]: promotion denied - %s", instance_id, PROMOTION_DISABLED_REASON)
+        return False
 
     def transfer_capital(self, instance_id: str, amount: float) -> bool:
-        """Transfer isolated paper capital to a live slot, promoting the instance.
+        """Reject every legacy capital-transfer request without mutation.
 
-        The transfer amount is capped at 25% of the instance's paper_capital.
-        Returns ``True`` on success. Fails (returns ``False``) when:
-        * The instance does not qualify for promotion.
-        * The amount is non-positive.
-        * The instance is already promoted (live conflict).
-
-        On success the instance is marked ``PROMOTED``.
+        Keeping this method as a fail-closed compatibility boundary prevents a
+        direct caller from manufacturing a ``PROMOTED`` state or changing a
+        shadow instance's capital outside strategy governance.
         """
-        if amount <= 0:
-            logger.error("Shadow [%s]: invalid transfer amount %.2f",
-                         instance_id, amount)
-            return False
-
         with self._lock:
-            inst = self._get_instance(instance_id)
-
-            if not self.should_promote_to_live(instance_id):
-                deny_reason = "does not qualify for promotion"
-                denied = True
-            elif inst.state == InstanceState.PROMOTED:
-                deny_reason = "conflict – id already promoted/live"
-                denied = True
-            else:
-                denied = False
-                # Cap transfer at 25% of current paper_capital (if any capital set)
-                if inst.paper_capital > 0:
-                    max_allowed = inst.paper_capital * MAX_TRANSFER_RATIO
-                    effective_amount = min(amount, max_allowed)
-                else:
-                    effective_amount = amount
-
-                # Perform the "transfer" – mark as promoted
-                inst.paper_capital = effective_amount
-                inst.state = InstanceState.PROMOTED
-                inst.promoted_at = time.monotonic()
-                result_pf = inst.pf
-                result_days = int(inst.age_days)
-                result_capital = effective_amount
-
-        if denied:
-            logger.warning("Shadow [%s]: transfer denied – %s",
-                           instance_id, deny_reason)
-            return False
-
+            self._get_instance(instance_id)
         logger.info(
-            "Shadow [%s]: PF=%.2f après %d jours → PROMOTION/LIVE (capital=%.2f)",
-            instance_id, result_pf, result_days, result_capital,
+            "Shadow [%s]: capital transfer %.2f denied - %s",
+            instance_id,
+            amount,
+            PROMOTION_DISABLED_REASON,
         )
-        return True
+        return False
 
     def get_status(self) -> dict:
         """Return a snapshot of all instances and overall manager state."""
@@ -372,11 +337,11 @@ if __name__ == "__main__":
         try:
             fn()
             _passed += 1
-            print(f"  ✅ {name}")
+            print(f"  [PASS] {name}")
         except Exception as exc:
             _failed += 1
             _errors.append(f"{name}: {exc}")
-            print(f"  ❌ {name} — {exc}")
+            print(f"  [FAIL] {name} - {exc}")
             traceback.print_exc()
 
     def _make_eligible(mgr: ShadowTradingManager, iid: str, mode: str = "crypto"):
@@ -455,9 +420,10 @@ if __name__ == "__main__":
     def test_update_already_promoted():
         m = ShadowTradingManager()
         _make_eligible(m, "u5", "crypto")
-        m.transfer_capital("u5", 100.0)
+        assert m.transfer_capital("u5", 100.0) is False
         result = m.update_performance("u5", 3.0, 100)
-        assert result is False
+        assert result is True
+        assert m._instances["u5"].state is InstanceState.SHADOW
 
     # ── 3. ShouldPromote ─────────────────────────────────────────────────
 
@@ -469,7 +435,7 @@ if __name__ == "__main__":
     def test_should_promote_ready():
         m = ShadowTradingManager()
         _make_eligible(m, "sp2", "crypto")
-        assert m.should_promote_to_live("sp2") is True
+        assert m.should_promote_to_live("sp2") is False
 
     def test_should_promote_pf_insufficient():
         m = ShadowTradingManager()
@@ -491,15 +457,15 @@ if __name__ == "__main__":
         inst = m._instances["sp5"]
         inst.registered_at = time.monotonic() - 20 * 86_400
         m.update_performance("sp5", 1.5, 50)
-        assert m.should_promote_to_live("sp5") is True
+        assert m.should_promote_to_live("sp5") is False
 
     # ── 4. TransferCapital ───────────────────────────────────────────────
 
     def test_transfer_success():
         m = ShadowTradingManager()
         _make_eligible(m, "tc1", "crypto")
-        assert m.transfer_capital("tc1", 500.0) is True
-        assert m._instances["tc1"].state == InstanceState.PROMOTED
+        assert m.transfer_capital("tc1", 500.0) is False
+        assert m._instances["tc1"].state is InstanceState.SHADOW
 
     def test_transfer_not_qualified():
         m = ShadowTradingManager()
@@ -540,11 +506,12 @@ if __name__ == "__main__":
     def test_status_after_promotion():
         m = ShadowTradingManager()
         _make_eligible(m, "gs3", "crypto")
-        m.transfer_capital("gs3", 100.0)
+        assert m.transfer_capital("gs3", 100.0) is False
         s = m.get_status()
-        assert s["promoted_count"] == 1
-        assert "gs3" in s["live_ids"]
-        assert s["instances"]["gs3"]["state"] == "promoted"
+        assert s["promoted_count"] == 0
+        assert s["shadow_count"] == 1
+        assert "gs3" not in s["live_ids"]
+        assert s["instances"]["gs3"]["state"] == "shadow"
 
     # ── 6. ValidationDurations ───────────────────────────────────────────
 
@@ -622,9 +589,9 @@ if __name__ == "__main__":
             list(pool.map(_update, range(50)))
 
         assert len(errors) == 0, f"Got {len(errors)} errors: {errors[:5]}"
-        # All should now be eligible
+        # Numeric eligibility never authorizes a legacy promotion.
         for i in range(50):
-            assert m.should_promote_to_live(f"cu_{i}") is True
+            assert m.should_promote_to_live(f"cu_{i}") is False
 
     # ── additional tests to reach 35+ ─────────────────────────────────
 
@@ -635,12 +602,12 @@ if __name__ == "__main__":
         assert m._instances["ci1"].mode == Mode.CRYPTO
 
     def test_transfer_already_promoted_conflict():
-        """Transfer on an already-promoted instance must fail."""
+        """Every legacy transfer is rejected without creating promoted state."""
         m = ShadowTradingManager()
         _make_eligible(m, "tap1", "crypto")
-        assert m.transfer_capital("tap1", 100.0) is True
-        # Second transfer should fail
+        assert m.transfer_capital("tap1", 100.0) is False
         assert m.transfer_capital("tap1", 50.0) is False
+        assert m._instances["tap1"].state is InstanceState.SHADOW
 
     def test_update_not_enough_trades():
         """PF and duration OK but trades < 30 → not eligible."""
@@ -653,16 +620,16 @@ if __name__ == "__main__":
         assert m.should_promote_to_live("ut1") is False
 
     def test_status_mixed_shadow_and_promoted():
-        """Status with a mix of shadow + promoted instances."""
+        """A rejected transfer leaves every instance in shadow."""
         m = ShadowTradingManager()
         _make_eligible(m, "mix1", "crypto")
         m.register_instance("mix2", "forex")
-        m.transfer_capital("mix1", 100.0)
+        assert m.transfer_capital("mix1", 100.0) is False
         s = m.get_status()
-        assert s["shadow_count"] == 1
-        assert s["promoted_count"] == 1
+        assert s["shadow_count"] == 2
+        assert s["promoted_count"] == 0
         assert s["total_instances"] == 2
-        assert "mix1" in s["live_ids"]
+        assert "mix1" not in s["live_ids"]
         assert "mix2" not in s["live_ids"]
 
     def test_validation_not_complete_at_boundary():
@@ -733,11 +700,11 @@ if __name__ == "__main__":
         _run_test(name, fn)
 
     print(f"\n{'='*60}")
-    print(f" Résultat: {_passed} ✅  /  {_failed} ❌  (total: {len(all_tests)})")
+    print(f" Result: {_passed} passed / {_failed} failed (total: {len(all_tests)})")
     if _errors:
         print(f"\n Échecs:")
         for e in _errors:
-            print(f"   • {e}")
+            print(f"   - {e}")
     print(f"{'='*60}\n")
 
     exit(0 if _failed == 0 else 1)

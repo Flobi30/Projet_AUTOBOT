@@ -2,11 +2,10 @@
 Tests for ShadowTradingManager – AutoBot V2
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 35 tests covering:
-  - registration (valid, duplicate, bad mode, live-conflict)
-  - update_performance (normal, eligible, already promoted, negative values)
-  - should_promote_to_live (not ready, ready, already promoted)
-  - transfer_capital (success, not qualified, bad amount, live-conflict)
-  - get_status (empty, populated, after promotion)
+  - registration (valid, duplicate, bad mode)
+  - update_performance (normal, research eligibility, negative values)
+  - legacy promotion and capital-transfer quarantine
+  - get_status (empty, populated, research-only)
   - validation durations per mode
   - thread safety (concurrent registration)
   - edge cases (PF exactly 1.5, boundary day)
@@ -92,12 +91,11 @@ class TestRegistration:
         with pytest.raises(ValueError, match="Invalid mode"):
             mgr.register_instance("X-001", "stocks")
 
-    def test_register_conflict_with_live(self):
-        """Re-registering a promoted instance raises 'conflicts with a live'."""
+    def test_register_after_rejected_transfer_is_still_a_duplicate(self):
+        """A rejected legacy transfer cannot manufacture a live conflict."""
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 2.0, 60)
-        mgr.transfer_capital("BTC-001", 1000.0)
-        # Instance is still in _instances with PROMOTED state => conflict detected
-        with pytest.raises(ValueError, match="conflicts with a live"):
+        assert mgr.transfer_capital("BTC-001", 1000.0) is False
+        with pytest.raises(ValueError, match="already registered"):
             mgr.register_instance("BTC-001", "crypto")
 
 
@@ -133,11 +131,12 @@ class TestUpdatePerformance:
         result = mgr.update_performance("BTC-001", 2.0, 40)
         assert result is False
 
-    def test_update_already_promoted_ignored(self):
+    def test_update_after_rejected_transfer_remains_research_only(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 2.0, 60)
-        mgr.transfer_capital("BTC-001", 1000.0)
+        assert mgr.transfer_capital("BTC-001", 1000.0) is False
         result = mgr.update_performance("BTC-001", 2.5, 80)
-        assert result is False
+        assert result is True
+        assert mgr._instances["BTC-001"].state is InstanceState.SHADOW
 
     def test_update_negative_pf_raises(self):
         mgr = ShadowTradingManager()
@@ -167,37 +166,37 @@ class TestShouldPromote:
         mgr.update_performance("BTC-001", 2.0, 50)
         assert mgr.should_promote_to_live("BTC-001") is False
 
-    def test_ready_after_validation(self):
+    def test_ready_after_validation_is_still_not_promotable(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 1.8, 50)
-        assert mgr.should_promote_to_live("BTC-001") is True
+        assert mgr.should_promote_to_live("BTC-001") is False
 
     def test_not_ready_pf_below_threshold(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 1.4, 50)
         assert mgr.should_promote_to_live("BTC-001") is False
 
-    def test_already_promoted(self):
+    def test_rejected_transfer_does_not_change_promotion_answer(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 2.0, 60)
-        mgr.transfer_capital("BTC-001", 500.0)
+        assert mgr.transfer_capital("BTC-001", 500.0) is False
         assert mgr.should_promote_to_live("BTC-001") is False
 
-    def test_pf_exactly_threshold(self):
-        """PF == 1.5 should qualify (>=, not >)."""
+    def test_pf_exactly_threshold_is_not_a_promotion_gate(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 14, 1.5, 40)
-        assert mgr.should_promote_to_live("BTC-001") is True
+        assert mgr.should_promote_to_live("BTC-001") is False
 
 
 # transfer_capital
 
 class TestTransferCapital:
 
-    def test_transfer_success(self):
+    def test_transfer_is_rejected_without_state_or_capital_mutation(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 2.0, 60)
-        assert mgr.transfer_capital("BTC-001", 1000.0) is True
+        before = mgr._instances["BTC-001"]
+        before_capital = before.paper_capital
+        assert mgr.transfer_capital("BTC-001", 1000.0) is False
         inst = mgr._instances["BTC-001"]
-        assert inst.state == InstanceState.PROMOTED
-        assert inst.paper_capital == 1000.0
-        # Verify live_ids via get_status (PROMOTED state drives this now)
-        assert "BTC-001" in mgr.get_status()["live_ids"]
+        assert inst.state is InstanceState.SHADOW
+        assert inst.paper_capital == before_capital
+        assert mgr.get_status()["live_ids"] == []
 
     def test_transfer_not_qualified(self):
         mgr = ShadowTradingManager()
@@ -234,14 +233,14 @@ class TestGetStatus:
         assert "BTC-001" in status["instances"]
         assert status["instances"]["BTC-001"]["pf"] == 1.8
 
-    def test_status_after_promotion(self):
+    def test_status_after_rejected_promotion_stays_shadow(self):
         mgr = _make_manager_with_aged_instance("BTC-001", "crypto", 15, 2.0, 60)
-        mgr.transfer_capital("BTC-001", 1000.0)
+        assert mgr.transfer_capital("BTC-001", 1000.0) is False
         status = mgr.get_status()
-        assert status["promoted_count"] == 1
-        assert status["shadow_count"] == 0
-        assert "BTC-001" in status["live_ids"]
-        assert status["instances"]["BTC-001"]["state"] == "promoted"
+        assert status["promoted_count"] == 0
+        assert status["shadow_count"] == 1
+        assert status["live_ids"] == []
+        assert status["instances"]["BTC-001"]["state"] == "shadow"
 
 
 # Validation durations
@@ -263,17 +262,17 @@ class TestValidationDurations:
         mgr = _make_manager_with_aged_instance("EUR-001", "forex", 20, 2.0, 60)
         assert mgr.should_promote_to_live("EUR-001") is False
 
-    def test_forex_ready_at_21_days(self):
+    def test_forex_numerically_ready_is_still_not_promotable(self):
         mgr = _make_manager_with_aged_instance("EUR-001", "forex", 21, 2.0, 60)
-        assert mgr.should_promote_to_live("EUR-001") is True
+        assert mgr.should_promote_to_live("EUR-001") is False
 
     def test_commodities_not_ready_at_27_days(self):
         mgr = _make_manager_with_aged_instance("OIL-001", "commodities", 27, 2.0, 60)
         assert mgr.should_promote_to_live("OIL-001") is False
 
-    def test_commodities_ready_at_28_days(self):
+    def test_commodities_numerically_ready_is_still_not_promotable(self):
         mgr = _make_manager_with_aged_instance("OIL-001", "commodities", 28, 2.0, 60)
-        assert mgr.should_promote_to_live("OIL-001") is True
+        assert mgr.should_promote_to_live("OIL-001") is False
 
 
 # Thread safety
