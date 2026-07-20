@@ -350,6 +350,94 @@ async def test_order_recovery_replays_required_states_before_filled(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_order_fill_quantity_is_monotonic_and_terminal_fill_is_exact(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    machine = PersistedOrderStateMachine(persistence)
+    record = await machine.new_order(
+        instance_id="instance-1",
+        symbol="TRXEUR",
+        side="sell",
+        order_type="market",
+        requested_qty=1.0,
+        strategy_id="trend_momentum",
+        decision_id="dec-monotonic-fill",
+        signal_id="sig-monotonic-fill",
+        client_order_id="order-monotonic-fill",
+    )
+    assert await machine.transition(record.client_order_id, "SENT", "submitted")
+    assert await machine.transition(record.client_order_id, "ACK", "acknowledged")
+    assert await machine.transition(
+        record.client_order_id,
+        "PARTIAL",
+        "first_partial",
+        filled_qty=0.4,
+        avg_fill_price=0.2,
+    )
+    assert await machine.transition(
+        record.client_order_id,
+        "PARTIAL",
+        "regressed_partial",
+        filled_qty=0.2,
+        avg_fill_price=0.2,
+    ) is False
+    assert await machine.transition(
+        record.client_order_id,
+        "PARTIAL",
+        "same_partial_retry",
+        filled_qty=0.4,
+        avg_fill_price=0.2,
+    ) is True
+    assert await machine.transition(
+        record.client_order_id,
+        "PARTIAL",
+        "larger_partial",
+        filled_qty=0.7,
+        avg_fill_price=0.21,
+    ) is True
+    assert await machine.transition(
+        record.client_order_id,
+        "FILLED",
+        "inexact_terminal_fill",
+        filled_qty=0.7,
+        avg_fill_price=0.21,
+    ) is False
+    assert await machine.transition(
+        record.client_order_id,
+        "FILLED",
+        "missing_terminal_fill",
+        avg_fill_price=0.21,
+    ) is False
+    assert await machine.transition(
+        record.client_order_id,
+        "FILLED",
+        "exact_terminal_fill",
+        filled_qty=1.0,
+        avg_fill_price=0.22,
+    ) is True
+    await persistence.close()
+
+    with sqlite3.connect(tmp_path / "state.db") as connection:
+        status, filled_qty = connection.execute(
+            "SELECT status, filled_qty FROM orders WHERE client_order_id = ?",
+            (record.client_order_id,),
+        ).fetchone()
+        transitions = connection.execute(
+            "SELECT from_status, to_status FROM order_state_transitions WHERE client_order_id = ?",
+            (record.client_order_id,),
+        ).fetchall()
+
+    assert status == "FILLED"
+    assert filled_qty == pytest.approx(1.0)
+    assert transitions == [
+        ("NEW", "SENT"),
+        ("SENT", "ACK"),
+        ("ACK", "PARTIAL"),
+        ("PARTIAL", "PARTIAL"),
+        ("PARTIAL", "FILLED"),
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("missing_field", "reason"),
     [

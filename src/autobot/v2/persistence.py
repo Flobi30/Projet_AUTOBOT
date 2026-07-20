@@ -4,6 +4,7 @@ ARCH-03: Migration vers aiosqlite pour éviter les blocages du loop asyncio.
 """
 
 import logging
+import math
 import os
 import sqlite3
 import aiosqlite
@@ -198,7 +199,7 @@ class OrderRepository(_PersistenceRepositoryBase):
             async def _write() -> bool:
                 conn = await self.get_conn()
                 async with conn.execute(
-                    "SELECT status FROM orders WHERE client_order_id = ?",
+                    "SELECT status, requested_qty, filled_qty FROM orders WHERE client_order_id = ?",
                     (client_order_id,),
                 ) as cursor:
                     row = await cursor.fetchone()
@@ -213,10 +214,93 @@ class OrderRepository(_PersistenceRepositoryBase):
                         client_order_id,
                     )
                     return False
+                try:
+                    requested_qty = float(row[1])
+                    current_filled_qty = float(row[2] or 0.0)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Order transition rejected: invalid persisted quantities (client_order_id=%s)",
+                        client_order_id,
+                    )
+                    return False
+                if (
+                    not math.isfinite(requested_qty)
+                    or requested_qty <= 0.0
+                    or not math.isfinite(current_filled_qty)
+                    or current_filled_qty < 0.0
+                ):
+                    logger.warning(
+                        "Order transition rejected: non-finite persisted quantities (client_order_id=%s)",
+                        client_order_id,
+                    )
+                    return False
+
+                normalized_filled_qty: Optional[float] = None
+                if filled_qty is not None:
+                    try:
+                        normalized_filled_qty = float(filled_qty)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Order transition rejected: invalid fill quantity (client_order_id=%s)",
+                            client_order_id,
+                        )
+                        return False
+                    if not math.isfinite(normalized_filled_qty) or normalized_filled_qty < 0.0:
+                        logger.warning(
+                            "Order transition rejected: non-finite fill quantity (client_order_id=%s)",
+                            client_order_id,
+                        )
+                        return False
+                    tolerance = max(1e-12, requested_qty * 1e-9)
+                    if normalized_filled_qty + tolerance < current_filled_qty:
+                        logger.warning(
+                            "Order transition rejected: cumulative fill regressed %.12f -> %.12f (client_order_id=%s)",
+                            current_filled_qty,
+                            normalized_filled_qty,
+                            client_order_id,
+                        )
+                        return False
+                    if normalized_to_status == "PARTIAL" and not (
+                        normalized_filled_qty > tolerance
+                        and normalized_filled_qty + tolerance < requested_qty
+                    ):
+                        logger.warning(
+                            "Order transition rejected: PARTIAL requires a positive non-terminal cumulative fill (client_order_id=%s)",
+                            client_order_id,
+                        )
+                        return False
+                    if (
+                        normalized_to_status == "FILLED"
+                        and abs(normalized_filled_qty - requested_qty) > tolerance
+                    ):
+                        logger.warning(
+                            "Order transition rejected: FILLED quantity %.12f differs from requested %.12f (client_order_id=%s)",
+                            normalized_filled_qty,
+                            requested_qty,
+                            client_order_id,
+                        )
+                        return False
+                elif normalized_to_status == "FILLED":
+                    logger.warning(
+                        "Order transition rejected: FILLED requires an exact cumulative fill quantity (client_order_id=%s)",
+                        client_order_id,
+                    )
+                    return False
                 if from_status == normalized_to_status and from_status != "PARTIAL":
                     # The commit may have succeeded just before a caller lost
                     # its response. Treat its exact retry as idempotent rather
                     # than appending another terminal transition.
+                    return True
+                if (
+                    from_status == "PARTIAL"
+                    and normalized_to_status == "PARTIAL"
+                    and normalized_filled_qty is not None
+                    and abs(normalized_filled_qty - current_filled_qty)
+                    <= max(1e-12, requested_qty * 1e-9)
+                ):
+                    # Repeating an already-persisted cumulative partial fill is
+                    # idempotent. Only a larger cumulative quantity is a new
+                    # economic observation and may append a transition.
                     return True
                 if not is_allowed_order_transition(from_status, normalized_to_status):
                     logger.warning(
@@ -235,9 +319,9 @@ class OrderRepository(_PersistenceRepositoryBase):
                 if exchange_order_id:
                     updates.append("exchange_order_id = ?")
                     params.append(exchange_order_id)
-                if filled_qty is not None:
+                if normalized_filled_qty is not None:
                     updates.append("filled_qty = ?")
-                    params.append(filled_qty)
+                    params.append(normalized_filled_qty)
                 if avg_fill_price is not None:
                     updates.append("avg_fill_price = ?")
                     params.append(avg_fill_price)

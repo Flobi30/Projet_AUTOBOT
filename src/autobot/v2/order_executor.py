@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from enum import Enum
 import threading
 
+from .execution_authorization import (
+    MUTATING_PRIVATE_METHODS,
+    real_order_mutation_authorized,
+    real_order_mutation_blocked_response,
+)
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -163,6 +169,13 @@ class OrderExecutor:
         Returns:
             (success, response)
         """
+        if method in MUTATING_PRIVATE_METHODS and not real_order_mutation_authorized():
+            logger.warning(
+                "Blocked real Kraken %s: explicit execution authorization is incomplete",
+                method,
+            )
+            return False, real_order_mutation_blocked_response()
+
         for attempt in range(max_retries):
             try:
                 self._rate_limit()

@@ -6,6 +6,7 @@ import pytest
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
+import os
 
 import sys
 pytestmark = pytest.mark.unit
@@ -25,6 +26,21 @@ class TestOrderExecutor(unittest.TestCase):
         reset_order_executor()
         self.api_key = "test_key"
         self.api_secret = "test_secret"
+        self._execution_authorization = patch.dict(
+            os.environ,
+            {
+                "PAPER_TRADING": "false",
+                "LIVE_TRADING_CONFIRMATION": "true",
+                "STRATEGY_ROUTER_LIVE_ENABLED": "true",
+                "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED": "true",
+                "PREFLIGHT_ONLY": "false",
+            },
+            clear=False,
+        )
+        self._execution_authorization.start()
+
+    def tearDown(self):
+        self._execution_authorization.stop()
         
     @patch('autobot.v2.order_executor.krakenex')
     def test_execute_market_order_success(self, mock_krakenex):

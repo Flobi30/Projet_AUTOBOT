@@ -19,7 +19,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import time
 import urllib.parse
 from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
@@ -28,6 +27,12 @@ import aiohttp
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
 from .nonce_manager import NonceManager
+from .execution_authorization import (
+    MUTATING_PRIVATE_METHODS,
+    REAL_ORDER_MUTATION_BLOCKED,
+    REAL_ORDER_MUTATION_BLOCKED_MESSAGE,
+    real_order_mutation_authorized,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,29 +75,6 @@ def _build_error_response(
 
 def _truncate_payload(value: str, max_len: int = 300) -> str:
     return value if len(value) <= max_len else value[:max_len] + "..."
-
-
-_MUTATING_PRIVATE_METHODS = frozenset({"AddOrder", "CancelOrder"})
-
-
-def _env_true(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def real_order_mutation_authorized() -> bool:
-    """Return whether a real Kraken order mutation is explicitly authorized.
-
-    This is deliberately stricter than startup attestation. It is the final
-    executor-boundary defence for every direct ``AddOrder`` or ``CancelOrder``
-    call, including callers that bypass the router. The default is fail-closed.
-    """
-    return (
-        not _env_true("PAPER_TRADING")
-        and _env_true("LIVE_TRADING_CONFIRMATION")
-        and _env_true("STRATEGY_ROUTER_LIVE_ENABLED")
-        and _env_true("AUTOBOT_REAL_ORDER_EXECUTION_ENABLED")
-        and not _env_true("PREFLIGHT_ONLY")
-    )
 
 
 class OrderExecutorAsync:
@@ -342,18 +324,14 @@ class OrderExecutorAsync:
         self, method: str, max_retries: int = 3, **params: Any
     ) -> Tuple[bool, dict]:
         """API call with retry + exponential backoff."""
-        if method in _MUTATING_PRIVATE_METHODS and not real_order_mutation_authorized():
+        if method in MUTATING_PRIVATE_METHODS and not real_order_mutation_authorized():
             logger.warning(
                 "Blocked real Kraken %s: explicit execution authorization is incomplete",
                 method,
             )
             return False, _build_error_response(
-                "REAL_ORDER_MUTATION_BLOCKED",
-                "Real order mutations require PAPER_TRADING=false, "
-                "LIVE_TRADING_CONFIRMATION=true, "
-                "STRATEGY_ROUTER_LIVE_ENABLED=true, "
-                "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED=true, and "
-                "PREFLIGHT_ONLY=false",
+                REAL_ORDER_MUTATION_BLOCKED,
+                REAL_ORDER_MUTATION_BLOCKED_MESSAGE,
             )
 
         _PRIVATE = {
