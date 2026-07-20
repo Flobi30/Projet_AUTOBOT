@@ -906,7 +906,7 @@ class SignalHandlerAsync:
                 logger.info(f"✅ [WAL] Ordre trouvé sur l'échange: {found_txid}")
                 terminal_status = self._terminal_status_from_recovered_order(order_status, order_info)
                 if terminal_status:
-                    await self._osm.transition(
+                    await self._osm.recover_to_terminal(
                         client_order_id,
                         terminal_status,
                         "recovered_terminal_from_exchange",
@@ -1781,6 +1781,34 @@ class SignalHandlerAsync:
                 price = result.executed_price or signal.price
                 executed_volume = self._safe_float(result.executed_volume, 0.0)
                 requested_volume = float(vol)
+                acknowledged = await self._maybe_await(self._osm.transition(
+                    rec.client_order_id,
+                    "ACK",
+                    "exchange_ack",
+                    exchange_order_id=result.txid,
+                ))
+                if not acknowledged:
+                    await self._maybe_await(self._osm.transition(
+                        rec.client_order_id,
+                        "UNKNOWN",
+                        "ack_persistence_failed_requires_reconciliation",
+                        exchange_order_id=result.txid,
+                    ))
+                    self._record_runtime_event(
+                        "_last_order_event",
+                        event="order_unknown",
+                        reason="ack_persistence_failed_requires_reconciliation",
+                        symbol=symbol,
+                        side="sell",
+                        order_type="market",
+                        txid=result.txid,
+                        decision_id=decision_id,
+                        signal_id=signal_id,
+                        execution_engine=signal_engine,
+                        source=signal_source,
+                    )
+                    await self._post_trade_reconcile()
+                    continue
                 if executed_volume <= 0.0:
                     rejected = await self._maybe_await(self._osm.transition(
                         rec.client_order_id,
@@ -1913,7 +1941,7 @@ class SignalHandlerAsync:
                     "FILLED",
                     "execution_success",
                     exchange_order_id=result.txid,
-                    filled_qty=vol,
+                    filled_qty=executed_volume,
                     avg_fill_price=price,
                 )
                 actual_liquidity = self._normalize_liquidity(result.liquidity)
@@ -1924,7 +1952,7 @@ class SignalHandlerAsync:
                     side="sell",
                     order_type="market",
                     txid=result.txid,
-                    executed_volume=float(vol),
+                    executed_volume=executed_volume,
                     executed_price=float(price),
                     fees=float(result.fees or 0.0),
                     realized_pnl=realized_pnl,
@@ -1940,7 +1968,7 @@ class SignalHandlerAsync:
                     actual_liquidity,
                 )
                 self._record_fee_optimizer_trade(
-                    amount=price * vol,
+                    amount=price * executed_volume,
                     fees=result.fees,
                     liquidity=actual_liquidity,
                 )
@@ -1952,7 +1980,7 @@ class SignalHandlerAsync:
                     side="sell",
                     expected_price=signal.price,
                     executed_price=price,
-                    volume=vol,
+                    volume=executed_volume,
                     fees=result.fees,
                     slippage_bps=self._slippage_bps(signal.price, price, "sell"),
                     strategy_id=signal_engine,

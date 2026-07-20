@@ -21,6 +21,7 @@ from .strategy_runtime_policy import (
     normalize_execution_mode,
     official_paper_strategy_block_reason,
 )
+from .order_lifecycle import TERMINAL_ORDER_STATUSES, is_allowed_order_transition, normalize_order_status
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,14 @@ class OrderRepository(_PersistenceRepositoryBase):
         last_error_message: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
     ) -> bool:
+        normalized_to_status = normalize_order_status(to_status)
+        if normalized_to_status is None:
+            logger.warning(
+                "Order transition rejected: unsupported target state %r (client_order_id=%s)",
+                to_status,
+                client_order_id,
+            )
+            return False
         now = datetime.now(timezone.utc).isoformat()
         try:
             async def _write() -> bool:
@@ -196,13 +205,33 @@ class OrderRepository(_PersistenceRepositoryBase):
                 if row is None or row[0] is None or not str(row[0]).strip():
                     logger.warning("Order transition rejected: missing prior order state (client_order_id=%s)", client_order_id)
                     return False
-                from_status = str(row[0]).strip()
+                from_status = normalize_order_status(row[0])
+                if from_status is None:
+                    logger.warning(
+                        "Order transition rejected: unsupported prior state %r (client_order_id=%s)",
+                        row[0],
+                        client_order_id,
+                    )
+                    return False
+                if from_status == normalized_to_status and from_status != "PARTIAL":
+                    # The commit may have succeeded just before a caller lost
+                    # its response. Treat its exact retry as idempotent rather
+                    # than appending another terminal transition.
+                    return True
+                if not is_allowed_order_transition(from_status, normalized_to_status):
+                    logger.warning(
+                        "Order transition rejected: invalid %s -> %s (client_order_id=%s)",
+                        from_status,
+                        normalized_to_status,
+                        client_order_id,
+                    )
+                    return False
 
                 # Update the order and append its transition under the same
                 # serialized write boundary. Existing legacy rows are never
                 # rewritten; this only improves new transition evidence.
                 updates = ["updated_at = ?", "status = ?", "retries = retries + ?"]
-                params = [now, to_status, retries_delta]
+                params = [now, normalized_to_status, retries_delta]
                 if exchange_order_id:
                     updates.append("exchange_order_id = ?")
                     params.append(exchange_order_id)
@@ -218,13 +247,13 @@ class OrderRepository(_PersistenceRepositoryBase):
                 if last_error_message:
                     updates.append("last_error_message = ?")
                     params.append(last_error_message)
-                if to_status == "SENT":
+                if normalized_to_status == "SENT":
                     updates.append("sent_at = ?")
                     params.append(now)
-                if to_status == "ACK":
+                if normalized_to_status == "ACK":
                     updates.append("ack_at = ?")
                     params.append(now)
-                if to_status in {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}:
+                if normalized_to_status in TERMINAL_ORDER_STATUSES:
                     updates.append("terminal_at = ?")
                     params.append(now)
 
@@ -242,14 +271,14 @@ class OrderRepository(_PersistenceRepositoryBase):
                     (client_order_id, from_status, to_status, reason, source, payload_hash, occurred_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (client_order_id, from_status, to_status, reason, source, payload_json, now),
+                    (client_order_id, from_status, normalized_to_status, reason, source, payload_json, now),
                 )
                 await conn.commit()
                 return True
 
             return await self._with_write_retries("transition_order_state", _write)
         except Exception as e:
-            logger.exception(f"❌ Erreur transition_order_state {client_order_id} -> {to_status}: {e}")
+            logger.exception(f"❌ Erreur transition_order_state {client_order_id} -> {normalized_to_status}: {e}")
             return False
 
     async def get_order(self, client_order_id: str) -> Optional[Dict[str, Any]]:
@@ -268,7 +297,7 @@ class OrderRepository(_PersistenceRepositoryBase):
             async with conn.execute(
                 """
                 SELECT * FROM orders
-                WHERE status NOT IN ('FILLED', 'CANCELED', 'REJECTED', 'EXPIRED')
+                WHERE status NOT IN ('FILLED', 'CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED')
                   AND terminal_at IS NULL
                 """
             ) as cursor:

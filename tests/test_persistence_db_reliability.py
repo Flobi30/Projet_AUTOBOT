@@ -277,6 +277,79 @@ async def test_order_transition_records_explicit_from_status_and_rejects_orphans
 
 
 @pytest.mark.asyncio
+async def test_order_transition_enforces_graph_and_normalizes_cancelled_alias(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    machine = PersistedOrderStateMachine(persistence)
+    record = await machine.new_order(
+        instance_id="instance-1",
+        symbol="TRXEUR",
+        side="buy",
+        order_type="market",
+        requested_qty=1.0,
+        strategy_id="trend_momentum",
+        decision_id="dec-transition-graph",
+        signal_id="sig-transition-graph",
+        client_order_id="order-transition-graph",
+    )
+
+    assert await machine.transition(record.client_order_id, "FILLED", "cannot_skip_submission") is False
+    assert await machine.transition(record.client_order_id, "CANCELLED", "exchange_cancelled") is True
+    # Retrying the same terminal state after an uncertain commit is idempotent.
+    assert await machine.transition(record.client_order_id, "CANCELED", "retry_terminal") is True
+    assert await machine.transition(record.client_order_id, "UNKNOWN", "terminal_must_not_reopen") is False
+    await persistence.close()
+
+    with sqlite3.connect(tmp_path / "state.db") as connection:
+        status = connection.execute(
+            "SELECT status FROM orders WHERE client_order_id = 'order-transition-graph'"
+        ).fetchone()[0]
+        transitions = connection.execute(
+            "SELECT from_status, to_status FROM order_state_transitions WHERE client_order_id = 'order-transition-graph'"
+        ).fetchall()
+
+    assert status == "CANCELED"
+    assert transitions == [("NEW", "CANCELED")]
+
+
+@pytest.mark.asyncio
+async def test_order_recovery_replays_required_states_before_filled(tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    machine = PersistedOrderStateMachine(persistence)
+    record = await machine.new_order(
+        instance_id="instance-1",
+        symbol="TRXEUR",
+        side="buy",
+        order_type="market",
+        requested_qty=1.0,
+        strategy_id="trend_momentum",
+        decision_id="dec-recovery-graph",
+        signal_id="sig-recovery-graph",
+        client_order_id="order-recovery-graph",
+    )
+
+    assert await machine.recover_to_terminal(
+        record.client_order_id,
+        "FILLED",
+        "recovered_terminal_from_exchange",
+        exchange_order_id="paper-filled-1",
+        filled_qty=1.0,
+        avg_fill_price=0.2,
+    ) is True
+    await persistence.close()
+
+    with sqlite3.connect(tmp_path / "state.db") as connection:
+        status = connection.execute(
+            "SELECT status FROM orders WHERE client_order_id = 'order-recovery-graph'"
+        ).fetchone()[0]
+        transitions = connection.execute(
+            "SELECT from_status, to_status FROM order_state_transitions WHERE client_order_id = 'order-recovery-graph'"
+        ).fetchall()
+
+    assert status == "FILLED"
+    assert transitions == [("NEW", "SENT"), ("SENT", "ACK"), ("ACK", "FILLED")]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("missing_field", "reason"),
     [

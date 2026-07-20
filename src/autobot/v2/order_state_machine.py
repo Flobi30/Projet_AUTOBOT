@@ -7,9 +7,10 @@ from typing import Any, Dict, Optional
 
 from .persistence import StatePersistence, get_persistence
 from .strategy_runtime_policy import canonical_order_append_block_reason
+from .order_lifecycle import TERMINAL_ORDER_STATUSES, normalize_order_status
 
 
-TERMINAL_STATES = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+TERMINAL_STATES = TERMINAL_ORDER_STATUSES
 
 
 @dataclass
@@ -77,6 +78,50 @@ class PersistedOrderStateMachine:
 
     async def get(self, client_order_id: str) -> Optional[Dict[str, Any]]:
         return await self._persistence.get_order(client_order_id)
+
+    async def recover_to_terminal(
+        self,
+        client_order_id: str,
+        terminal_status: str,
+        reason: str,
+        **kwargs: Any,
+    ) -> bool:
+        """Replay the minimum safe lifecycle before a recovered terminal state.
+
+        Recovery can discover a fill after the runtime crashed while the local
+        order was still `NEW`, `SENT` or `UNKNOWN`. It must not skip the
+        canonical state graph merely because the exchange is ahead of the
+        local ledger.
+        """
+
+        target = normalize_order_status(terminal_status)
+        if target not in TERMINAL_STATES:
+            return False
+        row = await self.get(client_order_id)
+        current = normalize_order_status((row or {}).get("status"))
+        if current is None:
+            return False
+        if current in TERMINAL_STATES:
+            return current == target
+
+        if current == "NEW" and target == "EXPIRED":
+            if not await self.transition(client_order_id, "SENT", "recovery_submission_inferred", **kwargs):
+                return False
+            current = "SENT"
+        elif target == "FILLED":
+            if current == "NEW":
+                if not await self.transition(client_order_id, "SENT", "recovery_submission_inferred", **kwargs):
+                    return False
+                current = "SENT"
+            if current in {"SENT", "UNKNOWN"}:
+                if not await self.transition(client_order_id, "ACK", "recovered_exchange_ack", **kwargs):
+                    return False
+                current = "ACK"
+        elif current == "PARTIAL" and target in {"REJECTED", "EXPIRED"}:
+            if not await self.transition(client_order_id, "UNKNOWN", "recovery_terminal_state_ambiguous", **kwargs):
+                return False
+
+        return await self.transition(client_order_id, target, reason, **kwargs)
 
     async def recover_non_terminal(self) -> list[Dict[str, Any]]:
         return await self._persistence.get_non_terminal_orders()

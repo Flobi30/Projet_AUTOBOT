@@ -206,6 +206,9 @@ class _RecoverOSM(_OSM):
         self.transitions.append((args, kwargs))
         return True
 
+    async def recover_to_terminal(self, *args, **kwargs):
+        return await self.transition(*args, **kwargs)
+
 
 class _SuccessfulSellOSM(_OSM):
     async def is_duplicate_active(self, *_args, **_kwargs):
