@@ -46,6 +46,9 @@ class ExperimentSpec:
     environment: Mapping[str, Any]
     holdout_id: str | None = None
     research_campaign_id: str | None = None
+    predecessor_experiment_id: str | None = None
+    predecessor_trial_count_floor: int | None = None
+    material_data_signature: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("hypothesis_id", "template_id", "thesis", "code_commit", "image_ref", "data_snapshot_id"):
@@ -61,6 +64,23 @@ class ExperimentSpec:
         if campaign_id is not None and not all(character.isalnum() or character in "_.-" for character in campaign_id):
             raise ValueError("research_campaign_id must contain only letters, digits, _, . or -")
         object.__setattr__(self, "research_campaign_id", campaign_id)
+        predecessor_id = str(self.predecessor_experiment_id or "").strip() or None
+        floor = self.predecessor_trial_count_floor
+        signature = self.material_data_signature
+        if signature is not None:
+            if not isinstance(signature, Mapping) or not str(signature.get("fingerprint") or "").strip():
+                raise ValueError("material_data_signature requires a fingerprint")
+            if not isinstance(signature.get("capability_states"), Mapping):
+                raise ValueError("material_data_signature requires capability_states")
+            object.__setattr__(self, "material_data_signature", dict(signature))
+        if predecessor_id is not None or floor is not None:
+            if campaign_id is None:
+                raise ValueError("successor experiment requires research_campaign_id")
+            if predecessor_id is None or not isinstance(floor, int) or floor < 1:
+                raise ValueError("successor experiment requires predecessor_experiment_id and positive predecessor_trial_count_floor")
+            if not isinstance(signature, Mapping) or not str(signature.get("fingerprint") or "").strip():
+                raise ValueError("successor experiment requires a material_data_signature fingerprint")
+        object.__setattr__(self, "predecessor_experiment_id", predecessor_id)
 
     @property
     def material_fingerprint(self) -> str:
@@ -68,8 +88,14 @@ class ExperimentSpec:
         # Keep the identity of pre-campaign experiment specifications stable.
         # A schema migration must never turn an identical legacy experiment
         # into a fresh material fingerprint that could be run a second time.
-        if payload.get("research_campaign_id") is None:
-            payload.pop("research_campaign_id", None)
+        for optional_field in (
+            "research_campaign_id",
+            "predecessor_experiment_id",
+            "predecessor_trial_count_floor",
+            "material_data_signature",
+        ):
+            if payload.get(optional_field) is None:
+                payload.pop(optional_field, None)
         return _fingerprint(payload)
 
     @property
@@ -115,6 +141,7 @@ class ExperimentRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._initialize(connection)
+            self._validate_successor_spec(connection, spec)
             existing = connection.execute(
                 "SELECT experiment_id FROM experiments WHERE material_fingerprint = ?",
                 (spec.material_fingerprint,),
@@ -597,8 +624,12 @@ class ExperimentRegistry:
                     (scope_value,),
                 ).fetchone()[0]
             )
+            inherited_floor = self._campaign_predecessor_trial_floor(
+                connection,
+                research_campaign_id=normalized_campaign_id,
+            )
             if candidate_count:
-                return candidate_count
+                return candidate_count + inherited_floor
             fallback_count = int(
                 connection.execute(
                     f"""
@@ -609,7 +640,7 @@ class ExperimentRegistry:
                     (scope_value,),
                 ).fetchone()[0]
             )
-        return fallback_count
+        return fallback_count + inherited_floor
 
     def has_final_holdout_review(self, experiment_id: str) -> bool:
         """Return whether immutable final-holdout evidence exists for one experiment."""
@@ -718,6 +749,76 @@ class ExperimentRegistry:
             terminal=latest_status in TERMINAL_STATUSES or completed,
             trial_count=count,
         )
+
+    def _validate_successor_spec(self, connection: sqlite3.Connection, spec: ExperimentSpec) -> None:
+        """Reject a campaign-only retry that lacks a material predecessor link.
+
+        A successor is still a new append-only experiment.  This validation
+        only establishes that it cannot drop the predecessor's multiple-testing
+        burden or re-label a performance rejection as a data refresh.
+        """
+
+        predecessor_id = spec.predecessor_experiment_id
+        if predecessor_id is None:
+            return
+        predecessor = connection.execute(
+            "SELECT hypothesis_id, template_id, spec_json FROM experiments WHERE experiment_id = ?",
+            (predecessor_id,),
+        ).fetchone()
+        if predecessor is None:
+            raise ExperimentRegistryError("successor predecessor_experiment_id is unknown")
+        predecessor_state = self._state(connection, predecessor_id)
+        if predecessor_state.latest_status != "INSUFFICIENT_DATA":
+            raise ExperimentRegistryError("successor predecessor must be terminal INSUFFICIENT_DATA, never a performance rejection")
+        if str(predecessor[0]) != spec.hypothesis_id or str(predecessor[1]) != spec.template_id:
+            raise ExperimentRegistryError("successor must preserve predecessor hypothesis_id and template_id")
+        predecessor_spec = json.loads(str(predecessor[2]))
+        prior_signature = predecessor_spec.get("material_data_signature")
+        if not isinstance(prior_signature, Mapping) or not str(prior_signature.get("fingerprint") or "").strip():
+            raise ExperimentRegistryError("successor predecessor lacks a comparable material_data_signature")
+        current_signature = spec.material_data_signature or {}
+        if str(prior_signature.get("fingerprint")) == str(current_signature.get("fingerprint")):
+            raise ExperimentRegistryError("successor material_data_signature must differ from predecessor")
+        required_floor = self._experiment_candidate_trial_count(connection, predecessor_id)
+        if int(spec.predecessor_trial_count_floor or 0) < required_floor:
+            raise ExperimentRegistryError("successor predecessor_trial_count_floor is below predecessor candidate trials")
+
+    @staticmethod
+    def _experiment_candidate_trial_count(connection: sqlite3.Connection, experiment_id: str) -> int:
+        candidate_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM experiment_trials WHERE experiment_id = ? AND dimension = 'candidate_configuration'",
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+        if candidate_count:
+            return candidate_count
+        return int(
+            connection.execute(
+                "SELECT COUNT(*) FROM experiment_trials WHERE experiment_id = ?",
+                (experiment_id,),
+            ).fetchone()[0]
+        )
+
+    @staticmethod
+    def _campaign_predecessor_trial_floor(connection: sqlite3.Connection, *, research_campaign_id: str | None) -> int:
+        if research_campaign_id is None:
+            return 0
+        rows = connection.execute(
+            "SELECT spec_json FROM experiments WHERE research_campaign_id = ?",
+            (research_campaign_id,),
+        ).fetchall()
+        floors_by_predecessor: dict[str, int] = {}
+        for (raw_spec,) in rows:
+            try:
+                spec = json.loads(str(raw_spec))
+            except json.JSONDecodeError as exc:
+                raise ExperimentRegistryError("stored experiment spec is invalid JSON") from exc
+            predecessor_id = str(spec.get("predecessor_experiment_id") or "").strip()
+            floor = spec.get("predecessor_trial_count_floor")
+            if predecessor_id and isinstance(floor, int) and floor > 0:
+                floors_by_predecessor[predecessor_id] = max(floors_by_predecessor.get(predecessor_id, 0), floor)
+        return sum(floors_by_predecessor.values())
 
     def _bounded_research_execution_claim(self, experiment_id: str) -> dict[str, str] | None:
         if not self.path.exists():

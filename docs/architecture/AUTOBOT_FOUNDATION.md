@@ -91,6 +91,14 @@ Changing a campaign label, report name, run id or data path alone never makes
 a retry eligible. The gate does not enable shadow, paper capital, live,
 promotion, sizing, leverage or an order path.
 
+When a later research campaign is legitimately registered as a successor, its
+`ExperimentSpec` must bind the predecessor experiment id, a strictly different
+material-data signature and a predecessor candidate-trial floor. The registry
+accepts only a terminal `INSUFFICIENT_DATA` predecessor with the same hypothesis
+and template; a performance rejection is never a successor source. Campaign
+validation includes the inherited floor, so changing campaign id cannot reduce
+the multiple-testing correction.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.

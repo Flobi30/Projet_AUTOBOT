@@ -107,6 +107,9 @@ def _spec(
     hypothesis_id: str = "funding_basis",
     template_id: str = "funding_extreme_reversion",
     research_campaign_id: str | None = None,
+    predecessor_experiment_id: str | None = None,
+    predecessor_trial_count_floor: int | None = None,
+    material_data_signature: dict | None = None,
 ) -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis_id=hypothesis_id,
@@ -122,7 +125,20 @@ def _spec(
         environment={"python": "3.11", "mode": "research", "holdout_partition": _holdout_partition()},
         holdout_id="holdout_2026_q3",
         research_campaign_id=research_campaign_id,
+        predecessor_experiment_id=predecessor_experiment_id,
+        predecessor_trial_count_floor=predecessor_trial_count_floor,
+        material_data_signature=material_data_signature,
     )
+
+
+def _material_signature(fingerprint: str) -> dict[str, object]:
+    return {
+        "fingerprint": fingerprint,
+        "capability_states": {
+            "funding_rates": {"available": True, "quality_status": "historical_funding_ready"},
+            "spot_perp_basis": {"available": True, "quality_status": "basis_history_ready"},
+        },
+    }
 
 
 def test_experiment_registry_is_idempotent_and_tracks_all_trial_dimensions(tmp_path):
@@ -254,9 +270,117 @@ def test_campaign_schema_migrates_an_existing_append_only_registry_without_rewri
 def test_legacy_experiment_identity_remains_stable_when_no_campaign_is_declared():
     spec = _spec()
     historical_payload = asdict(spec)
-    historical_payload.pop("research_campaign_id")
+    for field_name in (
+        "research_campaign_id",
+        "predecessor_experiment_id",
+        "predecessor_trial_count_floor",
+        "material_data_signature",
+    ):
+        historical_payload.pop(field_name)
 
     assert spec.material_fingerprint == _fingerprint(historical_payload)
+
+
+def test_successor_campaign_requires_insufficient_data_predecessor_signature_and_trial_floor(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    predecessor = registry.register_experiment(
+        _spec(snapshot="derivatives_old", material_data_signature=_material_signature("old-derivatives"))
+    )
+    assert registry.record_trial_plan(
+        experiment_id=predecessor.experiment_id,
+        variant_count=2,
+        symbols=("BTCZEUR", "ETHZEUR"),
+        timeframes=("1h",),
+    ) == 4
+    registry.record_gate_result(
+        experiment_id=predecessor.experiment_id,
+        stage="DATA_CHECK",
+        status="INSUFFICIENT_DATA",
+        reasons=("basis_history_waiting",),
+    )
+
+    successor = registry.register_experiment(
+        _spec(
+            snapshot="derivatives_new",
+            research_campaign_id="funding-basis-canonical-v1",
+            predecessor_experiment_id=predecessor.experiment_id,
+            predecessor_trial_count_floor=4,
+            material_data_signature=_material_signature("new-derivatives"),
+        )
+    )
+
+    assert registry.validation_trial_count(
+        hypothesis_id="funding_basis",
+        research_campaign_id="funding-basis-canonical-v1",
+    ) == 4
+    registry.record_trial_plan(
+        experiment_id=successor.experiment_id,
+        variant_count=1,
+        symbols=("BTCZEUR",),
+        timeframes=("1h",),
+    )
+    assert registry.validation_trial_count(
+        hypothesis_id="funding_basis",
+        research_campaign_id="funding-basis-canonical-v1",
+    ) == 5
+    exported = registry.export_manifest(successor.experiment_id)
+    assert exported["experiment"]["predecessor_experiment_id"] == predecessor.experiment_id
+    assert exported["experiment"]["predecessor_trial_count_floor"] == 4
+
+
+def test_successor_campaign_cannot_relabel_a_performance_rejection_as_new_data(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    predecessor = registry.register_experiment(
+        _spec(snapshot="old", material_data_signature=_material_signature("old"))
+    )
+    registry.record_gate_result(experiment_id=predecessor.experiment_id, stage="DATA_CHECK", status="PASSED")
+    registry.record_gate_result(experiment_id=predecessor.experiment_id, stage="NET_SMOKE", status="REJECTED")
+
+    with pytest.raises(ExperimentRegistryError, match="INSUFFICIENT_DATA"):
+        registry.register_experiment(
+            _spec(
+                snapshot="new",
+                research_campaign_id="attempted-performance-bypass",
+                predecessor_experiment_id=predecessor.experiment_id,
+                predecessor_trial_count_floor=1,
+                material_data_signature=_material_signature("new"),
+            )
+        )
+
+
+def test_successor_campaign_requires_distinct_signature_and_non_decreasing_trial_floor(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    predecessor = registry.register_experiment(
+        _spec(snapshot="old", material_data_signature=_material_signature("same"))
+    )
+    registry.record_trial_plan(
+        experiment_id=predecessor.experiment_id,
+        variant_count=2,
+        symbols=("BTCZEUR",),
+        timeframes=("1h",),
+    )
+    registry.record_gate_result(experiment_id=predecessor.experiment_id, stage="DATA_CHECK", status="INSUFFICIENT_DATA")
+
+    with pytest.raises(ExperimentRegistryError, match="must differ"):
+        registry.register_experiment(
+            _spec(
+                snapshot="same-data",
+                research_campaign_id="attempted-same-signature",
+                predecessor_experiment_id=predecessor.experiment_id,
+                predecessor_trial_count_floor=2,
+                material_data_signature=_material_signature("same"),
+            )
+        )
+    with pytest.raises(ExperimentRegistryError, match="below predecessor"):
+        registry.register_experiment(
+            _spec(
+                snapshot="new-data",
+                research_campaign_id="attempted-lower-floor",
+                predecessor_experiment_id=predecessor.experiment_id,
+                predecessor_trial_count_floor=1,
+                material_data_signature=_material_signature("new"),
+            )
+        )
 
 
 def test_bounded_research_execution_claim_is_atomic_and_append_only(tmp_path):
