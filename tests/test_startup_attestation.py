@@ -13,6 +13,14 @@ from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome, wr
 
 pytestmark = pytest.mark.integration
 
+
+@pytest.fixture(autouse=True)
+def _isolate_global_kill_switch_store(monkeypatch, tmp_path):
+    """A prior test's deliberate latch must not leak into a fresh boot test."""
+
+    monkeypatch.setenv("GLOBAL_KILL_SWITCH_DB_PATH", str(tmp_path / "global_kill.db"))
+
+
 class DummyExecutor:
     def __init__(self, tmp_path, failures=None):
         self._nonce_manager = NonceManager(str(tmp_path / "nonce.db"))

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Dict, Optional
 
-from .global_kill_switch import GlobalKillSwitchStore
+from .global_kill_switch import GlobalKillState, GlobalKillSwitchStore
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,12 @@ class KillSwitch:
             await self._on_trigger(event)
 
     def is_globally_tripped(self) -> bool:
-        return self._global_store.get().tripped
+        return self.global_state().tripped
+
+    def global_state(self) -> GlobalKillState:
+        """Return the persisted global state, including fail-closed storage health."""
+
+        return self._global_store.get()
 
     def acknowledge_recovery(self, operator_id: str) -> None:
         """Clear local and persisted kill-switch state after operator review."""

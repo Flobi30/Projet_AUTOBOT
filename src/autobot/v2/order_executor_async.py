@@ -21,6 +21,8 @@ import json
 import logging
 import time
 import urllib.parse
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
 
 import aiohttp
@@ -43,9 +45,45 @@ __all__ = [
     "OrderSide",
     "OrderStatus",
     "OrderType",
+    "OrderRecoveryLookup",
+    "OrderRecoveryLookupState",
+    "OrderCollectionRecovery",
     "get_order_executor_async",
     "reset_order_executor_async",
 ]
+
+
+class OrderRecoveryLookupState(str, Enum):
+    """Evidence level for a crash-recovery lookup.
+
+    ``CONFIRMED_ABSENT`` is deliberately reserved for a successful exchange
+    response which proves that the requested order is not present.  A timeout,
+    malformed response, API error, or unavailable endpoint must remain
+    ``UNAVAILABLE``: treating any of those as absence could resend an order
+    whose acknowledgement was lost during a crash.
+    """
+
+    FOUND = "FOUND"
+    CONFIRMED_ABSENT = "CONFIRMED_ABSENT"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+@dataclass(frozen=True)
+class OrderRecoveryLookup:
+    state: OrderRecoveryLookupState
+    txid: Optional[str] = None
+    status: Optional[OrderStatus] = None
+    order_info: Optional[dict[str, Any]] = None
+    reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OrderCollectionRecovery:
+    """A non-mutating exchange-order collection read for reconciliation."""
+
+    available: bool
+    orders: Dict[str, dict]
+    reason: Optional[str] = None
 
 
 def _kraken_signature(urlpath: str, data: dict, secret: str) -> str:
@@ -639,6 +677,45 @@ class OrderExecutorAsync:
             fee=float(info.get("fee", 0)),
         )
 
+    async def get_order_status_for_recovery(self, txid: str) -> OrderRecoveryLookup:
+        """Read one order without collapsing uncertainty into absence.
+
+        This method is intentionally recovery-specific.  The older
+        :meth:`get_order_status` remains a compatibility helper for ordinary
+        callers, while crash recovery needs evidence that an order is absent
+        before it can release the persisted duplicate-order guard.
+        """
+
+        success, response = await self._safe_api_call("QueryOrders", txid=txid)
+        result = response.get("result") if isinstance(response, dict) else None
+        if not success or not isinstance(result, dict):
+            return OrderRecoveryLookup(
+                state=OrderRecoveryLookupState.UNAVAILABLE,
+                reason="query_orders_unavailable",
+            )
+
+        info = result.get(txid)
+        if not isinstance(info, dict):
+            return OrderRecoveryLookup(
+                state=OrderRecoveryLookupState.CONFIRMED_ABSENT,
+                reason="query_orders_confirmed_absent",
+            )
+
+        return OrderRecoveryLookup(
+            state=OrderRecoveryLookupState.FOUND,
+            txid=txid,
+            status=OrderStatus(
+                txid=txid,
+                status=info.get("status", "unknown"),
+                volume=float(info.get("vol", 0)),
+                volume_exec=float(info.get("vol_exec", 0)),
+                price=float(info.get("price", 0)) if info.get("price") else None,
+                avg_price=float(info.get("avg_price", 0)) if info.get("avg_price") else None,
+                fee=float(info.get("fee", 0)),
+            ),
+            order_info=info,
+        )
+
     async def cancel_order(self, txid: str) -> bool:
         logger.info(f"🚫 Annulation ordre {txid[:8]}...")
         success, response = await self._safe_api_call("CancelOrder", txid=txid)
@@ -693,6 +770,39 @@ class OrderExecutorAsync:
         
         return None
 
+    async def find_order_by_userref_for_recovery(self, userref: int) -> OrderRecoveryLookup:
+        """Find a crash-recovery order while preserving exchange uncertainty."""
+
+        open_result = await self.get_open_orders_for_recovery()
+        if open_result.available:
+            for txid, info in open_result.orders.items():
+                if int(info.get("userref", 0)) == userref:
+                    return OrderRecoveryLookup(
+                        state=OrderRecoveryLookupState.FOUND,
+                        txid=txid,
+                        order_info=info,
+                    )
+
+        closed_result = await self.get_closed_orders_for_recovery()
+        if closed_result.available:
+            for txid, info in closed_result.orders.items():
+                if int(info.get("userref", 0)) == userref:
+                    return OrderRecoveryLookup(
+                        state=OrderRecoveryLookupState.FOUND,
+                        txid=txid,
+                        order_info=info,
+                    )
+
+        if open_result.available and closed_result.available:
+            return OrderRecoveryLookup(
+                state=OrderRecoveryLookupState.CONFIRMED_ABSENT,
+                reason="userref_absent_from_open_and_closed_orders",
+            )
+        return OrderRecoveryLookup(
+            state=OrderRecoveryLookupState.UNAVAILABLE,
+            reason=open_result.reason or closed_result.reason or "order_collections_unavailable",
+        )
+
     async def get_closed_orders(
         self,
         start_time: Optional[int] = None,
@@ -717,11 +827,48 @@ class OrderExecutorAsync:
             }
         return closed
 
+    async def get_closed_orders_for_recovery(
+        self,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        symbol: Optional[str] = None,
+    ) -> OrderCollectionRecovery:
+        """Read closed orders for recovery without turning an API error into ``{}``."""
+
+        params: Dict[str, Any] = {}
+        if start_time:
+            params["start"] = start_time
+        if end_time:
+            params["end"] = end_time
+        success, response = await self._safe_api_call("ClosedOrders", **params)
+        result = response.get("result") if isinstance(response, dict) else None
+        closed = result.get("closed") if isinstance(result, dict) else None
+        if not success or not isinstance(closed, dict):
+            return OrderCollectionRecovery(False, {}, "closed_orders_unavailable")
+        if symbol:
+            sym_clean = symbol.replace("/", "")
+            closed = {
+                txid: info
+                for txid, info in closed.items()
+                if info.get("descr", {}).get("pair", "").replace("/", "") == sym_clean
+            }
+        return OrderCollectionRecovery(True, closed)
+
     async def get_open_orders(self) -> Dict[str, dict]:
         success, response = await self._safe_api_call("OpenOrders")
         if not success or "result" not in response or "open" not in response["result"]:
             return {}
         return response["result"]["open"]
+
+    async def get_open_orders_for_recovery(self) -> OrderCollectionRecovery:
+        """Read open orders for recovery without silently treating outages as empty."""
+
+        success, response = await self._safe_api_call("OpenOrders")
+        result = response.get("result") if isinstance(response, dict) else None
+        open_orders = result.get("open") if isinstance(result, dict) else None
+        if not success or not isinstance(open_orders, dict):
+            return OrderCollectionRecovery(False, {}, "open_orders_unavailable")
+        return OrderCollectionRecovery(True, open_orders)
 
     async def get_balance(self) -> Dict[str, float]:
         success, response = await self._safe_api_call("Balance")

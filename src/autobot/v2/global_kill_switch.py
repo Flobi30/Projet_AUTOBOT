@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,14 +34,17 @@ class GlobalKillSwitchStore:
 
     def __init__(
         self,
-        db_path: str = "data/global_kill_switch.db",
+        db_path: Optional[str] = None,
         *,
         sqlite_timeout_seconds: float = 0.25,
         retry_attempts: int = 3,
         retry_delay_seconds: float = 0.05,
         sleeper: Callable[[float], None] = sleep,
     ) -> None:
-        self.db_path = Path(db_path)
+        self.db_path = Path(
+            db_path
+            or os.getenv("GLOBAL_KILL_SWITCH_DB_PATH", "data/global_kill_switch.db")
+        )
         if sqlite_timeout_seconds <= 0.0 or retry_attempts < 1 or retry_delay_seconds < 0.0:
             raise ValueError("invalid global kill-switch SQLite retry configuration")
         self._sqlite_timeout_seconds = float(sqlite_timeout_seconds)

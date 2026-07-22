@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
-from .order_executor_async import OrderExecutorAsync, OrderStatus
+from .order_executor_async import OrderExecutorAsync, OrderRecoveryLookupState, OrderStatus
 from .reconciliation_models import Divergence
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,51 @@ class ReconciliationManagerAsync:
                 ))
                 continue
 
-            status = await self.order_executor.get_order_status(txid)
+            lookup_fn = getattr(self.order_executor, "get_order_status_for_recovery", None)
+            if callable(lookup_fn):
+                lookup = await lookup_fn(txid)
+                if lookup.state is OrderRecoveryLookupState.UNAVAILABLE:
+                    divs.append(Divergence(
+                        type="exchange_order_status_unavailable",
+                        position_id=pos_id,
+                        kraken_txid=txid,
+                        details={
+                            "reason": lookup.reason or "order status unavailable",
+                            "remediation": "halt_pending_exchange_recovery",
+                        },
+                        severity="critical",
+                    ))
+                    continue
+                if lookup.state is OrderRecoveryLookupState.CONFIRMED_ABSENT:
+                    divs.append(Divergence(
+                        type="exchange_order_missing",
+                        position_id=pos_id,
+                        kraken_txid=txid,
+                        details={
+                            "reason": "exchange confirmed order absent during reconciliation",
+                            "remediation": "halt_pending_manual_reconciliation",
+                        },
+                        severity="critical",
+                    ))
+                    continue
+                status = lookup.status
+            else:
+                # Older test/adapter implementations expose only an optional
+                # status.  ``None`` has no proof value, so treat it as an
+                # exchange outage rather than a harmless empty response.
+                status = await self.order_executor.get_order_status(txid)
+                if status is None:
+                    divs.append(Divergence(
+                        type="exchange_order_status_unavailable",
+                        position_id=pos_id,
+                        kraken_txid=txid,
+                        details={
+                            "reason": "legacy order status lookup returned no evidence",
+                            "remediation": "halt_pending_exchange_recovery",
+                        },
+                        severity="critical",
+                    ))
+                    continue
             if status and status.status == "closed":
                 sold = await self._check_if_sold(txid, instance.config.symbol)
                 if sold:
@@ -167,7 +211,23 @@ class ReconciliationManagerAsync:
         A local snapshot cannot prove that a remote order is safe to mutate.
         """
         try:
-            open_kraken = await self.order_executor.get_open_orders()
+            lookup_fn = getattr(self.order_executor, "get_open_orders_for_recovery", None)
+            if callable(lookup_fn):
+                open_lookup = await lookup_fn()
+                if not open_lookup.available:
+                    return [Divergence(
+                        type="exchange_open_orders_unavailable",
+                        position_id=None,
+                        kraken_txid=None,
+                        details={
+                            "reason": open_lookup.reason or "open orders unavailable",
+                            "remediation": "halt_pending_exchange_recovery",
+                        },
+                        severity="critical",
+                    )]
+                open_kraken = open_lookup.orders
+            else:
+                open_kraken = await self.order_executor.get_open_orders()
             if not open_kraken:
                 return []
             
@@ -200,8 +260,17 @@ class ReconciliationManagerAsync:
                         ))
             return divergences
         except Exception as exc:
-            logger.error("Unable to detect orphaned protective orders: %s", exc)
-            return []
+            logger.error("Unable to detect orphaned protective orders: %s", type(exc).__name__)
+            return [Divergence(
+                type="exchange_open_orders_unavailable",
+                position_id=None,
+                kraken_txid=None,
+                details={
+                    "reason": f"open orders lookup exception:{type(exc).__name__}",
+                    "remediation": "halt_pending_exchange_recovery",
+                },
+                severity="critical",
+            )]
 
     async def _loop(self) -> None:
         logger.info("🔄 Boucle réconciliation démarrée (async)")

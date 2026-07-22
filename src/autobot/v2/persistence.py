@@ -11,6 +11,7 @@ import aiosqlite
 import orjson
 import hashlib
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any, Mapping
 from pathlib import Path
@@ -25,6 +26,15 @@ from .strategy_runtime_policy import (
 from .order_lifecycle import TERMINAL_ORDER_STATUSES, is_allowed_order_transition, normalize_order_status
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NonTerminalOrderRecovery:
+    """Evidence returned when reading the order-recovery ledger at boot."""
+
+    available: bool
+    orders: List[Dict[str, Any]]
+    reason: Optional[str] = None
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -390,6 +400,28 @@ class OrderRepository(_PersistenceRepositoryBase):
         except Exception as e:
             logger.exception(f"❌ Erreur get_non_terminal_orders: {e}")
             return []
+
+    async def get_non_terminal_orders_for_recovery(self) -> NonTerminalOrderRecovery:
+        """Read pending orders without equating a failed SQLite read to none."""
+
+        try:
+            conn = await self.get_conn()
+            async with conn.execute(
+                """
+                SELECT * FROM orders
+                WHERE status NOT IN ('FILLED', 'CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED')
+                  AND terminal_at IS NULL
+                """
+            ) as cursor:
+                rows = await cursor.fetchall()
+            return NonTerminalOrderRecovery(True, [dict(row) for row in rows])
+        except Exception as exc:
+            logger.error("Order recovery ledger unavailable: %s", type(exc).__name__)
+            return NonTerminalOrderRecovery(
+                False,
+                [],
+                reason=f"order_recovery_ledger_unavailable:{type(exc).__name__}",
+            )
 
 
 class AuditRepository(_PersistenceRepositoryBase):
@@ -1076,6 +1108,18 @@ class StatePersistence:
     async def get_non_terminal_orders(self) -> List[Dict[str, Any]]:
         await self.initialize()
         return await self.orders.get_non_terminal_orders()
+
+    async def get_non_terminal_orders_for_recovery(self) -> NonTerminalOrderRecovery:
+        try:
+            await self.initialize()
+            return await self.orders.get_non_terminal_orders_for_recovery()
+        except Exception as exc:
+            logger.error("Order recovery persistence initialization failed: %s", type(exc).__name__)
+            return NonTerminalOrderRecovery(
+                False,
+                [],
+                reason=f"order_recovery_persistence_unavailable:{type(exc).__name__}",
+            )
 
     async def append_audit_event(self, **kwargs) -> bool:
         await self.initialize()

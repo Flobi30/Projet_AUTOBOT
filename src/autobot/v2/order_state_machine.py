@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .persistence import StatePersistence, get_persistence
+from .persistence import NonTerminalOrderRecovery, StatePersistence, get_persistence
 from .strategy_runtime_policy import canonical_order_append_block_reason
 from .order_lifecycle import TERMINAL_ORDER_STATUSES, normalize_order_status
 
@@ -125,6 +125,51 @@ class PersistedOrderStateMachine:
 
     async def recover_non_terminal(self) -> list[Dict[str, Any]]:
         return await self._persistence.get_non_terminal_orders()
+
+    async def recover_non_terminal_for_recovery(self) -> NonTerminalOrderRecovery:
+        """Return recovery-ledger availability explicitly for cold-start guards."""
+
+        reader = getattr(self._persistence, "get_non_terminal_orders_for_recovery", None)
+        if callable(reader):
+            return await reader()
+        # Compatibility persistence implementations cannot prove that an empty
+        # list was read successfully, so they must not be trusted at boot.
+        return NonTerminalOrderRecovery(
+            False,
+            [],
+            reason="legacy_order_recovery_read_ambiguous",
+        )
+
+    async def mark_recovery_unknown(
+        self,
+        client_order_id: str,
+        reason: str,
+        **kwargs: Any,
+    ) -> bool:
+        """Preserve the duplicate-order interlock when recovery evidence is missing.
+
+        A freshly persisted ``NEW`` order has no safe direct transition to
+        ``UNKNOWN``.  During crash recovery, however, the lost acknowledgement
+        itself is evidence that submission may already have happened.  Replaying
+        ``NEW -> SENT -> UNKNOWN`` records that ambiguity without fabricating a
+        terminal exchange outcome.
+        """
+
+        row = await self.get(client_order_id)
+        current = normalize_order_status((row or {}).get("status"))
+        if current is None or current in TERMINAL_STATES:
+            return False
+        if current == "UNKNOWN":
+            return True
+        if current == "NEW":
+            if not await self.transition(
+                client_order_id,
+                "SENT",
+                "recovery_submission_uncertain",
+                **kwargs,
+            ):
+                return False
+        return await self.transition(client_order_id, "UNKNOWN", reason, **kwargs)
 
     async def is_duplicate_active(self, symbol: str, side: str) -> bool:
         for row in await self.recover_non_terminal():

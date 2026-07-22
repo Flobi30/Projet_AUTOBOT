@@ -479,7 +479,24 @@ class StartupAttestation:
     async def _kill_switch_self_test(self, preflight_only: bool) -> _CheckOutcome:
         if self.kill_switch is None:
             return _CheckOutcome(ok=False, reason="kill_switch_not_initialized", message="Kill switch not initialized")
-        # Ensure object responds and is not already tripped at boot
+        # A new process must honor the cross-process latch before any runtime
+        # object is created.  ``global_state`` is itself fail-closed when the
+        # persistence store is unreadable.
+        global_state = self.kill_switch.global_state()
+        if not global_state.storage_healthy:
+            return _CheckOutcome(
+                ok=False,
+                reason="global_kill_switch_store_unavailable",
+                message="Persistent global kill-switch state is unavailable",
+                error_code="io",
+            )
+        if global_state.tripped:
+            return _CheckOutcome(
+                ok=False,
+                reason="global_kill_switch_already_tripped",
+                message=f"Persistent global kill switch is tripped ({global_state.reason_code or 'unknown'})",
+            )
+        # Ensure the local object responds and is not already tripped at boot.
         if self.kill_switch.tripped:
             return _CheckOutcome(ok=False, reason="kill_switch_already_tripped", message="Kill switch already tripped")
         if preflight_only:

@@ -23,7 +23,12 @@ from typing import Any, Optional
 
 from .cost_profiles import get_cost_profile
 from .strategies import TradingSignal, SignalType
-from .order_executor_async import OrderExecutorAsync, OrderSide
+from .order_executor_async import (
+    OrderExecutorAsync,
+    OrderRecoveryLookup,
+    OrderRecoveryLookupState,
+    OrderSide,
+)
 from .validator import ValidatorEngine, ValidationStatus, create_default_validator_engine
 from .order_state_machine import PersistedOrderStateMachine
 from .kill_switch import KillSwitch
@@ -306,6 +311,102 @@ class SignalHandlerAsync:
         event = self._record_runtime_event(attr_name, persist_async=False, **payload)
         await self._persist_runtime_event(attr_name, event)
         return event
+
+    async def _lookup_recovery_order(
+        self,
+        *,
+        txid: Optional[str],
+        userref: Optional[int],
+    ) -> OrderRecoveryLookup:
+        """Return explicit crash-recovery evidence, never inferred absence."""
+
+        executor = self.order_executor
+        if executor is None:
+            return OrderRecoveryLookup(
+                state=OrderRecoveryLookupState.UNAVAILABLE,
+                reason="order_executor_unavailable",
+            )
+        try:
+            if txid:
+                lookup_fn = getattr(executor, "get_order_status_for_recovery", None)
+                if callable(lookup_fn):
+                    return await lookup_fn(txid)
+                # Compatibility executors cannot prove absence. A missing value
+                # is deliberately UNKNOWN rather than REJECTED.
+                status = await executor.get_order_status(txid)
+                if status is not None:
+                    return OrderRecoveryLookup(
+                        state=OrderRecoveryLookupState.FOUND,
+                        txid=txid,
+                        status=status,
+                    )
+                return OrderRecoveryLookup(
+                    state=OrderRecoveryLookupState.UNAVAILABLE,
+                    reason="legacy_order_status_lookup_ambiguous",
+                )
+            if userref is not None:
+                lookup_fn = getattr(executor, "find_order_by_userref_for_recovery", None)
+                if callable(lookup_fn):
+                    return await lookup_fn(userref)
+                found = await executor.find_order_by_userref(userref)
+                if found:
+                    found_txid, order_info = found
+                    return OrderRecoveryLookup(
+                        state=OrderRecoveryLookupState.FOUND,
+                        txid=found_txid,
+                        order_info=order_info,
+                    )
+                return OrderRecoveryLookup(
+                    state=OrderRecoveryLookupState.UNAVAILABLE,
+                    reason="legacy_userref_lookup_ambiguous",
+                )
+        except Exception as exc:
+            logger.error("Crash-recovery exchange lookup unavailable: %s", type(exc).__name__)
+            return OrderRecoveryLookup(
+                state=OrderRecoveryLookupState.UNAVAILABLE,
+                reason=f"exchange_lookup_exception:{type(exc).__name__}",
+            )
+        return OrderRecoveryLookup(
+            state=OrderRecoveryLookupState.UNAVAILABLE,
+            reason="recovery_order_has_no_txid_or_userref",
+        )
+
+    async def _mark_recovery_order_unknown(
+        self,
+        client_order_id: str,
+        *,
+        symbol: str,
+        reason: str,
+    ) -> None:
+        """Latch an ambiguous order and halt instead of releasing idempotency."""
+
+        logger.critical(
+            "[WAL] Order recovery is ambiguous; preserving duplicate guard: %s (%s)",
+            client_order_id,
+            reason,
+        )
+        marker = getattr(self._osm, "mark_recovery_unknown", None)
+        if callable(marker):
+            persisted = await marker(client_order_id, "recovery_exchange_lookup_unavailable")
+        else:
+            # Test/legacy adapters cannot prove a safe terminal outcome either.
+            persisted = await self._osm.transition(
+                client_order_id,
+                "UNKNOWN",
+                "recovery_exchange_lookup_unavailable",
+            )
+        self._record_runtime_event(
+            "_last_error_event",
+            event="order_recovery_unknown",
+            client_order_id=client_order_id,
+            symbol=symbol,
+            reason=reason,
+            persisted=bool(persisted),
+        )
+        await self._kill_switch.trigger(
+            "order_recovery_unknown",
+            f"{client_order_id}: exchange recovery evidence unavailable",
+        )
 
     @staticmethod
     def _ensure_signal_trace_id(signal: TradingSignal) -> tuple[dict[str, Any], str]:
@@ -872,7 +973,27 @@ class SignalHandlerAsync:
 
     async def recover(self) -> None:
         """ROB-01: Check for in-flight orders and reconcile with exchange."""
-        pending = await self._osm.recover_non_terminal()
+        recovery_reader = getattr(self._osm, "recover_non_terminal_for_recovery", None)
+        if callable(recovery_reader):
+            recovery = await recovery_reader()
+            if not recovery.available:
+                reason = recovery.reason or "order_recovery_ledger_unavailable"
+                logger.critical("[WAL] Pending-order recovery ledger unavailable; halting: %s", reason)
+                self._record_runtime_event(
+                    "_last_error_event",
+                    event="order_recovery_ledger_unavailable",
+                    reason=reason,
+                )
+                await self._kill_switch.trigger(
+                    "order_recovery_ledger_unavailable",
+                    "pending order ledger could not be read during cold restart",
+                )
+                return
+            pending = recovery.orders
+        else:
+            # Legacy test adapters retain their historical behavior. Production
+            # uses the explicit availability contract above.
+            pending = await self._osm.recover_non_terminal()
         if not pending:
             return
         
@@ -885,34 +1006,20 @@ class SignalHandlerAsync:
             
             logger.info(f"🔎 [WAL] Vérification ordre {client_order_id} (userref={userref}, txid={txid})")
             
-            found_txid = None
-            order_info = None
-            order_status = None
-            
-            if txid:
-                # We have a TXID, query directly
-                status = await self.order_executor.get_order_status(txid)
-                if status:
-                    found_txid = txid
-                    order_status = status
-                    # Update info from status if possible
-            elif userref:
-                # No TXID, search by userref
-                found = await self.order_executor.find_order_by_userref(userref)
-                if found:
-                    found_txid, order_info = found
-            
-            if found_txid:
+            lookup = await self._lookup_recovery_order(txid=txid, userref=userref)
+
+            if lookup.state is OrderRecoveryLookupState.FOUND and lookup.txid:
+                found_txid = lookup.txid
                 logger.info(f"✅ [WAL] Ordre trouvé sur l'échange: {found_txid}")
-                terminal_status = self._terminal_status_from_recovered_order(order_status, order_info)
+                terminal_status = self._terminal_status_from_recovered_order(lookup.status, lookup.order_info)
                 if terminal_status:
                     await self._osm.recover_to_terminal(
                         client_order_id,
                         terminal_status,
                         "recovered_terminal_from_exchange",
                         exchange_order_id=found_txid,
-                        filled_qty=self._recovered_order_volume_exec(order_status, order_info),
-                        avg_fill_price=self._recovered_order_avg_price(order_status, order_info),
+                        filled_qty=self._recovered_order_volume_exec(lookup.status, lookup.order_info),
+                        avg_fill_price=self._recovered_order_avg_price(lookup.status, lookup.order_info),
                     )
                 else:
                     await self._osm.transition(
@@ -921,9 +1028,15 @@ class SignalHandlerAsync:
                         "recovered_from_exchange",
                         exchange_order_id=found_txid,
                     )
-            else:
+            elif lookup.state is OrderRecoveryLookupState.CONFIRMED_ABSENT:
                 logger.warning(f"❌ [WAL] Ordre {client_order_id} introuvable sur l'échange -- marquage REJECTED")
                 await self._osm.transition(client_order_id, "REJECTED", "not_found_on_exchange_after_crash")
+            else:
+                await self._mark_recovery_order_unknown(
+                    client_order_id,
+                    symbol=symbol,
+                    reason=lookup.reason or "exchange_order_lookup_unavailable",
+                )
 
     @staticmethod
     def _terminal_status_from_recovered_order(order_status: Any, order_info: Any) -> Optional[str]:
