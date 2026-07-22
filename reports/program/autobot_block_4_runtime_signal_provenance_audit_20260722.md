@@ -49,6 +49,21 @@ Result: `89 passed`.
 
 Full local regression: `1849 passed, 6 skipped`.
 
+## VPS validation
+
+Implementation commit: `570058c75705ca171df69b8bfde8147e4b6eb781`.
+
+- Git checkout, provenance-labelled image and `autobot-v2` container aligned to
+  the same commit.
+- `/health`: healthy; orchestrator running; WebSocket connected; 14 instances.
+- All nine research timers restored and active after the provenance rebuild.
+- Isolated read-only/no-network smoke: `89 passed`.
+- The deployed CLI reports
+  `BLOCKED_PENDING_CANONICAL_RUNTIME_PROVENANCE` with two actionable trend BUY
+  producers; it does not write a report when invoked with `--no-write-report`.
+- `PAPER_EXECUTION_*`, automatic promotion and live-routing flags remained
+  `false`; no order submission or live-activation log was observed.
+
 ## Safety
 
 - Source parsing only; strategy modules are not imported.
