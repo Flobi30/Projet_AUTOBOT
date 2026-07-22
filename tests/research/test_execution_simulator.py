@@ -383,6 +383,45 @@ def test_shadow_simulator_uses_top_of_book_mid_not_a_stale_last_price_when_book_
     assert outcome.fill.metadata["market_snapshot"]["price"] == pytest.approx(90.0)
 
 
+def test_shadow_simulator_rejects_incomplete_or_invalid_limit_order_metadata():
+    missing_limit_price = replace(
+        _intent(notional=101.0),
+        metadata={"requested_price": 100.0, "order_type": "limit"},
+    )
+    invalid_limit_price = replace(
+        _intent(notional=102.0),
+        metadata={"requested_price": 100.0, "order_type": "limit", "limit_price": "not-a-price"},
+    )
+    unsupported_order_type = replace(
+        _intent(notional=103.0),
+        metadata={"requested_price": 100.0, "order_type": "stop"},
+    )
+
+    missing = _simulator().simulate(
+        missing_limit_price,
+        (_snapshot(),),
+        risk_decision=_risk_decision(missing_limit_price),
+    )
+    invalid = _simulator().simulate(
+        invalid_limit_price,
+        (_snapshot(),),
+        risk_decision=_risk_decision(invalid_limit_price),
+    )
+    unsupported = _simulator().simulate(
+        unsupported_order_type,
+        (_snapshot(),),
+        risk_decision=_risk_decision(unsupported_order_type),
+    )
+
+    assert missing.status == "REJECTED"
+    assert missing.reason == "limit_price_required"
+    assert invalid.status == "REJECTED"
+    assert invalid.reason == "invalid_limit_price"
+    assert unsupported.status == "REJECTED"
+    assert unsupported.reason == "unsupported_order_type"
+    assert all(outcome.fill is None for outcome in (missing, invalid, unsupported))
+
+
 def test_block3_research_modules_do_not_import_runtime_order_paths():
     root = Path(__file__).resolve().parents[2]
     forbidden = {"autobot.v2.order_router", "autobot.v2.signal_handler_async", "autobot.v2.order_executor_async"}

@@ -624,14 +624,53 @@ class ResearchExecutionSimulator:
                 market_snapshot_fingerprint=snapshot.fingerprint,
                 market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
+        order_type = str(intent.metadata.get("order_type") or "market").lower()
+        if order_type not in {"market", "limit"}:
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "unsupported_order_type",
+                (created, submitted, acknowledged),
+                snapshot.usable_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+            )
+        try:
+            limit_price = _optional_float(intent.metadata.get("limit_price"))
+        except (TypeError, ValueError, ResearchExecutionError):
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "invalid_limit_price",
+                (created, submitted, acknowledged),
+                snapshot.usable_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+            )
+        if order_type == "limit" and limit_price is None:
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "limit_price_required",
+                (created, submitted, acknowledged),
+                snapshot.usable_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+            )
         request = FillRequest(
             symbol=intent.market.symbol,
             side=intent.side,
             price=_requested_price(intent, snapshot),
             notional_eur=fill_notional,
             timestamp=snapshot.usable_at,
-            order_type=str(intent.metadata.get("order_type") or "market"),
-            limit_price=_optional_float(intent.metadata.get("limit_price")),
+            order_type=order_type,
+            limit_price=limit_price,
             bid=snapshot.bid,
             ask=snapshot.ask,
             liquidity_eur=available,
