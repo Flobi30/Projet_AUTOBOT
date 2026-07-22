@@ -18,6 +18,7 @@ from autobot.v2.contracts import AlphaSignal, FillEvent, OrderEvent, OrderIntent
 
 from .backtest_alpha_adapter import cost_model_fingerprint
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
+from .microstructure_cost_evidence import MicrostructureCostEvidence
 
 
 class ResearchExecutionError(ValueError):
@@ -124,6 +125,7 @@ class ScenarioEdgeReview:
     data_snapshot_id: str
     base_cost_model_fingerprint: str
     projections: tuple[ScenarioEdgeProjection, ...]
+    microstructure_cost_evidence_fingerprint: str | None = None
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -139,6 +141,7 @@ def review_net_edge_scenarios(
     base_cost_config: ExecutionCostConfig,
     scenarios: Sequence[ExecutionScenario] = DEFAULT_EXECUTION_SCENARIOS,
     min_projected_net_edge_bps: float = 0.0,
+    microstructure_cost_evidence: MicrostructureCostEvidence | None = None,
 ) -> ScenarioEdgeReview:
     """Check one net edge against central, pessimistic and stress costs.
 
@@ -160,6 +163,26 @@ def review_net_edge_scenarios(
         raise ResearchExecutionError("central and pessimistic scenarios are required")
 
     base_fingerprint = cost_model_fingerprint(base_cost_config.to_dict())
+    evidence_fingerprint = (
+        microstructure_cost_evidence.evidence_fingerprint
+        if microstructure_cost_evidence is not None
+        else None
+    )
+    if microstructure_cost_evidence is not None:
+        evidence_reason = microstructure_cost_evidence.validation_reason_for_signal(
+            signal,
+            base_cost_config=base_cost_config,
+        )
+        if evidence_reason is not None:
+            return ScenarioEdgeReview(
+                "SCENARIO_EDGE_BLOCKED",
+                evidence_reason,
+                signal.signal_id,
+                signal.data_snapshot_id,
+                base_fingerprint,
+                (),
+                evidence_fingerprint,
+            )
     declared_fingerprint = str(signal.metadata.get("cost_model_fingerprint") or "").strip()
     edge = signal.expected_edge_bps
     if edge is None or not math.isfinite(float(edge)) or float(edge) <= 0.0:
@@ -170,6 +193,7 @@ def review_net_edge_scenarios(
             signal.data_snapshot_id,
             base_fingerprint,
             (),
+            evidence_fingerprint,
         )
     if declared_fingerprint != base_fingerprint:
         return ScenarioEdgeReview(
@@ -179,6 +203,7 @@ def review_net_edge_scenarios(
             signal.data_snapshot_id,
             base_fingerprint,
             (),
+            evidence_fingerprint,
         )
 
     central_cost = base_cost_config.round_trip_cost_estimate_bps()
@@ -207,6 +232,7 @@ def review_net_edge_scenarios(
             signal.data_snapshot_id,
             base_fingerprint,
             tuple(projections),
+            evidence_fingerprint,
         )
     return ScenarioEdgeReview(
         "SCENARIO_EDGE_OK",
@@ -215,6 +241,7 @@ def review_net_edge_scenarios(
         signal.data_snapshot_id,
         base_fingerprint,
         tuple(projections),
+        evidence_fingerprint,
     )
 
 

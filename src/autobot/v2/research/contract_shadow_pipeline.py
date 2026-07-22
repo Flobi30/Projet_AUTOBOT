@@ -24,6 +24,7 @@ from .execution_simulator import (
     ShadowMarketSnapshot,
     review_net_edge_scenarios,
 )
+from .microstructure_cost_evidence import MicrostructureCostEvidence
 from .portfolio_construction import (
     CapacityObservation,
     PortfolioCapacityReview,
@@ -65,6 +66,7 @@ def evaluate_alpha_signal_in_shadow(
     simulator: ResearchExecutionSimulator,
     snapshots: Sequence[ShadowMarketSnapshot],
     risk_decision: RiskDecision | None,
+    microstructure_cost_evidence: MicrostructureCostEvidence | None = None,
     portfolio_config: PortfolioConstructionConfig = PortfolioConstructionConfig(),
 ) -> ContractShadowPipelineReview:
     """Evaluate exactly one alpha through target, capacity, risk and shadow.
@@ -77,7 +79,11 @@ def evaluate_alpha_signal_in_shadow(
     reason = _artifact_matches_signal(strategy_artifact, signal)
     if reason is not None:
         return ContractShadowPipelineReview("CONTRACT_REJECTED", reason, signal, risk_decision=risk_decision)
-    scenario_review = review_net_edge_scenarios(signal, base_cost_config=base_cost_config)
+    scenario_review = review_net_edge_scenarios(
+        signal,
+        base_cost_config=base_cost_config,
+        microstructure_cost_evidence=microstructure_cost_evidence,
+    )
     if scenario_review.status != "SCENARIO_EDGE_OK":
         return ContractShadowPipelineReview(
             "SCENARIO_BLOCKED",
@@ -178,6 +184,7 @@ def evaluate_alpha_signal_in_shadow(
             "capacity_status": capacity_review.status,
             "expected_edge_bps": signal.expected_edge_bps,
             "cost_model_fingerprint": scenario_review.base_cost_model_fingerprint,
+            "microstructure_cost_evidence_fingerprint": scenario_review.microstructure_cost_evidence_fingerprint,
             "scenario_status": scenario_review.status,
             "paper_capital_allowed": False,
             "live_allowed": False,

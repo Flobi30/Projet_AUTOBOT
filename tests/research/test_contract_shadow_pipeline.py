@@ -24,6 +24,11 @@ from autobot.v2.research.execution_simulator import (
     ResearchExecutionSimulator,
     ShadowMarketSnapshot,
 )
+from autobot.v2.research.canonical_microstructure_profile import (
+    CanonicalMicrostructureProfileReport,
+    CanonicalMicrostructureSymbolProfile,
+)
+from autobot.v2.research.microstructure_cost_evidence import derive_microstructure_cost_evidence
 from autobot.v2.research.portfolio_construction import CapacityObservation
 
 
@@ -125,6 +130,46 @@ def _capacity_observation(*, at: datetime | None = None, market: MarketIdentity 
         available_time=timestamp,
         ingestion_time=timestamp,
         observed_liquidity_eur=20_000.0,
+    )
+
+
+def _cost_evidence():
+    profile = CanonicalMicrostructureSymbolProfile(
+        symbol="BTCEUR",
+        base_asset="BTC",
+        quote_asset="EUR",
+        sample_count=120,
+        distinct_utc_hours=20,
+        first_event_time="2026-07-20T00:00:00+00:00",
+        last_event_time="2026-07-21T12:00:00+00:00",
+        observation_span_seconds=129_600.0,
+        median_spread_bps=8.0,
+        p75_spread_bps=9.0,
+        p95_spread_bps=14.0,
+        p99_spread_bps=18.0,
+        median_bid_depth_eur=1_000.0,
+        median_ask_depth_eur=1_000.0,
+        p95_latency_ms=50.0,
+        observed_research_spread_bps=9.0,
+        observed_stress_spread_bps=18.0,
+        calibration_status="RESEARCH_CALIBRATION_READY",
+    )
+    report = CanonicalMicrostructureProfileReport(
+        run_id="contract-shadow-cost-evidence",
+        generated_at="2026-07-21T12:00:00+00:00",
+        source_paths=("canonical/kraken_spot_microstructure.csv",),
+        source_fingerprint=sha256(b"contract-shadow-cost-evidence").hexdigest(),
+        raw_row_count=120,
+        accepted_row_count=120,
+        duplicate_row_count=0,
+        rejected_row_count=0,
+        status="RESEARCH_CALIBRATION_READY",
+        profiles=(profile,),
+    )
+    return derive_microstructure_cost_evidence(
+        report,
+        market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
+        base_cost_config=_base_cost_config(),
     )
 
 
@@ -245,6 +290,50 @@ def test_contract_shadow_pipeline_blocks_missing_or_pessimistic_cost_evidence():
     assert blocked.reason == "pessimistic_net_edge_not_positive"
     assert blocked.order_intent is None
     assert blocked.scenario_review is not None
+
+
+def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
+    evidence = _cost_evidence()
+    signal = _signal(expected_edge_bps=100.0)
+    signal = replace(
+        signal,
+        metadata={
+            "cost_model_fingerprint": evidence.central_cost_model_fingerprint,
+            "microstructure_cost_evidence_fingerprint": evidence.evidence_fingerprint,
+        },
+    )
+    simulator = ResearchExecutionSimulator(
+        cost_config=evidence.central_cost_config,
+        market_rules={"BTCEUR": MarketExecutionRules("BTCEUR", 0.0001, 5.0, 8, 1)},
+    )
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={"BTCEUR": _capacity_observation()},
+        max_liquidity_participation=0.05,
+        base_cost_config=evidence.central_cost_config,
+        microstructure_cost_evidence=evidence,
+        simulator=simulator,
+        snapshots=(
+            ShadowMarketSnapshot(
+                timestamp=_timestamp() + timedelta(seconds=2),
+                price=100.0,
+                bid=99.95,
+                ask=100.05,
+                liquidity_eur=20_000.0,
+            ),
+        ),
+        risk_decision=_risk_decision(),
+    )
+
+    assert review.status == "SHADOW_FILLED"
+    assert review.scenario_review is not None
+    assert review.scenario_review.microstructure_cost_evidence_fingerprint == evidence.evidence_fingerprint
+    assert review.order_intent is not None
+    assert review.order_intent.metadata["microstructure_cost_evidence_fingerprint"] == evidence.evidence_fingerprint
+    assert review.execution_command_created is False
 
 
 def test_contract_shadow_pipeline_does_not_import_runtime_execution_paths():
