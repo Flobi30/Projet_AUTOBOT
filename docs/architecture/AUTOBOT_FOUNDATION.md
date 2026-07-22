@@ -99,6 +99,12 @@ and template; a performance rejection is never a successor source. Campaign
 validation includes the inherited floor, so changing campaign id cannot reduce
 the multiple-testing correction.
 
+The former threaded `Orchestrator` and `TradingInstance` modules are retained
+only for passive import and historical type compatibility. Their constructors
+are permanently `retired_from_execution` and fail before initializing a Kraken
+client, websocket, persistence store or signal handler. `main_async.py` and
+`OrchestratorAsync` are the sole supported runtime entrypoints.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.

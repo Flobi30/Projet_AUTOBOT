@@ -19,6 +19,7 @@ from .stop_loss_manager import StopLossManager, get_stop_loss_manager
 from .reconciliation import ReconciliationManager
 from .market_selector import MarketSelector, get_market_selector
 from .risk_manager import get_risk_manager
+from .legacy_runtime import reject_legacy_synchronous_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,10 @@ class Orchestrator:
     """
     
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+        # The threaded runtime historically initialised Kraken order execution
+        # during construction.  It is retained for import/type compatibility
+        # only; fail before any network, persistence or order component exists.
+        reject_legacy_synchronous_runtime("Orchestrator")
         self.api_key = api_key
         self.api_secret = api_secret
 

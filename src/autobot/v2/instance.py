@@ -75,6 +75,7 @@ class Position:
 
 
 from .instance_models import InstanceStatus, LeverageLevel, Position, Trade
+from .legacy_runtime import reject_legacy_synchronous_runtime
 
 
 class TradingInstance:
@@ -89,6 +90,11 @@ class TradingInstance:
     """
     
     def __init__(self, instance_id: str, config: Any, orchestrator: Any, order_executor: Optional[Any] = None):
+        # Importing this archived class is still safe for legacy annotations,
+        # but constructing it used to recover state and could reach direct
+        # Kraken execution through SignalHandler.  Only the async runtime is
+        # supported by the programme, so fail before all side effects.
+        reject_legacy_synchronous_runtime("TradingInstance")
         self.id = instance_id
         self.config = config
         self.orchestrator = orchestrator
