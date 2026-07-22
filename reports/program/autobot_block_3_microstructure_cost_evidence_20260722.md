@@ -33,16 +33,32 @@ auditable.
 - Le pipeline shadow conserve le fingerprint de l'évidence dans son intention
   non exécutable quand le caller choisit explicitement de l'utiliser.
 
-## Vérifications locales
+## Vérifications
 
 - `py_compile` des modules et tests touchés : `PASS`.
 - Smoke hermétique : profil prêt → coût central/stress conservateur → signal
   lié → `SCENARIO_EDGE_OK` : `PASS`.
 - Le contrôle AST interdit tout import router, executor, paper trading ou
   signal handler dans le module d'évidence.
-- La suite pytest ciblée reste à exécuter dans l'environnement de test rétabli
-  avant le déploiement final; aucune conclusion de performance ne dépend de ce
-  jalon.
+- Suite pytest isolée dans un conteneur jetable sans réseau, dépôt monté en
+  lecture seule : `23 passed` sur les tests d'évidence, profil canonique,
+  simulateur et pipeline shadow. L'unique warning attendu concerne le cache
+  pytest non inscriptible sur le montage lecture seule.
+
+## Déploiement contrôlé
+
+- Commit d'implémentation vérifié sur GitHub/VPS/image :
+  `fbb492a940a0b0d969a739dad64292837bfd7da5`.
+- L'image OCI et le SHA-256 du module dans le conteneur correspondent au
+  checkout VPS.
+- Conteneur `autobot-v2` : `running healthy`; endpoint `/health` sain,
+  orchestrateur actif, WebSocket connecté et 14 instances.
+- Les quatre timers de recherche sont actifs après le rebuild.
+- `LIVE_TRADING_CONFIRMATION=false`, router live désactivé,
+  auto-promotion désactivée et split executor désactivé. Le flag legacy
+  `PAPER_TRADING=true` n'est pas une activation de capital paper.
+- Aucun traceback, critical, ordre live ou activation live dans les logs
+  récents filtrés.
 
 ## Invariants confirmés
 
