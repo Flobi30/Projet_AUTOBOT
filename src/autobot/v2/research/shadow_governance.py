@@ -755,7 +755,11 @@ class StrategyArtifactRegistry:
             raise ShadowGovernanceError("strategy artifact registry read failed") from exc
         if not row:
             raise ShadowGovernanceError("unknown strategy artifact")
-        if safety and str(safety[0]) in {"DISABLE_NEW_ENTRIES", "QUARANTINE"}:
+        if safety and str(safety[0]) in {"REDUCE", "DISABLE_NEW_ENTRIES", "QUARANTINE"}:
+            # A REDUCE decision must never silently reuse the artifact's
+            # existing risk mandate. Until a separately versioned, explicitly
+            # reduced mandate is bound to a new artifact, fail closed rather
+            # than turning a recorded reduction into full-size shadow intent.
             raise ShadowGovernanceError("shadow safety action blocks new shadow order intents")
         try:
             reference = strategy_artifact_reference_from_mapping(json.loads(str(row[0])))

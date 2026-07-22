@@ -712,6 +712,41 @@ def test_shadow_safety_disable_or_quarantine_blocks_new_order_intent_reference(t
         registry.resolve_shadow_order_intent_reference(artifact_id)
 
 
+def test_shadow_safety_reduce_cannot_reuse_an_unreduced_shadow_mandate(tmp_path):
+    experiment_registry, experiment_id = _passed_experiment_registry(tmp_path)
+    artifact = build_strategy_artifact_from_experiment(
+        experiment_registry=experiment_registry,
+        experiment_id=experiment_id,
+        strategy_version="v1",
+        risk_mandate_fingerprint="mandate-1",
+        validation_manifest_fingerprint="validation-1",
+        risk_mandate=_risk_mandate(),
+        requested_status="SHADOW_ELIGIBLE",
+        human_approval_reference="human-review-1",
+    )
+    registry = StrategyArtifactRegistry(
+        tmp_path / "strategy_artifacts.sqlite3",
+        experiment_registry_path=experiment_registry.path,
+    )
+    artifact_id = registry.register(artifact)
+    decision = decide_shadow_safety(
+        ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=0.95,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.05,
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=1),
+        )
+    )
+
+    assert decision.action == "REDUCE"
+    assert registry.record_safety_decision(artifact, decision) is True
+    with pytest.raises(ShadowGovernanceError, match="safety action blocks"):
+        registry.resolve_shadow_order_intent_reference(artifact_id)
+
+
 def test_shadow_governance_module_does_not_import_runtime_execution_paths():
     root = Path(__file__).resolve().parents[2]
     tree = ast.parse((root / "src/autobot/v2/research/shadow_governance.py").read_text(encoding="utf-8"))
