@@ -570,6 +570,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     offline_shadow_provenance.set_defaults(handler=_cmd_offline_shadow_provenance_bind)
 
+    runtime_signal_provenance_audit = subparsers.add_parser(
+        "audit-runtime-signal-provenance",
+        help="Statically audit legacy TradingSignal metadata; it cannot start runtime or create an order",
+    )
+    runtime_signal_provenance_audit.add_argument(
+        "--source-root",
+        default="src/autobot/v2/strategies",
+        help="Python source directory to inspect without importing it",
+    )
+    runtime_signal_provenance_audit.add_argument(
+        "--output-dir",
+        default="reports/research/runtime_signal_provenance",
+    )
+    runtime_signal_provenance_audit.add_argument("--run-id", default="runtime_signal_provenance_audit")
+    runtime_signal_provenance_audit.add_argument("--no-write-report", action="store_true")
+    runtime_signal_provenance_audit.set_defaults(handler=_cmd_runtime_signal_provenance_audit)
+
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
         help="Rank bounded alpha hypotheses from the knowledge base, templates, data readiness and research memory",
@@ -3185,6 +3202,29 @@ def _cmd_offline_shadow_provenance_bind(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def _cmd_runtime_signal_provenance_audit(args: argparse.Namespace) -> int:
+    """Read source only; expose provenance gaps without changing runtime state."""
+
+    from autobot.v2.research.runtime_signal_provenance_audit import (
+        audit_runtime_signal_producers,
+        write_runtime_signal_provenance_audit_report,
+    )
+
+    report = audit_runtime_signal_producers(Path(args.source_root))
+    payload = report.to_dict()
+    payload["report_path"] = None
+    if not args.no_write_report:
+        payload["report_path"] = str(
+            write_runtime_signal_provenance_audit_report(
+                report,
+                Path(args.output_dir),
+                run_id=args.run_id,
+            )
+        )
+    _print_json(payload)
+    return 0 if report.status != "AUDIT_INCOMPLETE" else 2
 
 
 def _cmd_alpha_hypothesis_scheduler(args: argparse.Namespace) -> int:

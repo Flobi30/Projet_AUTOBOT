@@ -58,6 +58,22 @@ paper capital, promote a strategy or enable live trading. Multi-source
 spot/derivatives hand-offs remain blocked until they can prove one coherent
 common observation time.
 
+## Legacy runtime signal provenance inventory
+
+`audit-runtime-signal-provenance` performs a static AST-only inventory of
+`TradingSignal` constructors. It neither imports a strategy nor reads runtime
+state, and it cannot start shadow, paper or live execution. The audit treats
+literal key presence as *unverified* because a valid shadow preview still
+requires an immutable artifact, one exact published feature vector and a
+current mandate.
+
+The 2026-07-22 baseline found 14 constructors: ten belong to retained Grid
+research sources and remain inventory only; the two actionable trend BUY
+producers lack canonical provenance (`trend.py`) or build dynamic local
+metadata (`trend_async.py`). They remain blocked by the direct-entry quarantine.
+The next integration may only consume a separately verified canonical hand-off;
+it must not fill missing runtime metadata by guessing values.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.

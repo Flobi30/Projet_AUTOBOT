@@ -2233,3 +2233,35 @@ def test_cli_offline_shadow_provenance_bind_is_explicitly_non_executable(tmp_pat
     assert payload["paper_capital_allowed"] is False
     assert payload["live_allowed"] is False
     assert payload["order_created"] is False
+
+
+def test_cli_runtime_signal_provenance_audit_is_static_and_non_executable(tmp_path, capsys):
+    source_root = tmp_path / "strategies"
+    source_root.mkdir()
+    (source_root / "legacy.py").write_text(
+        "from autobot.v2.strategies import TradingSignal, SignalType\n"
+        "signal = TradingSignal(type=SignalType.BUY, metadata={'strategy': 'trend'})\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "audit-runtime-signal-provenance",
+            "--source-root",
+            str(source_root),
+            "--output-dir",
+            str(tmp_path / "reports"),
+            "--run-id",
+            "cli-audit",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "BLOCKED_PENDING_CANONICAL_RUNTIME_PROVENANCE"
+    assert payload["summary"]["buy_provenance_incomplete"] == 1
+    assert Path(payload["report_path"]).exists()
+    assert payload["shadow_runtime_started"] is False
+    assert payload["paper_capital_allowed"] is False
+    assert payload["live_allowed"] is False
+    assert payload["order_created"] is False
