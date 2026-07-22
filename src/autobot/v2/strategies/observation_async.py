@@ -41,7 +41,8 @@ class ObservationOnlyStrategyAsync(StrategyAsync):
                 "mode": "observation_only",
                 "execution_enabled": False,
                 "signal_emission_enabled": False,
-                "reason": "grid_retired_research_only",
+                "reason": self.config.get("runtime_reason", "runtime_observation_only"),
+                "requested_strategy": self.config.get("requested_strategy"),
                 "tick_count": self._tick_count,
                 "last_price": self._last_price,
             }

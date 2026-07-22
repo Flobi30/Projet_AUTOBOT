@@ -521,39 +521,52 @@ class TradingInstanceAsync:
     # ------------------------------------------------------------------
 
     def _init_strategy(self) -> None:
-        """Initialize strategy. Strategies use async on_price."""
-        strategy_name = self.config.strategy
-        if strategy_name == "observation_only":
-            from .strategies.observation_async import ObservationOnlyStrategyAsync
+        """Install the sole runtime strategy allowed during the programme.
 
-            self._strategy = ObservationOnlyStrategyAsync(self)
-        elif strategy_name == "grid":
-            from .strategies.observation_async import ObservationOnlyStrategyAsync
+        Runtime instances may observe market data, but a configured legacy
+        strategy cannot emit a trading signal until it is replaced by a
+        separately implemented canonical-artifact consumer.  This prevents a
+        caller from bypassing the main entrypoint's ``observation_only``
+        configuration by passing ``trend`` (or another historical name) to
+        :meth:`OrchestratorAsync.create_instance` directly.
+        """
 
+        requested_strategy = str(getattr(self.config, "strategy", "") or "").strip().lower()
+        self._runtime_strategy = "observation_only"
+        self._runtime_strategy_reason = (
+            "runtime_observation_only"
+            if requested_strategy == "observation_only"
+            else "canonical_runtime_shadow_artifact_required"
+        )
+        if requested_strategy != "observation_only":
             logger.warning(
-                "Grid runtime request for %s replaced by observation-only policy",
+                "Runtime strategy request %s for %s replaced by observation-only policy: %s",
+                requested_strategy or "<missing>",
                 self.id,
+                self._runtime_strategy_reason,
             )
-            self._strategy = ObservationOnlyStrategyAsync(self)
-        elif strategy_name == "trend":
-            from .strategies.trend_async import TrendStrategyAsync
-            self._strategy = TrendStrategyAsync(self, self.config.tp_sl_config or {})
-        else:
-            logger.warning(
-                "Unknown strategy %s for %s replaced by observation-only policy",
-                strategy_name,
-                self.id,
-            )
-            from .strategies.observation_async import ObservationOnlyStrategyAsync
 
-            self._strategy = ObservationOnlyStrategyAsync(self)
+        from .strategies.observation_async import ObservationOnlyStrategyAsync
+
+        self._strategy = ObservationOnlyStrategyAsync(
+            self,
+            {
+                "requested_strategy": requested_strategy or None,
+                "runtime_reason": self._runtime_strategy_reason,
+            },
+        )
 
         from .signal_handler_async import SignalHandlerAsync
         self._signal_handler = SignalHandlerAsync(
             self, order_executor=self._order_executor
         )
         self._on_position_close = self._notify_strategy_position_closed
-        logger.info(f"🎯 Stratégie {strategy_name} chargée pour {self.id} (async)")
+        logger.info(
+            "Runtime observation strategy loaded for %s (requested=%s, reason=%s)",
+            self.id,
+            requested_strategy or "<missing>",
+            self._runtime_strategy_reason,
+        )
 
     def _notify_strategy_position_closed(self, instance: Any, position: Any) -> None:
         if self._strategy and hasattr(self._strategy, "on_position_closed"):
@@ -1215,6 +1228,12 @@ class TradingInstanceAsync:
             "symbol": self.config.symbol,
             "status": self.status.value,
             "strategy": self.config.strategy,
+            "runtime_strategy": getattr(self, "_runtime_strategy", "observation_only"),
+            "runtime_strategy_reason": getattr(
+                self,
+                "_runtime_strategy_reason",
+                "runtime_strategy_not_initialized",
+            ),
             "initial_capital": self._initial_capital,
             "current_capital": self._current_capital,
             "total_profit": self.get_profit(),

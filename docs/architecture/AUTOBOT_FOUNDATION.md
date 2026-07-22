@@ -105,6 +105,12 @@ are permanently `retired_from_execution` and fail before initializing a Kraken
 client, websocket, persistence store or signal handler. `main_async.py` and
 `OrchestratorAsync` are the sole supported runtime entrypoints.
 
+The active async runtime is likewise observation-only. Its instance factory
+records any requested historical strategy name but replaces it with the
+non-signalling observation strategy. A future canonical shadow-artifact
+consumer must be implemented and separately verified before a runtime strategy
+can emit signals; configuration alone cannot bypass that gate.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.
