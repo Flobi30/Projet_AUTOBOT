@@ -46,6 +46,7 @@ class OMSLedgerError(ValueError):
 @dataclass(frozen=True)
 class TransactionCostAnalysis:
     client_order_id: str
+    fill_id: str
     side: str
     signal_price: float
     decision_price: float
@@ -64,6 +65,8 @@ class TransactionCostAnalysis:
     def __post_init__(self) -> None:
         if not self.client_order_id.strip():
             raise OMSLedgerError("client_order_id is required")
+        if not self.fill_id.strip():
+            raise OMSLedgerError("fill_id is required")
         side = self.side.lower()
         if side not in {"buy", "sell"}:
             raise OMSLedgerError("TCA side must be buy or sell")
@@ -265,10 +268,39 @@ class ShadowOMSLedger:
     def record_tca(self, record: TransactionCostAnalysis) -> bool:
         with self._connect() as connection:
             self._initialize(connection)
-            self._load_intent(connection, record.client_order_id)
+            intent = self._load_intent(connection, record.client_order_id)
             self._require_approved_risk_decision(connection, record.client_order_id)
+            fill_row = connection.execute(
+                """
+                SELECT fill_json, costs_json
+                FROM oms_fill_events
+                WHERE fill_id = ? AND client_order_id = ?
+                """,
+                (record.fill_id, record.client_order_id),
+            ).fetchone()
+            if not fill_row:
+                raise OMSLedgerError("TCA record requires a recorded matching fill")
+            fill = json.loads(str(fill_row[0]))
+            costs = json.loads(str(fill_row[1]))
+            if str(intent["side"]).lower() != record.side:
+                raise OMSLedgerError("TCA side must match recorded fill intent")
+            if not math.isclose(float(fill["average_price"]), record.fill_price, rel_tol=0.0, abs_tol=1e-9):
+                raise OMSLedgerError("TCA fill price must match recorded fill")
+            for field_name in ("fee_eur", "spread_cost_eur", "slippage_eur", "latency_cost_eur", "funding_eur"):
+                expected = float(costs.get(field_name, 0.0))
+                actual = float(getattr(record, field_name))
+                if not math.isclose(expected, actual, rel_tol=0.0, abs_tol=1e-9):
+                    raise OMSLedgerError(f"TCA {field_name} must match recorded fill costs")
             payload = record.to_dict()
             record_id = _event_id("tca", payload)
+            existing = connection.execute(
+                "SELECT record_id FROM oms_tca_fill_bindings WHERE fill_id = ?",
+                (record.fill_id,),
+            ).fetchone()
+            if existing:
+                if str(existing[0]) == record_id:
+                    return False
+                raise OMSLedgerError("recorded fill already has immutable TCA attribution")
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO oms_tca_records
@@ -278,7 +310,16 @@ class ShadowOMSLedger:
                 """,
                 (record_id, record.client_order_id, _json(payload), _utc_now().isoformat()),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            connection.execute(
+                """
+                INSERT INTO oms_tca_fill_bindings (fill_id, record_id, client_order_id)
+                VALUES (?, ?, ?)
+                """,
+                (record.fill_id, record_id, record.client_order_id),
+            )
+            return True
 
     def reconstruct_positions(self) -> tuple[PositionSnapshot, ...]:
         return self.reconstruct_accounting().positions
@@ -567,7 +608,23 @@ class ShadowOMSLedger:
             )
             """
         )
-        for table in ("oms_intents", "oms_risk_decisions", "oms_order_events", "oms_fill_events", "oms_tca_records"):
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oms_tca_fill_bindings (
+                fill_id TEXT PRIMARY KEY REFERENCES oms_fill_events(fill_id),
+                record_id TEXT NOT NULL UNIQUE REFERENCES oms_tca_records(record_id),
+                client_order_id TEXT NOT NULL REFERENCES oms_intents(client_order_id)
+            )
+            """
+        )
+        for table in (
+            "oms_intents",
+            "oms_risk_decisions",
+            "oms_order_events",
+            "oms_fill_events",
+            "oms_tca_records",
+            "oms_tca_fill_bindings",
+        ):
             for operation in ("UPDATE", "DELETE"):
                 connection.execute(
                     f"""

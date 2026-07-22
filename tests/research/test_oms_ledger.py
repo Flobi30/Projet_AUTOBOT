@@ -208,6 +208,7 @@ def test_tca_requires_cost_evidence_and_remains_shadow_only(tmp_path):
     assert ledger.register_intent(intent)
     tca = TransactionCostAnalysis(
         client_order_id=intent.client_order_id,
+        fill_id="fill-tca",
         side="buy",
         signal_price=100.0,
         decision_price=100.1,
@@ -224,13 +225,28 @@ def test_tca_requires_cost_evidence_and_remains_shadow_only(tmp_path):
     with pytest.raises(OMSLedgerError, match="matching approved risk decision"):
         ledger.record_tca(tca)
     assert ledger.record_risk_decision(intent, _risk_decision(intent))
-    assert ledger.record_tca(tca)
-    assert ledger.record_tca(tca) is False
+    with pytest.raises(OMSLedgerError, match="recorded matching fill"):
+        ledger.record_tca(tca)
     with pytest.raises(OMSLedgerError, match="fee evidence"):
         ledger.record_fill(
             FillEvent(intent.client_order_id, "fill-fee-mismatch", intent.created_at, 1.0, 100.0, 0.20),
             costs=_costs(),
         )
+    at = intent.created_at
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", at))
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "SUBMITTED", at + timedelta(seconds=1)))
+    assert ledger.record_order_event(OrderEvent(intent.client_order_id, "ACKNOWLEDGED", at + timedelta(seconds=2)))
+    assert ledger.record_fill(
+        FillEvent(intent.client_order_id, "fill-tca", at + timedelta(seconds=3), 1.0, 100.5, 0.16),
+        costs=_costs(),
+    )
+    assert ledger.record_tca(tca)
+    assert ledger.record_tca(tca) is False
+    with pytest.raises(OMSLedgerError, match="fill price"):
+        ledger.record_tca(replace(tca, fill_price=100.6))
+    with sqlite3.connect(tmp_path / "oms.sqlite3") as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("DELETE FROM oms_tca_fill_bindings")
     with pytest.raises(OMSLedgerError, match="shadow intents only"):
         ledger.register_intent(_intent(mode="paper"))
 
