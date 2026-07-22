@@ -108,6 +108,7 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
     assert manifest.source_sha256
     assert manifest.backup_sha256
     assert manifest.encrypted is False
+    assert manifest.foreign_key_violation_count == 0
     assert restored == "preserved"
     assert source.read_bytes() == source_before
     with pytest.raises(ResilienceError, match="approved external backup layer"):
@@ -132,6 +133,8 @@ def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):
     assert manifest.source_schema_sha256 == manifest.restored_schema_sha256
     assert manifest.source_table_row_counts == {"observations": 2}
     assert manifest.restored_table_row_counts == {"observations": 2}
+    assert manifest.source_foreign_key_violation_count == 0
+    assert manifest.restored_foreign_key_violation_count == 0
     assert manifest.temporary_restore_cleaned is True
     assert manifest.paper_capital_allowed is False
     assert manifest.live_allowed is False
@@ -150,6 +153,8 @@ def test_ephemeral_sqlite_restore_drill_retains_no_backup_and_preserves_source(t
     assert manifest.backup.integrity_check.lower() == "ok"
     assert manifest.restore.integrity_check.lower() == "ok"
     assert manifest.restore.source_table_row_counts == {"observations": 2}
+    assert manifest.restore.source_foreign_key_violation_count == 0
+    assert manifest.restore.restored_foreign_key_violation_count == 0
     assert manifest.temporary_backup_cleaned is True
     assert manifest.paper_capital_allowed is False
     assert manifest.live_allowed is False
@@ -164,6 +169,26 @@ def test_sqlite_restore_drill_rejects_corrupt_or_missing_backup(tmp_path):
         verify_sqlite_restore_drill(corrupt)
     with pytest.raises(ResilienceError, match="does not exist"):
         verify_sqlite_restore_drill(tmp_path / "missing.sqlite3")
+
+
+def test_backup_and_restore_drills_reject_foreign_key_violations(tmp_path):
+    source = tmp_path / "foreign_key_violation.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+        connection.execute(
+            "CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))"
+        )
+        connection.execute("INSERT INTO child(id, parent_id) VALUES (1, 999)")
+
+    before = source.read_bytes()
+    with pytest.raises(ResilienceError, match="foreign key check failed: 1 violation"):
+        create_verified_sqlite_backup(source, tmp_path / "backup.sqlite3")
+    with pytest.raises(ResilienceError, match="foreign key check failed: 1 violation"):
+        verify_sqlite_restore_drill(source)
+
+    assert source.read_bytes() == before
+    assert not (tmp_path / "backup.sqlite3").exists()
 
 
 def test_readiness_dossier_is_non_authorizing_and_blocks_partial_or_unsafe_layers():

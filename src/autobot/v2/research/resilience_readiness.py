@@ -13,9 +13,10 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
 import sqlite3
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkstemp
 from time import sleep
 from typing import Any, Callable, Mapping, Sequence, TypeVar
 
@@ -124,6 +125,7 @@ class SQLiteBackupManifest:
     source_sha256: str
     backup_sha256: str
     integrity_check: str
+    foreign_key_violation_count: int
     encrypted: bool
     created_at: str
     research_only: bool = True
@@ -142,6 +144,8 @@ class SQLiteRestoreDrillManifest:
     source_table_row_counts: Mapping[str, int]
     restored_table_row_counts: Mapping[str, int]
     integrity_check: str
+    source_foreign_key_violation_count: int
+    restored_foreign_key_violation_count: int
     temporary_restore_cleaned: bool
     verified_at: str
     research_only: bool = True
@@ -268,24 +272,40 @@ def create_verified_sqlite_backup(
     if encrypted:
         raise ResilienceError("encryption must be provided by an approved external backup layer")
     destination_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_fd, temporary_name = mkstemp(
+        prefix=f".{destination_path.name}.",
+        suffix=".tmp",
+        dir=destination_path.parent,
+    )
+    os.close(temporary_fd)
+    temporary_path = Path(temporary_name)
     # Opening the source explicitly read-only makes this safe for a live
     # runtime SQLite database: SQLite's backup API can obtain a consistent
     # snapshot without giving this job write access to the source database.
     source_uri = f"{source_path.as_uri()}?mode=ro"
-    with (
-        closing(sqlite3.connect(source_uri, uri=True)) as source_connection,
-        closing(sqlite3.connect(destination_path)) as destination_connection,
-    ):
-        source_connection.backup(destination_connection)
-        integrity = str(destination_connection.execute("PRAGMA integrity_check").fetchone()[0])
-    if integrity.lower() != "ok":
-        raise ResilienceError(f"SQLite backup integrity check failed: {integrity}")
+    try:
+        with (
+            closing(sqlite3.connect(source_uri, uri=True)) as source_connection,
+            closing(sqlite3.connect(temporary_path)) as destination_connection,
+        ):
+            source_connection.backup(destination_connection)
+            integrity, foreign_key_violation_count = _verify_sqlite_consistency(
+                destination_connection,
+                context="SQLite backup",
+            )
+        try:
+            os.link(temporary_path, destination_path)
+        except FileExistsError as exc:
+            raise ResilienceError("SQLite backup destination already exists; refusing to overwrite it") from exc
+    finally:
+        _remove_sqlite_artifacts(temporary_path)
     return SQLiteBackupManifest(
         source_path=str(source_path),
         backup_path=str(destination_path),
         source_sha256=_sha256_file(source_path),
         backup_sha256=_sha256_file(destination_path),
         integrity_check=integrity,
+        foreign_key_violation_count=foreign_key_violation_count,
         encrypted=False,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -301,9 +321,10 @@ def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifes
     backup_sha256_before = _sha256_file(backup_path)
     try:
         with closing(sqlite3.connect(f"file:{backup_path}?mode=ro", uri=True)) as source_connection:
-            source_integrity = str(source_connection.execute("PRAGMA integrity_check").fetchone()[0])
-            if source_integrity.lower() != "ok":
-                raise ResilienceError(f"SQLite restore drill source integrity check failed: {source_integrity}")
+            source_integrity, source_foreign_key_violation_count = _verify_sqlite_consistency(
+                source_connection,
+                context="SQLite restore drill source",
+            )
             source_schema_sha256 = _sqlite_schema_sha256(source_connection)
             source_table_row_counts = _sqlite_table_row_counts(source_connection)
 
@@ -312,9 +333,10 @@ def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifes
                 with closing(sqlite3.connect(restored_path)) as restored_connection:
                     source_connection.backup(restored_connection)
                     restored_connection.commit()
-                    restored_integrity = str(restored_connection.execute("PRAGMA integrity_check").fetchone()[0])
-                    if restored_integrity.lower() != "ok":
-                        raise ResilienceError(f"SQLite restore drill integrity check failed: {restored_integrity}")
+                    restored_integrity, restored_foreign_key_violation_count = _verify_sqlite_consistency(
+                        restored_connection,
+                        context="SQLite restore drill",
+                    )
                     restored_schema_sha256 = _sqlite_schema_sha256(restored_connection)
                     restored_table_row_counts = _sqlite_table_row_counts(restored_connection)
                 restored_sha256 = _sha256_file(restored_path)
@@ -336,7 +358,9 @@ def verify_sqlite_restore_drill(backup: str | Path) -> SQLiteRestoreDrillManifes
         restored_schema_sha256=restored_schema_sha256,
         source_table_row_counts=source_table_row_counts,
         restored_table_row_counts=restored_table_row_counts,
-        integrity_check=source_integrity,
+        integrity_check=restored_integrity,
+        source_foreign_key_violation_count=source_foreign_key_violation_count,
+        restored_foreign_key_violation_count=restored_foreign_key_violation_count,
         temporary_restore_cleaned=True,
         verified_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -462,6 +486,31 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _remove_sqlite_artifacts(path: Path) -> None:
+    """Remove only a private temporary SQLite artifact and possible sidecars."""
+
+    for suffix in ("", "-journal", "-shm", "-wal"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
+
+
+def _verify_sqlite_consistency(
+    connection: sqlite3.Connection,
+    *,
+    context: str,
+) -> tuple[str, int]:
+    """Verify physical integrity and relational integrity of a SQLite snapshot."""
+
+    integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+    if integrity.lower() != "ok":
+        raise ResilienceError(f"{context} integrity check failed: {integrity}")
+    foreign_key_violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if foreign_key_violations:
+        raise ResilienceError(
+            f"{context} foreign key check failed: {len(foreign_key_violations)} violation(s)"
+        )
+    return integrity, 0
 
 
 def _sqlite_schema_sha256(connection: sqlite3.Connection) -> str:

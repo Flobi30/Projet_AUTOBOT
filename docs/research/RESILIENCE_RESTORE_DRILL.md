@@ -36,8 +36,9 @@ both the backup and disposable restore; budget at least three times the current
 SQLite database size. The command remains read-only against its source.
 
 The command opens the input backup read-only, restores it into a temporary
-directory, checks SQLite integrity, schema and row counts, verifies the input
-hash did not change, then removes the temporary restore.
+directory, checks SQLite integrity, foreign-key consistency, schema and row
+counts, verifies the input hash did not change, then removes the temporary
+restore.
 
 ## Rules
 
