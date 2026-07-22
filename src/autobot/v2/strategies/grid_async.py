@@ -137,7 +137,7 @@ class GridStrategyAsync(StrategyAsync):
         self._paper_execution_router_enabled = self._read_bool_config(
             "paper_execution_router_enabled",
             "PAPER_EXECUTION_ROUTER_ENABLED",
-            True,
+            False,
         )
         self._paper_execution_block_pending = self._read_bool_config(
             "paper_execution_block_pending",

@@ -91,6 +91,7 @@ class _Orchestrator:
 def test_colony_manager_builds_paper_children_without_live_promotion():
     manager = ColonyManager(
         ColonyConfig(
+            paper_autopilot_enabled=True,
             target_live_capital_eur=500.0,
             max_paper_children=4,
             min_child_capital_eur=75.0,
@@ -125,6 +126,7 @@ def test_colony_manager_builds_paper_children_without_live_promotion():
 def test_colony_manager_routes_existing_instances_to_active_logical_children():
     manager = ColonyManager(
         ColonyConfig(
+            paper_autopilot_enabled=True,
             target_live_capital_eur=500.0,
             max_paper_children=2,
             min_child_capital_eur=75.0,
@@ -162,6 +164,7 @@ def test_colony_manager_routes_existing_instances_to_active_logical_children():
 def test_colony_manager_auto_scales_logical_children_for_larger_watchlists():
     manager = ColonyManager(
         ColonyConfig(
+            paper_autopilot_enabled=True,
             target_live_capital_eur=500.0,
             max_paper_children=12,
             min_child_capital_eur=75.0,
@@ -234,9 +237,29 @@ def test_colony_routes_each_pair_to_highest_potential_engine():
     assert decisions["MOMPAIR"]["behavior_scores"]["momentum"] > decisions["MOMPAIR"]["behavior_scores"]["volatility"]
 
 
+def test_colony_defaults_to_a_non_authorizing_research_control_plane(monkeypatch):
+    monkeypatch.delenv("COLONY_PAPER_AUTOPILOT_ENABLED", raising=False)
+    monkeypatch.delenv("COLONY_AUTO_SCALE_PAPER_CHILDREN", raising=False)
+    manager = ColonyManager(ColonyConfig.from_env())
+
+    snapshot = manager.build_snapshot(
+        opportunities=[{"symbol": "XXBTZEUR", "score": 85.0}],
+        instances=_Orchestrator().get_instances_snapshot(),
+        capital={"total_capital": 1000.0},
+        paper_mode=True,
+    )
+
+    assert snapshot["autopilot"]["state"] == "blocked"
+    assert snapshot["autopilot"]["allowed_actions"] == []
+    assert snapshot["execution"]["paper_autopilot_enabled"] is False
+    assert snapshot["execution"]["auto_scale_paper_children"] is False
+    assert snapshot["runtime"]["active_children_count"] == 0
+
+
 def test_colony_endpoint_returns_control_plane(monkeypatch):
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
     monkeypatch.setenv("COLONY_TARGET_LIVE_CAPITAL_EUR", "500")
+    monkeypatch.setenv("COLONY_PAPER_AUTOPILOT_ENABLED", "true")
     dashboard.app.state.orchestrator = _Orchestrator()
     client = TestClient(dashboard.app)
 

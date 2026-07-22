@@ -63,9 +63,9 @@ def _symbol_key(value: Any) -> str:
 @dataclass(frozen=True)
 class ColonyConfig:
     enabled: bool = True
-    paper_autopilot_enabled: bool = True
+    paper_autopilot_enabled: bool = False
     execution_mode: str = "logical_children"
-    auto_scale_paper_children: bool = True
+    auto_scale_paper_children: bool = False
     target_live_capital_eur: float = 500.0
     live_min_kraken_capital_eur: float = 500.0
     require_human_live_unlock: bool = True
@@ -98,9 +98,9 @@ class ColonyConfig:
         behaviors = tuple(_csv("COLONY_CHILD_BEHAVIORS", "core,momentum,volatility,mean_reversion"))
         return cls(
             enabled=_env_bool("COLONY_MANAGER_ENABLED", True),
-            paper_autopilot_enabled=_env_bool("COLONY_PAPER_AUTOPILOT_ENABLED", True),
+            paper_autopilot_enabled=_env_bool("COLONY_PAPER_AUTOPILOT_ENABLED", False),
             execution_mode=os.getenv("COLONY_EXECUTION_MODE", "logical_children").strip() or "logical_children",
-            auto_scale_paper_children=_env_bool("COLONY_AUTO_SCALE_PAPER_CHILDREN", True),
+            auto_scale_paper_children=_env_bool("COLONY_AUTO_SCALE_PAPER_CHILDREN", False),
             target_live_capital_eur=target,
             live_min_kraken_capital_eur=_env_float("COLONY_LIVE_MIN_KRAKEN_CAPITAL_EUR", target or 500.0, 0.0, 10_000_000.0),
             require_human_live_unlock=_env_bool("COLONY_REQUIRE_HUMAN_LIVE_UNLOCK", True),

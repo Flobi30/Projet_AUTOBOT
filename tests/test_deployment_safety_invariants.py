@@ -11,11 +11,14 @@ def test_compose_enforces_research_shadow_execution_invariants():
 
     required = (
         "PAPER_EXECUTION_ADAPTER_ENABLED=false",
+        "PAPER_EXECUTION_ROUTER_ENABLED=false",
+        "PAPER_TEST_TRADING_ENABLED=false",
         "PAPER_DYNAMIC_CAPITAL_REBALANCE_ENABLED=false",
         "AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED=false",
         "AUTOBOT_LEGACY_POSITION_ADD_ENABLED=false",
         "AUTOBOT_LEGACY_LEVERAGE_ACTIVATION_ENABLED=false",
         "ENABLE_INSTANCE_SPLIT_EXECUTOR=false",
+        "COLONY_PAPER_AUTOPILOT_ENABLED=false",
         "COLONY_AUTO_SCALE_PAPER_CHILDREN=false",
         "COLONY_AUTO_LIVE_PROMOTION=false",
         "STRATEGY_ROUTER_LIVE_ENABLED=false",
