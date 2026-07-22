@@ -106,7 +106,18 @@ def _artifact() -> StrategyArtifactReference:
 def _simulator() -> ResearchExecutionSimulator:
     return ResearchExecutionSimulator(
         cost_config=_base_cost_config(),
-        market_rules={"BTCEUR": MarketExecutionRules("BTCEUR", 0.0001, 5.0, 8, 1)},
+        market_rules={
+            MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"): MarketExecutionRules(
+                "BTCEUR",
+                0.0001,
+                5.0,
+                8,
+                1,
+                MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
+                "kraken-asset-pairs-contract-shadow",
+                sha256(b"kraken-asset-pairs-contract-shadow").hexdigest(),
+            )
+        },
     )
 
 
@@ -130,6 +141,23 @@ def _capacity_observation(*, at: datetime | None = None, market: MarketIdentity 
         available_time=timestamp,
         ingestion_time=timestamp,
         observed_liquidity_eur=20_000.0,
+    )
+
+
+def _snapshot(*, seconds: int = 2) -> ShadowMarketSnapshot:
+    event_time = _timestamp() + timedelta(seconds=seconds)
+    source_snapshot_id = f"contract-shadow-book-{seconds}"
+    return ShadowMarketSnapshot(
+        market=MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
+        event_time=event_time,
+        available_time=event_time,
+        ingestion_time=event_time,
+        source_snapshot_id=source_snapshot_id,
+        source_fingerprint=sha256(source_snapshot_id.encode("utf-8")).hexdigest(),
+        price=100.0,
+        bid=99.95,
+        ask=100.05,
+        liquidity_eur=20_000.0,
     )
 
 
@@ -184,15 +212,7 @@ def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
         max_liquidity_participation=0.05,
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
-        snapshots=(
-            ShadowMarketSnapshot(
-                timestamp=_timestamp() + timedelta(seconds=2),
-                price=100.0,
-                bid=99.95,
-                ask=100.05,
-                liquidity_eur=20_000.0,
-            ),
-        ),
+        snapshots=(_snapshot(),),
         risk_decision=_risk_decision(),
     )
 
@@ -304,7 +324,18 @@ def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
     )
     simulator = ResearchExecutionSimulator(
         cost_config=evidence.central_cost_config,
-        market_rules={"BTCEUR": MarketExecutionRules("BTCEUR", 0.0001, 5.0, 8, 1)},
+        market_rules={
+            MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"): MarketExecutionRules(
+                "BTCEUR",
+                0.0001,
+                5.0,
+                8,
+                1,
+                MarketIdentity("kraken", "spot", "BTCEUR", "BTC", "EUR"),
+                "kraken-asset-pairs-contract-shadow-evidence",
+                sha256(b"kraken-asset-pairs-contract-shadow-evidence").hexdigest(),
+            )
+        },
     )
     review = evaluate_alpha_signal_in_shadow(
         signal,
@@ -316,15 +347,7 @@ def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
         base_cost_config=evidence.central_cost_config,
         microstructure_cost_evidence=evidence,
         simulator=simulator,
-        snapshots=(
-            ShadowMarketSnapshot(
-                timestamp=_timestamp() + timedelta(seconds=2),
-                price=100.0,
-                bid=99.95,
-                ask=100.05,
-                liquidity_eur=20_000.0,
-            ),
-        ),
+        snapshots=(_snapshot(),),
         risk_decision=_risk_decision(),
     )
 

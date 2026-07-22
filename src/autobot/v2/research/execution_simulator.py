@@ -11,10 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_DOWN
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import AlphaSignal, FillEvent, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
+from autobot.v2.contracts import AlphaSignal, FillEvent, MarketIdentity, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
 
 from .backtest_alpha_adapter import cost_model_fingerprint
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
@@ -34,11 +35,24 @@ class MarketExecutionRules:
     min_notional_eur: float
     volume_decimals: int
     price_decimals: int
+    market: MarketIdentity
+    source_snapshot_id: str
+    source_fingerprint: str
     source: str = "kraken_asset_pairs_public"
 
     def __post_init__(self) -> None:
         if not self.symbol.strip() or not self.source.strip():
             raise ResearchExecutionError("market rules symbol and source are required")
+        if not isinstance(self.market, MarketIdentity):
+            raise ResearchExecutionError("market rules require an explicit MarketIdentity")
+        if self.market.symbol != self.symbol.upper():
+            raise ResearchExecutionError("market rules symbol must match MarketIdentity.symbol")
+        source_snapshot_id = str(self.source_snapshot_id).strip()
+        source_fingerprint = str(self.source_fingerprint).strip().lower()
+        if not source_snapshot_id:
+            raise ResearchExecutionError("market rules source_snapshot_id is required")
+        if not _is_sha256(source_fingerprint):
+            raise ResearchExecutionError("market rules source_fingerprint must be a SHA-256 hex digest")
         for field_name in ("min_volume", "min_notional_eur"):
             value = float(getattr(self, field_name))
             if not math.isfinite(value) or value <= 0.0:
@@ -48,17 +62,29 @@ class MarketExecutionRules:
             if value < 0 or value > 16:
                 raise ResearchExecutionError(f"{field_name} must be between zero and sixteen")
         object.__setattr__(self, "symbol", self.symbol.upper())
+        object.__setattr__(self, "source_snapshot_id", source_snapshot_id)
+        object.__setattr__(self, "source_fingerprint", source_fingerprint)
 
     @classmethod
-    def from_kraken_asset_pair(cls, *, symbol: str, payload: Mapping[str, object]) -> "MarketExecutionRules":
+    def from_kraken_asset_pair(
+        cls,
+        *,
+        market: MarketIdentity,
+        payload: Mapping[str, object],
+        source_snapshot_id: str,
+        source_fingerprint: str,
+    ) -> "MarketExecutionRules":
         """Create rules from a cached public Kraken ``AssetPairs`` response."""
 
         return cls(
-            symbol=symbol,
+            symbol=market.symbol,
             min_volume=float(payload["ordermin"]),
             min_notional_eur=float(payload["costmin"]),
             volume_decimals=int(payload["lot_decimals"]),
             price_decimals=int(payload["pair_decimals"]),
+            market=market,
+            source_snapshot_id=source_snapshot_id,
+            source_fingerprint=source_fingerprint,
             source="kraken_asset_pairs_public",
         )
 
@@ -247,15 +273,41 @@ def review_net_edge_scenarios(
 
 @dataclass(frozen=True)
 class ShadowMarketSnapshot:
-    timestamp: datetime
+    """One point-in-time market input for a non-executable shadow fill.
+
+    A simulator must not use a bare price timestamp: doing so can silently
+    cross venues or use a price before the process could have known it.  The
+    snapshot therefore mirrors the canonical data boundary and carries the
+    exact market plus immutable source evidence.
+    """
+
+    market: MarketIdentity
+    event_time: datetime
+    available_time: datetime
+    ingestion_time: datetime
+    source_snapshot_id: str
+    source_fingerprint: str
     price: float
     bid: float | None = None
     ask: float | None = None
     liquidity_eur: float | None = None
 
     def __post_init__(self) -> None:
-        if self.timestamp.tzinfo is None or self.timestamp.utcoffset() is None:
-            raise ResearchExecutionError("snapshot timestamp must be timezone-aware")
+        if not isinstance(self.market, MarketIdentity):
+            raise ResearchExecutionError("snapshot market must be a MarketIdentity")
+        event_time = _utc(self.event_time, "snapshot event_time")
+        available_time = _utc(self.available_time, "snapshot available_time")
+        ingestion_time = _utc(self.ingestion_time, "snapshot ingestion_time")
+        if available_time < event_time:
+            raise ResearchExecutionError("snapshot available_time cannot precede event_time")
+        if ingestion_time < available_time:
+            raise ResearchExecutionError("snapshot ingestion_time cannot precede available_time")
+        source_snapshot_id = str(self.source_snapshot_id).strip()
+        source_fingerprint = str(self.source_fingerprint).strip().lower()
+        if not source_snapshot_id:
+            raise ResearchExecutionError("snapshot source_snapshot_id is required")
+        if not _is_sha256(source_fingerprint):
+            raise ResearchExecutionError("snapshot source_fingerprint must be a SHA-256 hex digest")
         if not math.isfinite(float(self.price)) or float(self.price) <= 0.0:
             raise ResearchExecutionError("snapshot price must be positive and finite")
         for field_name in ("bid", "ask", "liquidity_eur"):
@@ -264,7 +316,40 @@ class ShadowMarketSnapshot:
                 raise ResearchExecutionError(f"snapshot {field_name} must be positive and finite")
         if self.bid is not None and self.ask is not None and float(self.ask) < float(self.bid):
             raise ResearchExecutionError("snapshot ask cannot be below bid")
-        object.__setattr__(self, "timestamp", self.timestamp.astimezone(timezone.utc))
+        object.__setattr__(self, "event_time", event_time)
+        object.__setattr__(self, "available_time", available_time)
+        object.__setattr__(self, "ingestion_time", ingestion_time)
+        object.__setattr__(self, "source_snapshot_id", source_snapshot_id)
+        object.__setattr__(self, "source_fingerprint", source_fingerprint)
+
+    @property
+    def usable_at(self) -> datetime:
+        """Earliest time this AUTOBOT process may rely on the snapshot."""
+
+        return max(self.available_time, self.ingestion_time)
+
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity used for idempotent research replay."""
+
+        return contract_fingerprint(self)
+
+    def provenance(self) -> dict[str, object]:
+        return {
+            "market": {
+                "exchange": self.market.exchange,
+                "market_type": self.market.market_type,
+                "symbol": self.market.symbol,
+                "base_asset": self.market.base_asset,
+                "quote_asset": self.market.quote_asset,
+            },
+            "event_time": self.event_time.isoformat(),
+            "available_time": self.available_time.isoformat(),
+            "ingestion_time": self.ingestion_time.isoformat(),
+            "source_snapshot_id": self.source_snapshot_id,
+            "source_fingerprint": self.source_fingerprint,
+            "snapshot_fingerprint": self.fingerprint,
+        }
 
 
 @dataclass(frozen=True)
@@ -302,6 +387,8 @@ class ResearchExecutionOutcome:
     scenario: str
     risk_decision_id: str | None = None
     approved_notional_eur: float = 0.0
+    market_snapshot_fingerprint: str | None = None
+    market_snapshot_sequence_fingerprint: str | None = None
     execution_mode: str = "shadow"
     research_only: bool = True
     paper_capital_allowed: bool = False
@@ -316,12 +403,23 @@ class ResearchExecutionSimulator:
         *,
         cost_config: ExecutionCostConfig,
         config: ResearchExecutionConfig = ResearchExecutionConfig(),
-        market_rules: Mapping[str, MarketExecutionRules] | None = None,
+        market_rules: Mapping[MarketIdentity, MarketExecutionRules] | None = None,
     ) -> None:
         self.config = config
         self.cost_config = scenario_cost_config(cost_config, config.scenario)
         self._cost_model = ExecutionCostModel(self.cost_config)
-        self._market_rules = {str(symbol).upper(): rules for symbol, rules in (market_rules or {}).items()}
+        normalized_rules: dict[MarketIdentity, MarketExecutionRules] = {}
+        for market, rules in (market_rules or {}).items():
+            if not isinstance(market, MarketIdentity):
+                raise ResearchExecutionError("market_rules keys must be MarketIdentity values")
+            if not isinstance(rules, MarketExecutionRules):
+                raise ResearchExecutionError("market_rules values must be MarketExecutionRules")
+            if market != rules.market:
+                raise ResearchExecutionError("market_rules key must match the rules market identity")
+            if rules.market in normalized_rules:
+                raise ResearchExecutionError("market_rules cannot contain duplicate market identities")
+            normalized_rules[rules.market] = rules
+        self._market_rules = normalized_rules
         self._outcomes: dict[str, tuple[str, ResearchExecutionOutcome]] = {}
 
     def simulate(
@@ -338,7 +436,8 @@ class ResearchExecutionSimulator:
         intent/risk boundary is unchanged; a conflicting reuse is rejected.
         """
 
-        idempotency_key = _idempotency_key(intent, risk_decision)
+        snapshot_sequence_fingerprint = _snapshot_sequence_fingerprint(snapshots)
+        idempotency_key = _idempotency_key(intent, risk_decision, snapshot_sequence_fingerprint)
         prior = self._outcomes.get(intent.client_order_id)
         if prior is not None:
             prior_key, prior_outcome = prior
@@ -351,8 +450,14 @@ class ResearchExecutionSimulator:
                 (),
                 intent.created_at,
                 risk_decision=risk_decision,
+                market_snapshot_sequence_fingerprint=snapshot_sequence_fingerprint,
             )
-        outcome = self._simulate_once(intent, snapshots, risk_decision=risk_decision)
+        outcome = self._simulate_once(
+            intent,
+            snapshots,
+            risk_decision=risk_decision,
+            market_snapshot_sequence_fingerprint=snapshot_sequence_fingerprint,
+        )
         self._outcomes[intent.client_order_id] = (idempotency_key, outcome)
         return outcome
 
@@ -373,11 +478,18 @@ class ResearchExecutionSimulator:
         snapshots: Sequence[ShadowMarketSnapshot],
         *,
         risk_decision: RiskDecision | None,
+        market_snapshot_sequence_fingerprint: str,
     ) -> ResearchExecutionOutcome:
         created = OrderEvent(intent.client_order_id, "CREATED", intent.created_at, reason="research_shadow_intent")
         if intent.execution_mode != "shadow":
             return self._terminal(
-                intent, "REJECTED", "non_shadow_intent_not_allowed", (created,), intent.created_at, risk_decision=risk_decision
+                intent,
+                "REJECTED",
+                "non_shadow_intent_not_allowed",
+                (created,),
+                intent.created_at,
+                risk_decision=risk_decision,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         risk_reason, approved_notional = _approved_notional(intent, risk_decision)
         if risk_reason is not None:
@@ -388,8 +500,9 @@ class ResearchExecutionSimulator:
                 (created,),
                 intent.created_at,
                 risk_decision=risk_decision,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
-        rules = self._market_rules.get(intent.market.symbol.upper())
+        rules = self._market_rules.get(intent.market)
         if rules is None and self.config.require_market_rules:
             return self._terminal(
                 intent,
@@ -399,11 +512,23 @@ class ResearchExecutionSimulator:
                 intent.created_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         submitted = OrderEvent(intent.client_order_id, "SUBMITTED", intent.created_at, reason="research_shadow_risk_approved")
-        ordered = sorted(snapshots, key=lambda item: item.timestamp)
+        if any(snapshot.market != intent.market for snapshot in snapshots):
+            return self._terminal(
+                intent,
+                "REJECTED",
+                "market_snapshot_market_identity_mismatch",
+                (created, submitted),
+                intent.created_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+            )
+        ordered = _ordered_snapshots(snapshots)
         earliest = intent.created_at + self.config.latency * self.config.scenario.latency_multiplier
-        snapshot = next((item for item in ordered if item.timestamp >= earliest), None)
+        snapshot = next((item for item in ordered if item.usable_at >= earliest), None)
         if snapshot is None:
             return self._terminal(
                 intent,
@@ -413,18 +538,33 @@ class ResearchExecutionSimulator:
                 intent.created_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
-        if snapshot.timestamp - intent.created_at > self.config.max_market_age:
+        if snapshot.usable_at - intent.created_at > self.config.max_market_age:
             return self._terminal(
                 intent,
                 "EXPIRED",
                 "market_data_stale_before_fill",
                 (created, submitted),
-                snapshot.timestamp,
+                snapshot.usable_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
-        acknowledged = OrderEvent(intent.client_order_id, "ACKNOWLEDGED", snapshot.timestamp, reason="research_market_snapshot")
+        if snapshot.usable_at - snapshot.event_time > self.config.max_market_age:
+            return self._terminal(
+                intent,
+                "EXPIRED",
+                "market_snapshot_stale_at_availability",
+                (created, submitted),
+                snapshot.usable_at,
+                risk_decision=risk_decision,
+                approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+            )
+        acknowledged = OrderEvent(intent.client_order_id, "ACKNOWLEDGED", snapshot.usable_at, reason="research_market_snapshot")
         requested = approved_notional
         available = snapshot.liquidity_eur
         if available is None:
@@ -433,9 +573,11 @@ class ResearchExecutionSimulator:
                 "REJECTED",
                 "observed_liquidity_missing",
                 (created, submitted, acknowledged),
-                snapshot.timestamp,
+                snapshot.usable_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         maximum = float(available) * self.cost_config.max_liquidity_participation
         fill_notional = min(requested, maximum)
@@ -447,9 +589,11 @@ class ResearchExecutionSimulator:
                     "REJECTED",
                     "quantity_below_market_minimum",
                     (created, submitted, acknowledged),
-                    snapshot.timestamp,
+                    snapshot.usable_at,
                     risk_decision=risk_decision,
                     approved_notional=approved_notional,
+                    market_snapshot_fingerprint=snapshot.fingerprint,
+                    market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
                 )
             if fill_notional + 1e-12 < rules.min_notional_eur:
                 return self._terminal(
@@ -457,9 +601,11 @@ class ResearchExecutionSimulator:
                     "REJECTED",
                     "notional_below_market_minimum",
                     (created, submitted, acknowledged),
-                    snapshot.timestamp,
+                    snapshot.usable_at,
                     risk_decision=risk_decision,
                     approved_notional=approved_notional,
+                    market_snapshot_fingerprint=snapshot.fingerprint,
+                    market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
                 )
         partial = fill_notional + 1e-12 < requested
         if partial and (not self.config.allow_partial_fills or fill_notional < self.config.min_partial_notional_eur):
@@ -468,22 +614,30 @@ class ResearchExecutionSimulator:
                 "REJECTED",
                 "insufficient_liquidity",
                 (created, submitted, acknowledged),
-                snapshot.timestamp,
+                snapshot.usable_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         request = FillRequest(
             symbol=intent.market.symbol,
             side=intent.side,
             price=_requested_price(intent, snapshot),
             notional_eur=fill_notional,
-            timestamp=snapshot.timestamp,
+            timestamp=snapshot.usable_at,
             order_type=str(intent.metadata.get("order_type") or "market"),
             limit_price=_optional_float(intent.metadata.get("limit_price")),
             bid=snapshot.bid,
             ask=snapshot.ask,
             liquidity_eur=available,
-            metadata={**dict(intent.metadata), "scenario": self.config.scenario.name, "execution_mode": "shadow"},
+            metadata={
+                **dict(intent.metadata),
+                "scenario": self.config.scenario.name,
+                "execution_mode": "shadow",
+                "market_snapshot": snapshot.provenance(),
+                "market_snapshot_sequence_fingerprint": market_snapshot_sequence_fingerprint,
+            },
         )
         fill = self._cost_model.simulate_fill(request)
         if not fill.accepted:
@@ -492,21 +646,23 @@ class ResearchExecutionSimulator:
                 "REJECTED",
                 fill.reason,
                 (created, submitted, acknowledged),
-                snapshot.timestamp,
+                snapshot.usable_at,
                 fill=fill,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         fill_event = FillEvent(
             client_order_id=intent.client_order_id,
             fill_id=f"shadow_fill_{intent.client_order_id}",
-            occurred_at=snapshot.timestamp,
+            occurred_at=snapshot.usable_at,
             quantity=fill.quantity,
             average_price=fill.execution_price,
             fees=fill.fee_eur,
         )
         status = "PARTIALLY_FILLED" if partial else "FILLED"
-        terminal = OrderEvent(intent.client_order_id, status, snapshot.timestamp, reason="research_shadow_fill")
+        terminal = OrderEvent(intent.client_order_id, status, snapshot.usable_at, reason="research_shadow_fill")
         return ResearchExecutionOutcome(
             client_order_id=intent.client_order_id,
             status=status,
@@ -520,6 +676,8 @@ class ResearchExecutionSimulator:
             scenario=self.config.scenario.name,
             risk_decision_id=risk_decision.risk_decision_id if risk_decision else None,
             approved_notional_eur=approved_notional,
+            market_snapshot_fingerprint=snapshot.fingerprint,
+            market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
         )
 
     def _terminal(
@@ -533,6 +691,8 @@ class ResearchExecutionSimulator:
         fill: FillResult | None = None,
         risk_decision: RiskDecision | None = None,
         approved_notional: float = 0.0,
+        market_snapshot_fingerprint: str | None = None,
+        market_snapshot_sequence_fingerprint: str | None = None,
     ) -> ResearchExecutionOutcome:
         # ``EXPIRED`` is an outcome of this research simulator; the stable
         # boundary contract represents it as a cancellation with the precise
@@ -552,6 +712,8 @@ class ResearchExecutionSimulator:
             scenario=self.config.scenario.name,
             risk_decision_id=risk_decision.risk_decision_id if risk_decision else None,
             approved_notional_eur=approved_notional,
+            market_snapshot_fingerprint=market_snapshot_fingerprint,
+            market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
         )
 
 
@@ -595,9 +757,46 @@ def _approved_notional(intent: OrderIntent, risk_decision: RiskDecision | None) 
     return None, approved
 
 
-def _idempotency_key(intent: OrderIntent, risk_decision: RiskDecision | None) -> str:
+def _idempotency_key(
+    intent: OrderIntent,
+    risk_decision: RiskDecision | None,
+    market_snapshot_sequence_fingerprint: str,
+) -> str:
     risk_component = contract_fingerprint(risk_decision) if risk_decision is not None else "risk_decision_missing"
-    return f"{contract_fingerprint(intent)}:{risk_component}"
+    return f"{contract_fingerprint(intent)}:{risk_component}:{market_snapshot_sequence_fingerprint}"
+
+
+def _snapshot_sequence_fingerprint(snapshots: Sequence[ShadowMarketSnapshot]) -> str:
+    """Bind idempotency to every market input, not only the order intent."""
+
+    payload = "|".join(snapshot.fingerprint for snapshot in _ordered_snapshots(snapshots))
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _ordered_snapshots(snapshots: Sequence[ShadowMarketSnapshot]) -> tuple[ShadowMarketSnapshot, ...]:
+    """Canonicalize replay inputs so equivalent sequences stay idempotent."""
+
+    return tuple(
+        sorted(
+            snapshots,
+            key=lambda item: (
+                item.usable_at,
+                item.event_time,
+                item.source_snapshot_id,
+                item.source_fingerprint,
+            ),
+        )
+    )
+
+
+def _utc(value: datetime, field_name: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ResearchExecutionError(f"{field_name} must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def _optional_float(value: object) -> float | None:
