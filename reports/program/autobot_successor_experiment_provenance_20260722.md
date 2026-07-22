@@ -54,6 +54,23 @@ The targeted tests cover a valid data-insufficiency successor, rejection of a
 performance-rejected predecessor, rejection of unchanged material data and
 rejection of a lowered inherited trial floor.
 
+## VPS deployment validation
+
+The implementation commit `c25eef3c04a4416453c9c8207f5bb3fb6ac21ee5` was
+fast-forwarded to `/opt/Projet_AUTOBOT`, rebuilt through the approved deploy
+script and recreated as `autobot-v2`.
+
+```text
+source HEAD: c25eef3c04a4416453c9c8207f5bb3fb6ac21ee5
+container image revision: c25eef3c04a4416453c9c8207f5bb3fb6ac21ee5
+/health: healthy; orchestrator running; WebSocket connected; 14 instances
+runtime-generated/untracked VPS artifacts preserved: 13
+isolated VPS pytest (network none, read-only source): 29 passed
+```
+
+All nine AUTOBOT research/resilience timers stopped only for the rebuild and
+were restored afterwards.
+
 ## Safety confirmation
 
 - Research registry only; no runtime, router, executor, paper or live import
