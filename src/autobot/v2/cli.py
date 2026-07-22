@@ -628,6 +628,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     runtime_resilience_audit.set_defaults(handler=_cmd_runtime_resilience_audit)
 
+    fail_closed_drill = subparsers.add_parser(
+        "fail-closed-drill",
+        help="Exercise the non-executable incident response hierarchy in memory",
+    )
+    fail_closed_drill.add_argument(
+        "--incident-type",
+        action="append",
+        default=None,
+        help="Optional incident type; repeat to drill a subset. Defaults to the full research-only matrix.",
+    )
+    fail_closed_drill.set_defaults(handler=_cmd_fail_closed_drill)
+
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
@@ -3315,6 +3327,17 @@ def _cmd_runtime_resilience_audit(args: argparse.Namespace) -> int:
             websocket_status=args.websocket_status,
         ).to_dict()
     )
+    return 0
+
+
+def _cmd_fail_closed_drill(args: argparse.Namespace) -> int:
+    """Run only in-memory recovery-plan proofs; never touch runtime state."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import run_fail_closed_drill
+
+    _print_json(asdict(run_fail_closed_drill(args.incident_type)))
     return 0
 
 

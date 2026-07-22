@@ -2001,6 +2001,32 @@ def test_cli_runtime_resilience_audit_is_read_only_and_reports_explicit_websocke
     assert state_db.read_bytes() == before
 
 
+def test_cli_fail_closed_drill_is_in_memory_and_never_authorizes_execution(capsys):
+    exit_code = cli.main(
+        [
+            "fail-closed-drill",
+            "--incident-type",
+            "DATA_STALE",
+            "--incident-type",
+            "RISK_LIMIT_BREACH",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["all_passed"] is True
+    assert output["composite_steps"] == [
+        "BLOCK_NEW_SIGNALS",
+        "BLOCK_NEW_ORDERS",
+        "CANCEL_OPEN_ORDERS",
+        "REDUCE_POSITIONS",
+        "HALT",
+    ]
+    assert output["order_submission_attempted"] is False
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+
+
 def test_cli_runtime_oms_ledger_migration_plan_is_non_authorizing(tmp_path, capsys):
     state_db = tmp_path / "state.sqlite3"
     with sqlite3.connect(state_db) as connection:

@@ -32,6 +32,7 @@ INCIDENT_TYPES = frozenset(
         "CONTAINER_RESTARTED",
         "ORDER_UNKNOWN",
         "RECONCILIATION_REQUIRED",
+        "RISK_LIMIT_BREACH",
     }
 )
 FAIL_CLOSED_ACTIONS = (
@@ -42,6 +43,33 @@ FAIL_CLOSED_ACTIONS = (
     "REDUCE_POSITIONS",
     "HALT",
 )
+# This is intentionally an *instruction* map, not an execution map.  It
+# captures the least set of monotonic safeguards a future independently
+# approved executor must apply for each uncertainty class.  Research/shadow
+# code may inspect or test it, but must not execute it.
+_RECOVERY_STEPS_BY_INCIDENT: Mapping[str, tuple[str, ...]] = {
+    "DATA_STALE": ("BLOCK_NEW_SIGNALS",),
+    "WEBSOCKET_DISCONNECTED": ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS"),
+    "API_UNAVAILABLE": ("BLOCK_NEW_ORDERS",),
+    "SQLITE_LOCKED": ("BLOCK_NEW_ORDERS",),
+    "CONTAINER_RESTARTED": ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS"),
+    "SQLITE_CORRUPT": ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS", "HALT"),
+    "DISK_FULL": ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS", "HALT"),
+    "ORDER_UNKNOWN": ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS", "CANCEL_OPEN_ORDERS", "HALT"),
+    "RECONCILIATION_REQUIRED": (
+        "BLOCK_NEW_SIGNALS",
+        "BLOCK_NEW_ORDERS",
+        "CANCEL_OPEN_ORDERS",
+        "HALT",
+    ),
+    "RISK_LIMIT_BREACH": (
+        "BLOCK_NEW_SIGNALS",
+        "BLOCK_NEW_ORDERS",
+        "CANCEL_OPEN_ORDERS",
+        "REDUCE_POSITIONS",
+        "HALT",
+    ),
+}
 _T = TypeVar("_T")
 
 
@@ -87,6 +115,79 @@ class FailClosedIncidentSummary:
         if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
             raise ResilienceError("incident summaries cannot authorize paper or live")
         object.__setattr__(self, "incident_types", normalized)
+
+
+@dataclass(frozen=True)
+class FailClosedRecoveryPlan:
+    """Non-executable escalation steps for one or more uncertain states.
+
+    The plan intentionally describes the required control-plane ordering only.
+    It never calls an order router, cancels an order, closes a position, or
+    changes a runtime flag.  This makes it safe to exercise in research and on
+    the VPS while preserving a contract for a future independently reviewed
+    execution boundary.
+    """
+
+    incident_types: tuple[str, ...]
+    steps: tuple[str, ...]
+    terminal_action: str
+    execution_authorized: bool = False
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        normalized_incidents = _normalize_incident_types(self.incident_types)
+        if not normalized_incidents:
+            raise ResilienceError("recovery plans require at least one incident")
+        if not self.steps:
+            raise ResilienceError("recovery plans require at least one step")
+        normalized_steps = tuple(_validate_action(step) for step in self.steps)
+        if "NORMAL" in normalized_steps:
+            raise ResilienceError("recovery plans cannot contain NORMAL")
+        if tuple(sorted(set(normalized_steps), key=FAIL_CLOSED_ACTIONS.index)) != normalized_steps:
+            raise ResilienceError("recovery plan steps must be unique and monotonic")
+        terminal = _validate_action(self.terminal_action)
+        if terminal != normalized_steps[-1]:
+            raise ResilienceError("recovery plan terminal action must match its final step")
+        if self.execution_authorized or self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("recovery plans cannot authorize execution, paper or live")
+        object.__setattr__(self, "incident_types", normalized_incidents)
+        object.__setattr__(self, "steps", normalized_steps)
+        object.__setattr__(self, "terminal_action", terminal)
+
+
+@dataclass(frozen=True)
+class FailClosedDrillScenario:
+    """One hermetic proof that an incident follows the declared hierarchy."""
+
+    incident_type: str
+    decision_action: str
+    recovery_steps: tuple[str, ...]
+    passed: bool
+
+
+@dataclass(frozen=True)
+class FailClosedDrillReport:
+    """Evidence from a side-effect-free fail-closed hierarchy drill."""
+
+    scenarios: tuple[FailClosedDrillScenario, ...]
+    composite_incident_types: tuple[str, ...]
+    composite_steps: tuple[str, ...]
+    composite_terminal_action: str
+    all_passed: bool
+    order_submission_attempted: bool = False
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.scenarios or not self.composite_incident_types:
+            raise ResilienceError("fail-closed drills require at least one scenario")
+        if not self.all_passed:
+            raise ResilienceError("fail-closed drill cannot report success with failed scenarios")
+        if self.order_submission_attempted or self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("fail-closed drills cannot submit orders or authorize paper/live")
 
 
 @dataclass(frozen=True)
@@ -204,10 +305,69 @@ def decide_fail_closed(incident_type: str, *, previous_action: str = "NORMAL") -
         "CONTAINER_RESTARTED": ("BLOCK_NEW_ORDERS", "state_reconciliation_required_after_restart"),
         "ORDER_UNKNOWN": ("HALT", "order_state_unknown"),
         "RECONCILIATION_REQUIRED": ("HALT", "position_or_order_divergence"),
+        "RISK_LIMIT_BREACH": ("HALT", "risk_limit_breach_requires_manual_review"),
     }
     calculated, reason = mapping[incident]
     action = _more_severe(_validate_action(previous_action), calculated)
     return IncidentDecision(incident, action, reason)
+
+
+def plan_fail_closed_recovery(incident_types: Sequence[str]) -> FailClosedRecoveryPlan:
+    """Return the future execution-control ordering without performing it.
+
+    Every action is a fail-closed control-plane instruction.  In particular,
+    ``CANCEL_OPEN_ORDERS`` and ``REDUCE_POSITIONS`` are evidence of the order
+    in which a future reviewed execution boundary must act; this research
+    helper deliberately does neither.
+    """
+
+    normalized = _normalize_incident_types(incident_types)
+    if not normalized:
+        raise ResilienceError("recovery plans require at least one incident")
+    steps: set[str] = set()
+    for incident in normalized:
+        steps.update(_RECOVERY_STEPS_BY_INCIDENT[incident])
+    ordered = tuple(sorted(steps, key=FAIL_CLOSED_ACTIONS.index))
+    return FailClosedRecoveryPlan(
+        incident_types=normalized,
+        steps=ordered,
+        terminal_action=ordered[-1],
+    )
+
+
+def run_fail_closed_drill(incident_types: Sequence[str] | None = None) -> FailClosedDrillReport:
+    """Exercise the complete hierarchy in memory without touching runtime state."""
+
+    normalized = _normalize_incident_types(incident_types or tuple(sorted(INCIDENT_TYPES)))
+    if not normalized:
+        raise ResilienceError("fail-closed drills require at least one incident")
+    scenarios: list[FailClosedDrillScenario] = []
+    for incident in normalized:
+        decision = decide_fail_closed(incident)
+        recovery = plan_fail_closed_recovery((incident,))
+        passed = (
+            recovery.terminal_action == decision.action
+            and recovery.steps == _RECOVERY_STEPS_BY_INCIDENT[incident]
+            and recovery.execution_authorized is False
+        )
+        scenarios.append(
+            FailClosedDrillScenario(
+                incident_type=incident,
+                decision_action=decision.action,
+                recovery_steps=recovery.steps,
+                passed=passed,
+            )
+        )
+    composite = plan_fail_closed_recovery(normalized)
+    expected_terminal = summarize_fail_closed_incidents(normalized).action
+    all_passed = all(scenario.passed for scenario in scenarios) and composite.terminal_action == expected_terminal
+    return FailClosedDrillReport(
+        scenarios=tuple(scenarios),
+        composite_incident_types=normalized,
+        composite_steps=composite.steps,
+        composite_terminal_action=composite.terminal_action,
+        all_passed=all_passed,
+    )
 
 
 def summarize_fail_closed_incidents(incident_types: Sequence[str]) -> FailClosedIncidentSummary:

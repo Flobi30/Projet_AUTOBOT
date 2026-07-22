@@ -14,7 +14,9 @@ from autobot.v2.research.resilience_readiness import (
     create_verified_sqlite_backup,
     decide_fail_closed,
     evaluate_human_paper_readiness,
+    plan_fail_closed_recovery,
     retry_bounded,
+    run_fail_closed_drill,
     run_ephemeral_sqlite_restore_drill,
     summarize_fail_closed_incidents,
     verify_sqlite_restore_drill,
@@ -61,6 +63,49 @@ def test_incident_summary_rejects_unknown_or_scalar_inputs():
             reasons=("fixture",),
             paper_capital_allowed=True,
         )
+
+
+def test_fail_closed_recovery_plan_is_monotonic_and_non_executable():
+    stale = plan_fail_closed_recovery(("DATA_STALE",))
+    unknown = plan_fail_closed_recovery(("ORDER_UNKNOWN",))
+    risk_breach = plan_fail_closed_recovery(("RISK_LIMIT_BREACH",))
+    composite = plan_fail_closed_recovery(("DATA_STALE", "RISK_LIMIT_BREACH"))
+
+    assert stale.steps == ("BLOCK_NEW_SIGNALS",)
+    assert unknown.steps == ("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS", "CANCEL_OPEN_ORDERS", "HALT")
+    assert risk_breach.steps == (
+        "BLOCK_NEW_SIGNALS",
+        "BLOCK_NEW_ORDERS",
+        "CANCEL_OPEN_ORDERS",
+        "REDUCE_POSITIONS",
+        "HALT",
+    )
+    assert composite.steps == risk_breach.steps
+    assert composite.execution_authorized is False
+    assert composite.paper_capital_allowed is False
+    assert composite.live_allowed is False
+
+
+def test_fail_closed_drill_covers_full_hierarchy_without_runtime_side_effects():
+    report = run_fail_closed_drill()
+
+    assert report.all_passed is True
+    assert {scenario.incident_type for scenario in report.scenarios} >= {
+        "DATA_STALE",
+        "ORDER_UNKNOWN",
+        "RISK_LIMIT_BREACH",
+    }
+    assert report.composite_steps == (
+        "BLOCK_NEW_SIGNALS",
+        "BLOCK_NEW_ORDERS",
+        "CANCEL_OPEN_ORDERS",
+        "REDUCE_POSITIONS",
+        "HALT",
+    )
+    assert report.composite_terminal_action == "HALT"
+    assert report.order_submission_attempted is False
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
 
 
 def test_bounded_retry_recovers_only_within_limit_and_exposes_failure():
