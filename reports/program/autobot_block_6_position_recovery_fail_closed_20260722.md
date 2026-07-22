@@ -30,6 +30,7 @@ capital, live trading, promotion, sizing, leverage, or an order path.
 | Code commit | `9d8a815604fe0a59708ef8257f1eb53a7681ae2f` |
 | Local compilation | `python -m compileall -q src` passed |
 | Targeted recovery/safety suite | 124 passed |
+| Full local suite | `python3.12 -m pytest -q` passed (exit code 0) |
 | Diff validation | `git diff --check` passed (line-ending notices only) |
 
 All new tests are hermetic and use temporary SQLite stores or fakes. They do not call
