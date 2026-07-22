@@ -64,12 +64,23 @@ Full local suite: `1842 passed, 6 skipped`.
 `git diff --check` passed and the changed non-test files passed a focused
 secret-pattern scan.
 
-## Deployment gate
+## VPS deployment evidence
 
-Before this increment is considered runtime-evidenced, GitHub, VPS checkout,
-image and `autobot-v2` container must be aligned to the final report commit;
-the isolated contract/shadow smoke suite and existing safety-flag checks must
-also pass on the VPS.
+The implementation and this report were deployed with provenance rebuilds.
+For the implementation deployment, GitHub, VPS checkout, image and
+`autobot-v2` container were aligned to `6dfbfdf32b22bb0b5fed004b11acc1d155d6af3a`.
+
+- `autobot-v2`: `running healthy`
+- `/health`: healthy; orchestrator running; WebSocket connected; 14 instances
+- all nine research timers: active
+- isolated deployed-image smoke: `162 passed`
+- resource observation after smoke: 10.37% CPU and 98.48 MiB / 3 GiB memory
+- all paper execution, auto-promotion and live-routing flags: `false`
+- recent logs: no live-order, Kraken-live, live-activation or paper-capital
+  activation evidence
+
+The VPS worktree retains 13 pre-existing runtime artifacts. They were neither
+reset nor included in the image build.
 
 ## Residual risks
 
