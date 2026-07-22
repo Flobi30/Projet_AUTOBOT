@@ -557,6 +557,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     strategy_artifact_readiness.set_defaults(handler=_cmd_strategy_artifact_readiness_audit)
 
+    strategy_artifact_snapshot_readiness = subparsers.add_parser(
+        "strategy-artifact-readiness-snapshot-audit",
+        help="Audit temporary verified SQLite snapshots; it never reads a live registry directly or starts runtime",
+    )
+    strategy_artifact_snapshot_readiness.add_argument(
+        "--registry-path",
+        default="data/research/experiment_registry.sqlite3",
+    )
+    strategy_artifact_snapshot_readiness.add_argument(
+        "--artifact-registry-path",
+        default="data/research/strategy_artifacts.sqlite3",
+    )
+    strategy_artifact_snapshot_readiness.set_defaults(handler=_cmd_strategy_artifact_readiness_snapshot_audit)
+
     offline_shadow_provenance = subparsers.add_parser(
         "offline-shadow-provenance-bind",
         help="Bind one registered shadow artifact to one verified feature publication without starting runtime or creating an order",
@@ -3204,6 +3218,19 @@ def _cmd_strategy_artifact_readiness_audit(args: argparse.Namespace) -> int:
     from autobot.v2.research.strategy_artifact_readiness import audit_strategy_artifact_readiness
 
     audit = audit_strategy_artifact_readiness(
+        Path(args.registry_path),
+        artifact_registry_path=Path(args.artifact_registry_path),
+    )
+    _print_json(audit.to_dict())
+    return 0
+
+
+def _cmd_strategy_artifact_readiness_snapshot_audit(args: argparse.Namespace) -> int:
+    """Inspect only ephemeral verified copies of strategy governance evidence."""
+
+    from autobot.v2.research.strategy_artifact_readiness import audit_strategy_artifact_readiness_snapshot
+
+    audit = audit_strategy_artifact_readiness_snapshot(
         Path(args.registry_path),
         artifact_registry_path=Path(args.artifact_registry_path),
     )

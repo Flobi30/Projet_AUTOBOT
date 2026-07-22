@@ -4,7 +4,10 @@ import sqlite3
 
 import pytest
 
-from autobot.v2.research.strategy_artifact_readiness import audit_strategy_artifact_readiness
+from autobot.v2.research.strategy_artifact_readiness import (
+    audit_strategy_artifact_readiness,
+    audit_strategy_artifact_readiness_snapshot,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -102,6 +105,61 @@ def test_passed_final_holdout_is_evidence_ready_but_not_authorized(tmp_path):
     assert "immutable_shadow_risk_mandate_required" in candidate.blockers
     assert candidate.paper_capital_allowed is False
     assert candidate.live_allowed is False
+    assert audit.order_created is False
+
+
+def test_snapshot_audit_reads_a_verified_wal_snapshot_and_preserves_live_source(tmp_path):
+    registry_path = tmp_path / "live_registry.sqlite3"
+    _create_registry(registry_path)
+    with sqlite3.connect(registry_path) as connection:
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA wal_autocheckpoint = 0")
+        connection.execute(
+            "INSERT INTO experiments VALUES (?, ?, ?, ?, ?, ?)",
+            ("exp_shadow", "trend_momentum", "trend", "2026-07-22T10:00:00+00:00", "{}", "campaign-a"),
+        )
+        connection.execute(
+            "INSERT INTO experiment_transitions VALUES (?, ?, ?, ?, ?)",
+            ("transition_shadow", "exp_shadow", "NET_SMOKE", "REJECTED", "2026-07-22T10:01:00+00:00"),
+        )
+        connection.commit()
+
+        source_before = registry_path.read_bytes()
+        audit = audit_strategy_artifact_readiness_snapshot(
+            registry_path,
+            artifact_registry_path=tmp_path / "missing_artifacts.sqlite3",
+        )
+
+        assert audit.status == "NO_SHADOW_ARTIFACT_CANDIDATE"
+        assert audit.readiness is not None
+        assert audit.readiness.candidates[0].state == "REJECTED"
+        assert audit.registry_path == str(registry_path.resolve())
+        assert audit.registry_snapshot is not None
+        assert audit.registry_snapshot.integrity_check.lower() == "ok"
+        assert audit.registry_snapshot.source_changed_during_snapshot is False
+        assert audit.temporary_snapshots_cleaned is True
+        assert registry_path.read_bytes() == source_before
+        assert (tmp_path / "missing_artifacts.sqlite3").exists() is False
+        assert audit.shadow_runtime_started is False
+        assert audit.paper_capital_allowed is False
+        assert audit.live_allowed is False
+        assert audit.order_created is False
+
+
+def test_snapshot_audit_fails_closed_for_an_unreadable_live_source(tmp_path):
+    registry_path = tmp_path / "invalid.sqlite3"
+    registry_path.write_text("not a sqlite database", encoding="utf-8")
+
+    audit = audit_strategy_artifact_readiness_snapshot(registry_path)
+
+    assert audit.status == "SNAPSHOT_UNAVAILABLE"
+    assert audit.readiness is None
+    assert audit.blocker is not None
+    assert audit.blocker.startswith("verified_snapshot_failed:")
+    assert audit.temporary_snapshots_cleaned is True
+    assert audit.shadow_runtime_started is False
+    assert audit.paper_capital_allowed is False
+    assert audit.live_allowed is False
     assert audit.order_created is False
 
 

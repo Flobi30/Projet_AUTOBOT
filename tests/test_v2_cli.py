@@ -2258,6 +2258,31 @@ def test_cli_strategy_artifact_readiness_audit_is_read_only(tmp_path, capsys):
     assert payload["order_created"] is False
 
 
+def test_cli_strategy_artifact_readiness_snapshot_audit_never_creates_a_missing_registry(tmp_path, capsys):
+    registry_path = tmp_path / "missing_registry.sqlite3"
+
+    exit_code = cli.main(
+        [
+            "strategy-artifact-readiness-snapshot-audit",
+            "--registry-path",
+            str(registry_path),
+            "--artifact-registry-path",
+            str(tmp_path / "missing_artifacts.sqlite3"),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["status"] == "REGISTRY_MISSING"
+    assert payload["blocker"] == "experiment_registry_missing"
+    assert payload["temporary_snapshots_cleaned"] is True
+    assert registry_path.exists() is False
+    assert payload["shadow_runtime_started"] is False
+    assert payload["paper_capital_allowed"] is False
+    assert payload["live_allowed"] is False
+    assert payload["order_created"] is False
+
+
 def test_cli_runtime_signal_provenance_audit_is_static_and_non_executable(tmp_path, capsys):
     source_root = tmp_path / "strategies"
     source_root.mkdir()

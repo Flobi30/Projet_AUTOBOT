@@ -1,0 +1,21 @@
+[Unit]
+Description=AUTOBOT isolated strategy-artifact readiness snapshot audit (disabled by default)
+Documentation=file:///opt/Projet_AUTOBOT/src/autobot/v2/research/strategy_artifact_readiness.py
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-strategy-artifact-readiness-snapshot-audit.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_REPO_DIR=/opt/Projet_AUTOBOT
+Environment=AUTOBOT_STRATEGY_ARTIFACT_READINESS_AUDIT_ENABLED=false
+ExecStart=/opt/Projet_AUTOBOT/deploy/systemd/run-autobot-strategy-artifact-readiness-snapshot-audit.sh
+TimeoutStartSec=2min
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

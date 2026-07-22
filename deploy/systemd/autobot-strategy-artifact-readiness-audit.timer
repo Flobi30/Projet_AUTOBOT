@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule AUTOBOT strategy-artifact readiness snapshot audit after explicit approval
+
+[Timer]
+OnCalendar=*-*-* 02:50:00
+Persistent=true
+RandomizedDelaySec=5m
+AccuracySec=1min
+Unit=autobot-strategy-artifact-readiness-audit.service
+
+[Install]
+WantedBy=timers.target

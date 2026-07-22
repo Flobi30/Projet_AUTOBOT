@@ -9,11 +9,20 @@ one non-executable shadow artifact.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from contextlib import closing
+from dataclasses import asdict, dataclass, replace
+from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
 from typing import Any
+
+from autobot.v2.research.resilience_readiness import (
+    ResilienceError,
+    SQLiteBackupManifest,
+    create_verified_sqlite_backup,
+)
 
 
 DEFAULT_EXPERIMENT_REGISTRY_PATH = Path("data/research/experiment_registry.sqlite3")
@@ -93,6 +102,62 @@ class StrategyArtifactReadinessAudit:
         return payload
 
 
+@dataclass(frozen=True)
+class SQLiteAuditSnapshot:
+    """Provenance for one short-lived SQLite snapshot used by a read-only audit.
+
+    The snapshot is created through SQLite's backup API while the source is
+    opened with ``mode=ro``.  The source checksum before/after is evidence for
+    non-concurrent test runs; a change can also be caused by an independent
+    runtime writer, so it is reported rather than blamed on the audit.
+    """
+
+    source_path: str
+    source_sha256_before: str
+    source_sha256_after: str
+    snapshot_sha256: str
+    integrity_check: str
+    foreign_key_violation_count: int
+    source_changed_during_snapshot: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class StrategyArtifactSnapshotAudit:
+    """An audit performed only against private, temporary SQLite snapshots.
+
+    This is deliberately a diagnostic hand-off.  It neither retains a copy of
+    the registry nor registers an artifact, starts shadow runtime, enables
+    paper/live, or imports execution components.
+    """
+
+    status: str
+    registry_path: str
+    artifact_registry_path: str
+    readiness: StrategyArtifactReadinessAudit | None
+    registry_snapshot: SQLiteAuditSnapshot | None
+    artifact_registry_snapshot: SQLiteAuditSnapshot | None
+    temporary_snapshots_cleaned: bool
+    blocker: str | None = None
+    research_only: bool = True
+    shadow_runtime_started: bool = False
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    automatic_promotion_allowed: bool = False
+    order_created: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["readiness"] = self.readiness.to_dict() if self.readiness is not None else None
+        payload["registry_snapshot"] = self.registry_snapshot.to_dict() if self.registry_snapshot is not None else None
+        payload["artifact_registry_snapshot"] = (
+            self.artifact_registry_snapshot.to_dict() if self.artifact_registry_snapshot is not None else None
+        )
+        return payload
+
+
 def audit_strategy_artifact_readiness(
     registry_path: str | Path = DEFAULT_EXPERIMENT_REGISTRY_PATH,
     *,
@@ -122,7 +187,7 @@ def audit_strategy_artifact_readiness(
         )
 
     try:
-        with _read_only_connection(registry) as connection:
+        with closing(_read_only_connection(registry)) as connection:
             tables = _tables(connection)
             missing_tables = sorted(_REQUIRED_EXPERIMENT_TABLES - tables)
             if missing_tables:
@@ -187,6 +252,113 @@ def audit_strategy_artifact_readiness(
         artifact_count=_artifact_count(artifact_registry),
         candidates=candidates,
         artifact_registration_ready_count=ready_count,
+    )
+
+
+def audit_strategy_artifact_readiness_snapshot(
+    registry_path: str | Path = DEFAULT_EXPERIMENT_REGISTRY_PATH,
+    *,
+    artifact_registry_path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH,
+) -> StrategyArtifactSnapshotAudit:
+    """Audit a consistent temporary snapshot instead of a live SQLite registry.
+
+    SQLite WAL databases may require sidecar files for a direct read-only
+    connection.  Taking a verified backup snapshot first prevents the audit
+    worker from needing write access to the live registry directory and makes
+    the second audit safe to run in a network-less, read-only container.  The
+    audit fails closed if either existing source cannot be snapshotted; it
+    never falls back to reading the live source directly.
+    """
+
+    registry_source = Path(registry_path).resolve()
+    artifact_source = Path(artifact_registry_path).resolve()
+    if not registry_source.is_file():
+        readiness = audit_strategy_artifact_readiness(registry_source, artifact_registry_path=artifact_source)
+        return StrategyArtifactSnapshotAudit(
+            status=readiness.status,
+            registry_path=str(registry_source),
+            artifact_registry_path=str(artifact_source),
+            readiness=readiness,
+            registry_snapshot=None,
+            artifact_registry_snapshot=None,
+            temporary_snapshots_cleaned=True,
+            blocker="experiment_registry_missing",
+        )
+
+    snapshot_paths: tuple[Path, ...] = ()
+    try:
+        with TemporaryDirectory(prefix="autobot-strategy-artifact-readiness-") as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            registry_snapshot_path = temporary_root / "experiment_registry.sqlite3"
+            registry_snapshot = _create_audit_snapshot(registry_source, registry_snapshot_path)
+            snapshot_paths = (registry_snapshot_path,)
+
+            artifact_snapshot: SQLiteAuditSnapshot | None = None
+            audit_artifact_path = temporary_root / "strategy_artifacts.sqlite3"
+            if artifact_source.is_file():
+                artifact_snapshot = _create_audit_snapshot(artifact_source, audit_artifact_path)
+                snapshot_paths = (*snapshot_paths, audit_artifact_path)
+
+            readiness = audit_strategy_artifact_readiness(
+                registry_snapshot_path,
+                artifact_registry_path=audit_artifact_path,
+            )
+            # The facts in ``readiness`` came from snapshots, but callers need
+            # stable source paths rather than now-deleted temporary filenames.
+            readiness = replace(
+                readiness,
+                registry_path=str(registry_source),
+                artifact_registry_path=str(artifact_source),
+            )
+            status = readiness.status
+    except (OSError, ResilienceError, sqlite3.Error) as exc:
+        return StrategyArtifactSnapshotAudit(
+            status="SNAPSHOT_UNAVAILABLE",
+            registry_path=str(registry_source),
+            artifact_registry_path=str(artifact_source),
+            readiness=None,
+            registry_snapshot=None,
+            artifact_registry_snapshot=None,
+            temporary_snapshots_cleaned=all(not path.exists() for path in snapshot_paths),
+            blocker=f"verified_snapshot_failed:{type(exc).__name__}",
+        )
+
+    return StrategyArtifactSnapshotAudit(
+        status=status,
+        registry_path=str(registry_source),
+        artifact_registry_path=str(artifact_source),
+        readiness=readiness,
+        registry_snapshot=registry_snapshot,
+        artifact_registry_snapshot=artifact_snapshot,
+        temporary_snapshots_cleaned=all(not path.exists() for path in snapshot_paths),
+    )
+
+
+def _create_audit_snapshot(source: Path, destination: Path) -> SQLiteAuditSnapshot:
+    source_sha256_before = _sha256_file(source)
+    manifest = create_verified_sqlite_backup(source, destination)
+    source_sha256_after = _sha256_file(source)
+    return _snapshot_from_manifest(
+        manifest,
+        source_sha256_before=source_sha256_before,
+        source_sha256_after=source_sha256_after,
+    )
+
+
+def _snapshot_from_manifest(
+    manifest: SQLiteBackupManifest,
+    *,
+    source_sha256_before: str,
+    source_sha256_after: str,
+) -> SQLiteAuditSnapshot:
+    return SQLiteAuditSnapshot(
+        source_path=manifest.source_path,
+        source_sha256_before=source_sha256_before,
+        source_sha256_after=source_sha256_after,
+        snapshot_sha256=manifest.backup_sha256,
+        integrity_check=manifest.integrity_check,
+        foreign_key_violation_count=manifest.foreign_key_violation_count,
+        source_changed_during_snapshot=source_sha256_before != source_sha256_after,
     )
 
 
@@ -284,7 +456,7 @@ def _artifact_statuses_by_experiment(path: Path) -> dict[str, tuple[str, ...]]:
     if not path.exists():
         return {}
     try:
-        with _read_only_connection(path) as connection:
+        with closing(_read_only_connection(path)) as connection:
             if "strategy_artifacts" not in _tables(connection):
                 return {}
             rows = connection.execute("SELECT status, artifact_json FROM strategy_artifacts").fetchall()
@@ -307,7 +479,7 @@ def _artifact_count(path: Path) -> int:
     if not path.exists():
         return 0
     try:
-        with _read_only_connection(path) as connection:
+        with closing(_read_only_connection(path)) as connection:
             if "strategy_artifacts" not in _tables(connection):
                 return 0
             return int(connection.execute("SELECT COUNT(*) FROM strategy_artifacts").fetchone()[0])
@@ -324,3 +496,11 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
 
 def _read_only_connection(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
