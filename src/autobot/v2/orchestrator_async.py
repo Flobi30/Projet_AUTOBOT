@@ -3945,9 +3945,29 @@ class OrchestratorAsync:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    async def _preflight_instance_cold_recovery(self) -> None:
+        """Require every instance to prove durable recovery before runtime I/O starts."""
+
+        for instance in list(self._instances.values()):
+            try:
+                await instance.recover_state()
+            except Exception as exc:
+                instance_id = str(getattr(instance, "id", "unknown"))
+                reason = f"cold_start_position_recovery_unavailable:{instance_id}"
+                if self._global_kill_store is None:
+                    logger.critical("%s; global kill-switch store unavailable", reason)
+                else:
+                    try:
+                        self._global_kill_store.trip(reason, str(exc)[:512])
+                    except Exception:
+                        logger.exception("Unable to persist cold-start recovery halt")
+                logger.critical("Cold-start recovery blocked before runtime start: %s", reason)
+                raise RuntimeError(reason) from exc
+
     async def start(self) -> None:
         if self.running:
             return
+        await self._preflight_instance_cold_recovery()
         self.running = True
         self._start_time = datetime.now(timezone.utc)
 

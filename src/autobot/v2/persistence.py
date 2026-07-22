@@ -37,6 +37,29 @@ class NonTerminalOrderRecovery:
     reason: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class PositionRecovery:
+    """Evidence returned when positions are read during a cold restart.
+
+    An empty, readable result is different from an unavailable SQLite store.
+    Runtime recovery must preserve that distinction so it cannot overwrite
+    recoverable positions after a transient persistence failure.
+    """
+
+    available: bool
+    positions: List[Dict[str, Any]]
+    reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class InstanceStateRecovery:
+    """Evidence returned when an instance-state row is read at cold start."""
+
+    available: bool
+    state: Optional[Dict[str, Any]]
+    reason: Optional[str] = None
+
+
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     raw = os.getenv(name)
     try:
@@ -701,7 +724,12 @@ class PositionRepository(_PersistenceRepositoryBase):
             logger.exception(f"❌ Erreur close_position_and_record_trade {position_id}: {e}")
             return False
 
-    async def recover_positions(self, instance_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def recover_positions_for_recovery(
+        self,
+        instance_id: str,
+        symbol: Optional[str] = None,
+    ) -> PositionRecovery:
+        """Read recoverable positions without collapsing SQLite failure to empty."""
         try:
             conn = await self.get_conn()
             if symbol:
@@ -725,10 +753,20 @@ class PositionRepository(_PersistenceRepositoryBase):
                 args = (instance_id,)
             async with conn.execute(query, args) as cursor:
                 rows = await cursor.fetchall()
-                return [dict(r) for r in rows]
+                return PositionRecovery(True, [dict(r) for r in rows])
         except Exception as e:
             logger.exception(f"❌ Erreur recover_positions {instance_id}: {e}")
-            return []
+            return PositionRecovery(
+                False,
+                [],
+                reason=f"position_recovery_unavailable:{type(e).__name__}",
+            )
+
+    async def recover_positions(self, instance_id: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Compatibility API; cold-start callers must use explicit evidence."""
+
+        recovery = await self.recover_positions_for_recovery(instance_id, symbol=symbol)
+        return recovery.positions if recovery.available else []
 
 
 class InstanceStateRepository(_PersistenceRepositoryBase):
@@ -762,15 +800,26 @@ class InstanceStateRepository(_PersistenceRepositoryBase):
             logger.exception(f"❌ Erreur sauvegarde état instance: {e}")
             return False
 
-    async def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
+    async def recover_instance_state_for_recovery(self, instance_id: str) -> InstanceStateRecovery:
+        """Read state while preserving the difference between absent and unavailable."""
         try:
             conn = await self.get_conn()
             async with conn.execute("SELECT * FROM instance_state WHERE instance_id = ?", (instance_id,)) as cursor:
                 row = await cursor.fetchone()
-                return dict(row) if row else None
+                return InstanceStateRecovery(True, dict(row) if row else None)
         except Exception as e:
             logger.exception(f"❌ Erreur récupération état instance {instance_id}: {e}")
-            return None
+            return InstanceStateRecovery(
+                False,
+                None,
+                reason=f"instance_state_recovery_unavailable:{type(e).__name__}",
+            )
+
+    async def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
+        """Compatibility API; cold-start callers must use explicit evidence."""
+
+        recovery = await self.recover_instance_state_for_recovery(instance_id)
+        return recovery.state if recovery.available else None
 
 
 class StatePersistence:
@@ -1176,6 +1225,22 @@ class StatePersistence:
         await self.initialize()
         return await self.positions.recover_positions(instance_id, symbol=symbol)
 
+    async def recover_positions_for_recovery(
+        self,
+        instance_id: str,
+        symbol: Optional[str] = None,
+    ) -> PositionRecovery:
+        try:
+            await self.initialize()
+            return await self.positions.recover_positions_for_recovery(instance_id, symbol=symbol)
+        except Exception as exc:
+            logger.error("Position recovery persistence initialization failed: %s", type(exc).__name__)
+            return PositionRecovery(
+                False,
+                [],
+                reason=f"position_recovery_persistence_unavailable:{type(exc).__name__}",
+            )
+
     async def save_instance_state(self, *args, **kwargs) -> bool:
         await self.initialize()
         return await self.instance_state.save_instance_state(*args, **kwargs)
@@ -1183,6 +1248,18 @@ class StatePersistence:
     async def recover_instance_state(self, instance_id: str) -> Optional[Dict[str, Any]]:
         await self.initialize()
         return await self.instance_state.recover_instance_state(instance_id)
+
+    async def recover_instance_state_for_recovery(self, instance_id: str) -> InstanceStateRecovery:
+        try:
+            await self.initialize()
+            return await self.instance_state.recover_instance_state_for_recovery(instance_id)
+        except Exception as exc:
+            logger.error("Instance-state recovery persistence initialization failed: %s", type(exc).__name__)
+            return InstanceStateRecovery(
+                False,
+                None,
+                reason=f"instance_state_recovery_persistence_unavailable:{type(exc).__name__}",
+            )
 
     async def cleanup_orphaned_instances(self, active_instance_ids: Optional[List[str]] = None) -> int:
         await self.initialize()

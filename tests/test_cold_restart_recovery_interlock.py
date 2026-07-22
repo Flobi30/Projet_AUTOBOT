@@ -6,12 +6,16 @@ create an exchange order or activate paper capital.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+from autobot.v2.instance_async import ColdRestartRecoveryUnavailable, TradingInstanceAsync
+from autobot.v2.instance_models import InstanceStatus
 from autobot.v2.kill_switch import KillSwitch
+from autobot.v2.orchestrator_async import OrchestratorAsync
 from autobot.v2.order_executor import OrderStatus
 from autobot.v2.order_executor_async import (
     OrderCollectionRecovery,
@@ -20,7 +24,12 @@ from autobot.v2.order_executor_async import (
     OrderRecoveryLookupState,
 )
 from autobot.v2.order_state_machine import PersistedOrderStateMachine
-from autobot.v2.persistence import NonTerminalOrderRecovery, StatePersistence
+from autobot.v2.persistence import (
+    InstanceStateRecovery,
+    NonTerminalOrderRecovery,
+    PositionRecovery,
+    StatePersistence,
+)
 from autobot.v2.reconciliation_async import ReconciliationManagerAsync
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.startup_attestation import StartupAttestation
@@ -258,4 +267,131 @@ async def test_reconciliation_turns_unavailable_open_orders_into_critical_diverg
 
     assert [(item.type, item.details["remediation"]) for item in divergences] == [
         ("exchange_open_orders_unavailable", "halt_pending_exchange_recovery"),
+    ]
+
+
+def _bare_async_instance(persistence):
+    instance = object.__new__(TradingInstanceAsync)
+    instance.id = "cold-restart-instance"
+    instance.config = SimpleNamespace(symbol="XETHZEUR", initial_capital=250.0)
+    instance.status = InstanceStatus.INITIALIZING
+    instance._persistence = persistence
+    instance._positions = {"preexisting": object()}
+    instance._allocated_capital = 33.0
+    instance._current_capital = 250.0
+    instance._initial_capital = 250.0
+    instance._peak_capital = 250.0
+    instance._win_count = 4
+    instance._loss_count = 2
+    instance._position_fee_hints = {"preexisting": {"buy_fee": 1.0}}
+    instance._execution_fee_cache = {"preexisting": {"fee": 1.0, "source": "fixture"}}
+    instance._lock = asyncio.Lock()
+    instance._instance_queue = None
+    instance._queue_consumer_task = None
+    return instance
+
+
+@pytest.mark.asyncio
+async def test_position_recovery_unavailable_never_mutates_memory_or_saves_state():
+    class _Persistence:
+        save_calls = 0
+
+        async def recover_positions_for_recovery(self, *_args, **_kwargs):
+            return PositionRecovery(
+                True,
+                [{
+                    "id": "new-position",
+                    "buy_price": 100.0,
+                    "volume": 0.2,
+                    "status": "open",
+                    "open_time": "2026-07-22T00:00:00+00:00",
+                    "metadata": "{}",
+                }],
+            )
+
+        async def recover_instance_state_for_recovery(self, *_args, **_kwargs):
+            return InstanceStateRecovery(False, None, "sqlite_locked")
+
+        async def save_instance_state(self, *_args, **_kwargs):
+            self.save_calls += 1
+            return True
+
+    persistence = _Persistence()
+    instance = _bare_async_instance(persistence)
+
+    with pytest.raises(ColdRestartRecoveryUnavailable, match="sqlite_locked"):
+        await instance.start()
+
+    assert instance.status is InstanceStatus.ERROR
+    assert set(instance._positions) == {"preexisting"}
+    assert instance._allocated_capital == pytest.approx(33.0)
+    assert instance._current_capital == pytest.approx(250.0)
+    assert persistence.save_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_readable_position_and_instance_state_recovery_is_allowed():
+    class _Persistence:
+        async def recover_positions_for_recovery(self, *_args, **_kwargs):
+            return PositionRecovery(True, [])
+
+        async def recover_instance_state_for_recovery(self, *_args, **_kwargs):
+            return InstanceStateRecovery(True, None)
+
+    instance = _bare_async_instance(_Persistence())
+
+    assert await instance.recover_state() is True
+    assert instance._positions == {}
+    assert instance._allocated_capital == pytest.approx(0.0)
+    assert instance._recovery_completed is True
+
+
+@pytest.mark.asyncio
+async def test_position_and_instance_state_recovery_report_sqlite_failure_explicitly(monkeypatch, tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+
+    async def fail_get_conn():
+        raise RuntimeError("sqlite unavailable")
+
+    monkeypatch.setattr(persistence.positions, "get_conn", fail_get_conn)
+    monkeypatch.setattr(persistence.instance_state, "get_conn", fail_get_conn)
+
+    positions = await persistence.recover_positions_for_recovery("cold-restart", symbol="XETHZEUR")
+    state = await persistence.recover_instance_state_for_recovery("cold-restart")
+    await persistence.close()
+
+    assert positions.available is False
+    assert positions.positions == []
+    assert positions.reason == "position_recovery_unavailable:RuntimeError"
+    assert state.available is False
+    assert state.state is None
+    assert state.reason == "instance_state_recovery_unavailable:RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_preflight_latches_global_kill_before_runtime_start():
+    class _FailingInstance:
+        id = "recovery-failure"
+
+        async def recover_state(self):
+            raise ColdRestartRecoveryUnavailable("sqlite_locked")
+
+    class _Store:
+        def __init__(self):
+            self.trips = []
+
+        def trip(self, reason_code, reason):
+            self.trips.append((reason_code, reason))
+            return True
+
+    orchestrator = object.__new__(OrchestratorAsync)
+    orchestrator._instances = {"recovery-failure": _FailingInstance()}
+    orchestrator._global_kill_store = _Store()
+
+    with pytest.raises(RuntimeError, match="cold_start_position_recovery_unavailable:recovery-failure"):
+        await orchestrator._preflight_instance_cold_recovery()
+
+    assert orchestrator._global_kill_store.trips == [
+        ("cold_start_position_recovery_unavailable:recovery-failure", "sqlite_locked"),
     ]

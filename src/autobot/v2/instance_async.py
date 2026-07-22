@@ -35,7 +35,11 @@ from enum import Enum
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from .websocket_client import TickerData
-from .persistence import get_persistence
+from .persistence import (
+    InstanceStateRecovery,
+    PositionRecovery,
+    get_persistence,
+)
 from .instance_models import (
     InstanceStatus,
     LeverageLevel,
@@ -44,6 +48,10 @@ from .instance_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ColdRestartRecoveryUnavailable(RuntimeError):
+    """Raised when durable state cannot be proven during cold-start recovery."""
 
 
 class TradingInstanceAsync:
@@ -184,84 +192,144 @@ class TradingInstanceAsync:
                 return {}
         return {}
 
-    async def recover_state(self) -> None:
-        """Recover state from SQLite (called at startup)."""
-        try:
-            saved_positions = await self._persistence.recover_positions(self.id,
+    async def _recover_positions_evidence(self) -> PositionRecovery:
+        """Get explicit position recovery evidence, with legacy fake compatibility."""
+
+        reader = getattr(self._persistence, "recover_positions_for_recovery", None)
+        if callable(reader):
+            result = await reader(
+                self.id,
                 symbol=str(getattr(self.config, "symbol", "") or ""),
             )
+            if isinstance(result, PositionRecovery):
+                return result
+            return PositionRecovery(False, [], "position_recovery_contract_invalid")
+        rows = await self._persistence.recover_positions(
+            self.id,
+            symbol=str(getattr(self.config, "symbol", "") or ""),
+        )
+        return PositionRecovery(True, list(rows or []), "legacy_persistence_compatibility")
+
+    async def _recover_instance_state_evidence(self) -> InstanceStateRecovery:
+        """Get explicit instance-state evidence, with legacy fake compatibility."""
+
+        reader = getattr(self._persistence, "recover_instance_state_for_recovery", None)
+        if callable(reader):
+            result = await reader(self.id)
+            if isinstance(result, InstanceStateRecovery):
+                return result
+            return InstanceStateRecovery(False, None, "instance_state_recovery_contract_invalid")
+        state = await self._persistence.recover_instance_state(self.id)
+        return InstanceStateRecovery(True, state, "legacy_persistence_compatibility")
+
+    async def recover_state(self) -> bool:
+        """Recover state atomically; unavailable persistence is a cold-start halt."""
+        try:
+            positions_recovery = await self._recover_positions_evidence()
+            if not positions_recovery.available:
+                raise ColdRestartRecoveryUnavailable(
+                    positions_recovery.reason or "position_recovery_unavailable"
+                )
+            state_recovery = await self._recover_instance_state_evidence()
+            if not state_recovery.available:
+                raise ColdRestartRecoveryUnavailable(
+                    state_recovery.reason or "instance_state_recovery_unavailable"
+                )
+
+            saved_positions = positions_recovery.positions
+            recovered_positions: Dict[str, Position] = {}
+            recovered_allocated_capital = 0.0
+            recovered_fee_hints: Dict[str, Dict[str, Any]] = {}
+            recovered_execution_fees: Dict[str, Dict[str, Any]] = {}
             if saved_positions:
                 logger.warning(
                     f"🔄 Recovery {self.id}: {len(saved_positions)} position(s)"
                 )
-                async with self._lock:
-                    for pos_data in saved_positions:
-                        metadata = self._decode_position_metadata(pos_data.get("metadata"))
-                        open_time_raw = pos_data.get("open_time")
-                        try:
-                            open_time = datetime.fromisoformat(str(open_time_raw).replace("Z", "+00:00"))
-                        except Exception:
-                            open_time = datetime.now(timezone.utc)
-                        persisted_status = str(pos_data.get("status") or "open").strip().lower()
-                        if persisted_status not in {"open", "closing"}:
-                            logger.error(
-                                "Recovered position has unsupported non-terminal status; keeping it closing: %s/%s/%s",
-                                self.id,
-                                pos_data.get("id"),
-                                persisted_status,
-                            )
-                            persisted_status = "closing"
-                        position = Position(
-                            id=pos_data["id"],
-                            buy_price=pos_data["buy_price"],
-                            volume=pos_data["volume"],
-                            status=persisted_status,
-                            open_time=open_time,
-                            stop_loss=metadata.get("stop_loss"),
-                            take_profit=metadata.get("take_profit"),
-                            stop_loss_txid=metadata.get("stop_loss_txid"),
-                            buy_txid=metadata.get("buy_txid"),
-                            sell_txid=metadata.get("sell_txid"),
-                            metadata=metadata,
+                for pos_data in saved_positions:
+                    metadata = self._decode_position_metadata(pos_data.get("metadata"))
+                    open_time_raw = pos_data.get("open_time")
+                    try:
+                        open_time = datetime.fromisoformat(str(open_time_raw).replace("Z", "+00:00"))
+                    except Exception:
+                        open_time = datetime.now(timezone.utc)
+                    persisted_status = str(pos_data.get("status") or "open").strip().lower()
+                    if persisted_status not in {"open", "closing"}:
+                        logger.error(
+                            "Recovered position has unsupported non-terminal status; keeping it closing: %s/%s/%s",
+                            self.id,
+                            pos_data.get("id"),
+                            persisted_status,
                         )
-                        self._positions[position.id] = position
-                        self._allocated_capital += position.buy_price * position.volume
-                        buy_txid = metadata.get("buy_txid")
-                        buy_fee = self._to_optional_float(metadata.get("buy_fee"))
-                        if buy_fee is not None:
-                            self._position_fee_hints[position.id] = {
-                                "buy_fee": buy_fee,
-                                "buy_fee_source": metadata.get("buy_fee_source", "recovered_metadata"),
+                        persisted_status = "closing"
+                    position = Position(
+                        id=pos_data["id"],
+                        buy_price=pos_data["buy_price"],
+                        volume=pos_data["volume"],
+                        status=persisted_status,
+                        open_time=open_time,
+                        stop_loss=metadata.get("stop_loss"),
+                        take_profit=metadata.get("take_profit"),
+                        stop_loss_txid=metadata.get("stop_loss_txid"),
+                        buy_txid=metadata.get("buy_txid"),
+                        sell_txid=metadata.get("sell_txid"),
+                        metadata=metadata,
+                    )
+                    recovered_positions[position.id] = position
+                    recovered_allocated_capital += position.buy_price * position.volume
+                    buy_txid = metadata.get("buy_txid")
+                    buy_fee = self._to_optional_float(metadata.get("buy_fee"))
+                    if buy_fee is not None:
+                        recovered_fee_hints[position.id] = {
+                            "buy_fee": buy_fee,
+                            "buy_fee_source": metadata.get("buy_fee_source", "recovered_metadata"),
+                        }
+                        if buy_txid:
+                            recovered_execution_fees[str(buy_txid)] = {
+                                "fee": buy_fee,
+                                "source": metadata.get("buy_fee_source", "recovered_metadata"),
                             }
-                            if buy_txid:
-                                self._cache_execution_fee(
-                                    buy_txid,
-                                    buy_fee,
-                                    source=metadata.get("buy_fee_source", "recovered_metadata"),
-                                )
 
-            saved_state = await self._persistence.recover_instance_state(self.id
+            saved_state = state_recovery.state
+            recovered_current_capital = float(getattr(self, "_current_capital", 0.0))
+            recovered_initial_capital = float(
+                getattr(self, "_initial_capital", recovered_current_capital)
             )
+            recovered_win_count = int(getattr(self, "_win_count", 0))
+            recovered_loss_count = int(getattr(self, "_loss_count", 0))
             if saved_state:
-                async with self._lock:
-                    self._current_capital = float(saved_state["current_capital"])
-                    initial_capital = saved_state.get("initial_capital")
-                    if initial_capital is not None:
-                        self._initial_capital = float(initial_capital)
-                        try:
-                            self.config.initial_capital = self._initial_capital
-                        except Exception:
-                            pass
-                    elif not hasattr(self, "_initial_capital"):
-                        self._initial_capital = self._current_capital
-                    if not hasattr(self, "_peak_capital"):
-                        self._peak_capital = self._current_capital
-                    else:
-                        self._peak_capital = max(float(self._peak_capital), self._current_capital)
-                    self._win_count = saved_state.get("win_count", 0)
-                    self._loss_count = saved_state.get("loss_count", 0)
+                recovered_current_capital = float(saved_state["current_capital"])
+                initial_capital = saved_state.get("initial_capital")
+                if initial_capital is not None:
+                    recovered_initial_capital = float(initial_capital)
+                recovered_win_count = int(saved_state.get("win_count", 0))
+                recovered_loss_count = int(saved_state.get("loss_count", 0))
+
+            async with self._lock:
+                self._positions = recovered_positions
+                self._allocated_capital = recovered_allocated_capital
+                self._position_fee_hints = recovered_fee_hints
+                self._execution_fee_cache = recovered_execution_fees
+                self._current_capital = recovered_current_capital
+                self._initial_capital = recovered_initial_capital
+                self._peak_capital = max(
+                    float(getattr(self, "_peak_capital", self._current_capital)),
+                    self._current_capital,
+                )
+                self._win_count = recovered_win_count
+                self._loss_count = recovered_loss_count
+                self._recovery_completed = True
+            try:
+                self.config.initial_capital = self._initial_capital
+            except Exception:
+                pass
+            return True
+        except ColdRestartRecoveryUnavailable:
+            raise
         except Exception as exc:
             logger.exception(f"❌ Erreur recovery état {self.id}: {exc}")
+            raise ColdRestartRecoveryUnavailable(
+                f"instance_recovery_invalid:{type(exc).__name__}"
+            ) from exc
 
     async def save_state(self) -> bool:
         """Save instance state to SQLite."""
@@ -274,7 +342,7 @@ class TradingInstanceAsync:
                 st = self.status.value
                 ic = self._initial_capital
 
-            await self._persistence.save_instance_state(self.id,
+            persisted = await self._persistence.save_instance_state(self.id,
                 st,
                 cc,
                 ac,
@@ -282,6 +350,9 @@ class TradingInstanceAsync:
                 lc,
                 initial_capital=ic,
             )
+            if persisted is not True:
+                logger.error("Instance state checkpoint was not durably confirmed: %s", self.id)
+                return False
             return True
         except Exception as exc:
             logger.exception(f"❌ Erreur sauvegarde état {self.id}: {exc}")
@@ -382,20 +453,26 @@ class TradingInstanceAsync:
     async def start(self) -> None:
         if self.status == InstanceStatus.RUNNING:
             return
-        self.status = InstanceStatus.RUNNING
-        await self.recover_state()
-        await self.save_state()
-        self._init_strategy()
+        try:
+            if not bool(getattr(self, "_recovery_completed", False)):
+                await self.recover_state()
+            self.status = InstanceStatus.RUNNING
+            if not await self.save_state():
+                raise ColdRestartRecoveryUnavailable("instance_state_checkpoint_unavailable")
+            self._init_strategy()
 
-        # ROB-01: WAL + Reconcile after crash
-        if hasattr(self, "_signal_handler") and self._signal_handler:
-            await self._signal_handler.recover()
+            # ROB-01: WAL + Reconcile after crash
+            if hasattr(self, "_signal_handler") and self._signal_handler:
+                await self._signal_handler.recover()
 
-        # P3: if a queue is attached, start the consumer task
-        if self._instance_queue is not None:
-            await self.start_queue_consumer()
+            # P3: if a queue is attached, start the consumer task
+            if self._instance_queue is not None:
+                await self.start_queue_consumer()
 
-        logger.info(f"▶️ Instance {self.id} démarrée (async)")
+            logger.info(f"▶️ Instance {self.id} démarrée (async)")
+        except Exception:
+            self.status = InstanceStatus.ERROR
+            raise
 
     async def stop(self) -> None:
         """
