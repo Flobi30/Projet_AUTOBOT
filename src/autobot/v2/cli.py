@@ -634,6 +634,29 @@ def _build_parser() -> argparse.ArgumentParser:
     data_capability_scan.add_argument("--output-dir", default="reports/research")
     data_capability_scan.set_defaults(handler=_cmd_data_capability_scan)
 
+    research_retry_eligibility = subparsers.add_parser(
+        "research-retry-eligibility",
+        help="Read-only material-data gate for a possible new research campaign; it never schedules or runs one",
+    )
+    research_retry_eligibility.add_argument("--hypothesis-id", required=True)
+    research_retry_eligibility.add_argument("--template-id", required=True)
+    research_retry_eligibility.add_argument("--data-roots", required=True, help="Comma-separated research roots to scan")
+    research_retry_eligibility.add_argument("--memory-path", default="data/research/alpha_research_memory.sqlite3")
+    research_retry_eligibility.add_argument(
+        "--prior-run-id",
+        default=None,
+        help="Optional prior memory record to assess; it cannot override a later terminal result.",
+    )
+    research_retry_eligibility.add_argument(
+        "--research-campaign-id",
+        default=None,
+        help="Explicit new campaign label only; it cannot by itself make a retry eligible.",
+    )
+    research_retry_eligibility.add_argument("--run-id", default=None)
+    research_retry_eligibility.add_argument("--output-dir", default="data/research/reports/retry_eligibility")
+    research_retry_eligibility.add_argument("--no-write-report", action="store_true")
+    research_retry_eligibility.set_defaults(handler=_cmd_research_retry_eligibility)
+
     sqlite_restore_drill = subparsers.add_parser(
         "sqlite-restore-drill",
         help="Verify a SQLite backup through a disposable research-only restore drill",
@@ -3294,6 +3317,40 @@ def _cmd_data_capability_scan(args: argparse.Namespace) -> int:
         Path(args.output_dir),
     )
     _print_json(report.to_dict())
+    return 0
+
+
+def _cmd_research_retry_eligibility(args: argparse.Namespace) -> int:
+    """Assess data materiality without mutating memory, registry or scheduler."""
+
+    from autobot.v2.research.data_capability_scanner import build_data_capability_scan_report
+    from autobot.v2.research.research_retry_eligibility import (
+        assess_research_retry_eligibility,
+        load_research_memory_records,
+        write_research_retry_eligibility_report,
+    )
+
+    run_id = args.run_id or f"research_retry_eligibility_{date.today().strftime('%Y%m%d')}"
+    roots = tuple(Path(path) for path in _csv_tuple(args.data_roots, "--data-roots"))
+    capability_report = build_data_capability_scan_report(
+        run_id=f"{run_id}_capabilities",
+        data_roots=roots,
+        memory_path=Path(args.memory_path),
+    )
+    report = assess_research_retry_eligibility(
+        hypothesis_id=args.hypothesis_id,
+        template_id=args.template_id,
+        capabilities=capability_report.capabilities,
+        memory_records=load_research_memory_records(Path(args.memory_path)),
+        prior_run_id=args.prior_run_id,
+        research_campaign_id=args.research_campaign_id,
+    )
+    payload = report.to_dict()
+    payload["report_paths"] = None
+    if not args.no_write_report:
+        written = write_research_retry_eligibility_report(report, Path(args.output_dir), run_id=run_id)
+        payload["report_paths"] = {"json": str(written[0]), "markdown": str(written[1])}
+    _print_json(payload)
     return 0
 
 

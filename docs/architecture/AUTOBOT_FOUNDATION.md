@@ -74,6 +74,23 @@ metadata (`trend_async.py`). They remain blocked by the direct-entry quarantine.
 The next integration may only consume a separately verified canonical hand-off;
 it must not fill missing runtime metadata by guessing values.
 
+## Material research-data retry gate
+
+`research-retry-eligibility` is a read-only evidence gate for a *possible new*
+research campaign. It compares the explicit missing-data reasons from a
+terminal record with a deterministic funding/basis/OI capability signature. It
+does not alter research memory, the experiment registry, scheduler state,
+claims, trials or holdouts; it cannot start a runner. A prior performance
+rejection remains blocked even if later data coverage grows. Only a terminal
+`DATA_MISSING`/`INSUFFICIENT_DATA` record with a demonstrated required
+capability transition can make a separately named campaign eligible for
+registration. The successor must carry the prior trial-count floor and pass
+the normal data, net-cost, walk-forward, stress and final-holdout gates.
+
+Changing a campaign label, report name, run id or data path alone never makes
+a retry eligible. The gate does not enable shadow, paper capital, live,
+promotion, sizing, leverage or an order path.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.
