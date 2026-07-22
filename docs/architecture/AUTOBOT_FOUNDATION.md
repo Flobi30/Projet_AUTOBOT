@@ -58,6 +58,20 @@ paper capital, promote a strategy or enable live trading. Multi-source
 spot/derivatives hand-offs remain blocked until they can prove one coherent
 common observation time.
 
+## Shadow-artifact readiness audit
+
+`strategy-artifact-readiness-audit` is a read-only companion to the artifact
+registration command. It reports each experiment's latest gate, terminal
+state, immutable final-holdout evidence, registered artifact statuses and the
+remaining blockers. It opens both SQLite registries in read-only mode and
+intentionally reports a missing or legacy schema instead of initializing or
+migrating it. A result named `EVIDENCE_READY_HUMAN_GOVERNANCE_REQUIRED` means
+only that research evidence is complete enough for a human to consider an
+immutable shadow artifact; it is not an authorization. A current shadow-only
+risk mandate and an explicit human approval reference remain mandatory, while
+paper capital, live, automatic promotion, runtime start and order creation all
+remain false.
+
 ## Legacy runtime signal provenance inventory
 
 `audit-runtime-signal-provenance` performs a static AST-only inventory of
