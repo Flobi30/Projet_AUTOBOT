@@ -3,7 +3,10 @@
 The adapter consumes a point-in-time Kraken Futures feature snapshot as a
 *directional context* and evaluates only the mapped AUTOBOT spot-EUR OHLCV
 series.  Perpetual USD prices are never converted or used to calculate EUR
-returns: all simulated gross/net PnL is computed from the spot bars.
+returns: all simulated gross/net PnL is computed from the spot bars. It also
+never opens a perpetual position, so funding is recorded as a directional
+feature and an explicit zero carry attribution rather than being silently
+included in, or omitted from, PnL.
 
 It deliberately imports no runtime router, paper executor, order handler, or
 strategy-promotion code.  A positive smoke result remains research-only and
@@ -130,7 +133,19 @@ class FundingBasisTrade:
     spread_cost_eur: float
     slippage_eur: float
     latency_cost_eur: float
+    # This adapter is deliberately spot-only. Keep the zero explicit so a
+    # future derivatives implementation cannot inherit these records as if
+    # funding carry had already been accounted for.
+    funding_carry_eur: float = 0.0
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.funding_carry_eur) or not math.isclose(
+            self.funding_carry_eur, 0.0, abs_tol=1e-12
+        ):
+            raise ValueError(
+                "funding_carry_eur must be zero: the funding/basis adapter is spot-only"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -153,6 +168,9 @@ class FundingBasisMetrics:
     by_symbol: Mapping[str, Mapping[str, Any]]
     by_period: Mapping[str, Mapping[str, Any]]
     concentration: Mapping[str, Any]
+    # Funding is a feature-only input for the current spot-EUR adapter.
+    # A non-zero value requires a separate derivatives position model.
+    total_funding_carry_eur: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -591,10 +609,17 @@ def _simulate_variant(
                     spread_cost_eur=cost_components["spread_cost_eur"],
                     slippage_eur=cost_components["slippage_eur"],
                     latency_cost_eur=cost_components["latency_cost_eur"],
+                    funding_carry_eur=0.0,
                     metadata={
                         "derivatives_context": "perpetual_usd_directional_only",
                         "spot_pnl_market": spot_symbol,
                         "implicit_usd_eur_price_conversion": False,
+                        "funding_carry_attribution": {
+                            "applicable": False,
+                            "funding_carry_eur": 0.0,
+                            "reason": "spot_only_directional_context_no_perpetual_position",
+                            "funding_rate_used_as_feature_only": True,
+                        },
                         "funding_event_time": current_funding.event_time.isoformat(),
                         "funding_available_time": current_funding.available_time.isoformat(),
                         "basis_event_time": current_basis.event_time.isoformat(),
@@ -661,6 +686,7 @@ def compute_funding_basis_metrics(trades: Sequence[FundingBasisTrade]) -> Fundin
             "top_positive_symbol": top_symbol,
             "top_positive_pnl_share": round(top_value / positive_total, 6) if positive_total else 0.0,
         },
+        total_funding_carry_eur=round(sum(trade.funding_carry_eur for trade in trades), 6),
     )
 
 
@@ -681,6 +707,12 @@ def funding_basis_trade_records(
         if trade.entry_price <= 0.0 or trade.exit_price <= 0.0:
             continue
         quantity = max(1e-12, trade.order_notional_eur / trade.entry_price)
+        carry_attribution = dict(trade.metadata.get("funding_carry_attribution") or {
+            "applicable": False,
+            "funding_carry_eur": trade.funding_carry_eur,
+            "reason": "spot_only_directional_context_no_perpetual_position",
+            "funding_rate_used_as_feature_only": True,
+        })
         records.append(
             TradeRecord(
                 run_id=run_id,
@@ -706,6 +738,8 @@ def funding_basis_trade_records(
                     "funding_rate_relative": trade.funding_rate_relative,
                     "basis_bps": trade.basis_bps,
                     "spot_only_pnl": True,
+                    "funding_carry_eur": trade.funding_carry_eur,
+                    "funding_carry_attribution": carry_attribution,
                 },
             )
         )

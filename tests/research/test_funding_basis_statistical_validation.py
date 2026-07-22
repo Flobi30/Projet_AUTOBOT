@@ -80,6 +80,13 @@ def test_funding_basis_trade_records_preserve_spot_prices_and_cost_attribution()
     )
     assert record.metadata["spot_only_pnl"] is True
     assert record.metadata["futures_symbol"] == "PF_XBTUSD"
+    assert record.metadata["funding_carry_eur"] == 0.0
+    assert record.metadata["funding_carry_attribution"] == {
+        "applicable": False,
+        "funding_carry_eur": 0.0,
+        "reason": "spot_only_directional_context_no_perpetual_position",
+        "funding_rate_used_as_feature_only": True,
+    }
 
 
 def _trades(count: int = 60) -> tuple[FundingBasisTrade, ...]:

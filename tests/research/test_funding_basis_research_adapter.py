@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -41,6 +42,7 @@ def test_adapter_uses_same_quote_derivatives_context_but_calculates_net_pnl_on_s
     assert result.availability.futures_to_spot == {"PF_XBTUSD": "BTCZEUR"}
     assert result.metrics.trade_count > 0
     assert result.metrics.total_cost_bps > 0.0
+    assert result.metrics.total_funding_carry_eur == 0.0
     assert result.metrics.net_pnl_eur <= result.metrics.gross_pnl_eur
     first = result.primary_trades[0]
     assert first.gross_pnl_eur - first.net_pnl_eur == pytest.approx(
@@ -48,6 +50,13 @@ def test_adapter_uses_same_quote_derivatives_context_but_calculates_net_pnl_on_s
     )
     assert first.entry_price > 0.0
     assert first.exit_price > 0.0
+    assert first.funding_carry_eur == 0.0
+    assert first.metadata["funding_carry_attribution"] == {
+        "applicable": False,
+        "funding_carry_eur": 0.0,
+        "reason": "spot_only_directional_context_no_perpetual_position",
+        "funding_rate_used_as_feature_only": True,
+    }
     assert result.paper_capital_allowed is False
     assert result.live_allowed is False
     assert result.promotable is False
@@ -75,6 +84,24 @@ def test_adapter_requires_feature_availability_before_signal_and_enters_on_next_
     assert datetime.fromisoformat(first.metadata["funding_available_time"]) <= first.signal_at
     assert datetime.fromisoformat(first.metadata["basis_available_time"]) <= first.signal_at
     assert first.metadata["implicit_usd_eur_price_conversion"] is False
+
+
+def test_adapter_rejects_nonzero_funding_carry_for_spot_only_trade(tmp_path):
+    spot_dir = _spot_data(tmp_path)
+    snapshot = _derivatives_snapshot(tmp_path, status="READY")
+    result = run_funding_basis_research_smoke(
+        FundingBasisResearchConfig(
+            run_id="pytest_funding_basis_carry",
+            spot_data_paths=(spot_dir,),
+            derivatives_feature_snapshot_manifest=snapshot,
+            template=_template(),
+            symbols=("BTCZEUR",),
+            min_funding_observations=10,
+        )
+    )
+
+    with pytest.raises(ValueError, match="spot-only"):
+        replace(result.primary_trades[0], funding_carry_eur=0.01)
 
 
 def test_adapter_preserves_waiting_status_without_simulation(tmp_path):
