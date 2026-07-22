@@ -95,6 +95,7 @@ def _snapshot(
     available_delay_seconds: int = 0,
     ingestion_delay_seconds: int = 0,
     source_suffix: str = "default",
+    price: float = 100.0,
 ) -> ShadowMarketSnapshot:
     event_time = datetime(2026, 7, 11, 12, tzinfo=timezone.utc) + timedelta(seconds=seconds)
     available_time = event_time + timedelta(seconds=available_delay_seconds)
@@ -107,7 +108,7 @@ def _snapshot(
         ingestion_time=ingestion_time,
         source_snapshot_id=source_identity,
         source_fingerprint=sha256(source_identity.encode("utf-8")).hexdigest(),
-        price=100.0,
+        price=price,
         bid=99.95,
         ask=100.05,
         liquidity_eur=liquidity,
@@ -365,6 +366,21 @@ def test_shadow_simulator_uses_post_latency_market_price_not_signal_metadata_pri
     assert outcome.status == "FILLED"
     assert outcome.fill is not None
     assert outcome.fill.requested_price == pytest.approx(100.0)
+
+
+def test_shadow_simulator_uses_top_of_book_mid_not_a_stale_last_price_when_book_exists():
+    intent = _intent(notional=100.0)
+    outcome = _simulator().simulate(
+        intent,
+        (_snapshot(price=90.0, source_suffix="stale-last-with-current-book"),),
+        risk_decision=_risk_decision(intent),
+    )
+
+    assert outcome.status == "FILLED"
+    assert outcome.fill is not None
+    assert outcome.fill.requested_price == pytest.approx(100.0)
+    assert outcome.fill.execution_price > 100.05
+    assert outcome.fill.metadata["market_snapshot"]["price"] == pytest.approx(90.0)
 
 
 def test_block3_research_modules_do_not_import_runtime_order_paths():

@@ -20,7 +20,7 @@ Le simulateur shadow acceptait auparavant un prix accompagné d'un seul timestam
 - empreinte SHA-256 de la source ;
 - prix, bid/ask et liquidité observés.
 
-Le simulateur choisit les snapshots selon `max(available_time, ingestion_time)`, refuse une identité de marché différente, et expire une donnée arrivée trop tard. Le fill shadow conserve cette provenance. Son idempotence inclut l'empreinte de toute la séquence de snapshots : une reprise avec une donnée différente est donc rejetée au lieu de réutiliser silencieusement un ancien résultat.
+Le simulateur choisit les snapshots selon `max(available_time, ingestion_time)`, refuse une identité de marché différente, et expire une donnée arrivée trop tard. Lorsqu'un bid/ask atomique est présent, il utilise le milieu du carnet comme référence avant de charger le demi-spread, le slippage et la latence ; un dernier prix potentiellement périmé ne peut donc pas améliorer un fill. Le fill shadow conserve cette provenance. Son idempotence inclut l'empreinte de toute la séquence de snapshots : une reprise avec une donnée différente est donc rejetée au lieu de réutiliser silencieusement un ancien résultat.
 
 Les `MarketExecutionRules` sont également liés à une `MarketIdentity` explicite et à un snapshot public Kraken fingerprinté ; leur mapping est lui-même indexé par `MarketIdentity`. Un symbole seul ne suffit plus.
 

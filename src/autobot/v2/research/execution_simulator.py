@@ -349,6 +349,10 @@ class ShadowMarketSnapshot:
             "source_snapshot_id": self.source_snapshot_id,
             "source_fingerprint": self.source_fingerprint,
             "snapshot_fingerprint": self.fingerprint,
+            "price": self.price,
+            "bid": self.bid,
+            "ask": self.ask,
+            "liquidity_eur": self.liquidity_eur,
         }
 
 
@@ -731,8 +735,14 @@ def scenario_cost_config(base: ExecutionCostConfig, scenario: ExecutionScenario)
 
 
 def _requested_price(intent: OrderIntent, snapshot: ShadowMarketSnapshot) -> float:
-    # Market fills must use the observed post-latency snapshot. A signal or
-    # decision price belongs to TCA metadata, not to a future fill assumption.
+    # With an atomic top-of-book snapshot, the mid is the neutral reference
+    # from which the shared cost model charges half-spread plus slippage and
+    # latency.  A last/mark price could be stale or lie on one side of the
+    # current book, creating an accidental optimistic fill.  Without a book,
+    # retain the explicit snapshot price and let the conservative fallback
+    # spread apply.
+    if snapshot.bid is not None and snapshot.ask is not None:
+        return (float(snapshot.bid) + float(snapshot.ask)) / 2.0
     return float(snapshot.price)
 
 
