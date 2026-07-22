@@ -16,6 +16,7 @@ from typing import Mapping, Sequence
 
 from autobot.v2.contracts import AlphaSignal, OrderIntent, RiskDecision, StrategyArtifactReference, TargetPortfolio
 
+from .backtest_alpha_adapter import cost_model_fingerprint
 from .execution_cost_model import ExecutionCostConfig
 from .execution_simulator import (
     ResearchExecutionOutcome,
@@ -23,6 +24,7 @@ from .execution_simulator import (
     ScenarioEdgeReview,
     ShadowMarketSnapshot,
     review_net_edge_scenarios,
+    scenario_cost_config,
 )
 from .microstructure_cost_evidence import MicrostructureCostEvidence
 from .portfolio_construction import (
@@ -88,6 +90,15 @@ def evaluate_alpha_signal_in_shadow(
         return ContractShadowPipelineReview(
             "SCENARIO_BLOCKED",
             scenario_review.reason,
+            signal,
+            scenario_review=scenario_review,
+            risk_decision=risk_decision,
+        )
+    expected_simulation_cost = scenario_cost_config(base_cost_config, simulator.config.scenario)
+    if cost_model_fingerprint(simulator.cost_config.to_dict()) != cost_model_fingerprint(expected_simulation_cost.to_dict()):
+        return ContractShadowPipelineReview(
+            "CONTRACT_REJECTED",
+            "simulation_cost_model_fingerprint_mismatch",
             signal,
             scenario_review=scenario_review,
             risk_decision=risk_decision,
@@ -184,6 +195,8 @@ def evaluate_alpha_signal_in_shadow(
             "capacity_status": capacity_review.status,
             "expected_edge_bps": signal.expected_edge_bps,
             "cost_model_fingerprint": scenario_review.base_cost_model_fingerprint,
+            "simulation_cost_model_fingerprint": cost_model_fingerprint(simulator.cost_config.to_dict()),
+            "simulation_scenario": simulator.config.scenario.name,
             "microstructure_cost_evidence_fingerprint": scenario_review.microstructure_cost_evidence_fingerprint,
             "scenario_status": scenario_review.status,
             "paper_capital_allowed": False,

@@ -641,6 +641,8 @@ class ResearchExecutionSimulator:
                 "execution_mode": "shadow",
                 "market_snapshot": snapshot.provenance(),
                 "market_snapshot_sequence_fingerprint": market_snapshot_sequence_fingerprint,
+                "simulation_cost_model_fingerprint": cost_model_fingerprint(self.cost_config.to_dict()),
+                "simulation_scenario": self.config.scenario.name,
             },
         )
         fill = self._cost_model.simulate_fill(request)
