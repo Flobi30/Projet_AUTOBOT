@@ -23,7 +23,7 @@ import uvicorn
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+from autobot.v2.global_kill_switch import GlobalKillSwitchStore, GlobalKillSwitchStoreError
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +365,7 @@ def _global_kill_switch_snapshot(orchestrator: Any) -> Dict[str, Any]:
             "tripped_at": state.tripped_at,
         } if state.reason_code or state.reason or state.tripped_at else None
         return {
-            "available": True,
+            "available": bool(state.storage_healthy),
             "source": source,
             "status": status,
             "tripped": bool(state.tripped),
@@ -374,6 +374,7 @@ def _global_kill_switch_snapshot(orchestrator: Any) -> Dict[str, Any]:
             "tripped_at": state.tripped_at if state.tripped else None,
             "recovery_required": bool(state.recovery_required),
             "last_trip": last_trip,
+            "error": state.storage_error,
         }
     except Exception as exc:
         logger.warning("Global kill switch state unavailable: %s", exc)
@@ -4396,8 +4397,11 @@ async def acknowledge_kill_switch(
     store, _ = _global_kill_store(orchestrator)
     if store is None:
         raise HTTPException(status_code=503, detail="Kill switch store indisponible")
-    store.acknowledge_recovery(operator_id)
-    acknowledged_handlers = _acknowledge_runtime_kill_switches(orchestrator, operator_id)
+    try:
+        store.acknowledge_recovery(operator_id)
+        acknowledged_handlers = _acknowledge_runtime_kill_switches(orchestrator, operator_id)
+    except GlobalKillSwitchStoreError as exc:
+        raise HTTPException(status_code=503, detail="Kill switch store indisponible; rearmement refuse") from exc
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "acknowledged": True,

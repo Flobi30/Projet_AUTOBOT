@@ -62,12 +62,16 @@ class KillSwitch:
 
     def acknowledge_recovery(self, operator_id: str) -> None:
         """Clear local and persisted kill-switch state after operator review."""
+
+        # Persist first: if SQLite is unavailable, keeping this handler locally
+        # tripped is safer than clearing it while other processes still see an
+        # uncertain global state.
+        self._global_store.acknowledge_recovery(operator_id)
         self._tripped = False
         self._api_failures = 0
         self._nonce_errors = 0
         self._partial_started_at.clear()
         self._last_event = None
-        self._global_store.acknowledge_recovery(operator_id)
 
     async def record_api_failure(self, error_message: str) -> None:
         if self._tripped:

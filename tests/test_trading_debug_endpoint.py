@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from autobot.v2.api import dashboard
-from autobot.v2.global_kill_switch import GlobalKillSwitchStore
+from autobot.v2.global_kill_switch import GlobalKillSwitchStore, GlobalKillSwitchStoreError
 from autobot.v2.kill_switch import KillSwitch
 
 
@@ -357,3 +357,27 @@ def test_acknowledge_kill_switch_clears_paper_runtime_handlers(monkeypatch, tmp_
     assert body["kill_switch"]["last_trip"]["reason_code"] == "api_failures"
     assert kill_store.get().tripped is False
     assert kill_switch.tripped is False
+
+
+def test_acknowledge_kill_switch_refuses_to_clear_when_persistence_is_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    db_path = tmp_path / "paper_trades.db"
+    _init_paper_db(db_path)
+    kill_store = GlobalKillSwitchStore(str(tmp_path / "global_kill_switch.db"))
+    orchestrator = _Orchestrator(db_path, kill_store)
+    dashboard.app.state.orchestrator = orchestrator
+    client = TestClient(dashboard.app)
+
+    def unavailable(_operator_id):
+        raise GlobalKillSwitchStoreError("global kill-switch acknowledge operation failed: OperationalError")
+
+    monkeypatch.setattr(kill_store, "acknowledge_recovery", unavailable)
+
+    response = client.post(
+        "/api/kill-switch/acknowledge",
+        json={"confirmation": "ACKNOWLEDGE_PAPER_KILL_SWITCH", "operator_id": "test"},
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 503
+    assert "rearmement refuse" in response.json()["detail"]
