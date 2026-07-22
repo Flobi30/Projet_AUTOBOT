@@ -4,7 +4,8 @@
 
 **GO — research/shadow uniquement.** Cette tranche ne crée aucun `ExecutionCommand`, ne modifie aucun routeur, et n'autorise ni capital paper, ni promotion, ni live.
 
-Implémentation : `93ef061502249621173c22158819ba17b9e85903`.
+Implémentation initiale : `93ef061502249621173c22158819ba17b9e85903`.
+Raffinement top-of-book : `e11364613c82e814e817f30a4797cdaa42f16493`.
 
 ## Problème traité
 
@@ -32,13 +33,13 @@ Les `MarketExecutionRules` sont également liés à une `MarketIdentity` explici
 - `tests/research/test_microstructure_cost_evidence.py`
 - `tests/research/test_canonical_microstructure_profile.py`
 
-Résultat local : **50 passed**.
+Résultat local : **51 passed**.
 
-Validation VPS hermétique, depuis une image Docker lecture seule et sans réseau : **50 passed**, avec un seul avertissement attendu d'écriture du cache pytest dans le montage lecture seule.
+Validation VPS hermétique, depuis une image Docker lecture seule et sans réseau : **51 passed**, avec un seul avertissement attendu d'écriture du cache pytest dans le montage lecture seule.
 
 Le déploiement VPS a confirmé :
 
-- dépôt, label de l'image et conteneur sur `93ef061502249621173c22158819ba17b9e85903` ;
+- dépôt, label de l'image et conteneur sur `e11364613c82e814e817f30a4797cdaa42f16493` ;
 - hash identique de `execution_simulator.py` sur disque et dans `/app` ;
 - `/health` healthy, orchestrateur en cours, WebSocket connecté, 14 instances ;
 - quatre timers research restaurés et actifs ;
