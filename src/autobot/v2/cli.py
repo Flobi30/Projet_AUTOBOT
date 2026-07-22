@@ -543,6 +543,33 @@ def _build_parser() -> argparse.ArgumentParser:
     strategy_artifact_resolve.add_argument("--artifact-id", required=True)
     strategy_artifact_resolve.set_defaults(handler=_cmd_strategy_artifact_resolve_reference)
 
+    offline_shadow_provenance = subparsers.add_parser(
+        "offline-shadow-provenance-bind",
+        help="Bind one registered shadow artifact to one verified feature publication without starting runtime or creating an order",
+    )
+    offline_shadow_provenance.add_argument(
+        "--artifact-registry-path",
+        default="data/research/strategy_artifacts.sqlite3",
+    )
+    offline_shadow_provenance.add_argument("--artifact-id", required=True)
+    offline_shadow_provenance.add_argument("--feature-publication-path", required=True)
+    offline_shadow_provenance.add_argument("--symbol", required=True)
+    offline_shadow_provenance.add_argument("--timeframe", required=True)
+    offline_shadow_provenance.add_argument(
+        "--decision-at",
+        required=True,
+        help="UTC ISO-8601 time; it must exactly equal the published vector observation time.",
+    )
+    offline_shadow_provenance.add_argument("--signal-id", required=True)
+    offline_shadow_provenance.add_argument("--net-expected-edge-bps", type=float, required=True)
+    offline_shadow_provenance.add_argument("--shadow-notional-eur", type=float, required=True)
+    offline_shadow_provenance.add_argument(
+        "--execution-source",
+        default="offline_shadow_provenance/v1",
+        help="Audit label only; this command cannot start shadow runtime or execution.",
+    )
+    offline_shadow_provenance.set_defaults(handler=_cmd_offline_shadow_provenance_bind)
+
     alpha_hypothesis_scheduler = subparsers.add_parser(
         "alpha-hypothesis-scheduler",
         help="Rank bounded alpha hypotheses from the knowledge base, templates, data readiness and research memory",
@@ -3112,6 +3139,49 @@ def _cmd_strategy_artifact_resolve_reference(args: argparse.Namespace) -> int:
             "paper_capital_allowed": False,
             "live_allowed": False,
             "automatic_promotion_allowed": False,
+        }
+    )
+    return 0
+
+
+def _cmd_offline_shadow_provenance_bind(args: argparse.Namespace) -> int:
+    """Produce a read-only canonical-to-shadow provenance hand-off.
+
+    This intentionally stops before the runtime preview, scheduler, router or
+    paper engine.  Its output is audit evidence for a separately invoked,
+    non-executable parity test only.
+    """
+
+    from autobot.v2.research.offline_shadow_provenance import load_offline_shadow_provenance
+
+    try:
+        decision_at = datetime.fromisoformat(str(args.decision_at).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("--decision-at must be an ISO-8601 timestamp") from exc
+    if decision_at.tzinfo is None or decision_at.utcoffset() is None:
+        raise ValueError("--decision-at must be timezone-aware")
+    binding = load_offline_shadow_provenance(
+        artifact_registry_path=Path(args.artifact_registry_path),
+        artifact_id=args.artifact_id,
+        feature_publication_path=Path(args.feature_publication_path),
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        decision_at=decision_at,
+        signal_id=args.signal_id,
+        net_expected_edge_bps=args.net_expected_edge_bps,
+        shadow_notional_eur=args.shadow_notional_eur,
+        execution_source=args.execution_source,
+    )
+    _print_json(
+        {
+            "binding": binding.to_dict(),
+            "preview_metadata": binding.to_preview_metadata(),
+            "research_only": True,
+            "shadow_runtime_started": False,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "automatic_promotion_allowed": False,
+            "order_created": False,
         }
     )
     return 0

@@ -37,6 +37,10 @@ from autobot.v2.research.verified_feature_vector_publication import (
     load_published_verified_feature_vector,
     publish_verified_feature_vectors,
 )
+from autobot.v2.research.offline_shadow_provenance import (
+    OfflineShadowProvenanceError,
+    bind_offline_shadow_provenance,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -305,6 +309,77 @@ def test_batch_target_preview_and_ledgered_shadow_observation_have_exact_parity(
     assert ledger.count() == 1
 
 
+def test_offline_shadow_provenance_binds_a_verified_publication_to_a_non_executable_preview(tmp_path):
+    source_vector, feature_manifest = _canonical_vector(tmp_path, include_manifest=True)
+    publication = publish_verified_feature_vectors(
+        run_id="offline_shadow_bridge_publication",
+        feature_snapshot_manifest_path=feature_manifest,
+        observed_at=source_vector.observed_at,
+        output_dir=tmp_path / "feature_publications",
+    )
+    vector = load_published_verified_feature_vector(publication.output_path, symbol="BTCEUR", timeframe="5m")
+    artifact = _artifact(vector)
+
+    binding = bind_offline_shadow_provenance(
+        artifact=artifact,
+        vector=vector,
+        decision_at=vector.observed_at,
+        signal_id="offline-shadow-signal",
+        net_expected_edge_bps=12.0,
+        shadow_notional_eur=1.0,
+    )
+
+    metadata = binding.to_preview_metadata()
+    preview = preview_runtime_buy_signal(
+        symbol="BTC/EUR",
+        price=65_000.0,
+        signal_timestamp=vector.observed_at,
+        decision_id="offline-shadow-decision",
+        metadata=metadata,
+    )
+
+    assert binding.vector.fingerprint == vector.fingerprint
+    assert binding.to_dict()["paper_capital_allowed"] is False
+    assert metadata["offline_shadow_provenance_fingerprint"] == binding.fingerprint
+    assert preview.status == "SHADOW_PREVIEW_READY"
+    assert preview.to_dict()["execution_command_created"] is False
+    assert preview.to_dict()["paper_capital_allowed"] is False
+    assert preview.to_dict()["live_allowed"] is False
+
+
+def test_offline_shadow_provenance_rejects_stale_or_mismatched_feature_evidence(tmp_path):
+    vector = _canonical_vector(tmp_path)
+    artifact = _artifact(vector)
+
+    with pytest.raises(OfflineShadowProvenanceError, match="decision_at must equal"):
+        bind_offline_shadow_provenance(
+            artifact=artifact,
+            vector=vector,
+            decision_at=vector.observed_at + timedelta(seconds=1),
+            signal_id="offline-shadow-stale",
+            net_expected_edge_bps=12.0,
+            shadow_notional_eur=1.0,
+        )
+    with pytest.raises(OfflineShadowProvenanceError, match="exceeds strategy artifact mandate"):
+        bind_offline_shadow_provenance(
+            artifact=artifact,
+            vector=vector,
+            decision_at=vector.observed_at,
+            signal_id="offline-shadow-oversized",
+            net_expected_edge_bps=12.0,
+            shadow_notional_eur=2.0,
+        )
+    with pytest.raises(OfflineShadowProvenanceError, match="snapshot does not match"):
+        bind_offline_shadow_provenance(
+            artifact=artifact,
+            vector=_vector(),
+            decision_at=vector.observed_at,
+            signal_id="offline-shadow-mismatch",
+            net_expected_edge_bps=12.0,
+            shadow_notional_eur=1.0,
+        )
+
+
 def test_shadow_observation_ledger_has_no_execution_imports():
     root = Path(__file__).resolve().parents[2]
     tree = ast.parse((root / "src/autobot/v2/research/shadow_observation_ledger.py").read_text(encoding="utf-8"))
@@ -313,6 +388,21 @@ def test_shadow_observation_ledger_has_no_execution_imports():
         "autobot.v2.paper_trading",
         "autobot.v2.signal_handler_async",
         "autobot.v2.order_executor",
+    }
+    imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
+    assert imports.isdisjoint(forbidden)
+
+
+def test_offline_shadow_provenance_has_no_runtime_or_execution_imports():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "src/autobot/v2/research/offline_shadow_provenance.py").read_text(encoding="utf-8"))
+    forbidden = {
+        "autobot.v2.order_router",
+        "autobot.v2.paper_trading",
+        "autobot.v2.signal_handler_async",
+        "autobot.v2.order_executor",
+        "autobot.v2.orchestrator_async",
     }
     imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)

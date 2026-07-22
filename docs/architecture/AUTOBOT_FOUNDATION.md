@@ -45,6 +45,19 @@ either use a contract directly or add an explicit adapter with a contract test.
 No component may infer quote currency, symbol mapping, or event availability
 time. These facts must be explicit in the relevant contract.
 
+## Offline shadow-provenance boundary
+
+`offline-shadow-provenance-bind` is the only supported v1 batch hand-off from
+one registered `SHADOW_ELIGIBLE`/`SHADOW` artifact to one published,
+material-verified canonical feature vector. It re-reads the artifact registry
+in SQLite read-only mode, re-verifies the feature publication, requires the
+decision time to equal the vector availability time and refuses a stale,
+mismatched or over-mandate bind. Its result is metadata for a *blocked*
+shadow-preview test only: it cannot start the runtime, create an order, enable
+paper capital, promote a strategy or enable live trading. Multi-source
+spot/derivatives hand-offs remain blocked until they can prove one coherent
+common observation time.
+
 ## 24-layer coverage baseline
 
 The machine-readable matrix is `docs/architecture/layer_coverage.json`.

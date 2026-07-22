@@ -663,8 +663,11 @@ def test_strategy_artifact_registry_resolves_only_registered_shadow_references_r
     artifact_id = registry.register(artifact)
     before = sha256(path.read_bytes()).hexdigest()
 
+    resolved_artifact = registry.resolve_shadow_artifact(artifact_id)
     reference = registry.resolve_shadow_order_intent_reference(artifact_id)
 
+    assert resolved_artifact.artifact_id == artifact_id
+    assert resolved_artifact.fingerprint == artifact.fingerprint
     assert reference.artifact_id == artifact_id
     assert reference.fingerprint == artifact.fingerprint
     assert reference.feature_snapshots[0].feature_snapshot_id == "features_fixture"

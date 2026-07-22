@@ -2165,3 +2165,71 @@ def test_cli_skips_a_terminal_material_experiment_before_research_retries(tmp_pa
     assert second["experiment_registry"]["recorded"] is False
     assert second["paper_capital_allowed"] is False
     assert second["live_allowed"] is False
+
+
+def test_cli_offline_shadow_provenance_bind_is_explicitly_non_executable(tmp_path, capsys, monkeypatch):
+    from autobot.v2.research import offline_shadow_provenance
+
+    captured = {}
+
+    class _Binding:
+        def to_dict(self):
+            return {
+                "artifact_id": "artifact-pytest",
+                "feature_vector_fingerprint": "vector-pytest",
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "runtime_started": False,
+                "order_created": False,
+            }
+
+        def to_preview_metadata(self):
+            return {
+                "offline_shadow_provenance_fingerprint": "bridge-pytest",
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "runtime_started": False,
+                "order_created": False,
+            }
+
+    def _load(**kwargs):
+        captured.update(kwargs)
+        return _Binding()
+
+    monkeypatch.setattr(offline_shadow_provenance, "load_offline_shadow_provenance", _load)
+
+    exit_code = cli.main(
+        [
+            "offline-shadow-provenance-bind",
+            "--artifact-registry-path",
+            str(tmp_path / "artifacts.sqlite3"),
+            "--artifact-id",
+            "artifact-pytest",
+            "--feature-publication-path",
+            str(tmp_path / "publication.json"),
+            "--symbol",
+            "BTCEUR",
+            "--timeframe",
+            "5m",
+            "--decision-at",
+            "2026-07-22T12:00:00+00:00",
+            "--signal-id",
+            "signal-pytest",
+            "--net-expected-edge-bps",
+            "12.5",
+            "--shadow-notional-eur",
+            "1.0",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert captured["decision_at"] == datetime(2026, 7, 22, 12, tzinfo=timezone.utc)
+    assert captured["shadow_notional_eur"] == 1.0
+    assert payload["binding"]["research_only"] is True
+    assert payload["shadow_runtime_started"] is False
+    assert payload["paper_capital_allowed"] is False
+    assert payload["live_allowed"] is False
+    assert payload["order_created"] is False

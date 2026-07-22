@@ -186,6 +186,19 @@ def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> Strate
     append-only registry before it can write a real shadow observation.
     """
 
+    return strategy_artifact_from_mapping(value).to_order_intent_reference()
+
+
+def strategy_artifact_from_mapping(value: Mapping[str, Any]) -> StrategyArtifact:
+    """Parse one immutable artifact without weakening its self-verification.
+
+    The full artifact remains useful to research-only batch consumers which
+    need to bind a published feature vector before they can create a shadow
+    observation.  The generic contracts module deliberately exposes only the
+    smaller :class:`StrategyArtifactReference`; this parser keeps that fuller
+    governance fact outside the runtime and execution paths.
+    """
+
     if not isinstance(value, Mapping):
         raise ShadowGovernanceError("strategy_artifact_required")
     payload = dict(value)
@@ -210,7 +223,7 @@ def strategy_artifact_reference_from_mapping(value: Mapping[str, Any]) -> Strate
         raise ShadowGovernanceError("strategy_artifact_id_mismatch")
     if claimed_fingerprint != artifact.fingerprint:
         raise ShadowGovernanceError("strategy_artifact_fingerprint_mismatch")
-    return artifact.to_order_intent_reference()
+    return artifact
 
 
 def feature_snapshot_reference_from_mapping(value: Mapping[str, Any]) -> FeatureSnapshotReference:
@@ -728,6 +741,17 @@ class StrategyArtifactRegistry:
         only a non-executable contract reference.
         """
 
+        return self.resolve_shadow_artifact(artifact_id).to_order_intent_reference()
+
+    def resolve_shadow_artifact(self, artifact_id: str) -> StrategyArtifact:
+        """Read one eligible artifact for an offline shadow-provenance bind.
+
+        This path is read-only and intentionally remains outside the hot
+        signal handler.  It proves that a later research/shadow batch bound a
+        concrete publication to the exact registry artifact; it cannot start
+        a service, increase risk, submit an order or enable paper/live.
+        """
+
         requested_id = str(artifact_id or "").strip()
         if not requested_id:
             raise ShadowGovernanceError("artifact_id is required")
@@ -762,14 +786,14 @@ class StrategyArtifactRegistry:
             # than turning a recorded reduction into full-size shadow intent.
             raise ShadowGovernanceError("shadow safety action blocks new shadow order intents")
         try:
-            reference = strategy_artifact_reference_from_mapping(json.loads(str(row[0])))
+            artifact = strategy_artifact_from_mapping(json.loads(str(row[0])))
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ShadowGovernanceError("strategy artifact registry record is invalid") from exc
-        if reference.status not in ORDER_INTENT_SHADOW_ARTIFACT_STATUSES:
+        if artifact.status not in ORDER_INTENT_SHADOW_ARTIFACT_STATUSES:
             raise ShadowGovernanceError("strategy artifact is not eligible for a new shadow order intent")
-        if not reference.feature_snapshots:
+        if not artifact.feature_snapshots:
             raise ShadowGovernanceError("strategy artifact lacks point-in-time feature snapshot evidence")
-        return reference
+        return artifact
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30.0)
