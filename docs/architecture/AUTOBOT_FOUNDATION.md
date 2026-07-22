@@ -70,7 +70,8 @@ only that research evidence is complete enough for a human to consider an
 immutable shadow artifact; it is not an authorization. A current shadow-only
 risk mandate and an explicit human approval reference remain mandatory, while
 paper capital, live, automatic promotion, runtime start and order creation all
-remain false.
+remain false. Deployment evidence is recorded in
+`reports/program/autobot_shadow_artifact_readiness_20260722.md`.
 
 ## Legacy runtime signal provenance inventory
 
