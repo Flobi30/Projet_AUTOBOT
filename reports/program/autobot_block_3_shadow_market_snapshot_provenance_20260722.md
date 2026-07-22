@@ -4,6 +4,8 @@
 
 **GO — research/shadow uniquement.** Cette tranche ne crée aucun `ExecutionCommand`, ne modifie aucun routeur, et n'autorise ni capital paper, ni promotion, ni live.
 
+Implémentation : `93ef061502249621173c22158819ba17b9e85903`.
+
 ## Problème traité
 
 Le simulateur shadow acceptait auparavant un prix accompagné d'un seul timestamp. Cela ne permettait pas de prouver que le prix appartenait au même marché que l'intention, ni qu'AUTOBOT pouvait effectivement le connaître au moment du fill.
@@ -22,7 +24,7 @@ Le simulateur choisit les snapshots selon `max(available_time, ingestion_time)`,
 
 Les `MarketExecutionRules` sont également liés à une `MarketIdentity` explicite et à un snapshot public Kraken fingerprinté ; leur mapping est lui-même indexé par `MarketIdentity`. Un symbole seul ne suffit plus.
 
-## Preuves locales
+## Preuves de test
 
 - `py_compile` des modules touchés : PASS.
 - `tests/research/test_execution_simulator.py`
@@ -30,7 +32,18 @@ Les `MarketExecutionRules` sont également liés à une `MarketIdentity` explici
 - `tests/research/test_microstructure_cost_evidence.py`
 - `tests/research/test_canonical_microstructure_profile.py`
 
-Résultat : **27 passed**.
+Résultat local : **50 passed**.
+
+Validation VPS hermétique, depuis une image Docker lecture seule et sans réseau : **50 passed**, avec un seul avertissement attendu d'écriture du cache pytest dans le montage lecture seule.
+
+Le déploiement VPS a confirmé :
+
+- dépôt, label de l'image et conteneur sur `93ef061502249621173c22158819ba17b9e85903` ;
+- hash identique de `execution_simulator.py` sur disque et dans `/app` ;
+- `/health` healthy, orchestrateur en cours, WebSocket connecté, 14 instances ;
+- quatre timers research restaurés et actifs ;
+- `LIVE_TRADING_CONFIRMATION=false`, `STRATEGY_ROUTER_LIVE_ENABLED=false`, `COLONY_AUTO_LIVE_PROMOTION=false`, `ENABLE_INSTANCE_SPLIT_EXECUTOR=false` ;
+- aucune ligne `Traceback`, `CRITICAL`, `ERROR` ou ordre live dans les 15 minutes de logs examinées.
 
 ## Invariants vérifiés
 
