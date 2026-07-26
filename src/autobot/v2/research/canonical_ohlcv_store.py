@@ -97,6 +97,18 @@ class CanonicalOHLCVFile:
 
 
 @dataclass(frozen=True)
+class RawSourceProvenance:
+    """Immutable identity of one raw source used by a canonical snapshot."""
+
+    path: str
+    content_sha256: str
+    byte_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class CanonicalOHLCVSnapshot:
     run_id: str
     generated_at: str
@@ -123,6 +135,7 @@ class CanonicalOHLCVSnapshot:
     quarantine_manifest_path: str | None = None
     backfill_status: str = "snapshot_from_existing_raw"
     new_data_significance: str = "first_canonical_snapshot_or_uncompared"
+    raw_sources: tuple[RawSourceProvenance, ...] = ()
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     promotable: bool = False
@@ -159,6 +172,7 @@ class CanonicalOHLCVSnapshot:
             "quarantine_manifest_path": self.quarantine_manifest_path,
             "backfill_status": self.backfill_status,
             "new_data_significance": self.new_data_significance,
+            "raw_sources": [item.to_dict() for item in self.raw_sources],
             "paper_capital_allowed": self.paper_capital_allowed,
             "live_allowed": self.live_allowed,
             "promotable": self.promotable,
@@ -180,6 +194,7 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
     raw_files = _iter_raw_ohlcv_files(config.raw_paths)
     if config.max_files is not None:
         raw_files = raw_files[: max(0, config.max_files)]
+    raw_sources = _raw_source_provenance(raw_files)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     raw_rows = 0
@@ -220,8 +235,14 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
                     break
             connection.commit()
 
+            if _raw_source_provenance(raw_files) != raw_sources:
+                raise RuntimeError("raw_source_changed_during_canonicalization")
+
             summary = _summarize_canonical_spool(connection)
-            fingerprint = summary["fingerprint"]
+            fingerprint = _snapshot_fingerprint(
+                canonical_rows_fingerprint=summary["fingerprint"],
+                raw_sources=raw_sources,
+            )
             snapshot_id = f"ohlcv_v{CANONICAL_OHLCV_SCHEMA_VERSION}_{fingerprint[:16]}"
             snapshot_dir = config.output_dir / snapshot_id
             snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -263,6 +284,7 @@ def build_canonical_ohlcv_snapshot(config: CanonicalOHLCVConfig) -> CanonicalOHL
         available_end_at=summary["available_end_at"],
         quarantine_manifest_path=quarantine_manifest_path,
         new_data_significance=classify_snapshot_significance(latest_previous, None),
+        raw_sources=raw_sources,
     )
     snapshot = _with_manifest_paths(snapshot, config.manifest_dir, snapshot_dir)
     if latest_previous:
@@ -568,6 +590,7 @@ def render_canonical_ohlcv_report(snapshot: CanonicalOHLCVSnapshot) -> str:
         "## Summary",
         "",
         f"- Raw files: `{snapshot.raw_file_count}`",
+        f"- Raw source hashes: `{len(snapshot.raw_sources)}`",
         f"- Raw rows: `{snapshot.raw_row_count}`",
         f"- Canonical rows: `{snapshot.canonical_row_count}`",
         f"- Duplicates removed: `{snapshot.duplicate_count}`",
@@ -621,6 +644,76 @@ def _iter_raw_ohlcv_files(paths: Sequence[Path]) -> list[Path]:
                 if path.is_file() and _looks_like_ohlcv_file(path)
             )
     return sorted(dict.fromkeys(files), key=lambda path: str(path).lower())
+
+
+def verify_canonical_raw_source_provenance(snapshot: CanonicalOHLCVSnapshot | Mapping[str, Any]) -> bool:
+    """Return whether every raw source still matches the snapshot manifest.
+
+    Legacy manifests without immutable raw-source records deliberately return
+    ``False``. They remain research history, but cannot claim this stronger
+    provenance proof.
+    """
+
+    raw_sources: Sequence[RawSourceProvenance | Mapping[str, Any]]
+    if isinstance(snapshot, CanonicalOHLCVSnapshot):
+        raw_sources = snapshot.raw_sources
+    else:
+        raw_sources = tuple(item for item in snapshot.get("raw_sources", ()) if isinstance(item, Mapping))
+    if not raw_sources:
+        return False
+    for source in raw_sources:
+        if isinstance(source, RawSourceProvenance):
+            path = Path(source.path)
+            expected_hash = source.content_sha256
+            expected_size = source.byte_count
+        else:
+            path = Path(str(source.get("path") or ""))
+            expected_hash = str(source.get("content_sha256") or "")
+            expected_size = int(source.get("byte_count") or -1)
+        if not path.is_file() or not expected_hash or path.stat().st_size != expected_size:
+            return False
+        try:
+            if _file_sha256(path) != expected_hash:
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def _raw_source_provenance(paths: Sequence[Path]) -> tuple[RawSourceProvenance, ...]:
+    sources: list[RawSourceProvenance] = []
+    for path in paths:
+        try:
+            sources.append(
+                RawSourceProvenance(
+                    path=str(path.resolve()),
+                    content_sha256=_file_sha256(path),
+                    byte_count=path.stat().st_size,
+                )
+            )
+        except OSError as exc:
+            raise RuntimeError(f"raw_source_hash_failed:{path}") from exc
+    return tuple(sorted(sources, key=lambda item: item.path.lower()))
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1_048_576), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _snapshot_fingerprint(
+    *,
+    canonical_rows_fingerprint: str,
+    raw_sources: Sequence[RawSourceProvenance],
+) -> str:
+    payload = {
+        "canonical_rows_fingerprint": canonical_rows_fingerprint,
+        "raw_sources": [item.to_dict() for item in raw_sources],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _looks_like_ohlcv_file(path: Path) -> bool:
@@ -795,6 +888,7 @@ def _with_manifest_paths(
             "timeframes": snapshot.timeframes,
             "files": snapshot.files,
             "safety_notes": snapshot.safety_notes,
+            "raw_sources": snapshot.raw_sources,
             "manifest_path": str(manifest_path),
         }
     )
@@ -808,6 +902,7 @@ def _replace_significance(snapshot: CanonicalOHLCVSnapshot, significance: str) -
             "timeframes": snapshot.timeframes,
             "files": snapshot.files,
             "safety_notes": snapshot.safety_notes,
+            "raw_sources": snapshot.raw_sources,
             "new_data_significance": significance,
         }
     )

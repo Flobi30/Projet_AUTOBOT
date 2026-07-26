@@ -13,6 +13,7 @@ from autobot.v2.research.canonical_ohlcv_store import (
     adapt_legacy_canonical_row,
     build_canonical_ohlcv_snapshot,
     classify_snapshot_significance,
+    verify_canonical_raw_source_provenance,
 )
 
 
@@ -51,6 +52,43 @@ def test_canonical_ohlcv_snapshot_dedupes_sorts_and_uses_utc(tmp_path):
         ("kraken", "spot", "BTCZEUR", "5m")
     }
     assert Path(str(snapshot.manifest_path)).exists()
+    assert verify_canonical_raw_source_provenance(snapshot) is True
+
+
+def test_canonical_snapshot_detects_raw_source_mutation_after_materialization(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source = raw / "BTCZEUR_5m.csv"
+    _write_rows(source, "BTCZEUR", "5m", [datetime(2026, 1, 1, tzinfo=timezone.utc)])
+
+    first = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_raw_hash_first",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    assert len(first.raw_sources) == 1
+    assert verify_canonical_raw_source_provenance(first) is True
+    assert verify_canonical_raw_source_provenance(first.to_dict()) is True
+    source.write_text(source.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert verify_canonical_raw_source_provenance(first) is False
+
+    second = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_raw_hash_second",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    assert second.fingerprint != first.fingerprint
+    assert verify_canonical_raw_source_provenance(second) is True
 
 
 def test_canonical_ohlcv_snapshot_is_idempotent(tmp_path):
