@@ -9,9 +9,6 @@ services:
         # remains unverified so isolated research collection fails closed.
         AUTOBOT_BUILD_COMMIT: ${AUTOBOT_BUILD_COMMIT:-unverified}
     container_name: autobot-v2
-    env_file:
-      - path: .env
-        required: false
     restart: unless-stopped
     
     # Environnement
@@ -20,8 +17,6 @@ services:
       - APP_ENV=${APP_ENV:-production}
       - DEPLOYMENT_STAGE=${DEPLOYMENT_STAGE:-paper}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - KRAKEN_API_KEY=${KRAKEN_API_KEY:-}
-      - KRAKEN_API_SECRET=${KRAKEN_API_SECRET:-}
       - DASHBOARD_HOST=0.0.0.0
       - DASHBOARD_PORT=8080
       - DASHBOARD_API_TOKEN=${DASHBOARD_API_TOKEN:-}
@@ -36,7 +31,9 @@ services:
       - HEALTHCHECK_CA_CERT=${HEALTHCHECK_CA_CERT:-/app/certs/ca.crt}
       - INITIAL_CAPITAL=${INITIAL_CAPITAL:-100}
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
-      - PAPER_TRADING=${PAPER_TRADING:-true}
+      # Observation-only is a separate non-executable mode.  It must not
+      # inherit a legacy paper setting or any private Kraken credentials.
+      - PAPER_TRADING=false
       - LIVE_TRADING_CONFIRMATION=${LIVE_TRADING_CONFIRMATION:-false}
       - AUTOBOT_OBSERVATION_ONLY_RUNTIME=true
       # Programme research/shadow : ces garde-fous doivent primer sur les
@@ -71,8 +68,19 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./reports:/app/reports
-      - ./.env:/app/.env:ro
       - ./certs:/app/certs:ro
+
+    # The research/observation service has no reason to retain Linux
+    # capabilities, write outside its explicit runtime volumes, or load the
+    # operator's complete .env file.  A future execution service must be
+    # defined separately and is intentionally out of scope here.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     
     # Limites ressources (CAX11 = 4GB RAM, 2 vCPU ARM64)
     deploy:

@@ -42,7 +42,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY src/ /app/src/
 COPY docs/research/ /app/docs/research/
 COPY docs/architecture/ /app/docs/architecture/
-COPY .env.example /app/.env
 
 # Copie du frontend buildé depuis le stage 1
 COPY --from=frontend-builder /app/dashboard/dist /app/dashboard/dist

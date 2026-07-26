@@ -155,7 +155,9 @@ class StartupAttestation:
         else:
             fail("deployment_stage_valid", "invalid_deployment_stage", f"DEPLOYMENT_STAGE invalide: {stage}")
         # 2) live confirmation gate
-        if paper_mode or os.getenv("LIVE_TRADING_CONFIRMATION", "false").lower() == "true":
+        if observation_only:
+            pass_check("live_confirmation", "not applicable: observation-only runtime cannot execute")
+        elif paper_mode or os.getenv("LIVE_TRADING_CONFIRMATION", "false").lower() == "true":
             pass_check("live_confirmation", "live confirmation gate satisfied")
         else:
             fail("live_confirmation", "live_confirmation_missing", "LIVE mode sans LIVE_TRADING_CONFIRMATION=true")

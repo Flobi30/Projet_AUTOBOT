@@ -123,3 +123,37 @@ def test_observation_attestation_skips_private_kraken_checks(monkeypatch, tmp_pa
         private_reconciliation.assert_not_awaited()
 
     asyncio.run(_run())
+
+
+def test_observation_attestation_does_not_require_paper_or_live_confirmation(monkeypatch, tmp_path):
+    async def _run():
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("PAPER_TRADING", "false")
+        monkeypatch.setenv("LIVE_TRADING_CONFIRMATION", "false")
+        monkeypatch.setenv("DEPLOYMENT_STAGE", "paper")
+        monkeypatch.setenv("DASHBOARD_API_TOKEN", "test-token")
+        monkeypatch.setenv("MAX_DRAWDOWN_PCT", "10")
+        monkeypatch.setenv("RISK_PER_TRADE_PCT", "1")
+        monkeypatch.setenv("MAX_POSITION_SIZE_PCT", "20")
+        monkeypatch.setenv("LEAKED_SSH_KEY_ROTATED_ACK", "true")
+        monkeypatch.setenv("KRAKEN_API_KEY_FINGERPRINT", "safe-test-key")
+
+        gate = StartupAttestation(order_executor=None, kill_switch=object())
+        monkeypatch.setattr(
+            gate,
+            "_check_public_exchange_connectivity",
+            AsyncMock(return_value=_CheckOutcome(ok=True, message="public exchange ok")),
+        )
+        monkeypatch.setattr(gate, "_check_db_writable", lambda: _CheckOutcome(ok=True, message="db ok"))
+        monkeypatch.setattr(gate, "_check_audit_writable", AsyncMock(return_value=_CheckOutcome(ok=True, message="audit ok")))
+        monkeypatch.setattr(gate, "_check_clock_drift", AsyncMock(return_value=_CheckOutcome(ok=True, message="clock ok")))
+        monkeypatch.setattr(gate, "_kill_switch_self_test", AsyncMock(return_value=_CheckOutcome(ok=True, message="kill ok")))
+
+        result = await gate.run(observation_only=True)
+
+        assert result.ok is True
+        assert result.checks["live_confirmation"] is True
+        assert result.diagnostics["live_confirmation"]["message"] == "not applicable: observation-only runtime cannot execute"
+
+    asyncio.run(_run())

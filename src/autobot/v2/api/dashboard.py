@@ -106,6 +106,39 @@ async def _capital_snapshot_from_orchestrator(orchestrator: Any, status: Dict[st
     return fallback if isinstance(fallback, dict) else {}
 
 
+def _runtime_execution_state(orchestrator: Any, capital_snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve an honest runtime label without trusting the legacy paper flag alone.
+
+    ``PAPER_TRADING`` remains a compatibility configuration flag in some
+    deployments.  It must not make an observation-only runtime look as though
+    it has a simulated wallet or an executable paper path.
+    """
+
+    configured_paper_mode = bool(
+        getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False))
+    )
+    raw_mode = str(capital_snapshot.get("execution_mode") or "").strip().lower()
+    if raw_mode not in {"observation_only", "paper", "live"}:
+        if bool(getattr(orchestrator, "observation_only_runtime", False)):
+            raw_mode = "observation_only"
+        elif configured_paper_mode:
+            raw_mode = "paper"
+        else:
+            raw_mode = "live"
+
+    execution_enabled = capital_snapshot.get("execution_enabled")
+    if execution_enabled is None:
+        execution_enabled = raw_mode in {"paper", "live"}
+    execution_enabled = bool(execution_enabled) and raw_mode != "observation_only"
+
+    return {
+        "mode": raw_mode,
+        "execution_enabled": execution_enabled,
+        "paper_mode": raw_mode == "paper",
+        "configured_paper_mode": configured_paper_mode,
+    }
+
+
 def _infer_symbol_from_instance(inst: Dict[str, Any]) -> str:
     symbol = str(inst.get("symbol") or inst.get("pair") or "").strip()
     if symbol:
@@ -4091,8 +4124,9 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
         status = orchestrator.get_status()
         instances_data = orchestrator.get_instances_snapshot()
         capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
-        paper_mode = bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False)))
-        mode = "paper" if paper_mode else "live"
+        execution_state = _runtime_execution_state(orchestrator, capital_snapshot)
+        mode = str(execution_state["mode"])
+        paper_mode = bool(execution_state["paper_mode"])
         kill_switch = _global_kill_switch_snapshot(orchestrator)
         executor = getattr(orchestrator, "order_executor", None)
         persistence = getattr(orchestrator, "persistence", None)
@@ -4105,7 +4139,11 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             "path": str(paper_db_path) if paper_db_path else "",
             "exists": False,
             "accessible": False,
-            "status": "not_used_in_live_mode",
+            "status": (
+                "not_used_in_observation_only_mode"
+                if mode == "observation_only"
+                else "not_used_in_live_mode"
+            ),
             "tables": {},
         }
 
@@ -4258,7 +4296,11 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             messages.append("Bot actif mais aucune execution encore enregistree.")
         if strategy_runtime_stopped:
             messages.append("Backend actif, mais aucune strategie ne tourne: AUTOBOT ne trade pas actuellement.")
-        if paper_mode:
+        if mode == "observation_only":
+            messages.append(
+                "Mode observation-only: aucun wallet simule, ordre paper ou ordre reel n'est autorise."
+            )
+        elif paper_mode:
             messages.append("Mode paper: aucun capital reel n'est engage par AUTOBOT.")
 
         return {
@@ -4266,6 +4308,8 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             "overall_status": overall_status,
             "mode": mode,
             "paper_mode": paper_mode,
+            "configured_paper_mode": bool(execution_state["configured_paper_mode"]),
+            "execution_enabled": bool(execution_state["execution_enabled"]),
             "capital": capital_snapshot,
             "safety": {
                 "kill_switch": kill_switch,
@@ -4301,6 +4345,8 @@ async def get_runtime_trace(request: Request, authorized: bool = Depends(verify_
             "positions": positions_audit,
             "order_executor": {
                 "class_name": type(executor).__name__ if executor is not None else None,
+                "execution_mode": mode,
+                "execution_enabled": bool(execution_state["execution_enabled"]),
                 "open_orders_status": open_orders_status,
                 "open_orders_count": open_orders_count,
                 "recorded_trades_count": trade_count,
@@ -4338,12 +4384,15 @@ async def get_positions_audit(
     try:
         status = orchestrator.get_status()
         capital_snapshot = await _capital_snapshot_from_orchestrator(orchestrator, status)
+        execution_state = _runtime_execution_state(orchestrator, capital_snapshot)
         persistence = getattr(orchestrator, "persistence", None)
         state_db_path = getattr(persistence, "db_path", "data/autobot_state.db")
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "mode": "paper" if bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False))) else "live",
-            "paper_mode": bool(getattr(orchestrator, "paper_mode", capital_snapshot.get("paper_mode", False))),
+            "mode": execution_state["mode"],
+            "paper_mode": bool(execution_state["paper_mode"]),
+            "configured_paper_mode": bool(execution_state["configured_paper_mode"]),
+            "execution_enabled": bool(execution_state["execution_enabled"]),
             "capital": {
                 "total_capital": round(float(capital_snapshot.get("total_capital", 0.0)), 2),
                 "available_cash": round(float(capital_snapshot.get("available_cash", 0.0)), 2),

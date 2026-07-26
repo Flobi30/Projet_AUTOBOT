@@ -108,6 +108,22 @@ class _StoppedOrchestrator(_Orchestrator):
         return instances
 
 
+class _ObservationOnlyOrchestrator(_Orchestrator):
+    observation_only_runtime = True
+    paper_execution_enabled = False
+
+    def get_status(self):
+        status = super().get_status()
+        status["capital"] = {
+            "paper_mode": True,
+            "execution_mode": "observation_only",
+            "execution_enabled": False,
+            "source": "observation_only",
+            "source_status": "not_applicable",
+        }
+        return status
+
+
 class _OrchestratorWithState(_Orchestrator):
     def __init__(self, paper_db_path: Path, state_db_path: Path):
         super().__init__(paper_db_path)
@@ -260,6 +276,27 @@ def test_runtime_trace_reports_tripped_kill_switch(monkeypatch, tmp_path):
     assert body["safety"]["kill_switch"]["tripped"] is True
     assert body["safety"]["kill_switch"]["reason_code"] == "api_failures"
     assert any(check["name"] == "kill_switch" and check["ok"] is False for check in body["checks"])
+
+
+def test_runtime_trace_labels_observation_only_without_paper_execution(monkeypatch, tmp_path):
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "tok")
+    db_path = tmp_path / "paper_trades.db"
+    _init_paper_db(db_path)
+    dashboard.app.state.orchestrator = _ObservationOnlyOrchestrator(db_path)
+    client = TestClient(dashboard.app)
+
+    response = client.get("/api/runtime/trace", headers={"Authorization": "Bearer tok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "observation_only"
+    assert body["paper_mode"] is False
+    assert body["configured_paper_mode"] is True
+    assert body["execution_enabled"] is False
+    assert body["database"]["paper"]["status"] == "not_used_in_observation_only_mode"
+    assert body["order_executor"]["execution_mode"] == "observation_only"
+    assert body["order_executor"]["execution_enabled"] is False
+    assert any("observation-only" in message for message in body["messages"])
 
 
 def test_runtime_trace_reports_stopped_strategies_as_critical(monkeypatch, tmp_path):
