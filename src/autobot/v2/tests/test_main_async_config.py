@@ -2,7 +2,7 @@ import pytest
 
 import math
 
-from autobot.v2.main_async import AutoBotV2Async, _build_grid_config
+from autobot.v2.main_async import AutoBotV2Async, _build_grid_config, _default_runtime_log_file
 
 
 pytestmark = pytest.mark.unit
@@ -83,3 +83,12 @@ def test_instance_factory_does_not_construct_archived_grid_registry(monkeypatch)
 
     assert len(configs) == 2
     assert all(config.strategy == "observation_only" for config in configs)
+
+
+def test_main_async_default_log_path_is_not_the_read_only_container_root(monkeypatch):
+    monkeypatch.delenv("AUTOBOT_LOG_FILE", raising=False)
+
+    # The production image overrides this with /app/logs/...; the local
+    # default remains writable beneath the process working directory.
+    assert _default_runtime_log_file() == "logs/autobot_async.log"
+    assert callable(AutoBotV2Async.stop)

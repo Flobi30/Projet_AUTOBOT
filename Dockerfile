@@ -56,6 +56,9 @@ ENV HEALTHCHECK_MODE=internal_http
 ENV HEALTHCHECK_URL_TLS=https://localhost:8080/health
 ENV HEALTHCHECK_URL_LOCAL=http://127.0.0.1:8080/health
 ENV HEALTHCHECK_CA_CERT=/app/certs/server.crt
+# The runtime root is read-only.  The Compose service mounts /app/logs as the
+# sole persistent location for structured application logs.
+ENV AUTOBOT_LOG_FILE=/app/logs/autobot_async.log
 
 # Permissions
 RUN chown -R appuser:appuser /app

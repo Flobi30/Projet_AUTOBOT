@@ -42,3 +42,11 @@ def test_runtime_image_does_not_ship_an_env_file():
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
 
     assert "COPY .env.example /app/.env" not in dockerfile
+
+
+def test_read_only_runtime_writes_structured_logs_to_the_mounted_log_volume():
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "ENV AUTOBOT_LOG_FILE=/app/logs/autobot_async.log" in dockerfile
+    assert "./logs:/app/logs" in compose

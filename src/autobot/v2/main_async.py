@@ -343,13 +343,21 @@ class AutoBotV2Async:
         logger.info("Arret termine")
 
 
+def _default_runtime_log_file() -> str:
+    """Return the writable log path used when no operator override exists."""
+    return os.getenv("AUTOBOT_LOG_FILE", "logs/autobot_async.log")
+
+
 def main() -> None:
     """Entry point."""
     # Logging is configured only for an actual process start. Importing this
     # module must remain side-effect free for tests, CLI inspection and tools.
     setup_structured_logging(
         level=logging.INFO,
-        log_file=os.getenv("AUTOBOT_LOG_FILE", "autobot_async.log"),
+        # The container root filesystem is deliberately read-only.  Keep the
+        # local default relative to the project for developer runs while the
+        # image pins AUTOBOT_LOG_FILE to its writable /app/logs volume.
+        log_file=_default_runtime_log_file(),
         max_bytes=10 * 1024 * 1024,
         backup_count=5,
         use_json=True,
