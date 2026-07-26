@@ -20,6 +20,7 @@ from threading import Thread, Event, Lock
 
 from .order_executor import OrderExecutor, OrderStatus
 from .instance import TradingInstance
+from .runtime_execution_mode import observation_only_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,10 @@ class Divergence:
 
 
 from .reconciliation_models import Divergence
+
+
+class LegacyReconciliationQuarantinedError(RuntimeError):
+    """Raised when the mutable synchronous reconciler is used in observation mode."""
 
 
 class ReconciliationManager:
@@ -55,6 +60,11 @@ class ReconciliationManager:
         instances: Dict[str, TradingInstance],
         check_interval: int = 3600  # 1 heure
     ):
+        if observation_only_runtime():
+            raise LegacyReconciliationQuarantinedError(
+                "legacy_sync_reconciliation_retired_in_observation_runtime"
+            )
+
         self.order_executor = order_executor
         self.instances = instances
         self.check_interval = check_interval

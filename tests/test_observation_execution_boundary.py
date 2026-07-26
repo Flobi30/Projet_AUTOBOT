@@ -12,9 +12,17 @@ from autobot.v2.observation_executor import (
     ObservationOnlyOrderExecutor,
 )
 from autobot.v2.order_executor import OrderSide
+from autobot.v2.order_router import (
+    OBSERVATION_ORDER_ROUTER_DISABLED,
+    OrderRouter,
+)
 from autobot.v2.orchestrator_async import (
     _build_runtime_order_executor,
     _exchange_reconciliation_enabled,
+)
+from autobot.v2.reconciliation import (
+    LegacyReconciliationQuarantinedError,
+    ReconciliationManager,
 )
 from autobot.v2.runtime_execution_mode import (
     observation_only_runtime,
@@ -52,6 +60,39 @@ def test_paper_execution_requires_every_explicit_guard(monkeypatch):
 def test_observation_runtime_never_starts_private_exchange_reconciliation():
     assert _exchange_reconciliation_enabled(observation_only=True) is False
     assert _exchange_reconciliation_enabled(observation_only=False) is True
+
+
+def test_legacy_order_router_cannot_construct_an_executor_or_submit_in_observation_mode(monkeypatch):
+    async def _run():
+        monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+        router = OrderRouter(api_key="must-not-be-used", api_secret="must-not-be-used")
+
+        assert router._executor is None
+        await router.start()
+        assert router.is_running() is False
+
+        for request in (
+            {"type": "market", "symbol": "XXBTZEUR", "side": "buy", "volume": 0.01},
+            {"type": "cancel", "txid": "must-not-be-used"},
+            {"type": "balance"},
+        ):
+            result = await router.submit(request)
+            assert result.success is False
+            assert result.error == OBSERVATION_ORDER_ROUTER_DISABLED
+
+        assert router.get_queue_size() == 0
+
+    asyncio.run(_run())
+
+
+def test_legacy_sync_reconciliation_cannot_be_constructed_in_observation_mode(monkeypatch):
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+
+    with pytest.raises(
+        LegacyReconciliationQuarantinedError,
+        match="legacy_sync_reconciliation_retired_in_observation_runtime",
+    ):
+        ReconciliationManager(order_executor=object(), instances={})
 
 
 def test_executor_selection_fails_closed_without_full_paper_authorization(monkeypatch, tmp_path):

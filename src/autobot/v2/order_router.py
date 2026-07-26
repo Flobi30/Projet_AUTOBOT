@@ -37,6 +37,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 
 from .order_executor_async import OrderExecutorAsync, OrderResult, OrderSide
 from .modules.rate_limit_optimizer import CallPriority
+from .runtime_execution_mode import observation_only_runtime
 from .speculative_order_cache import SpeculativeOrderCache
 from .strategy_runtime_policy import official_paper_strategy_block_reason
 
@@ -44,12 +45,14 @@ logger = logging.getLogger(__name__)
 
 
 ORDER_TYPES_REQUIRING_STRATEGY_ID = frozenset({"market", "limit", "stop_loss"})
+OBSERVATION_ORDER_ROUTER_DISABLED = "observation_only_order_router_disabled"
 
 __all__ = [
     "OrderRouter",
     "OrderPriority",
     "OrderRequest",
     "RouterStats",
+    "OBSERVATION_ORDER_ROUTER_DISABLED",
     "get_order_router",
     "reset_order_router",
     "SpeculativeOrderCache",
@@ -342,8 +345,15 @@ class OrderRouter:
         self.api_secret = api_secret
         self._max_queue_size = max_queue_size
         
-        # Executor pour les appels API
-        self._executor = OrderExecutorAsync(api_key, api_secret)
+        # A research/shadow deployment must not even construct a private
+        # exchange executor. This leaves legacy import sites harmless while
+        # the active runtime is deliberately observation-only.
+        self._observation_only = observation_only_runtime()
+        self._executor: Optional[OrderExecutorAsync]
+        if self._observation_only:
+            self._executor = None
+        else:
+            self._executor = OrderExecutorAsync(api_key, api_secret)
         
         # Rate limiter
         self._rate_limiter = AsyncRateLimiter()
@@ -378,6 +388,9 @@ class OrderRouter:
     
     async def start(self) -> None:
         """Démarre le routeur et le worker de traitement."""
+        if self._observation_only:
+            logger.info("OrderRouter disabled: observation-only runtime")
+            return
         if self._running:
             return
         
@@ -412,7 +425,8 @@ class OrderRouter:
             except asyncio.QueueEmpty:
                 break
         
-        await self._executor.close()
+        if self._executor is not None:
+            await self._executor.close()
         
         async with self._stats_lock:
             self._stats.total_cancelled += cancelled
@@ -442,6 +456,13 @@ class OrderRouter:
         Returns:
             OrderResult avec le résultat de l'exécution
         """
+        if self._observation_only:
+            logger.warning(
+                "Order request %s rejected: observation-only runtime",
+                order.get("type", "unknown"),
+            )
+            return OrderResult(success=False, error=OBSERVATION_ORDER_ROUTER_DISABLED)
+
         if not self._running:
             raise RuntimeError("OrderRouter n'est pas démarré")
         
@@ -682,6 +703,9 @@ class OrderRouter:
     
     async def _execute_request(self, request: OrderRequest) -> OrderResult:
         """Exécute une requête selon son type."""
+        if self._observation_only or self._executor is None:
+            return OrderResult(success=False, error=OBSERVATION_ORDER_ROUTER_DISABLED)
+
         order_type = request.order_type
         params = request.params
         
@@ -836,6 +860,8 @@ class OrderRouter:
         
         return {
             "running": self._running,
+            "observation_only": self._observation_only,
+            "executor_available": self._executor is not None,
             "queue_size": self._queue.qsize(),
             "max_queue_size": self._max_queue_size,
             "stats": stats_dict,
