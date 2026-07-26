@@ -27,6 +27,24 @@ Runtime data and dashboards are observations, not policy.
 - A layer is `VERIFIED` only when code, reproducible test and runtime evidence
   are all linked in `docs/architecture/layer_coverage.json`.
 
+## Standard verification commands
+
+Run these from the repository root before a merge or deployment. Start with
+the focused suite for the touched boundary, then run the full suite before a
+runtime image is rebuilt.
+
+```powershell
+$env:PYTHONPATH='src'; python -m pytest tests/research -q
+$env:PYTHONPATH='src'; python -m pytest -q
+python -m compileall -q src tools
+git diff --check
+```
+
+For VPS validation, deploy only with `bash deploy/rebuild-autobot-image.sh`,
+then confirm the image revision, `/health`, the observation-only flags and
+the absence of private execution credentials. Research jobs must run in an
+isolated no-network container with no runtime state database or secret mount.
+
 ## VPS deployment provenance
 
 - Do not use a bare `docker compose build autobot` for AUTOBOT deployments.

@@ -9,6 +9,7 @@ import pytest
 
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.data_capability_scanner import (
+    DEFAULT_RESEARCH_MEMORY_PATH,
     build_data_capability_scan_report,
     write_data_capability_scan_report,
 )
@@ -16,6 +17,10 @@ from autobot.v2.research.research_memory_store import ResearchMemoryStore
 
 
 pytestmark = pytest.mark.unit
+
+
+def test_capability_scanner_defaults_to_runtime_sqlite_research_memory():
+    assert DEFAULT_RESEARCH_MEMORY_PATH == "data/research/alpha_research_memory.sqlite3"
 
 
 def test_data_capability_scanner_detects_existing_ohlcv(tmp_path):

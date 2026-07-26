@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
+DEFAULT_RESEARCH_MEMORY_PATH = "data/research/alpha_research_memory.sqlite3"
+
+
 CAPABILITY_IDS = (
     "spot_ohlcv",
     "spot_post_trade_history",
@@ -193,7 +196,7 @@ def build_data_capability_scan_report(
     run_id: str,
     data_roots: Sequence[str | Path],
     state_db: str | Path | None = None,
-    memory_path: str | Path = "reports/research/alpha_research_memory.json",
+    memory_path: str | Path = DEFAULT_RESEARCH_MEMORY_PATH,
 ) -> DataCapabilityScanReport:
     roots = tuple(Path(path) for path in data_roots)
     root_files = _files_under(roots)

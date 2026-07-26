@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 from autobot.v2.websocket_async import TickerData
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Benchmark")
 
 async def run_latency_test(orchestrator, pair="BTC/USD", iterations=1000):
@@ -86,6 +85,7 @@ def _percentile(sorted_values, quantile):
     return sorted_values[lower] + (sorted_values[upper] - sorted_values[lower]) * fraction
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     # Test autonome minimal (nécessite l'environnement AutoBot complet)
     # python -m src.autobot.v2.benchmarks.latency_test
     pass
