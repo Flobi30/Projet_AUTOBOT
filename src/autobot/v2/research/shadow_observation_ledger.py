@@ -87,6 +87,11 @@ def build_shadow_observation_from_target(
     available_at = available_times.pop()
     if target_portfolio.generated_at != available_at:
         raise ShadowObservationLedgerError("target portfolio generated_at must equal feature vector observed_at")
+    _validate_target_provenance(
+        artifact=artifact,
+        target_portfolio=target_portfolio,
+        vectors=vectors,
+    )
     return ShadowObservation(
         artifact_id=artifact.artifact_id,
         observed_at=available_at,
@@ -200,6 +205,11 @@ class ShadowObservationLedger:
         vector_fingerprint = verified_feature_vectors_fingerprint(vectors)
         if observation.feature_fingerprint != vector_fingerprint:
             raise ShadowObservationLedgerError("shadow observation feature fingerprint does not match vectors")
+        _validate_target_provenance(
+            artifact=artifact,
+            target_portfolio=observation.target_portfolio,
+            vectors=vectors,
+        )
         return vector_fingerprint
 
     def _connect(self) -> sqlite3.Connection:
@@ -249,6 +259,46 @@ def _canonical_json(value: Any) -> str:
 
 def _fingerprint(value: Any) -> str:
     return sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _validate_target_provenance(
+    *,
+    artifact: StrategyArtifact,
+    target_portfolio: TargetPortfolio,
+    vectors: Sequence[VerifiedFeatureVector],
+) -> None:
+    """Require every non-cash shadow target to carry exact source evidence.
+
+    ``TargetPortfolio`` is a generic contract and can represent a research
+    cash allocation without a signal.  A persisted shadow observation is more
+    strict: any non-zero target must be attributable to the exact artifact,
+    source snapshot, feature versions and explicit market identity that were
+    already verified at the ledger boundary.
+    """
+
+    investable_symbols = {
+        str(symbol).upper()
+        for symbol, weight in target_portfolio.target_weights.items()
+        if float(weight) > 0.0
+    }
+    if not investable_symbols:
+        return
+    if not target_portfolio.source_signal_ids:
+        raise ShadowObservationLedgerError("shadow target source signal evidence is required")
+    if artifact.strategy_id not in target_portfolio.source_strategy_ids:
+        raise ShadowObservationLedgerError("shadow target strategy evidence does not match artifact")
+    if artifact.data_snapshot_id not in target_portfolio.source_data_snapshot_ids:
+        raise ShadowObservationLedgerError("shadow target source snapshot does not match artifact")
+    if dict(target_portfolio.source_feature_versions) != dict(artifact.feature_versions):
+        raise ShadowObservationLedgerError("shadow target feature versions do not match artifact")
+
+    source_markets = dict(target_portfolio.source_markets)
+    if set(source_markets) != investable_symbols:
+        raise ShadowObservationLedgerError("shadow target market evidence must cover every investable symbol")
+    vector_markets = {vector.market.symbol: vector.market for vector in vectors}
+    for symbol, target_market in source_markets.items():
+        if vector_markets.get(symbol) != target_market:
+            raise ShadowObservationLedgerError("shadow target market evidence does not match feature vectors")
 
 
 def _utc(value: datetime, field_name: str) -> datetime:

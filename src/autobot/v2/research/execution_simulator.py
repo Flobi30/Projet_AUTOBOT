@@ -518,7 +518,12 @@ class ResearchExecutionSimulator:
                 approved_notional=approved_notional,
                 market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
-        submitted = OrderEvent(intent.client_order_id, "SUBMITTED", intent.created_at, reason="research_shadow_risk_approved")
+        # A fill cannot precede the independent risk decision.  Starting the
+        # latency window at the later of intent creation and risk approval
+        # prevents a replay from approving at T+N while filling from a book
+        # snapshot that was only available at T+M where M < N.
+        risk_ready_at = max(intent.created_at, risk_decision.decided_at)
+        submitted = OrderEvent(intent.client_order_id, "SUBMITTED", risk_ready_at, reason="research_shadow_risk_approved")
         if any(snapshot.market != intent.market for snapshot in snapshots):
             return self._terminal(
                 intent,
@@ -531,7 +536,7 @@ class ResearchExecutionSimulator:
                 market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
             )
         ordered = _ordered_snapshots(snapshots)
-        earliest = intent.created_at + self.config.latency * self.config.scenario.latency_multiplier
+        earliest = risk_ready_at + self.config.latency * self.config.scenario.latency_multiplier
         snapshot = next((item for item in ordered if item.usable_at >= earliest), None)
         if snapshot is None:
             return self._terminal(
@@ -539,7 +544,7 @@ class ResearchExecutionSimulator:
                 "EXPIRED",
                 "no_market_after_latency",
                 (created, submitted),
-                intent.created_at,
+                risk_ready_at,
                 risk_decision=risk_decision,
                 approved_notional=approved_notional,
                 market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
@@ -708,14 +713,31 @@ class ResearchExecutionSimulator:
         )
         status = "PARTIALLY_FILLED" if partial else "FILLED"
         terminal = OrderEvent(intent.client_order_id, status, snapshot.usable_at, reason="research_shadow_fill")
+        # A one-shot research replay has no mutable working-order book.  Close
+        # any unfilled remainder explicitly at the end of its bounded snapshot
+        # window so a partial fill cannot masquerade as an indefinitely open
+        # order or require a later replay with changed market evidence.
+        events = (created, submitted, acknowledged, terminal)
+        reason = "partial_fill" if partial else "filled"
+        if partial:
+            events = (
+                *events,
+                OrderEvent(
+                    intent.client_order_id,
+                    "CANCELLED",
+                    snapshot.usable_at,
+                    reason="research_partial_remainder_cancelled",
+                ),
+            )
+            reason = "partial_fill_remainder_cancelled"
         return ResearchExecutionOutcome(
             client_order_id=intent.client_order_id,
             status=status,
-            reason="partial_fill" if partial else "filled",
+            reason=reason,
             requested_notional_eur=requested,
             filled_notional_eur=fill.notional_eur,
             unfilled_notional_eur=max(0.0, requested - fill.notional_eur),
-            order_events=(created, submitted, acknowledged, terminal),
+            order_events=events,
             fill=fill,
             fill_event=fill_event,
             scenario=self.config.scenario.name,

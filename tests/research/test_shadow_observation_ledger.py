@@ -184,6 +184,11 @@ def _observation(artifact: StrategyArtifact, vector: VerifiedFeatureVector, *, f
             target_weights={"BTCEUR": 0.1},
             reserve_cash_weight=0.9,
             rationale={"BTCEUR": "research_only"},
+            source_signal_ids=("shadow-observation-signal",),
+            source_strategy_ids=(artifact.strategy_id,),
+            source_data_snapshot_ids=(artifact.data_snapshot_id,),
+            source_feature_versions=dict(vector.feature_snapshot.feature_versions),
+            source_markets={"BTCEUR": vector.market},
         ),
     )
 
@@ -227,6 +232,63 @@ def test_shadow_observation_ledger_rejects_unproven_artifact_or_feature_mismatch
         ledger.record(
             artifact=throttled,
             observation=_observation(throttled, vector),
+            feature_vectors=(vector,),
+        )
+
+
+def test_shadow_observation_ledger_rejects_non_cash_target_without_exact_provenance(tmp_path):
+    vector = _vector()
+    artifact = _artifact(vector)
+    target = TargetPortfolio(
+        decision_id="unproven-target",
+        generated_at=vector.observed_at,
+        target_weights={"BTCEUR": 0.1},
+        reserve_cash_weight=0.9,
+        rationale={"BTCEUR": "manual_target_must_not_bypass"},
+    )
+
+    with pytest.raises(ShadowObservationLedgerError, match="source signal evidence"):
+        build_shadow_observation_from_target(
+            artifact=artifact,
+            target_portfolio=target,
+            feature_vectors=(vector,),
+        )
+    direct_observation = ShadowObservation(
+        artifact_id=artifact.artifact_id,
+        observed_at=vector.observed_at,
+        data_available_at=vector.observed_at,
+        source_snapshot_id=artifact.data_snapshot_id,
+        feature_fingerprint=verified_feature_vectors_fingerprint((vector,)),
+        target_portfolio=target,
+    )
+    with pytest.raises(ShadowObservationLedgerError, match="source signal evidence"):
+        ShadowObservationLedger(tmp_path / "shadow_observations.sqlite3").record(
+            artifact=artifact,
+            observation=direct_observation,
+            feature_vectors=(vector,),
+        )
+
+
+def test_shadow_observation_ledger_rejects_target_market_or_feature_provenance_mismatch(tmp_path):
+    vector = _vector()
+    artifact = _artifact(vector)
+    target = TargetPortfolio(
+        decision_id="mismatched-target",
+        generated_at=vector.observed_at,
+        target_weights={"BTCEUR": 0.1},
+        reserve_cash_weight=0.9,
+        rationale={"BTCEUR": "mismatch"},
+        source_signal_ids=("mismatched-target-signal",),
+        source_strategy_ids=(artifact.strategy_id,),
+        source_data_snapshot_ids=(artifact.data_snapshot_id,),
+        source_feature_versions={"wrong_feature": "1.0.0"},
+        source_markets={"BTCEUR": vector.market},
+    )
+
+    with pytest.raises(ShadowObservationLedgerError, match="feature versions"):
+        build_shadow_observation_from_target(
+            artifact=artifact,
+            target_portfolio=target,
             feature_vectors=(vector,),
         )
 

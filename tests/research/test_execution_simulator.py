@@ -168,7 +168,15 @@ def test_shadow_simulator_records_partial_fill_and_is_idempotent():
     assert first.filled_notional_eur == pytest.approx(200.0)
     assert first.unfilled_notional_eur == pytest.approx(100.0)
     assert first.fill is not None and first.fill_event is not None
-    assert first.order_events[-1].event_type == "PARTIALLY_FILLED"
+    assert first.reason == "partial_fill_remainder_cancelled"
+    assert tuple(event.event_type for event in first.order_events) == (
+        "CREATED",
+        "SUBMITTED",
+        "ACKNOWLEDGED",
+        "PARTIALLY_FILLED",
+        "CANCELLED",
+    )
+    assert first.order_events[-1].reason == "research_partial_remainder_cancelled"
     assert replay is first
     assert first.paper_capital_allowed is False
     assert first.live_allowed is False
@@ -261,6 +269,28 @@ def test_shadow_simulator_requires_matching_approved_risk_and_never_increases_no
     assert reduced.approved_notional_eur == pytest.approx(50.0)
     assert reduced.risk_decision_id is not None
     assert increased.reason == "risk_decision_increases_requested_notional"
+
+
+def test_shadow_simulator_cannot_fill_from_a_snapshot_before_risk_approval():
+    intent = _intent(notional=100.0)
+    delayed_risk = RiskDecision(
+        decision_id=intent.decision_id,
+        approved=True,
+        decided_at=intent.created_at + timedelta(seconds=10),
+    )
+
+    outcome = _simulator().simulate(
+        intent,
+        (_snapshot(seconds=2),),
+        risk_decision=delayed_risk,
+    )
+
+    assert outcome.status == "EXPIRED"
+    assert outcome.reason == "no_market_after_latency"
+    assert outcome.fill is None
+    assert outcome.order_events[1].event_type == "SUBMITTED"
+    assert outcome.order_events[1].occurred_at == delayed_risk.decided_at
+    assert outcome.order_events[-1].occurred_at >= delayed_risk.decided_at
 
 
 def test_shadow_simulator_rejects_reused_client_order_id_with_changed_intent_or_risk():
