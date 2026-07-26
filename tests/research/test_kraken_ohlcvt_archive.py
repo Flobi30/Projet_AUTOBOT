@@ -148,6 +148,41 @@ def test_archive_import_rejects_missing_member_and_size_budget(tmp_path: Path) -
         )
 
 
+def test_archive_import_requires_exact_market_member_match(tmp_path: Path) -> None:
+    """Do not confuse composite Kraken symbols with a mapped spot market."""
+
+    content = (
+        "timestamp,open,high,low,close,volume,trades\n"
+        "2025-01-01T00:00:00+00:00,100,102,99,101,3,12\n"
+    )
+    archive_path = tmp_path / "official.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("Kraken_OHLCVT/XXBTZEUR_5.csv", content)
+        # These are separate instruments, not aliases for BTC/EUR.  Their
+        # names happen to end with a BTC/EUR archive alias.
+        archive.writestr("Kraken_OHLCVT/AIXBTEUR_5.csv", content)
+        archive.writestr("Kraken_OHLCVT/TBTCEUR_5.csv", content)
+        archive.writestr("Kraken_OHLCVT/WBTCEUR_5.csv", content)
+
+    result = import_kraken_ohlcvt_archive(
+        KrakenOhlcvtArchiveImportConfig(
+            run_id="pytest_exact_member_match",
+            archive_path=archive_path,
+            symbols=("BTCEUR",),
+            timeframes=("5m",),
+            raw_dir=tmp_path / "raw",
+            normalized_dir=tmp_path / "normalized",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+        ),
+        imported_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        symbol_mappings={"BTCEUR": _mapping()},
+    )
+
+    assert len(result.members) == 1
+    assert result.members[0].archive_member == "Kraken_OHLCVT/XXBTZEUR_5.csv"
+
+
 def test_archive_import_applies_per_member_row_budget(tmp_path: Path) -> None:
     archive = _archive(tmp_path / "official.zip")
     with pytest.raises(KrakenOhlcvtArchiveError, match="max_rows_per_member"):

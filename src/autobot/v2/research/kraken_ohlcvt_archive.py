@@ -353,8 +353,11 @@ def _member_matches_mapping(member_name: str, mapping: KrakenPublicPairMapping) 
     stem = PurePosixPath(member_name).stem.upper()
     stem = re.sub(r"(?:^|[_\-.])(1|5|15|60|240|1440)$", "", stem)
     normalized_stem = _compact(stem)
-    aliases = sorted(_mapping_aliases(mapping), key=len, reverse=True)
-    return any(normalized_stem.endswith(alias) for alias in aliases)
+    # Kraken's official archive includes instruments whose symbols can end in
+    # a spot-pair alias (for example ``AIXBTEUR`` and ``WBTCEUR``).  A suffix
+    # match would silently attribute those distinct instruments to BTC/EUR.
+    # Archive members must therefore name one explicit mapped market exactly.
+    return normalized_stem in _mapping_aliases(mapping)
 
 
 def _mapping_aliases(mapping: KrakenPublicPairMapping) -> set[str]:
