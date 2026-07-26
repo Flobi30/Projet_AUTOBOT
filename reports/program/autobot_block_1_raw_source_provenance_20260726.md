@@ -32,6 +32,26 @@ runtime execution path.
   leverage, shadow activation or order path is imported or changed;
 - Grid remains retired/no-go.
 
+## VPS deployment evidence
+
+The source checkout, rebuilt image and running `autobot-v2` container were
+verified on 2026-07-26 after a controlled image rebuild. All three resolved to
+the implementation commit `4a84965b6ffd2275707ca78f98700b90c8b6d974`.
+
+- container status: `running` and `healthy`;
+- root filesystem: read-only; restart count: `0`;
+- health endpoint: healthy, orchestrator running and WebSocket connected;
+- runtime is intentionally bounded to one observation instance;
+- observation-only runtime is enabled;
+- paper execution, paper trading, live confirmation, live router and
+  auto-promotion are all disabled;
+- no private Kraken credential environment variable is present;
+- no recent critical, paper-order or live-order log event was detected.
+
+No canonicalization job was forced for this deployment. The strengthened
+provenance contract applies to future snapshots without altering research data
+already under collection.
+
 ## Remaining boundary
 
 This verifies integrity for snapshots created by the strengthened
