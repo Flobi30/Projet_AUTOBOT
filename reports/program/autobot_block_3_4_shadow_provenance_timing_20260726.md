@@ -49,3 +49,21 @@ the pre-trade mandate gate. The generic `TargetPortfolio` contract also still
 permits research-only legacy/current exposure representations; only a
 ledgered non-cash shadow observation is executable-like enough to require the
 new strict provenance checks.
+
+## VPS deployment evidence
+
+Deployment report commit: `fdf49a173d23146be9420fa7ecbdf6de60594b18`.
+
+- GitHub `master`, VPS source checkout and the `projet_autobot-autobot` image
+  were verified at the same commit.
+- `autobot-v2` was `running` and `healthy`, with a read-only root filesystem
+  and zero restart count.
+- `/health` reported the orchestrator running, WebSocket connected and one
+  intentionally bounded observation-only instance.
+- `AUTOBOT_OBSERVATION_ONLY_RUNTIME=true`; every paper execution flag, every
+  live flag and automatic promotion remained `false`.
+- The running container had no private Kraken credential environment variable.
+- The five-minute critical/order log scan found zero matching events.
+
+This deployment did not start a strategy, an execution adapter, paper capital,
+or a live order path.
