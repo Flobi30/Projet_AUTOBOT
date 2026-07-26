@@ -14,10 +14,18 @@ import argparse
 import json
 import os
 import re
+import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
+
+# This operator CLI is deliberately runnable as ``python tools/paper_ops.py``.
+# Add the repository's src layout before importing AUTOBOT modules so its
+# safety/readiness checks do not depend on a caller preconfiguring PYTHONPATH.
+_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(_SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SOURCE_ROOT))
 
 from autobot.v2.kill_switch import KillSwitch
 from autobot.v2.startup_attestation import write_attestation_artifact

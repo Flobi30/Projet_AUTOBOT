@@ -234,22 +234,7 @@ def run_funding_basis_research_smoke(config: FundingBasisResearchConfig) -> Fund
     """Run bounded spot-only simulations from pre-entry derivatives context."""
 
     started = time.perf_counter()
-    spot_bars, duplicate_count = _load_spot_bars(config.spot_data_paths, max_rows=config.max_data_rows)
-    try:
-        availability, observations = _build_availability(config, spot_bars, duplicate_count)
-    except (DerivativesFeatureSnapshotManifestError, OSError, ValueError) as exc:
-        availability = FundingBasisAvailability(
-            adapter_id=ADAPTER_ID,
-            status="DATA_MISSING",
-            available=False,
-            selected_timeframe=None,
-            symbols=(),
-            futures_to_spot={},
-            spot_row_count=len(spot_bars),
-            derivatives_feature_count=0,
-            blockers=(f"derivatives_snapshot_invalid:{exc}",),
-        )
-        observations = {}
+    spot_bars, availability, observations = _load_funding_basis_research_inputs(config)
     if not availability.available:
         return FundingBasisSmokeResult(
             adapter_id=ADAPTER_ID,
@@ -315,6 +300,44 @@ def run_funding_basis_research_smoke(config: FundingBasisResearchConfig) -> Fund
         elapsed_seconds=round(time.perf_counter() - started, 6),
         primary_trades=tuple(primary_trades),
     )
+
+
+def build_funding_basis_availability(config: FundingBasisResearchConfig) -> FundingBasisAvailability:
+    """Validate funding/basis inputs without generating signals or simulated trades.
+
+    The Alpha Hypothesis Runner uses this at DATA_CHECK so a short forward
+    derivatives history is reported before it consumes the NET_SMOKE stage.
+    It intentionally shares the exact loading and point-in-time checks used
+    by the bounded smoke adapter; this prevents the two gates from disagreeing
+    about readiness.
+    """
+
+    _, availability, _ = _load_funding_basis_research_inputs(config)
+    return availability
+
+
+def _load_funding_basis_research_inputs(
+    config: FundingBasisResearchConfig,
+) -> tuple[list[MarketBar], FundingBasisAvailability, Mapping[str, Mapping[str, tuple[_FeatureObservation, ...]]]]:
+    """Load and validate bounded research inputs without simulating a trade."""
+
+    spot_bars, duplicate_count = _load_spot_bars(config.spot_data_paths, max_rows=config.max_data_rows)
+    try:
+        availability, observations = _build_availability(config, spot_bars, duplicate_count)
+    except (DerivativesFeatureSnapshotManifestError, OSError, ValueError) as exc:
+        availability = FundingBasisAvailability(
+            adapter_id=ADAPTER_ID,
+            status="DATA_MISSING",
+            available=False,
+            selected_timeframe=None,
+            symbols=(),
+            futures_to_spot={},
+            spot_row_count=len(spot_bars),
+            derivatives_feature_count=0,
+            blockers=(f"derivatives_snapshot_invalid:{exc}",),
+        )
+        observations = {}
+    return spot_bars, availability, observations
 
 
 def _build_availability(

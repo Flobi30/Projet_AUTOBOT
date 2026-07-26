@@ -11,6 +11,7 @@ import pytest
 from autobot.v2.research.funding_basis_research_adapter import (
     ADAPTER_ID,
     FundingBasisResearchConfig,
+    build_funding_basis_availability,
     run_funding_basis_research_smoke,
 )
 from autobot.v2.research.alpha_hypothesis_runner import (
@@ -132,6 +133,26 @@ def test_adapter_preserves_waiting_status_without_simulation(tmp_path):
     assert result.promotable is False
 
 
+def test_availability_reports_short_forward_history_without_generating_trades(tmp_path):
+    spot_dir = _spot_data(tmp_path)
+    snapshot = _derivatives_snapshot(tmp_path, status="READY", observation_count=9)
+
+    availability = build_funding_basis_availability(
+        FundingBasisResearchConfig(
+            run_id="pytest_funding_basis_short_history",
+            spot_data_paths=(spot_dir,),
+            derivatives_feature_snapshot_manifest=snapshot,
+            template=_template(),
+            symbols=("BTCZEUR",),
+            min_funding_observations=10,
+        )
+    )
+
+    assert availability.available is False
+    assert availability.status == "WAITING_FOR_MORE_DATA"
+    assert availability.blockers == ("derivatives_history_insufficient:BTCZEUR",)
+
+
 def test_alpha_runner_routes_funding_basis_smoke_to_the_research_only_adapter(tmp_path):
     spot_dir = _spot_data(tmp_path)
     snapshot = _derivatives_snapshot(tmp_path, status="READY")
@@ -234,6 +255,7 @@ def _derivatives_snapshot(
     status: str,
     blockers: list[str] | None = None,
     availability_delay_hours: int = 0,
+    observation_count: int = 120,
 ) -> Path:
     features = tmp_path / "features.csv"
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -243,7 +265,7 @@ def _derivatives_snapshot(
             fieldnames=["feature_id", "futures_symbol", "event_time", "available_time", "value", "status"],
         )
         writer.writeheader()
-        for index in range(120):
+        for index in range(observation_count):
             event_time = start + timedelta(hours=index)
             available_time = event_time + timedelta(hours=availability_delay_hours)
             funding = -0.004 if index % 12 == 4 else -0.0002

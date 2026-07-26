@@ -28,6 +28,7 @@ from .generic_cross_sectional_ohlcv_adapter import (
 from .funding_basis_research_adapter import (
     ADAPTER_ID as FUNDING_BASIS_ADAPTER_ID,
     FundingBasisResearchConfig,
+    build_funding_basis_availability,
     run_funding_basis_research_smoke,
 )
 from .funding_basis_walk_forward import (
@@ -590,6 +591,38 @@ def _funding_basis_data_check(
             False,
             True,
             reasons,
+            policy,
+            started,
+            metrics=metrics,
+        )
+    availability = build_funding_basis_availability(
+        FundingBasisResearchConfig(
+            run_id=f"{config.run_id}_availability",
+            spot_data_paths=config.data_paths,
+            derivatives_feature_snapshot_manifest=config.derivatives_feature_snapshot_manifest,
+            template=_funding_basis_template(config),
+            symbols=config.symbols,
+            cost_profile=config.cost_profile,
+            max_variants=min(config.max_variants, 2),
+            max_symbols=min(config.max_symbols, 4),
+            max_runtime_seconds=config.max_runtime_seconds,
+            max_data_rows=config.max_data_rows,
+        )
+    )
+    metrics["adapter_availability"] = availability.to_dict()
+    if not availability.available:
+        status = "INSUFFICIENT_DATA" if availability.status == "WAITING_FOR_MORE_DATA" else "DATA_MISSING"
+        reason_prefix = (
+            "funding_basis_adapter_waiting_for_more_data"
+            if status == "INSUFFICIENT_DATA"
+            else "funding_basis_adapter_inputs_unavailable"
+        )
+        return _gate(
+            "DATA_CHECK",
+            status,
+            False,
+            True,
+            [reason_prefix, *availability.blockers],
             policy,
             started,
             metrics=metrics,

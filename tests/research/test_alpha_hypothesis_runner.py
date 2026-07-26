@@ -14,6 +14,7 @@ from autobot.v2.research.alpha_hypothesis_runner import (
     build_alpha_hypothesis_runner_report,
     load_alpha_autonomy_policy,
 )
+from autobot.v2.research.funding_basis_research_adapter import FundingBasisAvailability
 
 
 pytestmark = pytest.mark.unit
@@ -79,7 +80,7 @@ def test_funding_basis_data_check_reports_waiting_derivatives_snapshot_without_r
     assert report.promotable is False
 
 
-def test_funding_basis_ready_inputs_reach_the_research_data_gate(tmp_path):
+def test_funding_basis_ready_inputs_reach_the_research_data_gate(tmp_path, monkeypatch):
     spot_manifest = _feature_manifest(tmp_path / "spot.json")
     derivatives_manifest = _feature_manifest(
         tmp_path / "derivatives.json",
@@ -91,6 +92,20 @@ def test_funding_basis_ready_inputs_reach_the_research_data_gate(tmp_path):
             "accepted_confidence_status": "MARK_INDEX_SAME_QUOTE",
             "implicit_usd_eur_conversion_allowed": False,
         },
+    )
+    ready_availability = FundingBasisAvailability(
+        adapter_id="funding_basis_research_adapter",
+        status="READY",
+        available=True,
+        selected_timeframe="1h",
+        symbols=("BTCZEUR",),
+        futures_to_spot={"PF_XBTUSD": "BTCZEUR"},
+        spot_row_count=150,
+        derivatives_feature_count=120,
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner.build_funding_basis_availability",
+        lambda _config: ready_availability,
     )
 
     data_check = build_alpha_hypothesis_runner_report(
@@ -106,9 +121,64 @@ def test_funding_basis_ready_inputs_reach_the_research_data_gate(tmp_path):
     )
     assert data_check.gates[0].passed is True
     assert data_check.final_decision == "NEXT_STAGE_AVAILABLE"
+    assert data_check.gates[0].metrics["adapter_availability"]["available"] is True
     assert data_check.paper_capital_allowed is False
     assert data_check.live_allowed is False
     assert data_check.promotable is False
+
+
+def test_funding_basis_data_check_stops_before_smoke_when_adapter_history_is_short(tmp_path, monkeypatch):
+    spot_manifest = _feature_manifest(tmp_path / "spot.json")
+    derivatives_manifest = _feature_manifest(
+        tmp_path / "derivatives.json",
+        snapshot_kind="DERIVATIVES_POINT_IN_TIME",
+        feature_ids=["funding_rate_relative", "basis_bps"],
+        feature_versions={"funding_rate_relative": "1.0.0", "basis_bps": "1.0.0"},
+        basis_contract={
+            "same_quote_required": True,
+            "accepted_confidence_status": "MARK_INDEX_SAME_QUOTE",
+            "implicit_usd_eur_conversion_allowed": False,
+        },
+    )
+    availability = FundingBasisAvailability(
+        adapter_id="funding_basis_research_adapter",
+        status="WAITING_FOR_MORE_DATA",
+        available=False,
+        selected_timeframe="1h",
+        symbols=("BTCZEUR",),
+        futures_to_spot={"PF_XBTUSD": "BTCZEUR"},
+        spot_row_count=150,
+        derivatives_feature_count=18,
+        blockers=("derivatives_history_insufficient:BTCZEUR",),
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner.build_funding_basis_availability",
+        lambda _config: availability,
+    )
+
+    report = build_alpha_hypothesis_runner_report(
+        AlphaHypothesisRunnerConfig(
+            run_id="pytest_funding_short_history_data_check",
+            hypothesis_id="funding_basis",
+            mode="smoke",
+            data_paths=(_write_ohlcv(tmp_path),),
+            feature_snapshot_manifest=spot_manifest,
+            derivatives_feature_snapshot_manifest=derivatives_manifest,
+            symbols=("BTCZEUR",),
+            max_variants=1,
+            max_symbols=1,
+        ),
+        commit="test",
+    )
+
+    assert [gate.gate for gate in report.gates] == ["DATA_CHECK"]
+    assert report.final_status == "INSUFFICIENT_DATA"
+    assert "funding_basis_adapter_waiting_for_more_data" in report.gates[0].reasons
+    assert "derivatives_history_insufficient:BTCZEUR" in report.gates[0].reasons
+    assert report.gates[0].metrics["adapter_availability"]["available"] is False
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
+    assert report.promotable is False
 
 
 def test_alpha_runner_smoke_alias_advances_auto_allowed_without_walk_forward(tmp_path):
