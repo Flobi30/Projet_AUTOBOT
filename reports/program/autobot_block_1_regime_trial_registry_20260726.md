@@ -40,6 +40,20 @@ statistical trial count unchanged.
 - no live, paper-capital, promotion, sizing or leverage flag changes;
 - Grid remains retired/no-go.
 
+## VPS deployment evidence
+
+The implementation and evidence report were deployed through the controlled
+image rebuild. GitHub, the VPS source checkout and the `autobot-v2` image all
+resolved to `efa580dbc7a6c204144c183db26301b2b9cde137` during validation.
+
+- container: `running`, `healthy`, read-only root filesystem, zero restarts;
+- health endpoint: orchestrator running and WebSocket connected;
+- runtime: one intentionally bounded observation instance;
+- observation-only runtime enabled; paper trading, both paper execution
+  adapters, live confirmation/router and auto-promotion disabled;
+- private Kraken credential environment count: zero;
+- recent critical/paper-order/live-order log count: zero.
+
 ## Remaining boundary
 
 This establishes auditable counting when a validation workflow elects to use a
