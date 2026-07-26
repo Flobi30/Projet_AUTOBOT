@@ -59,6 +59,7 @@ async def write_attestation_artifact(
     artifact_path: str | Path,
     *,
     preflight_only: bool = True,
+    observation_only: bool = False,
     order_executor: Optional[OrderExecutorAsync] = None,
     kill_switch: Optional[KillSwitch] = None,
     app_env: Optional[str] = None,
@@ -68,7 +69,10 @@ async def write_attestation_artifact(
         kill_switch=kill_switch,
         app_env=app_env,
     )
-    result = await gate.run(preflight_only=preflight_only)
+    result = await gate.run(
+        preflight_only=preflight_only,
+        observation_only=observation_only,
+    )
 
     payload = {
         "status": result.status,
@@ -77,6 +81,7 @@ async def write_attestation_artifact(
         "ok": result.ok,
         "checks": result.checks,
         "preflight_only": preflight_only,
+        "observation_only": observation_only,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -105,7 +110,11 @@ class StartupAttestation:
         self.app_env = (app_env or os.getenv("APP_ENV", "production")).lower().strip()
         self.reconciler = StrictReconciliation()
 
-    async def run(self, preflight_only: bool = False) -> StartupAttestationResult:
+    async def run(
+        self,
+        preflight_only: bool = False,
+        observation_only: bool = False,
+    ) -> StartupAttestationResult:
         checks: Dict[str, bool] = {}
         reasons: list[str] = []
         diagnostics: Dict[str, dict] = {}
@@ -208,14 +217,29 @@ class StartupAttestation:
             if not unique_bot_id or not assigned_bot_id or unique_bot_id != assigned_bot_id:
                 fail("shared_key_guard", "api_key_bot_id_mismatch", "UNIQUE_BOT_ID/API_KEY_ASSIGNED_BOT_ID invalides (clé non dédiée)")
 
-        # Promotion ladder requirements
-        if self._check_promotion_gate(stage, paper_mode):
+        # Observation mode is not a paper-promotion stage.  Do not pretend
+        # that its absence of execution evidence is a passed promotion gate.
+        if observation_only:
+            pass_check(
+                "promotion_gate",
+                "not applicable: observation-only runtime cannot promote or execute",
+            )
+        elif self._check_promotion_gate(stage, paper_mode):
             pass_check("promotion_gate", "promotion gate passed")
         else:
             fail("promotion_gate", "promotion_gate_failed", f"Promotion gate failed for stage={stage}")
 
         # 9) Exchange connectivity + preflight checks
-        if self.order_executor is None:
+        if observation_only:
+            pass_check("execution_mode", "observation-only: private Kraken and order paths disabled")
+            record("exchange_connectivity", await self._check_public_exchange_connectivity())
+            for name in ("api_auth", "orders_endpoint", "nonce_health", "reconciliation_baseline"):
+                pass_check(name, "not applicable: observation-only runtime")
+            record("db_writable", self._check_db_writable())
+            record("audit_writable", await self._check_audit_writable())
+            record("clock_drift", await self._check_clock_drift())
+            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
+        elif self.order_executor is None:
             fail("exchange_connectivity", "order_executor_missing", "OrderExecutor absent")
             fail("orders_endpoint", "order_executor_missing", "OrderExecutor absent")
             fail("api_auth", "order_executor_missing", "OrderExecutor absent")
@@ -233,15 +257,16 @@ class StartupAttestation:
                 diagnostics=diagnostics,
             )
 
-        record("exchange_connectivity", await self._check_exchange_connectivity())
-        record("api_auth", await self._check_api_auth())
-        record("orders_endpoint", await self._check_orders_endpoint())
-        record("nonce_health", self._check_nonce_health())
-        record("db_writable", self._check_db_writable())
-        record("audit_writable", await self._check_audit_writable())
-        record("clock_drift", await self._check_clock_drift())
-        record("reconciliation_baseline", await self._check_reconciliation_baseline())
-        record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
+        else:
+            record("exchange_connectivity", await self._check_exchange_connectivity())
+            record("api_auth", await self._check_api_auth())
+            record("orders_endpoint", await self._check_orders_endpoint())
+            record("nonce_health", self._check_nonce_health())
+            record("db_writable", self._check_db_writable())
+            record("audit_writable", await self._check_audit_writable())
+            record("clock_drift", await self._check_clock_drift())
+            record("reconciliation_baseline", await self._check_reconciliation_baseline())
+            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
 
         ok = all(checks.values())
         return StartupAttestationResult(
@@ -252,8 +277,15 @@ class StartupAttestation:
             diagnostics=diagnostics,
         )
 
-    async def enforce(self, preflight_only: bool = False) -> None:
-        result = await self.run(preflight_only=preflight_only)
+    async def enforce(
+        self,
+        preflight_only: bool = False,
+        observation_only: bool = False,
+    ) -> None:
+        result = await self.run(
+            preflight_only=preflight_only,
+            observation_only=observation_only,
+        )
         if not result.ok:
             for r in result.reasons:
                 logger.error("Startup attestation FAILED: %s", r)
@@ -283,6 +315,49 @@ class StartupAttestation:
         except aiohttp.ClientError as exc:
             self._log_check_exception("exchange_connectivity", "network", exc)
             return _CheckOutcome(ok=False, reason="exchange_connectivity_network_error", message="Exchange connectivity client error", error_code="network")
+
+    async def _check_public_exchange_connectivity(self) -> _CheckOutcome:
+        """Check only a public market-data endpoint for observation runtime."""
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    "https://api.kraken.com/0/public/Ticker",
+                    params={"pair": "XXBTZEUR"},
+                ) as response:
+                    if response.status != 200:
+                        return _CheckOutcome(
+                            ok=False,
+                            reason="public_exchange_connectivity_failed",
+                            message=f"public ticker returned HTTP {response.status}",
+                            error_code="network",
+                        )
+                    payload = await response.json(content_type=None)
+            if isinstance(payload, dict) and not payload.get("error") and isinstance(payload.get("result"), dict):
+                return _CheckOutcome(ok=True, message="public exchange ticker call succeeded")
+            return _CheckOutcome(
+                ok=False,
+                reason="public_exchange_connectivity_invalid_response",
+                message="public ticker returned an invalid payload",
+                error_code="network",
+            )
+        except asyncio.TimeoutError as exc:
+            self._log_check_exception("exchange_connectivity", "timeout", exc)
+            return _CheckOutcome(
+                ok=False,
+                reason="public_exchange_connectivity_timeout",
+                message="public exchange ticker timed out",
+                error_code="timeout",
+            )
+        except (aiohttp.ClientError, ValueError) as exc:
+            self._log_check_exception("exchange_connectivity", "network", exc)
+            return _CheckOutcome(
+                ok=False,
+                reason="public_exchange_connectivity_network_error",
+                message="public exchange connectivity client error",
+                error_code="network",
+            )
 
     async def _check_api_auth(self) -> _CheckOutcome:
         try:

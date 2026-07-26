@@ -33,6 +33,7 @@ from .async_dispatcher import AsyncDispatcher
 from .websocket_async import TickerData
 from .instance_async import TradingInstanceAsync
 from .order_executor_async import OrderExecutorAsync, OrderSide, get_order_executor_async
+from .observation_executor import ObservationOnlyOrderExecutor
 from .order_state_machine import PersistedOrderStateMachine
 try:
     from .paper_trading import PaperTradingExecutor
@@ -177,6 +178,7 @@ from .governance_observability import GovernanceDecisionObserver
 from .strategy_reconciliation import StrategyReconciliationEngine
 from .strategy_router import StrategyRouter
 from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, retired_grid_snapshot
+from .runtime_execution_mode import observation_only_runtime, paper_execution_authorized
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +194,33 @@ def _require_paper_executor(paper_mode: bool) -> None:
         raise RuntimeError(
             "paper_executor_unavailable: refusing fallback to real Kraken executor"
         )
+
+
+def _build_runtime_order_executor(
+    *,
+    paper_mode: bool,
+    observation_only: bool,
+    paper_execution_enabled: bool,
+    api_key: Optional[str],
+    api_secret: Optional[str],
+) -> tuple[Any, str]:
+    """Select one executor without allowing a paper-mode fallback to orders."""
+
+    if observation_only or (paper_mode and not paper_execution_enabled):
+        return ObservationOnlyOrderExecutor(), "observation_only"
+    if paper_mode:
+        _require_paper_executor(True)
+        if PaperTradingExecutor is None:  # pragma: no cover - protected above
+            raise RuntimeError("paper_executor_unavailable")
+        initial_capital = float(os.getenv("INITIAL_CAPITAL", "1000.0"))
+        return (
+            PaperTradingExecutor(
+                db_path="data/paper_trades.db",
+                initial_capital=initial_capital,
+            ),
+            "paper",
+        )
+    return get_order_executor_async(api_key, api_secret), "live"
 
 
 def _env_float(name: str, default: float, minimum: float | None = None) -> float:
@@ -268,24 +297,34 @@ class OrchestratorAsync:
         self.api_key = api_key # SEC-01: handled by __repr__
         self.api_secret = api_secret
 
-        # Order executor (async) — PaperTrading si PAPER_TRADING=true
+        # The programme's active runtime is observation-only unless every
+        # paper execution guard is deliberately enabled.  Do not instantiate a
+        # simulated wallet just because the legacy PAPER_TRADING flag is true.
         import os as _os
         self.paper_mode = _os.getenv("PAPER_TRADING", "false").lower() == "true"
-        _require_paper_executor(self.paper_mode)
-        
-        if self.paper_mode and PaperTradingExecutor is not None:
-            initial_capital = float(_os.getenv("INITIAL_CAPITAL", "1000.0"))
-            self.order_executor = PaperTradingExecutor(
-                db_path="data/paper_trades.db",
-                initial_capital=initial_capital,
-            )
-            logger.info(f"🎮 MODE PAPER TRADING (capital: {initial_capital:.0f}€)")
+        self.paper_execution_enabled = paper_execution_authorized()
+        self.observation_only_runtime = observation_only_runtime() or (
+            self.paper_mode and not self.paper_execution_enabled
+        )
+        self.order_executor, execution_mode = _build_runtime_order_executor(
+            paper_mode=self.paper_mode,
+            observation_only=self.observation_only_runtime,
+            paper_execution_enabled=self.paper_execution_enabled,
+            api_key=api_key,
+            api_secret=api_secret,
+        )
+
+        if execution_mode == "observation_only":
+            logger.info("OBSERVATION-ONLY runtime: executor, paper wallet and order writes disabled")
+        elif execution_mode == "paper":
+            logger.info("🎮 MODE PAPER TRADING (explicit execution authorization)")
         else:
-            self.order_executor = get_order_executor_async(api_key, api_secret)
             logger.info("🔴 MODE LIVE TRADING")
         self._last_capital_snapshot: Dict[str, Any] = {
             "paper_mode": self.paper_mode,
-            "source": "paper" if self.paper_mode else "kraken",
+            "execution_mode": "observation_only" if self.observation_only_runtime else ("paper" if self.paper_mode else "live"),
+            "execution_enabled": self.paper_execution_enabled and not self.observation_only_runtime,
+            "source": "observation_only" if self.observation_only_runtime else ("paper" if self.paper_mode else "kraken"),
             "source_status": "not_loaded",
         }
 
@@ -793,11 +832,16 @@ class OrchestratorAsync:
             return None
         manager = self.module_manager.get("shadow_trading")
         if manager and isinstance(manager, ShadowTradingManager):
+            if self.observation_only_runtime:
+                setattr(manager, "_shadow_capital_pool", 0.0)
             if not hasattr(manager, "update_prices"):
                 async def _update_prices() -> None:
                     await self._shadow_update_prices()
                 setattr(manager, "update_prices", _update_prices)
-            logger.info("🕶️ ShadowTradingManager déjà initialisé via ModuleManager")
+            logger.info(
+                "🕶️ ShadowTradingManager déjà initialisé via ModuleManager (notional=%s)",
+                "0.00 EUR" if self.observation_only_runtime else "research-configured",
+            )
             return manager
 
         if not self.paper_mode and not _env_bool("SHADOW_TRADING_CONTINUE_IN_LIVE", True):
@@ -808,6 +852,8 @@ class OrchestratorAsync:
         default_shadow_capital = max(0.0, initial_capital * 0.20)
         shadow_capital = float(os.getenv("SHADOW_CAPITAL_POOL", str(default_shadow_capital)))
         shadow_capital = max(0.0, min(shadow_capital, default_shadow_capital))
+        if self.observation_only_runtime:
+            shadow_capital = 0.0
         manager = ShadowTradingManager()
         setattr(manager, "_shadow_capital_pool", shadow_capital)
         if not hasattr(manager, "update_prices"):
@@ -815,8 +861,10 @@ class OrchestratorAsync:
                 await self._shadow_update_prices()
             setattr(manager, "update_prices", _update_prices)
         logger.info(
-            "🕶️ ShadowTradingManager initialisé (pool=%.2f€, limite totale=1000€)",
-            shadow_capital,
+            "🕶️ ShadowTradingManager initialisé (%s)",
+            "observation-only, notional=0.00 EUR"
+            if self.observation_only_runtime
+            else f"pool={shadow_capital:.2f} EUR",
         )
         return manager
 
@@ -925,9 +973,10 @@ class OrchestratorAsync:
         # P4: Attach shared hot-path optimizer for latency telemetry
         instance.attach_hot_optimizer(self.hot_optimizer)
 
+        instance_budget_label = "Observation budget" if self.observation_only_runtime else "Capital"
         logger.info(
             f"✅ Instance créée: {instance_id} ({config.name}) - "
-            f"Capital: {config.initial_capital:.2f}€"
+            f"{instance_budget_label}: {config.initial_capital:.2f}€"
         )
         self._evolution_pf_baseline[instance_id] = float(
             getattr(instance, "get_profit_factor_days", lambda _d: 1.0)(30)
@@ -936,14 +985,18 @@ class OrchestratorAsync:
         if self.shadow_manager and (self.paper_mode or _env_bool("SHADOW_TRADING_CONTINUE_IN_LIVE", True)):
             try:
                 self.shadow_manager.register_instance(instance_id, "crypto")
-                shadow_pool = float(getattr(self.shadow_manager, "_shadow_capital_pool", 0.0))
-                status = self.shadow_manager.get_status()
-                shadow_count = max(int(status.get("shadow_count", 0)), 1)
-                per_instance_capital = min(shadow_pool / shadow_count, 250.0)
+                if self.observation_only_runtime:
+                    per_instance_capital = 0.0
+                else:
+                    shadow_pool = float(getattr(self.shadow_manager, "_shadow_capital_pool", 0.0))
+                    status = self.shadow_manager.get_status()
+                    shadow_count = max(int(status.get("shadow_count", 0)), 1)
+                    per_instance_capital = min(shadow_pool / shadow_count, 250.0)
                 self.shadow_manager._instances[instance_id].paper_capital = per_instance_capital
                 logger.info(
-                    "🕶️ Shadow instance enregistrée: %s (paper_capital=%.2f€)",
+                    "🕶️ Shadow instance enregistrée: %s (%s=%.2f€)",
                     instance_id,
+                    "observation_notional" if self.observation_only_runtime else "paper_capital",
                     per_instance_capital,
                 )
             except Exception as exc:
@@ -1386,6 +1439,35 @@ class OrchestratorAsync:
             except Exception:
                 continue
 
+        if self.observation_only_runtime:
+            snapshot = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "paper_mode": self.paper_mode,
+                "execution_mode": "observation_only",
+                "execution_enabled": False,
+                "source": "observation_only",
+                "source_status": "not_applicable",
+                "currency": "EUR",
+                "total_balance": 0.0,
+                "total_capital": 0.0,
+                "allocated_capital": 0.0,
+                "configured_observation_budget_eur": allocated_capital,
+                "reserve_cash": 0.0,
+                "available_cash": 0.0,
+                "cash_balance": 0.0,
+                "open_position_notional": 0.0,
+                "total_profit": total_profit,
+                "total_invested": 0.0,
+                "autobot_trading_capital": 0.0,
+                "autobot_available_capital": 0.0,
+                "paper_reference_capital": None,
+                "paper_historical_balance": None,
+                "paper_unallocated_reserve": None,
+                "balances": {"EUR": 0.0},
+            }
+            self._last_capital_snapshot = snapshot
+            return snapshot
+
         source = "paper" if self.paper_mode else "kraken"
         try:
             raw_balances = await self.order_executor.get_balance()
@@ -1412,6 +1494,8 @@ class OrchestratorAsync:
             snapshot = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "paper_mode": self.paper_mode,
+                "execution_mode": "paper" if self.paper_mode else "live",
+                "execution_enabled": self.paper_execution_enabled if self.paper_mode else True,
                 "source": source,
                 "source_status": "ok",
                 "currency": "EUR",
@@ -1436,6 +1520,8 @@ class OrchestratorAsync:
             snapshot = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "paper_mode": self.paper_mode,
+                "execution_mode": "paper" if self.paper_mode else "live",
+                "execution_enabled": self.paper_execution_enabled if self.paper_mode else True,
                 "source": source,
                 "source_status": "unavailable",
                 "currency": "EUR",
@@ -4056,7 +4142,7 @@ class OrchestratorAsync:
         self._sentiment_task = self.background_tasks.tasks.get("sentiment_update")
         self._cycle_health_task = self.background_tasks.tasks.get("cycle_health")
 
-        if self.paper_mode:
+        if self.paper_mode and not self.observation_only_runtime:
             total_capital = sum(
                 float(inst.get_current_capital()) for inst in self._instances.values()
             ) + float(getattr(self.shadow_manager, "_shadow_capital_pool", 0.0) if self.shadow_manager else 0.0)

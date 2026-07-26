@@ -10,6 +10,7 @@ def test_compose_enforces_research_shadow_execution_invariants():
     compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
 
     required = (
+        "AUTOBOT_OBSERVATION_ONLY_RUNTIME=true",
         "PAPER_EXECUTION_ADAPTER_ENABLED=false",
         "PAPER_EXECUTION_ROUTER_ENABLED=false",
         "PAPER_TEST_TRADING_ENABLED=false",

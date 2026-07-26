@@ -38,6 +38,7 @@ services:
       - MAX_INSTANCES=${MAX_INSTANCES:-10}
       - PAPER_TRADING=${PAPER_TRADING:-true}
       - LIVE_TRADING_CONFIRMATION=${LIVE_TRADING_CONFIRMATION:-false}
+      - AUTOBOT_OBSERVATION_ONLY_RUNTIME=true
       # Programme research/shadow : ces garde-fous doivent primer sur les
       # anciennes valeurs éventuellement conservées dans .env.
       - PAPER_EXECUTION_ADAPTER_ENABLED=false

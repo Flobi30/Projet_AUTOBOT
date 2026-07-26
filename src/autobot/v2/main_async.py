@@ -51,6 +51,7 @@ from autobot.v2.os_tuning import OSTuner
 from autobot.v2.api.dashboard import DashboardServer
 from autobot.v2.order_executor_async import OrderExecutorAsync
 from autobot.v2.kill_switch import KillSwitch
+from autobot.v2.runtime_execution_mode import observation_only_runtime
 from autobot.v2.startup_attestation import StartupAttestation, StartupAttestationError
 from autobot.v2.portfolio_allocator import AllocationWeightProvider
 
@@ -230,13 +231,19 @@ class AutoBotV2Async:
             preflight_only = os.getenv("PREFLIGHT_ONLY", "false").lower() == "true"
             if self.startup_kill_switch is None:
                 self.startup_kill_switch = KillSwitch()
-            attestation_executor = OrderExecutorAsync(self.api_key, self.api_secret)
+            observation_only = observation_only_runtime()
+            # Research/observation mode validates public connectivity and local
+            # safety state without constructing a private Kraken client.
+            attestation_executor = None if observation_only else OrderExecutorAsync(self.api_key, self.api_secret)
             try:
                 attestation = StartupAttestation(
                     order_executor=attestation_executor,
                     kill_switch=self.startup_kill_switch,
                 )
-                await attestation.enforce(preflight_only=preflight_only)
+                await attestation.enforce(
+                    preflight_only=preflight_only,
+                    observation_only=observation_only,
+                )
                 if preflight_only:
                     logger.info("✅ PREFLIGHT_ONLY=true: checks passed, trading not started.")
                     from autobot.v2.persistence import close_persistence
@@ -245,7 +252,8 @@ class AutoBotV2Async:
                     self.running = False
                     return
             finally:
-                await attestation_executor.close()
+                if attestation_executor is not None:
+                    await attestation_executor.close()
 
             # 1. Create orchestrator
             logger.info("Initialisation OrchestratorAsync...")

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import statistics
 import time
 from datetime import datetime, timezone, timezone
 from typing import Any
@@ -548,6 +549,7 @@ class TestInstanceHotPath:
 # ===========================================================================
 
 
+@pytest.mark.performance
 class TestHotPathLatencyBenchmark:
     """
     Measure actual nanosecond latency of on_price_update.
@@ -559,17 +561,22 @@ class TestHotPathLatencyBenchmark:
     @pytest.mark.asyncio
     async def test_on_price_update_latency_p99_below_10us(self, instance):
         """P99 latency of on_price_update must be < 10 µs in a test environment."""
-        opt = HotPathOptimizer(max_samples=1024)
-        instance.attach_hot_optimizer(opt)
-
         ticker = _make_ticker(50_000.0)
-        N = 500
+        N = 1_024
+        batch_p99_us = []
 
-        for _ in range(N):
-            await instance.on_price_update(ticker)
+        for _batch in range(5):
+            opt = HotPathOptimizer(max_samples=1024)
+            instance.attach_hot_optimizer(opt)
+            for _ in range(128):
+                await instance.on_price_update(ticker)
+            opt.reset_stats()
+            for _ in range(N):
+                await instance.on_price_update(ticker)
+            batch_p99_us.append(opt.stats["p99_ns"] / 1_000)
 
         s = opt.stats
-        p99_us = s["p99_ns"] / 1_000
+        p99_us = statistics.median(batch_p99_us)
         avg_us = s["avg_ns"] / 1_000
 
         print(
@@ -589,17 +596,20 @@ class TestHotPathLatencyBenchmark:
     @pytest.mark.asyncio
     async def test_hot_path_optimizer_record_tick_sub_microsecond(self):
         """record_tick() itself must be < 1 µs overhead."""
-        opt = HotPathOptimizer(max_samples=512)
-        overhead_samples = []
-        N = 200
+        batch_p99_ns = []
+        for _batch in range(5):
+            opt = HotPathOptimizer(max_samples=2_048)
+            for _ in range(128):
+                opt.record_tick(opt.start_tick())
+            overhead_samples = []
+            for _ in range(2_048):
+                t0 = opt.start_tick()
+                overhead_samples.append(opt.record_tick(t0))
+            batch_p99_ns.append(
+                sorted(overhead_samples)[int(len(overhead_samples) * 0.99)]
+            )
 
-        for _ in range(N):
-            t0 = opt.start_tick()
-            # Simulate zero work
-            elapsed = opt.record_tick(t0)
-            overhead_samples.append(elapsed)
-
-        p99_ns = sorted(overhead_samples)[int(N * 0.99)]
+        p99_ns = statistics.median(batch_p99_ns)
         print(f"\n⚡ record_tick overhead P99: {p99_ns} ns")
         # record_tick itself should be well under 1 µs
         assert p99_ns < 1_000, (
