@@ -19,6 +19,10 @@ _PAPER_EXECUTION_GUARDS = (
 )
 
 
+class ObservationOnlyExecutionComponentDisabled(RuntimeError):
+    """Raised when legacy private-execution code is constructed in observation mode."""
+
+
 def env_enabled(name: str, default: bool = False) -> bool:
     """Read one boolean environment flag without accepting ambiguous values."""
 
@@ -47,3 +51,19 @@ def observation_only_runtime() -> bool:
     if explicit is not None and explicit.strip().lower() in _TRUE_VALUES:
         return True
     return env_enabled("PAPER_TRADING") and not paper_execution_authorized()
+
+
+def reject_private_execution_component(component: str) -> None:
+    """Fail before a direct Kraken executor can exist in observation mode.
+
+    Public data collectors must use their dedicated public clients. A legacy
+    executor has no legitimate purpose in the research/shadow deployment,
+    even for a read request, because its construction enables a private API
+    path outside the active runtime boundary.
+    """
+
+    if observation_only_runtime():
+        normalized = str(component or "private execution component").strip()
+        raise ObservationOnlyExecutionComponentDisabled(
+            f"{normalized} is disabled in observation-only runtime"
+        )

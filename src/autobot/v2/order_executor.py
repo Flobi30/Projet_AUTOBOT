@@ -16,6 +16,7 @@ from .execution_authorization import (
     real_order_mutation_authorized,
     real_order_mutation_blocked_response,
 )
+from .runtime_execution_mode import reject_private_execution_component
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class OrderExecutor:
     """
     
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, use_queue: bool = False):
+        reject_private_execution_component("OrderExecutor")
         self.api_key = api_key
         self.api_secret = api_secret
         self._lock = threading.RLock()

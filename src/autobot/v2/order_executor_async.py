@@ -29,6 +29,7 @@ import aiohttp
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
 from .nonce_manager import NonceManager
+from .runtime_execution_mode import reject_private_execution_component
 from .execution_authorization import (
     MUTATING_PRIVATE_METHODS,
     REAL_ORDER_MUTATION_BLOCKED,
@@ -134,6 +135,7 @@ class OrderExecutorAsync:
         api_secret: Optional[str] = None,
         nonce_manager: Optional[NonceManager] = None,
     ) -> None:
+        reject_private_execution_component("OrderExecutorAsync")
         # SEC-03: clés privées, fallback sur variables d'env
         import os as _os
         self._api_key: Optional[str] = api_key or _os.getenv("KRAKEN_API_KEY")

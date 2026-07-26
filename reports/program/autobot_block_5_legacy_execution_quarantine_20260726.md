@@ -20,6 +20,9 @@ order path.
 - The synchronous `ReconciliationManager` now refuses construction in
   observation-only mode. This prevents its legacy corrective local position
   mutations from running outside the asynchronous reconciliation boundary.
+- `OrderExecutor` and `OrderExecutorAsync` likewise refuse construction in
+  observation-only mode. A caller cannot bypass the router by creating a
+  private Kraken client directly.
 - Router status exposes `observation_only` and `executor_available` for an
   auditable operational view.
 
@@ -33,8 +36,8 @@ disabled in the current observation-only deployment.
 
 ## Verification
 
-- targeted observation/router/reconciliation/production safety suite: 60
-  passed;
+- observation/executor authorization suite: 19 passed;
+- OMS/router/reconciliation/production safety suite: 62 passed;
 - deployment/startup/kill-switch safety suite: 30 passed;
 - touched modules compiled with `py_compile`;
 - `git diff --check` passed;
@@ -52,3 +55,16 @@ image, and container revision are aligned.
 Legacy synchronous modules remain in the repository for compatibility. They
 are not a supported runtime path and must be retired or migrated under a
 separate compatibility plan before any future paper-review decision.
+
+## VPS evidence
+
+The isolated runtime resilience audit completed on 2026-07-26 with
+`RESILIENCE_HEALTHY`: SQLite integrity was `ok`, market data was 111 seconds
+old against a 300-second limit, WebSocket evidence was connected, and 18+ GiB
+of disk remained available. Its read-only/no-network container made no order
+submission attempt.
+
+An independent ephemeral SQLite restore drill also passed against
+`autobot_state.db`: integrity and foreign-key checks passed, table counts and
+schema matched the source, and both temporary backup and restore data were
+removed. The drill did not enable paper or live trading.

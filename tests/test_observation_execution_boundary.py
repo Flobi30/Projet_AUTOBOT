@@ -11,7 +11,8 @@ from autobot.v2.observation_executor import (
     OBSERVATION_EXECUTION_DISABLED,
     ObservationOnlyOrderExecutor,
 )
-from autobot.v2.order_executor import OrderSide
+from autobot.v2.order_executor import OrderExecutor, OrderSide
+from autobot.v2.order_executor_async import OrderExecutorAsync
 from autobot.v2.order_router import (
     OBSERVATION_ORDER_ROUTER_DISABLED,
     OrderRouter,
@@ -25,6 +26,7 @@ from autobot.v2.reconciliation import (
     ReconciliationManager,
 )
 from autobot.v2.runtime_execution_mode import (
+    ObservationOnlyExecutionComponentDisabled,
     observation_only_runtime,
     paper_execution_authorized,
 )
@@ -93,6 +95,15 @@ def test_legacy_sync_reconciliation_cannot_be_constructed_in_observation_mode(mo
         match="legacy_sync_reconciliation_retired_in_observation_runtime",
     ):
         ReconciliationManager(order_executor=object(), instances={})
+
+
+def test_direct_private_executors_cannot_be_constructed_in_observation_mode(monkeypatch):
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="OrderExecutorAsync"):
+        OrderExecutorAsync(api_key="must-not-be-used", api_secret="must-not-be-used")
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="OrderExecutor"):
+        OrderExecutor(api_key="must-not-be-used", api_secret="must-not-be-used")
 
 
 def test_executor_selection_fails_closed_without_full_paper_authorization(monkeypatch, tmp_path):
