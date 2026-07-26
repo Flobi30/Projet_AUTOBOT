@@ -223,6 +223,84 @@ class ExperimentRegistry:
             holdout_id=holdout_id,
         )
 
+    def record_regime_segmentation_trial(
+        self,
+        *,
+        experiment_id: str,
+        segmentation_id: str,
+        segmentation_version: str,
+        segmentation_fingerprint: str,
+        labels: Sequence[str],
+        max_segments: int,
+        data_snapshot_id: str,
+    ) -> str:
+        """Record one bounded regime split as an optimization trial.
+
+        Regime segmentation changes the research decision surface and therefore
+        counts toward multiple-testing evidence.  The split must be explicitly
+        bound to the immutable data snapshot of its parent experiment; it is
+        never a runtime configuration or a promotion decision.
+        """
+
+        normalized_id = str(segmentation_id or "").strip().lower()
+        normalized_version = str(segmentation_version or "").strip()
+        normalized_fingerprint = str(segmentation_fingerprint or "").strip().lower()
+        normalized_snapshot_id = str(data_snapshot_id or "").strip()
+        normalized_labels = tuple(
+            str(label).strip().lower() for label in labels if str(label).strip()
+        )
+        try:
+            bounded_max_segments = int(max_segments)
+        except (TypeError, ValueError) as exc:
+            raise ExperimentRegistryError("max_segments must be an integer") from exc
+
+        if not normalized_id or not all(character.isalnum() or character in "_.-" for character in normalized_id):
+            raise ExperimentRegistryError("segmentation_id must contain only letters, digits, _, . or -")
+        if not normalized_version or not normalized_fingerprint or not normalized_snapshot_id:
+            raise ExperimentRegistryError("segmentation version, fingerprint and data_snapshot_id are required")
+        if (
+            bounded_max_segments < 1
+            or not normalized_labels
+            or len(normalized_labels) > bounded_max_segments
+            or len(set(normalized_labels)) != len(normalized_labels)
+        ):
+            raise ExperimentRegistryError("segmentation labels must be between 1 and max_segments")
+
+        with self._connect() as connection:
+            self._initialize(connection)
+            state = self._state(connection, experiment_id)
+            if state.terminal:
+                raise ExperimentRegistryError("terminal experiment cannot record additional trials")
+            row = connection.execute(
+                "SELECT spec_json FROM experiments WHERE experiment_id = ?", (experiment_id,)
+            ).fetchone()
+            if row is None:
+                raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+            try:
+                experiment_spec = json.loads(str(row[0]))
+            except json.JSONDecodeError as exc:
+                raise ExperimentRegistryError("stored experiment spec is invalid JSON") from exc
+            if str(experiment_spec.get("data_snapshot_id") or "").strip() != normalized_snapshot_id:
+                raise ExperimentRegistryError("regime segmentation data_snapshot_id must match experiment")
+
+        return self.record_trial(
+            experiment_id=experiment_id,
+            dimension="regime_segmentation",
+            value={
+                "schema_version": 1,
+                "segmentation_id": normalized_id,
+                "segmentation_version": normalized_version,
+                "segmentation_fingerprint": normalized_fingerprint,
+                "labels": list(normalized_labels),
+                "max_segments": bounded_max_segments,
+                "data_snapshot_id": normalized_snapshot_id,
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            },
+        )
+
     def _record_trial(
         self,
         *,
@@ -594,10 +672,11 @@ class ExperimentRegistry:
     def validation_trial_count(self, *, hypothesis_id: str, research_campaign_id: str | None = None) -> int:
         """Return the conservative count used by multiple-testing validation.
 
-        Block 2 candidate configurations are preferred because they encode the
-        actual crossed decision surface.  When an explicit campaign is
-        supplied, every material experiment in that campaign contributes to
-        the correction.  Older registry evidence predating the campaign schema
+        Candidate configurations encode the crossed decision surface and every
+        explicit regime segmentation is an additional model-selection choice.
+        Both therefore contribute to the correction.  When an explicit
+        campaign is supplied, every material experiment in that campaign
+        contributes.  Older registry evidence predating the campaign schema
         remains conservatively scoped to its hypothesis instead of silently
         disappearing from the correction.
         """
@@ -619,7 +698,8 @@ class ExperimentRegistry:
                     f"""
                     SELECT COUNT(*) FROM experiment_trials AS trial
                     JOIN experiments AS experiment ON experiment.experiment_id = trial.experiment_id
-                    WHERE {scope_column} = ? AND trial.dimension = 'candidate_configuration'
+                    WHERE {scope_column} = ?
+                      AND trial.dimension IN ('candidate_configuration', 'regime_segmentation')
                     """,
                     (scope_value,),
                 ).fetchone()[0]
@@ -787,7 +867,11 @@ class ExperimentRegistry:
     def _experiment_candidate_trial_count(connection: sqlite3.Connection, experiment_id: str) -> int:
         candidate_count = int(
             connection.execute(
-                "SELECT COUNT(*) FROM experiment_trials WHERE experiment_id = ? AND dimension = 'candidate_configuration'",
+                """
+                SELECT COUNT(*) FROM experiment_trials
+                WHERE experiment_id = ?
+                  AND dimension IN ('candidate_configuration', 'regime_segmentation')
+                """,
                 (experiment_id,),
             ).fetchone()[0]
         )

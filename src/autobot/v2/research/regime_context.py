@@ -14,11 +14,14 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import replace
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from autobot.v2.regime_features import RegimeFeatureEngine
 
 from .market_data_repository import MarketBar, MarketDataRepository
+
+if TYPE_CHECKING:
+    from .experiment_registry import ExperimentRegistry
 
 
 @dataclass(frozen=True)
@@ -80,6 +83,41 @@ def record_regime_segmentation_trial(
             handle.write(json.dumps(trial, sort_keys=True))
             handle.write("\n")
     return trial
+
+
+def record_regime_segmentation_experiment_trial(
+    *,
+    registry: "ExperimentRegistry",
+    experiment_id: str,
+    segmentation: BoundedRegimeSegmentation,
+    snapshot_id: str,
+) -> dict[str, str]:
+    """Bind one bounded regime split to the canonical experiment registry.
+
+    This is the authoritative path for a segmentation used in validation.  It
+    records a research-only optimization trial before any result is inspected,
+    so regime slicing cannot become an uncounted route to parameter fishing.
+    It does not run a strategy, alter a runtime regime, or change promotion.
+    """
+
+    trial_id = registry.record_regime_segmentation_trial(
+        experiment_id=experiment_id,
+        segmentation_id=segmentation.segmentation_id,
+        segmentation_version=segmentation.version,
+        segmentation_fingerprint=segmentation.fingerprint,
+        labels=segmentation.labels,
+        max_segments=segmentation.max_segments,
+        data_snapshot_id=snapshot_id,
+    )
+    return {
+        "trial_id": trial_id,
+        "experiment_id": str(experiment_id),
+        "segmentation_id": segmentation.segmentation_id,
+        "segmentation_version": segmentation.version,
+        "segmentation_fingerprint": segmentation.fingerprint,
+        "snapshot_id": str(snapshot_id),
+        "research_only": "true",
+    }
 
 
 def enrich_bars_with_regime_context(
