@@ -240,7 +240,7 @@ class StartupAttestation:
             record("db_writable", self._check_db_writable())
             record("audit_writable", await self._check_audit_writable())
             record("clock_drift", await self._check_clock_drift())
-            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
+            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only, observation_only=True))
         elif self.order_executor is None:
             fail("exchange_connectivity", "order_executor_missing", "OrderExecutor absent")
             fail("orders_endpoint", "order_executor_missing", "OrderExecutor absent")
@@ -268,7 +268,7 @@ class StartupAttestation:
             record("audit_writable", await self._check_audit_writable())
             record("clock_drift", await self._check_clock_drift())
             record("reconciliation_baseline", await self._check_reconciliation_baseline())
-            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only))
+            record("kill_switch_self_test", await self._kill_switch_self_test(preflight_only, observation_only=False))
 
         ok = all(checks.values())
         return StartupAttestationResult(
@@ -553,7 +553,11 @@ class StartupAttestation:
             self._log_check_exception("reconciliation_baseline", "network", exc)
             return _CheckOutcome(ok=False, reason="reconciliation_network_error", message="Reconciliation network failure", error_code="network")
 
-    async def _kill_switch_self_test(self, preflight_only: bool) -> _CheckOutcome:
+    async def _kill_switch_self_test(
+        self,
+        preflight_only: bool,
+        observation_only: bool = False,
+    ) -> _CheckOutcome:
         if self.kill_switch is None:
             return _CheckOutcome(ok=False, reason="kill_switch_not_initialized", message="Kill switch not initialized")
         # A new process must honor the cross-process latch before any runtime
@@ -566,6 +570,20 @@ class StartupAttestation:
                 reason="global_kill_switch_store_unavailable",
                 message="Persistent global kill-switch state is unavailable",
                 error_code="io",
+            )
+        if global_state.tripped and observation_only:
+            # Keep the cross-process latch intact for any future executable
+            # runtime.  This process has no wallet, private credentials, or
+            # order executor, so allowing observation does not acknowledge or
+            # weaken the safety stop.
+            return _CheckOutcome(
+                ok=True,
+                reason="global_kill_switch_preserved_observation_only",
+                message=(
+                    "Persistent global kill switch remains tripped "
+                    f"({global_state.reason_code or 'unknown'}); "
+                    "observation-only runtime has no execution path"
+                ),
             )
         if global_state.tripped:
             return _CheckOutcome(

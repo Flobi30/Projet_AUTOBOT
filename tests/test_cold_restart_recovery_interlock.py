@@ -216,6 +216,22 @@ async def test_startup_attestation_blocks_a_persisted_global_kill_switch(tmp_pat
     assert outcome.reason == "global_kill_switch_already_tripped"
 
 
+@pytest.mark.asyncio
+async def test_observation_runtime_preserves_but_does_not_clear_a_persisted_global_kill_switch(tmp_path):
+    store = GlobalKillSwitchStore(str(tmp_path / "global_kill.db"))
+    switch = KillSwitch(global_store=store)
+    await switch.trigger("reconciliation_required", "fixture")
+
+    outcome = await StartupAttestation(order_executor=None, kill_switch=switch)._kill_switch_self_test(
+        False,
+        observation_only=True,
+    )
+
+    assert outcome.ok is True
+    assert outcome.reason == "global_kill_switch_preserved_observation_only"
+    assert store.get().tripped is True
+
+
 class _ReconciliationExecutor:
     def __init__(self, lookup: OrderRecoveryLookup, open_orders: OrderCollectionRecovery) -> None:
         self.lookup = lookup
