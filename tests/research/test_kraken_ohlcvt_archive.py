@@ -183,6 +183,39 @@ def test_archive_import_requires_exact_market_member_match(tmp_path: Path) -> No
     assert result.members[0].archive_member == "Kraken_OHLCVT/XXBTZEUR_5.csv"
 
 
+def test_archive_import_supports_official_headerless_ohlcvt_rows(tmp_path: Path) -> None:
+    """The official archive stores time, OHLCV and trade count without a header."""
+
+    archive_path = tmp_path / "official.zip"
+    content = (
+        "1735689600,100,102,99,101,3,12\n"
+        "1735689900,101,103,100,102,4,15\n"
+    )
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("Kraken_OHLCVT/XXBTZEUR_5.csv", content)
+
+    result = import_kraken_ohlcvt_archive(
+        KrakenOhlcvtArchiveImportConfig(
+            run_id="pytest_headerless_archive",
+            archive_path=archive_path,
+            symbols=("BTCEUR",),
+            timeframes=("5m",),
+            raw_dir=tmp_path / "raw",
+            normalized_dir=tmp_path / "normalized",
+            manifest_dir=tmp_path / "manifests",
+            report_dir=tmp_path / "reports",
+        ),
+        imported_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        symbol_mappings={"BTCEUR": _mapping()},
+    )
+
+    assert result.members[0].row_count == 2
+    with Path(result.members[0].normalized_path).open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["timestamp"] == "2025-01-01T00:00:00+00:00"
+    assert json.loads(rows[0]["metadata"])["trade_count"] == 12
+
+
 def test_archive_import_applies_per_member_row_budget(tmp_path: Path) -> None:
     archive = _archive(tmp_path / "official.zip")
     with pytest.raises(KrakenOhlcvtArchiveError, match="max_rows_per_member"):

@@ -17,6 +17,7 @@ import re
 import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
@@ -387,30 +388,58 @@ def _parse_member_bars(
 ) -> tuple[list[MarketBar], dict[datetime, int | None]]:
     try:
         with raw_path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            if reader.fieldnames is None:
-                raise KrakenOhlcvtArchiveError(f"archive member has no CSV header: {member_name}")
-            fields = {_compact(field): field for field in reader.fieldnames if field}
-            timestamp_field = _first_field(fields, "TIMESTAMP", "TIME", "DATE", "DATETIME")
-            required = {"OPEN": _first_field(fields, "OPEN"), "HIGH": _first_field(fields, "HIGH"), "LOW": _first_field(fields, "LOW"), "CLOSE": _first_field(fields, "CLOSE"), "VOLUME": _first_field(fields, "VOLUME", "VOL")}
-            if timestamp_field is None or any(value is None for value in required.values()):
-                raise KrakenOhlcvtArchiveError(f"archive member has unsupported OHLCVT columns: {member_name}")
-            trades_field = _first_field(fields, "TRADES", "TRADECOUNT", "COUNT")
+            reader = csv.reader(handle)
+            first_row = next(reader, None)
+            if first_row is None:
+                raise KrakenOhlcvtArchiveError(f"archive member has no OHLCVT rows: {member_name}")
+
+            # Kraken's downloadable OHLCVT archives use a documented compact
+            # seven-column format without a CSV header. Keep that adapter
+            # intentionally exact: an unknown headerless file must not be
+            # guessed into a research dataset.
+            fields = {_compact(field): index for index, field in enumerate(first_row) if field}
+            appears_headered = any(
+                candidate in fields
+                for candidate in ("TIMESTAMP", "TIME", "DATE", "DATETIME", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "VOL")
+            )
+            if appears_headered:
+                timestamp_index = _first_index(fields, "TIMESTAMP", "TIME", "DATE", "DATETIME")
+                required = {
+                    "OPEN": _first_index(fields, "OPEN"),
+                    "HIGH": _first_index(fields, "HIGH"),
+                    "LOW": _first_index(fields, "LOW"),
+                    "CLOSE": _first_index(fields, "CLOSE"),
+                    "VOLUME": _first_index(fields, "VOLUME", "VOL"),
+                }
+                if timestamp_index is None or any(value is None for value in required.values()):
+                    raise KrakenOhlcvtArchiveError(f"archive member has unsupported OHLCVT columns: {member_name}")
+                trades_index = _first_index(fields, "TRADES", "TRADECOUNT", "COUNT")
+                rows = enumerate(reader, start=2)
+            else:
+                if len(first_row) != 7:
+                    raise KrakenOhlcvtArchiveError(
+                        f"archive member has unsupported headerless OHLCVT format: {member_name}"
+                    )
+                timestamp_index = 0
+                required = {"OPEN": 1, "HIGH": 2, "LOW": 3, "CLOSE": 4, "VOLUME": 5}
+                trades_index = 6
+                rows = chain(((1, first_row),), enumerate(reader, start=2))
+
             bars: list[MarketBar] = []
             trade_counts: dict[datetime, int | None] = {}
-            for row_number, row in enumerate(reader, start=2):
-                if row_number - 1 > max_rows:
+            for row_number, row in rows:
+                if row_number > max_rows:
                     raise KrakenOhlcvtArchiveError(
                         f"archive member exceeds max_rows_per_member ({max_rows}): {member_name}"
                     )
                 try:
-                    open_time = _parse_timestamp(row[timestamp_field])
-                    values = {key: float(str(row[field])) for key, field in required.items() if field is not None}
-                except (TypeError, ValueError, KeyError) as exc:
+                    open_time = _parse_timestamp(row[timestamp_index])
+                    values = {key: float(str(row[index])) for key, index in required.items() if index is not None}
+                except (IndexError, TypeError, ValueError) as exc:
                     raise KrakenOhlcvtArchiveError(f"invalid OHLCVT row {row_number} in {member_name}") from exc
                 if min(values["OPEN"], values["HIGH"], values["LOW"], values["CLOSE"]) <= 0.0 or values["VOLUME"] < 0.0:
                     raise KrakenOhlcvtArchiveError(f"invalid non-positive OHLCVT values at row {row_number} in {member_name}")
-                trade_count = _optional_nonnegative_int(row.get(trades_field)) if trades_field else None
+                trade_count = _optional_nonnegative_int(row[trades_index]) if trades_index is not None else None
                 bars.append(
                     MarketBar(
                         timestamp=open_time,
@@ -432,7 +461,7 @@ def _parse_member_bars(
     return bars, trade_counts
 
 
-def _first_field(fields: Mapping[str, str], *candidates: str) -> str | None:
+def _first_index(fields: Mapping[str, int], *candidates: str) -> int | None:
     return next((fields[candidate] for candidate in candidates if candidate in fields), None)
 
 
