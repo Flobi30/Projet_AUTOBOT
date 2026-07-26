@@ -188,6 +188,11 @@ def _env_bool(name: str, default: bool) -> bool:
     return value in ("1", "true", "yes", "on")
 
 
+def _exchange_reconciliation_enabled(*, observation_only: bool) -> bool:
+    """Private order reconciliation is meaningless in an incapable runtime."""
+    return not observation_only
+
+
 def _require_paper_executor(paper_mode: bool) -> None:
     """Fail closed instead of falling back from paper mode to Kraken execution."""
     if paper_mode and PaperTradingExecutor is None:
@@ -4120,12 +4125,20 @@ class OrchestratorAsync:
         )
 
         # Start reconciliation — ARCH-06: pass callable for dynamic snapshot
-        self.reconciliation_manager = ReconciliationManagerAsync(
-            order_executor=self.order_executor,
-            instances=lambda: dict(self._instances),
-            on_critical_divergence=self._on_critical_reconciliation_divergence,
-        )
-        await self.reconciliation_manager.start()
+        # Exchange reconciliation queries private order state. Observation mode
+        # intentionally has neither private credentials nor an execution path,
+        # so it must not manufacture a critical divergence merely from the
+        # absence of private exchange evidence.
+        if _exchange_reconciliation_enabled(observation_only=self.observation_only_runtime):
+            self.reconciliation_manager = ReconciliationManagerAsync(
+                order_executor=self.order_executor,
+                instances=lambda: dict(self._instances),
+                on_critical_divergence=self._on_critical_reconciliation_divergence,
+            )
+            await self.reconciliation_manager.start()
+        else:
+            self.reconciliation_manager = None
+            logger.info("Observation-only runtime: private exchange reconciliation disabled")
 
         # Start optional modules (DailyReporter, RebalanceManager, etc.)
         await self.module_manager.start()

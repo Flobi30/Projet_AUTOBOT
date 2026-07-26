@@ -12,7 +12,10 @@ from autobot.v2.observation_executor import (
     ObservationOnlyOrderExecutor,
 )
 from autobot.v2.order_executor import OrderSide
-from autobot.v2.orchestrator_async import _build_runtime_order_executor
+from autobot.v2.orchestrator_async import (
+    _build_runtime_order_executor,
+    _exchange_reconciliation_enabled,
+)
 from autobot.v2.runtime_execution_mode import (
     observation_only_runtime,
     paper_execution_authorized,
@@ -44,6 +47,11 @@ def test_paper_execution_requires_every_explicit_guard(monkeypatch):
     monkeypatch.setenv("PAPER_TEST_TRADING_ENABLED", "false")
     assert paper_execution_authorized() is False
     assert observation_only_runtime() is True
+
+
+def test_observation_runtime_never_starts_private_exchange_reconciliation():
+    assert _exchange_reconciliation_enabled(observation_only=True) is False
+    assert _exchange_reconciliation_enabled(observation_only=False) is True
 
 
 def test_executor_selection_fails_closed_without_full_paper_authorization(monkeypatch, tmp_path):
