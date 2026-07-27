@@ -23,6 +23,7 @@ from autobot.v2.contracts import (
     OrderIntent,
     PositionSnapshot,
     RiskDecision,
+    contract_fingerprint,
     contract_to_dict,
 )
 
@@ -99,6 +100,55 @@ class TransactionCostAnalysis:
         payload["implementation_shortfall_bps"] = self.implementation_shortfall_bps
         payload["total_cost_eur"] = self.total_cost_eur
         return payload
+
+
+def build_tca_from_execution_evidence(
+    intent: OrderIntent,
+    fill: FillEvent,
+    *,
+    signal_price: float,
+    decision_price: float,
+) -> TransactionCostAnalysis:
+    """Create complete research-only TCA from immutable simulated fill evidence.
+
+    Signal and decision prices must be supplied explicitly by the research
+    caller: neither is inferred from mutable metadata.  The function refuses
+    legacy evidence and derivative fills with unknown funding, preventing an
+    analytical TCA record from silently converting an unmodeled cost into zero.
+    It is a pure contract adapter; it cannot append a ledger event, route an
+    order, or use exchange credentials.
+    """
+
+    evidence = fill.execution_evidence
+    if evidence is None:
+        raise OMSLedgerError("TCA requires immutable execution evidence")
+    if fill.client_order_id != intent.client_order_id:
+        raise OMSLedgerError("TCA fill client_order_id does not match intent")
+    if evidence.market != intent.market:
+        raise OMSLedgerError("TCA execution evidence market does not match intent")
+    if evidence.intent_fingerprint != contract_fingerprint(intent):
+        raise OMSLedgerError("TCA execution evidence intent fingerprint does not match intent")
+    if not math.isclose(float(fill.fees), float(evidence.fee_eur), rel_tol=0.0, abs_tol=1e-9):
+        raise OMSLedgerError("TCA fill fee does not match execution evidence")
+
+    funding_status = evidence.funding_cost_status
+    if funding_status == "UNAVAILABLE":
+        raise OMSLedgerError("TCA cannot treat unavailable funding as zero")
+    funding_eur = float(evidence.funding_cost_eur) if funding_status == "MODELED" else 0.0
+    return TransactionCostAnalysis(
+        client_order_id=fill.client_order_id,
+        fill_id=fill.fill_id,
+        side=intent.side,
+        signal_price=signal_price,
+        decision_price=decision_price,
+        arrival_price=evidence.arrival_price,
+        fill_price=float(fill.average_price),
+        fee_eur=evidence.fee_eur,
+        spread_cost_eur=evidence.spread_cost_eur,
+        slippage_eur=evidence.slippage_eur,
+        latency_cost_eur=evidence.latency_cost_eur,
+        funding_eur=funding_eur,
+    )
 
 
 @dataclass(frozen=True)

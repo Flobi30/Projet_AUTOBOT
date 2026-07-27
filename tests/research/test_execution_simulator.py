@@ -28,6 +28,7 @@ from autobot.v2.research.execution_simulator import (
     ResearchExecutionSimulator,
     ShadowMarketSnapshot,
 )
+from autobot.v2.research.oms_ledger import build_tca_from_execution_evidence
 
 
 pytestmark = pytest.mark.unit
@@ -398,6 +399,27 @@ def test_shadow_simulator_records_full_market_snapshot_provenance_on_fill():
     serialized = contract_to_dict(outcome.fill_event)
     assert serialized["execution_evidence"]["market_snapshot_fingerprint"] == evidence.market_snapshot_fingerprint
     assert serialized["execution_evidence"]["funding_cost_status"] == "NOT_APPLICABLE"
+
+
+def test_simulated_spot_fill_can_build_complete_research_tca_from_its_evidence():
+    intent = _intent(notional=100.0)
+    outcome = _simulator().simulate(intent, (_snapshot(),), risk_decision=_risk_decision(intent))
+
+    assert outcome.status == "FILLED"
+    assert outcome.fill_event is not None
+    tca = build_tca_from_execution_evidence(
+        intent,
+        outcome.fill_event,
+        signal_price=99.0,
+        decision_price=99.5,
+    )
+    assert tca.arrival_price == pytest.approx(outcome.fill.requested_price)
+    assert tca.fill_price == pytest.approx(outcome.fill.execution_price)
+    assert tca.fee_eur == pytest.approx(outcome.fill.fee_eur)
+    assert tca.spread_cost_eur == pytest.approx(outcome.fill.spread_cost_eur)
+    assert tca.slippage_eur == pytest.approx(outcome.fill.slippage_eur)
+    assert tca.latency_cost_eur == pytest.approx(outcome.fill.latency_cost_eur)
+    assert tca.funding_eur == 0.0
 
 
 def test_fill_execution_evidence_rejects_incoherent_or_fabricated_costs():

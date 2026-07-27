@@ -23,7 +23,12 @@ from autobot.v2.contracts import (
     contract_fingerprint,
     contract_to_dict,
 )
-from autobot.v2.research.oms_ledger import OMSLedgerError, ShadowOMSLedger, TransactionCostAnalysis
+from autobot.v2.research.oms_ledger import (
+    OMSLedgerError,
+    ShadowOMSLedger,
+    TransactionCostAnalysis,
+    build_tca_from_execution_evidence,
+)
 
 
 pytestmark = pytest.mark.unit
@@ -411,6 +416,67 @@ def test_unavailable_derivative_funding_blocks_tca_and_marks_accounting_incomple
     accounting = ledger.reconstruct_accounting()
     assert accounting.cost_completeness == "INCOMPLETE"
     assert accounting.incomplete_cost_fill_ids == (fill.fill_id,)
+
+
+def test_tca_builder_uses_complete_spot_execution_evidence_without_inventing_prices(tmp_path):
+    ledger = ShadowOMSLedger(tmp_path / "oms.sqlite3")
+    intent = _intent(notional=100.0)
+    fill = FillEvent(
+        intent.client_order_id,
+        "fill-tca-from-evidence",
+        intent.created_at + timedelta(seconds=3),
+        1.0,
+        100.0,
+        0.16,
+        execution_evidence=_execution_evidence(intent),
+    )
+
+    tca = build_tca_from_execution_evidence(intent, fill, signal_price=99.0, decision_price=99.5)
+    assert tca.arrival_price == pytest.approx(100.0)
+    assert tca.fill_price == pytest.approx(100.0)
+    assert tca.fee_eur == pytest.approx(0.16)
+    assert tca.total_cost_eur == pytest.approx(0.26)
+
+    assert ledger.register_intent(intent)
+    _acknowledge(ledger, intent)
+    assert ledger.record_fill(fill, costs=_costs())
+    assert ledger.record_tca(tca)
+
+
+def test_tca_builder_rejects_legacy_mismatched_and_unavailable_evidence():
+    intent = _intent(notional=100.0)
+    legacy_fill = FillEvent(intent.client_order_id, "fill-tca-legacy", intent.created_at, 1.0, 100.0, 0.16)
+    with pytest.raises(OMSLedgerError, match="immutable execution evidence"):
+        build_tca_from_execution_evidence(intent, legacy_fill, signal_price=100.0, decision_price=100.0)
+
+    cross_market = FillEvent(
+        intent.client_order_id,
+        "fill-tca-cross-market",
+        intent.created_at + timedelta(seconds=3),
+        1.0,
+        100.0,
+        0.16,
+        execution_evidence=_execution_evidence(intent, market=_perpetual_market()),
+    )
+    with pytest.raises(OMSLedgerError, match="market does not match"):
+        build_tca_from_execution_evidence(intent, cross_market, signal_price=100.0, decision_price=100.0)
+
+    derivative_intent = replace(
+        intent,
+        market=_perpetual_market(),
+        client_order_id="oms-shadow-perpetual-tca",
+    )
+    unknown_funding = FillEvent(
+        derivative_intent.client_order_id,
+        "fill-tca-funding-unknown",
+        derivative_intent.created_at + timedelta(seconds=3),
+        1.0,
+        100.0,
+        0.16,
+        execution_evidence=_execution_evidence(derivative_intent, funding_cost_status="UNAVAILABLE"),
+    )
+    with pytest.raises(OMSLedgerError, match="unavailable funding"):
+        build_tca_from_execution_evidence(derivative_intent, unknown_funding, signal_price=100.0, decision_price=100.0)
 
 
 def test_oms_ledger_is_append_only_and_does_not_import_runtime_paths(tmp_path):
