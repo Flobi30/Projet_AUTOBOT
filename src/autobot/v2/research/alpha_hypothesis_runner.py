@@ -44,6 +44,12 @@ from .volatility_breakout_walk_forward import (
     VolatilityBreakoutWalkForwardConfig,
     build_volatility_breakout_walk_forward_report,
 )
+from .volatility_reversal_research_adapter import (
+    ADAPTER_ID as VOLATILITY_REVERSAL_ADAPTER_ID,
+    VolatilityReversalResearchConfig,
+    build_volatility_reversal_availability,
+    run_volatility_reversal_research_smoke,
+)
 
 
 AUTO_ALLOWED = "AUTO_ALLOWED"
@@ -68,6 +74,7 @@ SMOKE_ADAPTER_IDS = {
     "volatility_breakout": "volatility_breakout_high_conviction",
     "long_trend": "long_timeframe_adaptive_trend",
     "cross_momentum": GENERIC_CROSS_SECTIONAL_ADAPTER_ID,
+    "mean_reversion_volatility_reversal": VOLATILITY_REVERSAL_ADAPTER_ID,
 }
 MISSING_DATA_IDS = {"liquidation_cascade"}
 FUNDING_BASIS_REQUIRED_DERIVATIVES_FEATURES = {"funding_rate_relative", "basis_bps"}
@@ -429,6 +436,30 @@ def _data_check(
             started,
             metrics=availability.to_dict(),
         )
+    if hypothesis_id == "mean_reversion_volatility_reversal":
+        template = _volatility_reversal_template(config)
+        availability = build_volatility_reversal_availability(_volatility_reversal_config(config, template))
+        if not availability.available:
+            return _gate(
+                "DATA_CHECK",
+                "DATA_MISSING",
+                False,
+                True,
+                [availability.reason or "volatility_reversal_data_missing"],
+                policy,
+                started,
+                metrics=availability.to_dict(),
+            )
+        return _gate(
+            "DATA_CHECK",
+            "KEEP_RESEARCH",
+            True,
+            False,
+            ["data_ready"],
+            policy,
+            started,
+            metrics=availability.to_dict(),
+        )
     smoke = _build_smoke(config, commit=None)
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     availability = next((row for row in smoke.availability if row.hypothesis_id == adapter_id), None)
@@ -700,6 +731,39 @@ def _fast_net_edge_test(
                 "primary_trades": [item.to_dict() for item in result.primary_trades],
             },
         )
+    if hypothesis_id == "mean_reversion_volatility_reversal":
+        template = _volatility_reversal_template(config)
+        result = run_volatility_reversal_research_smoke(_volatility_reversal_config(config, template))
+        metrics = result.metrics.to_dict()
+        primary_summary = dict(result.variants[0]) if result.variants else {}
+        metrics.update(
+            {
+                "adapter_id": result.adapter_id,
+                "mode_used": result.mode,
+                "template_id": result.template_id,
+                "adapter_decision": result.decision,
+                "variant_count": result.variant_count,
+                "primary_variant": result.primary_variant,
+                "availability": result.availability.to_dict(),
+                "gross_pnl_eur": primary_summary.get("gross_pnl_eur"),
+                "explicit_cost_eur": primary_summary.get("explicit_cost_eur"),
+            }
+        )
+        passed = result.decision == "WALK_FORWARD_AVAILABLE"
+        return _gate(
+            "FAST_NET_EDGE_TEST",
+            "KEEP_RESEARCH" if passed else result.decision,
+            passed,
+            not passed,
+            result.reasons,
+            policy,
+            started,
+            metrics=metrics,
+            artifacts={
+                "variants": [dict(item) for item in result.variants],
+                "primary_trades": [item.to_dict() for item in result.primary_trades],
+            },
+        )
     adapter_id = SMOKE_ADAPTER_IDS.get(hypothesis_id)
     if not adapter_id:
         return _gate("FAST_NET_EDGE_TEST", "REJECT_FAST", False, True, ["fast_adapter_missing"], policy, started)
@@ -779,6 +843,16 @@ def _walk_forward(
             started,
             metrics=report.overall_oos.to_dict(),
             artifacts={"folds": [fold.to_dict() for fold in report.folds], "diagnostics": dict(report.diagnostics)},
+        )
+    if hypothesis_id == "mean_reversion_volatility_reversal":
+        return _gate(
+            "WALK_FORWARD",
+            "WAITING_FOR_WALK_FORWARD_ADAPTER",
+            False,
+            True,
+            ["volatility_reversal_walk_forward_adapter_not_implemented"],
+            policy,
+            started,
         )
     if hypothesis_id != "volatility_breakout":
         return _gate("WALK_FORWARD", "REJECTED", False, True, ["walk_forward_adapter_missing"], policy, started)
@@ -964,6 +1038,24 @@ def _funding_basis_template(config: AlphaHypothesisRunnerConfig) -> dict[str, An
     return templates[0]
 
 
+def _volatility_reversal_template(config: AlphaHypothesisRunnerConfig) -> dict[str, Any]:
+    payload = json.loads(config.templates_path.read_text(encoding="utf-8"))
+    templates = [
+        dict(item)
+        for item in payload.get("templates", [])
+        if item.get("alpha_family_id") == "mean_reversion"
+        and item.get("required_adapter") == VOLATILITY_REVERSAL_ADAPTER_ID
+    ]
+    if not templates:
+        raise ValueError("volatility reversal research template is missing")
+    if config.template_id:
+        for template in templates:
+            if template.get("template_id") == config.template_id:
+                return template
+        raise ValueError(f"unknown volatility reversal template: {config.template_id}")
+    return templates[0]
+
+
 def _cross_sectional_config(
     config: AlphaHypothesisRunnerConfig,
     template: Mapping[str, Any],
@@ -971,6 +1063,23 @@ def _cross_sectional_config(
     return GenericCrossSectionalConfig(
         run_id=f"{config.run_id}_{template['template_id']}",
         mode=str(template["template_id"]),
+        data_paths=config.data_paths,
+        template=template,
+        symbols=config.symbols,
+        cost_profile=config.cost_profile,
+        max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+        max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+        max_runtime_seconds=min(config.max_runtime_seconds, float(template.get("max_runtime_seconds", config.max_runtime_seconds))),
+        max_data_rows=config.max_data_rows,
+    )
+
+
+def _volatility_reversal_config(
+    config: AlphaHypothesisRunnerConfig,
+    template: Mapping[str, Any],
+) -> VolatilityReversalResearchConfig:
+    return VolatilityReversalResearchConfig(
+        run_id=f"{config.run_id}_{template['template_id']}",
         data_paths=config.data_paths,
         template=template,
         symbols=config.symbols,

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-09",
+  "updated_at": "2026-07-26",
   "research_only": true,
   "paper_capital_allowed": false,
   "live_allowed": false,
@@ -66,6 +66,19 @@
       "timeframe": ["1h", "4h"],
       "metrics": ["net_pnl", "profit_factor_net", "expectancy_net", "fold_positive_ratio", "max_drawdown", "trade_duration"],
       "kill_rules": ["trend_quality_missing", "expectancy_negative_oos", "pf_net_below_1_after_50_trades", "drawdown_above_10pct"],
+      "status": "idea",
+      "promotable": false,
+      "paper_capital_allowed": false,
+      "live_allowed": false
+    },
+    {
+      "id": "mean_reversion_volatility_reversal",
+      "thesis": "A closed-bar downside extension can revert toward its prior mean in range-like spot markets when the expected move clears a conservative round-trip cost model. This is a new bounded research hypothesis, not the legacy runtime mean_reversion configuration.",
+      "data": ["spot_ohlcv", "extension_from_mean", "range_regime", "fees_slippage"],
+      "symbols": ["BTCZEUR", "ETHZEUR", "SOLEUR", "ADAEUR", "BCHEUR", "XRPZEUR"],
+      "timeframe": ["15m", "1h"],
+      "metrics": ["gross_pnl", "net_pnl", "profit_factor_net", "expectancy_net", "max_drawdown", "cost_survival"],
+      "kill_rules": ["pf_net_below_0_9_after_30_trades", "gross_positive_net_negative", "trend_regime_losses", "costs_exceed_reversal", "single_symbol_profit_share_above_65pct"],
       "status": "idea",
       "promotable": false,
       "paper_capital_allowed": false,

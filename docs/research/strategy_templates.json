@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-09",
+  "updated_at": "2026-07-26",
   "research_only": true,
   "paper_capital_allowed": false,
   "live_allowed": false,
@@ -80,7 +80,7 @@
       "entry_logic_description": "Long-only reversal after downside extension only in range-like regimes.",
       "exit_logic_description": "Exit near mean or time stop, with fixed loss control.",
       "risk_logic_description": "Reject if expected reversal does not clear costs with margin.",
-      "required_adapter": "missing",
+      "required_adapter": "volatility_reversal_research_adapter",
       "max_variants": 3,
       "max_symbols": 6,
       "max_runtime_seconds": 120,

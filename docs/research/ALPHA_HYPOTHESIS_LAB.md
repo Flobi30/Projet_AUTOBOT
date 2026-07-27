@@ -55,7 +55,12 @@ flowchart TD
 
 - `grid` / `dynamic_grid`: archived/no-go, tombstone only.
 - `trend_momentum`: benchmark only.
-- `mean_reversion`: benchmark only.
+- `mean_reversion`: legacy benchmark only. Its historical rejection does not
+  authorize a retry or an execution path.
+- `mean_reversion_volatility_reversal`: a separate, bounded closed-bar
+  research hypothesis. It may run at most three predeclared net-of-cost smoke
+  variants across six symbols, and can advance only to a separate
+  walk-forward review; it cannot start shadow, paper, or live trading.
 - `high_conviction_swing`: research only after P17 rejection of current configuration.
 
 No benchmark is allowed to become paper or live through this lab.

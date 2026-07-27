@@ -56,6 +56,24 @@ def test_coordinator_runs_one_allowlisted_smoke_and_deduplicates_terminal_finger
     assert "feature_snapshot_already_has_bounded_research_attempt" in second.reasons
 
 
+def test_coordinator_can_run_the_bounded_reversal_adapter_without_execution_paths(tmp_path):
+    data_dir = _write_ohlcv(tmp_path)
+    feature_manifest = _feature_manifest(tmp_path)
+    memory_path = tmp_path / "memory.sqlite3"
+    _reject_long_trend(memory_path)
+    _reject_cross_momentum(memory_path)
+
+    report = run_bounded_research_coordinator(_config(tmp_path, data_dir, feature_manifest, memory_path))
+
+    assert report.decision == "RESEARCH_SMOKE_COMPLETED"
+    assert report.selected_hypothesis_id == "mean_reversion_volatility_reversal"
+    assert report.selected_template_id == "volatility_reversal_after_extension"
+    assert report.runner_report is not None
+    assert report.runner_report.paper_capital_allowed is False
+    assert report.runner_report.live_allowed is False
+    assert report.runner_report.promotable is False
+
+
 def test_coordinator_fails_closed_when_scheduler_selects_nothing(tmp_path, monkeypatch):
     config = _config(tmp_path, tmp_path / "missing-data", tmp_path / "missing-manifest.json", tmp_path / "memory.sqlite3")
     base = coordinator.build_alpha_hypothesis_scheduler_report(config.scheduler)
@@ -196,11 +214,35 @@ def test_coordinator_blocks_before_registry_writes_when_image_commit_differs(tmp
 
 
 def _reject_long_trend(memory_path: Path) -> None:
-    record = ResearchMemoryRecord(
-        run_id="historical_long_trend_reject",
+    _reject_hypothesis(
+        memory_path,
         hypothesis_id="long_trend",
         alpha_family_id="trend_momentum",
         template_id="regime_filtered_trend",
+    )
+
+
+def _reject_cross_momentum(memory_path: Path) -> None:
+    _reject_hypothesis(
+        memory_path,
+        hypothesis_id="cross_momentum",
+        alpha_family_id="cross_sectional_momentum",
+        template_id="leader_laggard_momentum",
+    )
+
+
+def _reject_hypothesis(
+    memory_path: Path,
+    *,
+    hypothesis_id: str,
+    alpha_family_id: str,
+    template_id: str,
+) -> None:
+    record = ResearchMemoryRecord(
+        run_id=f"historical_{hypothesis_id}_reject",
+        hypothesis_id=hypothesis_id,
+        alpha_family_id=alpha_family_id,
+        template_id=template_id,
         created_at="2026-01-01T00:00:00+00:00",
         data_snapshot={"source": "fixture"},
         parameters_tested={},
@@ -211,7 +253,7 @@ def _reject_long_trend(memory_path: Path) -> None:
         rejection_reasons=("fixture",),
         trial_count_for_family=1,
         trial_count_for_template=1,
-        related_rejected_hypotheses=("long_trend",),
+        related_rejected_hypotheses=(hypothesis_id,),
         do_not_rerun_until=None,
         requires_new_data_before_rerun=True,
     )

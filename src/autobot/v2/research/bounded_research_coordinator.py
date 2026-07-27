@@ -45,17 +45,17 @@ from .manifested_experiment import (
 )
 
 
-# Only the generic cross-sectional adapter is safe for unattended *smoke*
-# research today.  It is bounded, long-only/research-only, and has no order
-# dependency.  Other families remain manually reviewed until their data and
-# validation contracts are mature enough for an equivalent allowlist entry.
+# These adapters are safe for unattended *smoke* research only.  Both are
+# bounded, long-only/research-only, and have no order dependency.  Adding an
+# entry here does not create a shadow, paper, or live path.
 AUTOMATED_SMOKE_TEMPLATE_IDS = frozenset(
     {
         "leader_laggard_momentum",
         "relative_strength_rotation",
+        "volatility_reversal_after_extension",
     }
 )
-AUTOMATED_SMOKE_HYPOTHESIS_IDS = frozenset({"cross_momentum"})
+AUTOMATED_SMOKE_HYPOTHESIS_IDS = frozenset({"cross_momentum", "mean_reversion_volatility_reversal"})
 DEFAULT_COORDINATOR_OUTPUT_DIR = Path("data/research/reports/bounded_research_coordinator")
 
 
@@ -403,13 +403,23 @@ def _build_material_experiment(
             dict(item)
             for item in templates["templates"]
             if str(item.get("template_id")) == template_id
-            and str(item.get("alpha_family_id")) == "cross_sectional_momentum"
-            and str(item.get("required_adapter")) == "generic_cross_sectional_ohlcv_adapter"
+            and (
+                (
+                    resolved_hypothesis_id == "cross_momentum"
+                    and str(item.get("alpha_family_id")) == "cross_sectional_momentum"
+                    and str(item.get("required_adapter")) == "generic_cross_sectional_ohlcv_adapter"
+                )
+                or (
+                    resolved_hypothesis_id == "mean_reversion_volatility_reversal"
+                    and str(item.get("alpha_family_id")) == "mean_reversion"
+                    and str(item.get("required_adapter")) == "volatility_reversal_research_adapter"
+                )
+            )
         ),
         None,
     )
     if template is None:
-        raise ValueError("allowlisted template is not a registered generic cross-sectional template")
+        raise ValueError("allowlisted template does not match its registered research-only adapter")
     hypotheses = load_alpha_hypotheses(config.scheduler.hypotheses_path)
     hypothesis = next(
         (dict(item) for item in hypotheses["hypotheses"] if str(item.get("id")) == resolved_hypothesis_id),

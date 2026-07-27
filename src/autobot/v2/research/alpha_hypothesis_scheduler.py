@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
-import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
@@ -19,7 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .alpha_hypothesis_lab import RESEARCH_ONLY_CAPITAL_FLAGS, load_alpha_hypotheses
-from .alpha_hypothesis_runner import AlphaHypothesisRunnerReport, canonical_hypothesis_id
+from .alpha_hypothesis_runner import AlphaHypothesisRunnerReport
 from .data_capability_scanner import build_data_capability_scan_report
 from .research_memory_store import ResearchMemoryStore
 
@@ -67,6 +65,7 @@ KNOWN_ADAPTERS = {
     "long_trend": "alpha-hypothesis-runner",
     "generic_cross_sectional_ohlcv_adapter": "alpha-hypothesis-runner",
     "funding_basis_research_adapter": "alpha-hypothesis-runner",
+    "volatility_reversal_research_adapter": "alpha-hypothesis-runner",
 }
 FAMILY_TO_HYPOTHESIS = {
     "volatility_breakout": "volatility_breakout",
@@ -74,6 +73,7 @@ FAMILY_TO_HYPOTHESIS = {
     "funding_basis": "funding_basis",
     "liquidation_cascade": "liquidation_cascade",
     "cross_sectional_momentum": "cross_momentum",
+    "mean_reversion": "mean_reversion_volatility_reversal",
 }
 DERIVATIVES_DATA = {"derivatives_funding", "basis", "liquidation_events", "open_interest"}
 ORDERBOOK_DATA = {"orderbook_depth", "bid_ask", "trade_ticks", "multi_exchange_quotes", "latency", "inventory_model"}
@@ -91,6 +91,8 @@ OHLCV_DATA = {
     "rolling_correlation",
     "relative_strength_rank",
     "volatility_regime",
+    "extension_from_mean",
+    "range_regime",
 }
 STATUSES = {
     "REJECTED_CURRENT_CONFIG",
@@ -1434,7 +1436,7 @@ def _hypotheses_for_template(family_id: str, template_id: str) -> tuple[str, ...
     if family_id == "cross_sectional_momentum":
         return ("cross_momentum", f"cross_momentum__{template_id}")
     if family_id == "mean_reversion":
-        return ("mean_reversion", f"mean_reversion__{template_id}")
+        return (FAMILY_TO_HYPOTHESIS["mean_reversion"], f"mean_reversion__{template_id}")
     return (FAMILY_TO_HYPOTHESIS.get(family_id, family_id), f"{family_id}__{template_id}")
 
 

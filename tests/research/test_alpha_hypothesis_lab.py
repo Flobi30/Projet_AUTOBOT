@@ -24,13 +24,15 @@ def test_alpha_hypotheses_registry_is_research_only():
     assert payload["paper_capital_allowed"] is False
     assert payload["live_allowed"] is False
     assert payload["auto_promotion_allowed"] is False
-    assert len(payload["hypotheses"]) == 5
+    assert len(payload["hypotheses"]) == 6
+    assert "mean_reversion_volatility_reversal" in {item["id"] for item in payload["hypotheses"]}
     assert {item["id"] for item in payload["hypotheses"]} == {
         "funding_basis",
         "liquidation_cascade",
         "volatility_breakout",
         "cross_momentum",
         "long_trend",
+        "mean_reversion_volatility_reversal",
     }
     for hypothesis in payload["hypotheses"]:
         assert hypothesis["promotable"] is False
