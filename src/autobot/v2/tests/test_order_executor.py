@@ -6,8 +6,6 @@ import pytest
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
-import os
-
 import sys
 pytestmark = pytest.mark.unit
 
@@ -26,21 +24,21 @@ class TestOrderExecutor(unittest.TestCase):
         reset_order_executor()
         self.api_key = "test_key"
         self.api_secret = "test_secret"
-        self._execution_authorization = patch.dict(
-            os.environ,
-            {
-                "PAPER_TRADING": "false",
-                "LIVE_TRADING_CONFIRMATION": "true",
-                "STRATEGY_ROUTER_LIVE_ENABLED": "true",
-                "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED": "true",
-                "PREFLIGHT_ONLY": "false",
-            },
-            clear=False,
+        # This suite uses a mocked Kraken client. Patch only its imported
+        # authorization seams so no test ever changes process-wide live flags.
+        self._component_guard = patch(
+            "autobot.v2.order_executor.reject_private_execution_component"
         )
-        self._execution_authorization.start()
+        self._mutation_authorization = patch(
+            "autobot.v2.order_executor.real_order_mutation_authorized",
+            return_value=True,
+        )
+        self._component_guard.start()
+        self._mutation_authorization.start()
 
     def tearDown(self):
-        self._execution_authorization.stop()
+        self._mutation_authorization.stop()
+        self._component_guard.stop()
         
     @patch('autobot.v2.order_executor.krakenex')
     def test_execute_market_order_success(self, mock_krakenex):
@@ -151,7 +149,8 @@ class TestOrderExecutor(unittest.TestCase):
         self.assertEqual(status.volume_exec, 0.01)
         
     @patch('autobot.v2.order_executor.krakenex')
-    def test_rate_limiting(self, mock_krakenex):
+    @patch('autobot.v2.order_executor.time.sleep')
+    def test_rate_limiting(self, mock_sleep, mock_krakenex):
         """Test respect rate limiting"""
         mock_api = MagicMock()
         mock_krakenex.API.return_value = mock_api
@@ -162,14 +161,12 @@ class TestOrderExecutor(unittest.TestCase):
         executor = OrderExecutor(self.api_key, self.api_secret)
         
         # Exécuter plusieurs ordres rapidement
-        import time
-        start = time.time()
+        # The API client is mocked; assert throttling intent without sleeping.
         for i in range(3):
             executor._safe_api_call('AddOrder', pair='XXBTZEUR', type='buy', ordertype='market', volume='0.001')
-        elapsed = time.time() - start
         
-        # Vérifier qu'on a attendu au moins 2 secondes (3 appels × 1s min_interval)
-        self.assertGreaterEqual(elapsed, 2.0)
+        # Three rapid calls must request at least two rate-limit sleeps.
+        self.assertGreaterEqual(mock_sleep.call_count, 2)
         
     def test_volume_validation(self):
         """Test validation volume minimum"""
@@ -192,8 +189,9 @@ class TestOrderExecutor(unittest.TestCase):
         executor = OrderExecutor(self.api_key, self.api_secret)
         
         # Simuler 10 erreurs consécutives
+        executor._min_interval = 0.0
         for i in range(10):
-            executor._safe_api_call('AddOrder', pair='XXBTZEUR', type='buy')
+            executor._safe_api_call('AddOrder', max_retries=1, pair='XXBTZEUR', type='buy')
         
         # Vérifier que le circuit breaker est déclenché
         self.assertGreaterEqual(executor._consecutive_errors, 10)
