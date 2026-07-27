@@ -9,12 +9,16 @@ from pathlib import Path
 import pytest
 
 from autobot.v2.contracts import (
+    ExecutionEvidence,
     FeatureSnapshotReference,
+    FillEvent,
     MarketIdentity,
     OrderIntent,
     RiskDecision,
     RiskMandateReference,
     StrategyArtifactReference,
+    contract_fingerprint,
+    contract_to_dict,
 )
 from autobot.v2.research.execution_cost_model import ExecutionCostConfig
 from autobot.v2.research.execution_simulator import (
@@ -250,6 +254,13 @@ def test_pessimistic_scenario_costs_more_and_restart_recovery_is_deterministic()
     assert pessimistic.status == "FILLED"
     assert pessimistic.fill is not None and central.fill is not None
     assert pessimistic.fill.total_cost_eur > central.fill.total_cost_eur
+    assert central.fill_event is not None and central.fill_event.execution_evidence is not None
+    assert pessimistic.fill_event is not None and pessimistic.fill_event.execution_evidence is not None
+    assert pessimistic.fill_event.execution_evidence.scenario == "pessimistic"
+    assert (
+        pessimistic.fill_event.execution_evidence.cost_model_fingerprint
+        != central.fill_event.execution_evidence.cost_model_fingerprint
+    )
     assert recovered == central
 
 
@@ -362,6 +373,121 @@ def test_shadow_simulator_records_full_market_snapshot_provenance_on_fill():
     assert provenance["event_time"] == "2026-07-11T12:00:02+00:00"
     assert outcome.market_snapshot_fingerprint == provenance["snapshot_fingerprint"]
     assert outcome.market_snapshot_sequence_fingerprint is not None
+    assert outcome.fill_event is not None and outcome.fill_event.execution_evidence is not None
+    evidence = outcome.fill_event.execution_evidence
+    assert evidence.market == _market()
+    assert evidence.reference_price == pytest.approx(100.0)
+    assert evidence.arrival_price == outcome.fill.requested_price
+    assert evidence.market_snapshot_fingerprint == outcome.market_snapshot_fingerprint
+    assert evidence.market_snapshot_sequence_fingerprint == outcome.market_snapshot_sequence_fingerprint
+    assert evidence.cost_model_fingerprint == outcome.fill.metadata["simulation_cost_model_fingerprint"]
+    assert evidence.scenario == "central"
+    assert evidence.intent_fingerprint == contract_fingerprint(intent)
+    assert evidence.risk_decision_id == _risk_decision(intent).risk_decision_id
+    assert evidence.market_rules_status == "VERIFIED"
+    assert evidence.market_rules_fingerprint == contract_fingerprint(_simulator()._market_rules[_market()])
+    assert evidence.fee_eur == outcome.fill.fee_eur
+    assert evidence.spread_cost_eur == outcome.fill.spread_cost_eur
+    assert evidence.slippage_eur == outcome.fill.slippage_eur
+    assert evidence.latency_cost_eur == outcome.fill.latency_cost_eur
+    assert evidence.funding_cost_status == "UNAVAILABLE"
+    assert evidence.funding_cost_eur is None
+    assert evidence.research_only is True
+    assert evidence.paper_capital_allowed is False
+    assert evidence.live_allowed is False
+    serialized = contract_to_dict(outcome.fill_event)
+    assert serialized["execution_evidence"]["market_snapshot_fingerprint"] == evidence.market_snapshot_fingerprint
+    assert serialized["execution_evidence"]["funding_cost_status"] == "UNAVAILABLE"
+
+
+def test_fill_execution_evidence_rejects_incoherent_or_fabricated_costs():
+    snapshot = _snapshot()
+    evidence = ExecutionEvidence(
+        market=_market(),
+        reference_price=100.0,
+        arrival_price=100.0,
+        bid=99.95,
+        ask=100.05,
+        event_time=snapshot.event_time,
+        available_time=snapshot.available_time,
+        ingestion_time=snapshot.ingestion_time,
+        source_snapshot_id=snapshot.source_snapshot_id,
+        source_fingerprint=snapshot.source_fingerprint,
+        market_snapshot_fingerprint=snapshot.fingerprint,
+        market_snapshot_sequence_fingerprint=sha256(b"sequence").hexdigest(),
+        cost_model_fingerprint=sha256(b"cost-model").hexdigest(),
+        scenario="central",
+        intent_fingerprint=sha256(b"intent").hexdigest(),
+        risk_decision_id="risk-decision",
+        market_rules_fingerprint=None,
+        market_rules_status="UNAVAILABLE",
+        fee_eur=0.16,
+        spread_cost_eur=0.04,
+        slippage_eur=0.04,
+        latency_cost_eur=0.01,
+    )
+    with pytest.raises(ValueError, match="fill fees must match"):
+        FillEvent("fill-order", "fill-id", snapshot.usable_at, 1.0, 100.0, 0.15, execution_evidence=evidence)
+    with pytest.raises(ValueError, match="UNAVAILABLE funding cost must remain None"):
+        ExecutionEvidence(
+            market=_market(),
+            reference_price=100.0,
+            arrival_price=100.0,
+            bid=None,
+            ask=None,
+            event_time=snapshot.event_time,
+            available_time=snapshot.available_time,
+            ingestion_time=snapshot.ingestion_time,
+            source_snapshot_id=snapshot.source_snapshot_id,
+            source_fingerprint=snapshot.source_fingerprint,
+            market_snapshot_fingerprint=snapshot.fingerprint,
+            market_snapshot_sequence_fingerprint=sha256(b"sequence-2").hexdigest(),
+            cost_model_fingerprint=sha256(b"cost-model-2").hexdigest(),
+            scenario="central",
+            intent_fingerprint=sha256(b"intent-2").hexdigest(),
+            risk_decision_id="risk-decision-2",
+            market_rules_fingerprint=None,
+            market_rules_status="UNAVAILABLE",
+            fee_eur=0.16,
+            spread_cost_eur=0.04,
+            slippage_eur=0.04,
+            latency_cost_eur=0.01,
+            funding_cost_eur=0.0,
+            funding_cost_status="UNAVAILABLE",
+        )
+    with pytest.raises(ValueError, match="cannot authorize paper or live"):
+        ExecutionEvidence(
+            market=_market(),
+            reference_price=100.0,
+            arrival_price=100.0,
+            bid=None,
+            ask=None,
+            event_time=snapshot.event_time,
+            available_time=snapshot.available_time,
+            ingestion_time=snapshot.ingestion_time,
+            source_snapshot_id=snapshot.source_snapshot_id,
+            source_fingerprint=snapshot.source_fingerprint,
+            market_snapshot_fingerprint=snapshot.fingerprint,
+            market_snapshot_sequence_fingerprint=sha256(b"sequence-3").hexdigest(),
+            cost_model_fingerprint=sha256(b"cost-model-3").hexdigest(),
+            scenario="central",
+            intent_fingerprint=sha256(b"intent-3").hexdigest(),
+            risk_decision_id="risk-decision-3",
+            market_rules_fingerprint=None,
+            market_rules_status="UNAVAILABLE",
+            fee_eur=0.16,
+            spread_cost_eur=0.04,
+            slippage_eur=0.04,
+            latency_cost_eur=0.01,
+            paper_capital_allowed=True,
+        )
+
+
+def test_fill_event_preserves_the_legacy_seventh_contract_version_position():
+    fill = FillEvent("legacy-order", "legacy-fill", _snapshot().usable_at, 1.0, 100.0, 0.16, 1)
+
+    assert fill.contract_version == 1
+    assert fill.execution_evidence is None
 
 
 def test_shadow_market_boundaries_reject_invalid_provenance_and_rule_market_mismatch():
@@ -463,3 +589,24 @@ def test_block3_research_modules_do_not_import_runtime_order_paths():
         imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
         imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
         assert imports.isdisjoint(forbidden), relative
+
+
+def test_execution_evidence_contract_does_not_import_runtime_or_private_exchange_paths():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "src/autobot/v2/research/execution_simulator.py").read_text(encoding="utf-8"))
+    forbidden = {
+        "autobot.v2.order_router",
+        "autobot.v2.order_queue_async",
+        "autobot.v2.order_executor_async",
+        "autobot.v2.paper",
+        "autobot.v2.paper_trading",
+        "autobot.v2.persistence",
+        "autobot.v2.orchestrator_async",
+        "autobot.v2.signal_handler_async",
+        "autobot.v2.kraken_client",
+        "krakenex",
+    }
+    imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
+
+    assert imports.isdisjoint(forbidden)

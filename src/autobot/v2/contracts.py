@@ -615,6 +615,7 @@ class FillEvent:
     average_price: Decimal | float
     fees: Decimal | float
     contract_version: int = CONTRACT_VERSION
+    execution_evidence: "ExecutionEvidence | None" = None
 
     def __post_init__(self) -> None:
         quantity = float(self.quantity)
@@ -631,7 +632,151 @@ class FillEvent:
             raise ValueError("fill quantity/price must be positive and fees non-negative finite values")
         object.__setattr__(self, "client_order_id", _required(self.client_order_id, "client_order_id"))
         object.__setattr__(self, "fill_id", _required(self.fill_id, "fill_id"))
-        object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))
+        occurred_at = _utc(self.occurred_at, "occurred_at")
+        evidence = self.execution_evidence
+        if evidence is not None:
+            if not isinstance(evidence, ExecutionEvidence):
+                raise ValueError("execution_evidence must be an ExecutionEvidence")
+            if occurred_at < evidence.usable_at:
+                raise ValueError("fill occurred_at cannot precede execution evidence availability")
+            if not math.isclose(fees, evidence.fee_eur, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("fill fees must match execution evidence fee_eur")
+        object.__setattr__(self, "occurred_at", occurred_at)
+
+
+@dataclass(frozen=True)
+class ExecutionEvidence:
+    """Immutable market and cost provenance for one simulated fill.
+
+    The stable contract deliberately represents unavailable costs as ``None``
+    plus an explicit status.  It must never turn an unknown cost, such as
+    funding in a spot-only simulation, into a fabricated zero.  This is a
+    transport contract only: it cannot submit, route, or reconcile orders.
+    """
+
+    market: MarketIdentity
+    reference_price: Decimal | float
+    arrival_price: Decimal | float
+    bid: Decimal | float | None
+    ask: Decimal | float | None
+    event_time: datetime
+    available_time: datetime
+    ingestion_time: datetime
+    source_snapshot_id: str
+    source_fingerprint: str
+    market_snapshot_fingerprint: str
+    market_snapshot_sequence_fingerprint: str
+    cost_model_fingerprint: str
+    scenario: str
+    intent_fingerprint: str
+    risk_decision_id: str
+    market_rules_fingerprint: str | None
+    market_rules_status: str
+    fee_eur: Decimal | float
+    spread_cost_eur: Decimal | float
+    slippage_eur: Decimal | float
+    latency_cost_eur: Decimal | float
+    funding_cost_eur: Decimal | float | None = None
+    funding_cost_status: str = "UNAVAILABLE"
+    execution_mode: str = "shadow"
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.market, MarketIdentity):
+            raise ValueError("execution evidence market must be a MarketIdentity")
+        if not self.research_only or self.paper_capital_allowed or self.live_allowed:
+            raise ValueError("execution evidence is research-only and cannot authorize paper or live")
+        if _required(self.execution_mode, "execution_mode").lower() != "shadow":
+            raise ValueError("execution evidence execution_mode must be shadow")
+        event_time = _utc(self.event_time, "execution evidence event_time")
+        available_time = _utc(self.available_time, "execution evidence available_time")
+        ingestion_time = _utc(self.ingestion_time, "execution evidence ingestion_time")
+        if available_time < event_time:
+            raise ValueError("execution evidence available_time cannot precede event_time")
+        if ingestion_time < available_time:
+            raise ValueError("execution evidence ingestion_time cannot precede available_time")
+
+        for field_name in ("reference_price", "arrival_price"):
+            value = float(getattr(self, field_name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"execution evidence {field_name} must be positive and finite")
+            object.__setattr__(self, field_name, value)
+        for field_name in ("bid", "ask"):
+            value = getattr(self, field_name)
+            if value is not None:
+                normalized = float(value)
+                if not math.isfinite(normalized) or normalized <= 0.0:
+                    raise ValueError(f"execution evidence {field_name} must be positive and finite when present")
+                object.__setattr__(self, field_name, normalized)
+        if self.bid is not None and self.ask is not None and float(self.ask) < float(self.bid):
+            raise ValueError("execution evidence ask cannot be below bid")
+        for field_name in ("fee_eur", "spread_cost_eur", "slippage_eur", "latency_cost_eur"):
+            value = float(getattr(self, field_name))
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"execution evidence {field_name} must be non-negative and finite")
+            object.__setattr__(self, field_name, value)
+
+        funding_status = _required(self.funding_cost_status, "funding_cost_status").upper()
+        if funding_status not in {"MODELED", "UNAVAILABLE"}:
+            raise ValueError("funding_cost_status must be MODELED or UNAVAILABLE")
+        funding_cost = self.funding_cost_eur
+        if funding_status == "MODELED":
+            if funding_cost is None:
+                raise ValueError("MODELED funding cost requires funding_cost_eur")
+            normalized_funding_cost = float(funding_cost)
+            if not math.isfinite(normalized_funding_cost):
+                raise ValueError("MODELED funding_cost_eur must be finite")
+            object.__setattr__(self, "funding_cost_eur", normalized_funding_cost)
+        elif funding_cost is not None:
+            raise ValueError("UNAVAILABLE funding cost must remain None")
+
+        for field_name in (
+            "source_snapshot_id",
+            "source_fingerprint",
+            "market_snapshot_fingerprint",
+            "market_snapshot_sequence_fingerprint",
+            "cost_model_fingerprint",
+            "intent_fingerprint",
+            "scenario",
+            "risk_decision_id",
+        ):
+            normalized = _required(str(getattr(self, field_name)), field_name)
+            if field_name.endswith("fingerprint") and len(normalized) != 64:
+                raise ValueError(f"execution evidence {field_name} must be a SHA-256 hex digest")
+            if field_name.endswith("fingerprint") and any(character not in "0123456789abcdef" for character in normalized.lower()):
+                raise ValueError(f"execution evidence {field_name} must be a SHA-256 hex digest")
+            object.__setattr__(self, field_name, normalized.lower() if field_name.endswith("fingerprint") else normalized)
+        market_rules_status = _required(self.market_rules_status, "market_rules_status").upper()
+        if market_rules_status not in {"VERIFIED", "UNAVAILABLE"}:
+            raise ValueError("market_rules_status must be VERIFIED or UNAVAILABLE")
+        market_rules_fingerprint = self.market_rules_fingerprint
+        if market_rules_status == "VERIFIED":
+            if market_rules_fingerprint is None:
+                raise ValueError("VERIFIED market rules require market_rules_fingerprint")
+            normalized_market_rules_fingerprint = _required(
+                str(market_rules_fingerprint), "market_rules_fingerprint"
+            ).lower()
+            if (
+                len(normalized_market_rules_fingerprint) != 64
+                or any(character not in "0123456789abcdef" for character in normalized_market_rules_fingerprint)
+            ):
+                raise ValueError("execution evidence market_rules_fingerprint must be a SHA-256 hex digest")
+            object.__setattr__(self, "market_rules_fingerprint", normalized_market_rules_fingerprint)
+        elif market_rules_fingerprint is not None:
+            raise ValueError("UNAVAILABLE market rules must remain without a fingerprint")
+        object.__setattr__(self, "event_time", event_time)
+        object.__setattr__(self, "available_time", available_time)
+        object.__setattr__(self, "ingestion_time", ingestion_time)
+        object.__setattr__(self, "funding_cost_status", funding_status)
+        object.__setattr__(self, "market_rules_status", market_rules_status)
+        object.__setattr__(self, "execution_mode", "shadow")
+
+    @property
+    def usable_at(self) -> datetime:
+        return max(self.available_time, self.ingestion_time)
 
 
 @dataclass(frozen=True)

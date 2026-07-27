@@ -15,7 +15,16 @@ from hashlib import sha256
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import AlphaSignal, FillEvent, MarketIdentity, OrderEvent, OrderIntent, RiskDecision, contract_fingerprint
+from autobot.v2.contracts import (
+    AlphaSignal,
+    ExecutionEvidence,
+    FillEvent,
+    MarketIdentity,
+    OrderEvent,
+    OrderIntent,
+    RiskDecision,
+    contract_fingerprint,
+)
 
 from .backtest_alpha_adapter import cost_model_fingerprint
 from .execution_cost_model import ExecutionCostConfig, ExecutionCostModel, FillRequest, FillResult
@@ -710,6 +719,33 @@ class ResearchExecutionSimulator:
             quantity=fill.quantity,
             average_price=fill.execution_price,
             fees=fill.fee_eur,
+            execution_evidence=ExecutionEvidence(
+                market=snapshot.market,
+                reference_price=snapshot.price,
+                arrival_price=fill.requested_price,
+                bid=snapshot.bid,
+                ask=snapshot.ask,
+                event_time=snapshot.event_time,
+                available_time=snapshot.available_time,
+                ingestion_time=snapshot.ingestion_time,
+                source_snapshot_id=snapshot.source_snapshot_id,
+                source_fingerprint=snapshot.source_fingerprint,
+                market_snapshot_fingerprint=snapshot.fingerprint,
+                market_snapshot_sequence_fingerprint=market_snapshot_sequence_fingerprint,
+                cost_model_fingerprint=cost_model_fingerprint(self.cost_config.to_dict()),
+                scenario=self.config.scenario.name,
+                intent_fingerprint=contract_fingerprint(intent),
+                risk_decision_id=risk_decision.risk_decision_id,
+                market_rules_fingerprint=contract_fingerprint(rules) if rules is not None else None,
+                market_rules_status="VERIFIED" if rules is not None else "UNAVAILABLE",
+                fee_eur=fill.fee_eur,
+                spread_cost_eur=fill.spread_cost_eur,
+                slippage_eur=fill.slippage_eur,
+                latency_cost_eur=fill.latency_cost_eur,
+                funding_cost_eur=None,
+                funding_cost_status="UNAVAILABLE",
+                execution_mode="shadow",
+            ),
         )
         status = "PARTIALLY_FILLED" if partial else "FILLED"
         terminal = OrderEvent(intent.client_order_id, status, snapshot.usable_at, reason="research_shadow_fill")
