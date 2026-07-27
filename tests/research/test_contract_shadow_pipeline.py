@@ -12,9 +12,11 @@ from autobot.v2.contracts import (
     AlphaSignal,
     FeatureSnapshotReference,
     MarketIdentity,
-    RiskDecision,
-    RiskMandateReference,
     StrategyArtifactReference,
+)
+from autobot.v2.research.bound_shadow_risk_evidence import (
+    BoundShadowRiskEvidenceError,
+    build_bound_shadow_risk_evidence,
 )
 from autobot.v2.research.contract_shadow_pipeline import evaluate_alpha_signal_in_shadow
 from autobot.v2.research.backtest_alpha_adapter import cost_model_fingerprint
@@ -31,7 +33,16 @@ from autobot.v2.research.canonical_microstructure_profile import (
     CanonicalMicrostructureSymbolProfile,
 )
 from autobot.v2.research.microstructure_cost_evidence import derive_microstructure_cost_evidence
-from autobot.v2.research.portfolio_construction import CapacityObservation
+from autobot.v2.research.portfolio_construction import (
+    CapacityObservation,
+    build_target_portfolio,
+    review_target_portfolio_capacity,
+)
+from autobot.v2.research.strategy_risk_mandates import (
+    PreTradeAutonomyRequest,
+    StrategyHealthSnapshot,
+    StrategyRiskMandate,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -68,7 +79,42 @@ def _signal(*, expected_edge_bps: float = 25.0) -> AlphaSignal:
     )
 
 
-def _artifact() -> StrategyArtifactReference:
+def _mandate() -> StrategyRiskMandate:
+    return StrategyRiskMandate.from_mapping(
+        {
+            "mandate_id": "mandate-contract-shadow",
+            "strategy_id": "funding_basis",
+            "mode_allowed": "shadow",
+            "capital_max_eur": 1_000.0,
+            "shadow_notional_max_eur": 1_000.0,
+            "max_daily_loss_eur": 100.0,
+            "max_drawdown_pct": 50.0,
+            "max_position_eur": 1_000.0,
+            "max_symbol_exposure_eur": 1_000.0,
+            "max_total_exposure_eur": 1_000.0,
+            "max_trades_per_day": 20,
+            "max_orders_per_minute": 10,
+            "max_fees_per_day_eur": 100.0,
+            "max_slippage_bps": 100.0,
+            "max_spread_bps": 100.0,
+            "allowed_symbols": ["BTCEUR"],
+            "allowed_timeframes": ["1h"],
+            "allowed_order_types": ["market"],
+            "cooldown_after_losses": 10,
+            "rolling_pf_min": 0.1,
+            "rolling_expectancy_min": -100.0,
+            "min_edge_to_cost_ratio": 1.0,
+            "data_freshness_max_seconds": 60,
+            "expires_at": "2026-12-31T23:59:59+00:00",
+            "human_approved_required_for_risk_increase": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+        }
+    )
+
+
+def _artifact(mandate: StrategyRiskMandate | None = None) -> StrategyArtifactReference:
+    mandate = mandate or _mandate()
     return StrategyArtifactReference(
         artifact_id="artifact-contract-shadow",
         fingerprint="artifact-fingerprint-contract-shadow",
@@ -92,16 +138,7 @@ def _artifact() -> StrategyArtifactReference:
                 bundle_content_fingerprint="bundle-content-contract-shadow",
             ),
         ),
-        risk_mandate=RiskMandateReference(
-            mandate_id="mandate-contract-shadow",
-            strategy_id="funding_basis",
-            fingerprint="mandate-fingerprint-contract-shadow",
-            mode_allowed="shadow",
-            capital_max_eur=0.0,
-            shadow_notional_max_eur=1_000.0,
-            expires_at="2026-12-31T23:59:59+00:00",
-            human_approved_required_for_risk_increase=True,
-        ),
+        risk_mandate=mandate.to_reference(),
     )
 
 
@@ -127,12 +164,53 @@ def _simulator() -> ResearchExecutionSimulator:
     )
 
 
-def _risk_decision(*, approved: bool = True) -> RiskDecision:
-    return RiskDecision(
+def _bound_risk_evidence(
+    signal: AlphaSignal,
+    artifact: StrategyArtifactReference,
+    *,
+    capital_eur: float = 1_000.0,
+    capacity_observations: dict[str, CapacityObservation] | None = None,
+    max_liquidity_participation: float = 0.05,
+    health: StrategyHealthSnapshot | None = None,
+):
+    target = build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target
+    capacity = review_target_portfolio_capacity(
+        target,
+        capital_eur=capital_eur,
+        observations=capacity_observations or {"BTCEUR": _capacity_observation()},
+        expected_markets={signal.market.symbol: signal.market},
+        max_liquidity_participation=max_liquidity_participation,
+    )
+    mandate = _mandate()
+    request = PreTradeAutonomyRequest(
+        strategy_id=signal.strategy_id,
+        symbol=signal.market.symbol,
+        timeframe="1h",
+        order_type="market",
+        notional_eur=capacity.target_notionals_eur[signal.market.symbol],
+        symbol_exposure_eur=0.0,
+        total_exposure_eur=0.0,
+        daily_loss_eur=0.0,
+        drawdown_pct=0.0,
+        trades_today=0,
+        orders_last_minute=0,
+        fees_today_eur=0.0,
+        slippage_bps=1.0,
+        spread_bps=1.0,
+        estimated_edge_bps=float(signal.expected_edge_bps or 0.0),
+        estimated_total_cost_bps=10.0,
+        data_age_seconds=0,
+        evaluated_at=signal.available_at,
+    )
+    return build_bound_shadow_risk_evidence(
         decision_id="decision-contract-shadow",
-        approved=approved,
-        decided_at=_timestamp(),
-        reasons=() if approved else ("fixture_risk_block",),
+        signal=signal,
+        strategy_artifact=artifact,
+        target=target,
+        capacity_review=capacity,
+        mandate=mandate,
+        pre_trade_request=request,
+        health=health or StrategyHealthSnapshot(rolling_pf=1.3, rolling_expectancy=0.2),
     )
 
 
@@ -209,17 +287,18 @@ def _cost_evidence():
 
 def test_contract_shadow_pipeline_requires_all_boundaries_before_shadow_fill():
     signal = _signal()
+    artifact = _artifact()
     review = evaluate_alpha_signal_in_shadow(
         signal,
         decision_id="decision-contract-shadow",
-        strategy_artifact=_artifact(),
+        strategy_artifact=artifact,
         capital_eur=1_000.0,
         capacity_observations={"BTCEUR": _capacity_observation()},
         max_liquidity_participation=0.05,
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(_snapshot(),),
-        risk_decision=_risk_decision(),
+        risk_evidence=_bound_risk_evidence(signal, artifact),
     )
 
     assert review.status == "SHADOW_FILLED"
@@ -251,7 +330,7 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
-        risk_decision=_risk_decision(),
+        risk_evidence=None,
     )
     mismatch = evaluate_alpha_signal_in_shadow(
         signal,
@@ -263,7 +342,7 @@ def test_contract_shadow_pipeline_fails_closed_on_stale_capacity_or_provenance_m
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
-        risk_decision=_risk_decision(),
+        risk_evidence=None,
     )
 
     assert stale.status == "CAPACITY_BLOCKED"
@@ -290,7 +369,7 @@ def test_contract_shadow_pipeline_rejects_capacity_from_a_different_market_ident
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
-        risk_decision=_risk_decision(),
+        risk_evidence=None,
     )
 
     assert review.status == "CAPACITY_BLOCKED"
@@ -313,7 +392,7 @@ def test_contract_shadow_pipeline_blocks_missing_or_pessimistic_cost_evidence():
         base_cost_config=_base_cost_config(),
         simulator=_simulator(),
         snapshots=(),
-        risk_decision=_risk_decision(),
+        risk_evidence=None,
     )
 
     assert blocked.status == "SCENARIO_BLOCKED"
@@ -344,7 +423,7 @@ def test_contract_shadow_pipeline_rejects_simulator_with_costs_not_derived_from_
         base_cost_config=_base_cost_config(),
         simulator=mismatched_simulator,
         snapshots=(),
-        risk_decision=_risk_decision(),
+        risk_evidence=None,
     )
 
     assert review.status == "CONTRACT_REJECTED"
@@ -353,6 +432,7 @@ def test_contract_shadow_pipeline_rejects_simulator_with_costs_not_derived_from_
 
 def test_contract_shadow_pipeline_allows_an_exact_pessimistic_cost_derivation():
     signal = _signal(expected_edge_bps=100.0)
+    artifact = _artifact()
     simulator = ResearchExecutionSimulator(
         cost_config=_base_cost_config(),
         config=ResearchExecutionConfig(scenario=PESSIMISTIC_SCENARIO),
@@ -361,14 +441,14 @@ def test_contract_shadow_pipeline_allows_an_exact_pessimistic_cost_derivation():
     review = evaluate_alpha_signal_in_shadow(
         signal,
         decision_id="decision-contract-shadow",
-        strategy_artifact=_artifact(),
+        strategy_artifact=artifact,
         capital_eur=1_000.0,
         capacity_observations={"BTCEUR": _capacity_observation()},
         max_liquidity_participation=0.05,
         base_cost_config=_base_cost_config(),
         simulator=simulator,
         snapshots=(_snapshot(),),
-        risk_decision=_risk_decision(),
+        risk_evidence=_bound_risk_evidence(signal, artifact),
     )
 
     assert review.status == "SHADOW_FILLED"
@@ -405,10 +485,11 @@ def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
             )
         },
     )
+    artifact = _artifact()
     review = evaluate_alpha_signal_in_shadow(
         signal,
         decision_id="decision-contract-shadow",
-        strategy_artifact=_artifact(),
+        strategy_artifact=artifact,
         capital_eur=1_000.0,
         capacity_observations={"BTCEUR": _capacity_observation()},
         max_liquidity_participation=0.05,
@@ -416,7 +497,7 @@ def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
         microstructure_cost_evidence=evidence,
         simulator=simulator,
         snapshots=(_snapshot(),),
-        risk_decision=_risk_decision(),
+        risk_evidence=_bound_risk_evidence(signal, artifact),
     )
 
     assert review.status == "SHADOW_FILLED"
@@ -425,6 +506,89 @@ def test_contract_shadow_pipeline_records_opt_in_microstructure_cost_evidence():
     assert review.order_intent is not None
     assert review.order_intent.metadata["microstructure_cost_evidence_fingerprint"] == evidence.evidence_fingerprint
     assert review.execution_command_created is False
+
+
+def test_contract_shadow_pipeline_rejects_a_manual_approved_risk_decision_without_bound_evidence():
+    signal = _signal()
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=_artifact(),
+        capital_eur=1_000.0,
+        capacity_observations={"BTCEUR": _capacity_observation()},
+        max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
+        simulator=_simulator(),
+        snapshots=(_snapshot(),),
+        risk_evidence=None,
+    )
+
+    assert review.status == "RISK_EVIDENCE_BLOCKED"
+    assert review.reason == "bound_shadow_risk_evidence_missing"
+    assert review.order_intent is None
+    assert review.outcome is None
+
+
+def test_contract_shadow_pipeline_rejects_evidence_bound_to_a_different_market():
+    signal = _signal()
+    artifact = _artifact()
+    review = evaluate_alpha_signal_in_shadow(
+        signal,
+        decision_id="decision-contract-shadow",
+        strategy_artifact=artifact,
+        capital_eur=1_000.0,
+        capacity_observations={"BTCEUR": _capacity_observation()},
+        max_liquidity_participation=0.05,
+        base_cost_config=_base_cost_config(),
+        simulator=_simulator(),
+        snapshots=(_snapshot(),),
+        risk_evidence=replace(_bound_risk_evidence(signal, artifact), market_symbol="ETHEUR"),
+    )
+
+    assert review.status == "RISK_EVIDENCE_BLOCKED"
+    assert review.reason == "bound_shadow_risk_evidence_market_symbol_mismatch"
+    assert review.order_intent is None
+    assert review.outcome is None
+
+
+def test_bound_shadow_risk_evidence_rejects_a_target_or_gate_mismatch():
+    signal = _signal()
+    artifact = _artifact()
+    evidence = _bound_risk_evidence(signal, artifact)
+    with pytest.raises(BoundShadowRiskEvidenceError, match="pre-trade request notional mismatch"):
+        build_bound_shadow_risk_evidence(
+            decision_id="decision-contract-shadow",
+            signal=signal,
+            strategy_artifact=artifact,
+            target=build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target,
+            capacity_review=review_target_portfolio_capacity(
+                build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target,
+                capital_eur=1_000.0,
+                observations={"BTCEUR": _capacity_observation()},
+                expected_markets={signal.market.symbol: signal.market},
+                max_liquidity_participation=0.05,
+            ),
+            mandate=_mandate(),
+            pre_trade_request=replace(evidence.pre_trade_request, notional_eur=evidence.target_notional_eur + 1.0),
+        )
+
+
+def test_bound_shadow_risk_evidence_cannot_cross_a_kill_gate():
+    with pytest.raises(BoundShadowRiskEvidenceError, match="gate did not allow shadow review: KILL"):
+        _bound_risk_evidence(
+            _signal(),
+            _artifact(),
+            health=StrategyHealthSnapshot(rolling_pf=0.0),
+        )
+
+
+def test_bound_shadow_risk_evidence_does_not_import_runtime_execution_paths():
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "src/autobot/v2/research/bound_shadow_risk_evidence.py").read_text(encoding="utf-8"))
+    forbidden = {"autobot.v2.order_router", "autobot.v2.signal_handler_async", "autobot.v2.paper_trading"}
+    imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
+    assert imports.isdisjoint(forbidden)
 
 
 def test_contract_shadow_pipeline_does_not_import_runtime_execution_paths():

@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 from autobot.v2.contracts import AlphaSignal, OrderIntent, RiskDecision, StrategyArtifactReference, TargetPortfolio
 
 from .backtest_alpha_adapter import cost_model_fingerprint
+from .bound_shadow_risk_evidence import BoundShadowRiskEvidence, shadow_risk_evidence_blocker
 from .execution_cost_model import ExecutionCostConfig
 from .execution_simulator import (
     ResearchExecutionOutcome,
@@ -67,7 +68,7 @@ def evaluate_alpha_signal_in_shadow(
     base_cost_config: ExecutionCostConfig,
     simulator: ResearchExecutionSimulator,
     snapshots: Sequence[ShadowMarketSnapshot],
-    risk_decision: RiskDecision | None,
+    risk_evidence: BoundShadowRiskEvidence | None,
     microstructure_cost_evidence: MicrostructureCostEvidence | None = None,
     portfolio_config: PortfolioConstructionConfig = PortfolioConstructionConfig(),
 ) -> ContractShadowPipelineReview:
@@ -78,6 +79,7 @@ def evaluate_alpha_signal_in_shadow(
     decision.  Even the successful path ends at the isolated shadow simulator.
     """
 
+    risk_decision = risk_evidence.risk_decision if isinstance(risk_evidence, BoundShadowRiskEvidence) else None
     reason = _artifact_matches_signal(strategy_artifact, signal)
     if reason is not None:
         return ContractShadowPipelineReview("CONTRACT_REJECTED", reason, signal, risk_decision=risk_decision)
@@ -170,6 +172,25 @@ def evaluate_alpha_signal_in_shadow(
         return ContractShadowPipelineReview(
             "SHADOW_NOTIONAL_BLOCKED",
             "shadow_notional_limit_exceeded",
+            signal,
+            target_result=target_result,
+            capacity_review=capacity_review,
+            scenario_review=scenario_review,
+            risk_decision=risk_decision,
+        )
+
+    risk_evidence_reason = shadow_risk_evidence_blocker(
+        risk_evidence,
+        decision_id=decision_id,
+        signal=signal,
+        strategy_artifact=strategy_artifact,
+        target=target_result.target,
+        capacity_review=capacity_review,
+    )
+    if risk_evidence_reason is not None:
+        return ContractShadowPipelineReview(
+            "RISK_EVIDENCE_BLOCKED",
+            risk_evidence_reason,
             signal,
             target_result=target_result,
             capacity_review=capacity_review,
