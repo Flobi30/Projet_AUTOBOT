@@ -720,8 +720,10 @@ class ExecutionEvidence:
             object.__setattr__(self, field_name, value)
 
         funding_status = _required(self.funding_cost_status, "funding_cost_status").upper()
-        if funding_status not in {"MODELED", "UNAVAILABLE"}:
-            raise ValueError("funding_cost_status must be MODELED or UNAVAILABLE")
+        if funding_status not in {"MODELED", "NOT_APPLICABLE", "UNAVAILABLE"}:
+            raise ValueError("funding_cost_status must be MODELED, NOT_APPLICABLE or UNAVAILABLE")
+        if self.market.market_type == "spot" and funding_status != "NOT_APPLICABLE":
+            raise ValueError("spot execution evidence funding must be NOT_APPLICABLE")
         funding_cost = self.funding_cost_eur
         if funding_status == "MODELED":
             if funding_cost is None:
@@ -731,7 +733,7 @@ class ExecutionEvidence:
                 raise ValueError("MODELED funding_cost_eur must be finite")
             object.__setattr__(self, "funding_cost_eur", normalized_funding_cost)
         elif funding_cost is not None:
-            raise ValueError("UNAVAILABLE funding cost must remain None")
+            raise ValueError("unavailable or not-applicable funding cost must remain None")
 
         for field_name in (
             "source_snapshot_id",

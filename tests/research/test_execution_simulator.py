@@ -390,14 +390,14 @@ def test_shadow_simulator_records_full_market_snapshot_provenance_on_fill():
     assert evidence.spread_cost_eur == outcome.fill.spread_cost_eur
     assert evidence.slippage_eur == outcome.fill.slippage_eur
     assert evidence.latency_cost_eur == outcome.fill.latency_cost_eur
-    assert evidence.funding_cost_status == "UNAVAILABLE"
+    assert evidence.funding_cost_status == "NOT_APPLICABLE"
     assert evidence.funding_cost_eur is None
     assert evidence.research_only is True
     assert evidence.paper_capital_allowed is False
     assert evidence.live_allowed is False
     serialized = contract_to_dict(outcome.fill_event)
     assert serialized["execution_evidence"]["market_snapshot_fingerprint"] == evidence.market_snapshot_fingerprint
-    assert serialized["execution_evidence"]["funding_cost_status"] == "UNAVAILABLE"
+    assert serialized["execution_evidence"]["funding_cost_status"] == "NOT_APPLICABLE"
 
 
 def test_fill_execution_evidence_rejects_incoherent_or_fabricated_costs():
@@ -425,10 +425,11 @@ def test_fill_execution_evidence_rejects_incoherent_or_fabricated_costs():
         spread_cost_eur=0.04,
         slippage_eur=0.04,
         latency_cost_eur=0.01,
+        funding_cost_status="NOT_APPLICABLE",
     )
     with pytest.raises(ValueError, match="fill fees must match"):
         FillEvent("fill-order", "fill-id", snapshot.usable_at, 1.0, 100.0, 0.15, execution_evidence=evidence)
-    with pytest.raises(ValueError, match="UNAVAILABLE funding cost must remain None"):
+    with pytest.raises(ValueError, match="unavailable or not-applicable funding cost must remain None"):
         ExecutionEvidence(
             market=_market(),
             reference_price=100.0,
@@ -453,7 +454,7 @@ def test_fill_execution_evidence_rejects_incoherent_or_fabricated_costs():
             slippage_eur=0.04,
             latency_cost_eur=0.01,
             funding_cost_eur=0.0,
-            funding_cost_status="UNAVAILABLE",
+            funding_cost_status="NOT_APPLICABLE",
         )
     with pytest.raises(ValueError, match="cannot authorize paper or live"):
         ExecutionEvidence(

@@ -743,7 +743,9 @@ class ResearchExecutionSimulator:
                 slippage_eur=fill.slippage_eur,
                 latency_cost_eur=fill.latency_cost_eur,
                 funding_cost_eur=None,
-                funding_cost_status="UNAVAILABLE",
+                funding_cost_status=(
+                    "NOT_APPLICABLE" if snapshot.market.market_type == "spot" else "UNAVAILABLE"
+                ),
                 execution_mode="shadow",
             ),
         )

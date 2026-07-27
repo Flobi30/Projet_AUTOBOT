@@ -113,6 +113,8 @@ class LedgerAccountingSnapshot:
     positions: tuple[PositionSnapshot, ...]
     cash_flow_by_quote_asset: Mapping[str, float]
     realized_pnl_by_quote_asset: Mapping[str, float]
+    cost_completeness: str = "COMPLETE"
+    incomplete_cost_fill_ids: tuple[str, ...] = ()
     research_only: bool = True
     paper_capital_allowed: bool = False
     live_allowed: bool = False
@@ -234,10 +236,16 @@ class ShadowOMSLedger:
             if duplicate:
                 return False
             intent = self._load_intent(connection, fill.client_order_id)
-            self._require_approved_risk_decision(
+            risk_decision_id = self._require_approved_risk_decision(
                 connection,
                 fill.client_order_id,
                 occurred_at=fill.occurred_at,
+            )
+            _validate_execution_evidence(
+                fill,
+                intent=intent,
+                risk_decision_id=risk_decision_id,
+                costs=costs,
             )
             current = self._latest_event_type(connection, fill.client_order_id)
             if current not in {"ACKNOWLEDGED", "PARTIALLY_FILLED", "UNKNOWN"}:
@@ -286,6 +294,10 @@ class ShadowOMSLedger:
                 raise OMSLedgerError("TCA side must match recorded fill intent")
             if not math.isclose(float(fill["average_price"]), record.fill_price, rel_tol=0.0, abs_tol=1e-9):
                 raise OMSLedgerError("TCA fill price must match recorded fill")
+            evidence = fill.get("execution_evidence")
+            funding_status = str(evidence.get("funding_cost_status", "LEGACY_UNSPECIFIED")).upper() if evidence else "LEGACY_UNSPECIFIED"
+            if funding_status == "UNAVAILABLE":
+                raise OMSLedgerError("TCA cannot treat unavailable funding as zero")
             for field_name in ("fee_eur", "spread_cost_eur", "slippage_eur", "latency_cost_eur", "funding_eur"):
                 expected = float(costs.get(field_name, 0.0))
                 actual = float(getattr(record, field_name))
@@ -347,6 +359,7 @@ class ShadowOMSLedger:
         positions: dict[str, dict[str, Any]] = {}
         cash_flows: dict[str, float] = {}
         realized_pnl: dict[str, float] = {}
+        incomplete_cost_fill_ids: list[str] = []
         for intent_json, fill_json, costs_json in rows:
             intent = json.loads(str(intent_json))
             fill = json.loads(str(fill_json))
@@ -357,7 +370,9 @@ class ShadowOMSLedger:
             quantity = float(fill["quantity"])
             price = float(fill["average_price"])
             gross_notional = quantity * price
-            total_cost = _total_cost(costs)
+            cash_debits, cost_complete = _cash_debits_for_fill(fill, costs)
+            if not cost_complete:
+                incomplete_cost_fill_ids.append(str(fill["fill_id"]))
             side = str(intent["side"]).lower()
             position = positions.setdefault(
                 symbol,
@@ -365,16 +380,16 @@ class ShadowOMSLedger:
             )
             if side == "buy":
                 position["quantity"] += quantity
-                position["cost"] += gross_notional + total_cost
-                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) - gross_notional - total_cost
+                position["cost"] += gross_notional + cash_debits
+                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) - gross_notional - cash_debits
             else:
                 if quantity > position["quantity"] + 1e-9:
                     raise OMSLedgerError(f"sell fill exceeds reconstructed position for {symbol}")
                 average = position["cost"] / position["quantity"] if position["quantity"] > 0.0 else 0.0
-                realized = gross_notional - total_cost - (quantity * average)
+                realized = gross_notional - cash_debits - (quantity * average)
                 position["quantity"] -= quantity
                 position["cost"] -= quantity * average
-                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) + gross_notional - total_cost
+                cash_flows[quote_asset] = cash_flows.get(quote_asset, 0.0) + gross_notional - cash_debits
                 realized_pnl[quote_asset] = realized_pnl.get(quote_asset, 0.0) + realized
             position["observed_at"] = fill["occurred_at"]
         snapshots: list[PositionSnapshot] = []
@@ -397,6 +412,8 @@ class ShadowOMSLedger:
             positions=tuple(snapshots),
             cash_flow_by_quote_asset={key: round(value, 12) for key, value in sorted(cash_flows.items())},
             realized_pnl_by_quote_asset={key: round(value, 12) for key, value in sorted(realized_pnl.items())},
+            cost_completeness="COMPLETE" if not incomplete_cost_fill_ids else "INCOMPLETE",
+            incomplete_cost_fill_ids=tuple(sorted(incomplete_cost_fill_ids)),
         )
 
     def reconcile(
@@ -486,10 +503,10 @@ class ShadowOMSLedger:
         client_order_id: str,
         *,
         occurred_at: datetime | None = None,
-    ) -> None:
+    ) -> str:
         row = connection.execute(
             """
-            SELECT risk.decision_id, intent.decision_id, risk.approved, risk.decided_at
+            SELECT risk.risk_decision_id, risk.decision_id, intent.decision_id, risk.approved, risk.decided_at
             FROM oms_risk_decisions AS risk
             JOIN oms_intents AS intent ON intent.client_order_id = risk.client_order_id
             WHERE risk.client_order_id = ?
@@ -498,13 +515,14 @@ class ShadowOMSLedger:
         ).fetchone()
         if not row:
             raise OMSLedgerError("order evidence requires matching approved risk decision")
-        recorded_decision_id, intent_decision_id, approved, decided_at = row
+        risk_decision_id, recorded_decision_id, intent_decision_id, approved, decided_at = row
         if str(recorded_decision_id) != str(intent_decision_id) or int(approved) != 1:
             raise OMSLedgerError("order evidence requires matching approved risk decision")
         if occurred_at is not None:
             decided = datetime.fromisoformat(str(decided_at))
             if decided > occurred_at:
                 raise OMSLedgerError("risk decision must be recorded before order event")
+        return str(risk_decision_id)
 
     @staticmethod
     def _record_order_event(connection: sqlite3.Connection, event: OrderEvent) -> bool:
@@ -653,6 +671,83 @@ def _validate_costs(costs: Mapping[str, float]) -> None:
 def _total_cost(costs: Mapping[str, float]) -> float:
     _validate_costs(costs)
     return sum(float(costs[field_name]) for field_name in ("fee_eur", "spread_cost_eur", "slippage_eur", "latency_cost_eur")) + float(costs.get("funding_eur", 0.0))
+
+
+def _validate_execution_evidence(
+    fill: FillEvent,
+    *,
+    intent: Mapping[str, Any],
+    risk_decision_id: str,
+    costs: Mapping[str, float],
+) -> None:
+    """Validate optional immutable research provenance before appending a fill.
+
+    Legacy fills may remain append-only historical evidence, but an evidence-
+    carrying fill must match the exact registered intent, approved risk result
+    and cost attribution. This function has no runtime, router or exchange
+    dependency.
+    """
+
+    evidence = fill.execution_evidence
+    if evidence is None:
+        return
+    market = intent.get("market")
+    if not isinstance(market, Mapping) or dict(market) != {
+        "exchange": evidence.market.exchange,
+        "market_type": evidence.market.market_type,
+        "symbol": evidence.market.symbol,
+        "base_asset": evidence.market.base_asset,
+        "quote_asset": evidence.market.quote_asset,
+    }:
+        raise OMSLedgerError("execution evidence market does not match registered intent")
+    if evidence.intent_fingerprint != _event_fingerprint(intent):
+        raise OMSLedgerError("execution evidence intent fingerprint does not match registered intent")
+    if evidence.risk_decision_id != risk_decision_id:
+        raise OMSLedgerError("execution evidence risk decision does not match approved decision")
+    for field_name, evidence_value in (
+        ("fee_eur", evidence.fee_eur),
+        ("spread_cost_eur", evidence.spread_cost_eur),
+        ("slippage_eur", evidence.slippage_eur),
+        ("latency_cost_eur", evidence.latency_cost_eur),
+    ):
+        if not math.isclose(float(costs[field_name]), float(evidence_value), rel_tol=0.0, abs_tol=1e-9):
+            raise OMSLedgerError(f"execution evidence {field_name} does not match fill costs")
+    if evidence.funding_cost_status == "MODELED":
+        if "funding_eur" not in costs or not math.isclose(
+            float(costs["funding_eur"]), float(evidence.funding_cost_eur), rel_tol=0.0, abs_tol=1e-9
+        ):
+            raise OMSLedgerError("modeled funding evidence does not match fill costs")
+    elif "funding_eur" in costs:
+        raise OMSLedgerError("unavailable or not-applicable funding evidence cannot supply funding_eur")
+
+
+def _cash_debits_for_fill(fill: Mapping[str, Any], costs: Mapping[str, float]) -> tuple[float, bool]:
+    """Return cash debits and whether economic costs are complete.
+
+    Simulated execution prices already include price impact (spread, slippage,
+    latency). New evidence-carrying fills therefore debit only explicit fees
+    and modeled funding. Legacy fills retain their historic all-cost treatment
+    but are marked incomplete rather than treated as promotion-grade evidence.
+    """
+
+    evidence = fill.get("execution_evidence")
+    if not isinstance(evidence, Mapping):
+        return _total_cost(costs), False
+    funding_status = str(evidence.get("funding_cost_status") or "UNAVAILABLE").upper()
+    fee = float(costs["fee_eur"])
+    if funding_status == "MODELED":
+        return fee + float(costs["funding_eur"]), True
+    if funding_status == "NOT_APPLICABLE":
+        return fee, True
+    if funding_status == "UNAVAILABLE":
+        return fee, False
+    raise OMSLedgerError("unknown execution evidence funding status")
+
+
+def _event_fingerprint(payload: Mapping[str, Any]) -> str:
+    import hashlib
+
+    return hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
 
 
 def _validated_cash_balances(values: Mapping[str, float], label: str) -> dict[str, float]:
