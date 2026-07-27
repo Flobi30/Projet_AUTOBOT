@@ -41,7 +41,14 @@ an `OrderIntent`.
 - Research suite: `667 passed, 1 skipped`.
 - Full local suite: `1908 passed, 6 skipped, 2 deselected`.
 - Python compilation, JSON validation and `git diff --check`: passed.
-- VPS smoke remains required before this change can be considered deployed.
+- VPS smoke: passed after the implementation commit
+  `38b36d9d5082400c5be1d1d32596201805899d22` was deployed. Source and image
+  matched; `autobot-v2` was healthy with a read-only root filesystem and zero
+  restarts. `/health` reported an active orchestrator, connected WebSocket and
+  one intentionally bounded observation-only instance.
+- All paper execution flags, all live flags and automatic promotion were
+  `false`; no private Kraken credential was present in the container and the
+  five-minute critical/order-log scan returned zero matches.
 
 ## Remaining boundary
 
