@@ -74,6 +74,16 @@ restore ownership have been explicitly approved.
 5. Only an explicit human review can approve a future paper mandate; no
    runbook command changes that rule.
 
+After a controlled rebuild, use the read-only deployment-evidence smoke:
+
+```text
+bash deploy/verify-autobot-runtime-evidence.sh
+```
+
+It emits one non-secret JSON record only when GitHub/VPS/container commits,
+container health, `/health`, WebSocket and all observation-only flags agree.
+It never rebuilds, restarts, writes data or calls an order path.
+
 ## Evidence required before a human paper review
 
 All of the following are required, in addition to a strategy that independently
