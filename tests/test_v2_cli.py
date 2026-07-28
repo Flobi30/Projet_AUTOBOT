@@ -1952,6 +1952,47 @@ def test_cli_sqlite_backup_writes_manifest_without_mutating_source(tmp_path, cap
     assert source_path.read_bytes() == before
 
 
+def test_cli_sqlite_backup_scope_audit_and_bundle_are_non_authorizing(tmp_path, capsys):
+    repo = tmp_path / "repo"
+    state_path = repo / "data" / "autobot_state.db"
+    kill_switch_path = repo / "data" / "global_kill_switch.db"
+    for path, value in ((state_path, "runtime"), (kill_switch_path, "kill-switch")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(path) as connection:
+            connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY, value TEXT)")
+            connection.execute("INSERT INTO evidence(value) VALUES (?)", (value,))
+    before = {path: path.read_bytes() for path in (state_path, kill_switch_path)}
+
+    exit_code = cli.main(["sqlite-backup-scope-audit", "--repo-dir", str(repo)])
+    audit_output = json.loads(capsys.readouterr().out)
+    bundle_path = tmp_path / "backups" / "cli_scope"
+    bundle_exit_code = cli.main(
+        [
+            "sqlite-backup-bundle",
+            "--repo-dir",
+            str(repo),
+            "--bundle-path",
+            str(bundle_path),
+        ]
+    )
+    bundle_output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert audit_output["research_only"] is True
+    assert [entry["status"] for entry in audit_output["entries"]] == [
+        "READY",
+        "READY",
+        "MISSING_OPTIONAL",
+        "MISSING_OPTIONAL",
+    ]
+    assert bundle_exit_code == 0
+    assert bundle_output["research_only"] is True
+    assert bundle_output["paper_capital_allowed"] is False
+    assert bundle_output["live_allowed"] is False
+    assert (bundle_path / "manifest.json").is_file()
+    assert before == {path: path.read_bytes() for path in (state_path, kill_switch_path)}
+
+
 def test_cli_sqlite_ephemeral_restore_drill_never_retains_a_backup(tmp_path, capsys):
     source_path = tmp_path / "source.sqlite3"
     with sqlite3.connect(source_path) as connection:

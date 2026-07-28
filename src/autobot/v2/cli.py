@@ -701,6 +701,21 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_backup.add_argument("--manifest-path", default=None)
     sqlite_backup.set_defaults(handler=_cmd_sqlite_backup)
 
+    sqlite_backup_scope_audit = subparsers.add_parser(
+        "sqlite-backup-scope-audit",
+        help="Read only the fixed AUTOBOT SQLite backup scope; it never creates a backup or enables execution",
+    )
+    sqlite_backup_scope_audit.add_argument("--repo-dir", default=".")
+    sqlite_backup_scope_audit.set_defaults(handler=_cmd_sqlite_backup_scope_audit)
+
+    sqlite_backup_bundle = subparsers.add_parser(
+        "sqlite-backup-bundle",
+        help="Create one verified local bundle of the fixed AUTOBOT SQLite resilience scope",
+    )
+    sqlite_backup_bundle.add_argument("--repo-dir", default=".")
+    sqlite_backup_bundle.add_argument("--bundle-path", required=True)
+    sqlite_backup_bundle.set_defaults(handler=_cmd_sqlite_backup_bundle)
+
     sqlite_ephemeral_restore_drill = subparsers.add_parser(
         "sqlite-ephemeral-restore-drill",
         help="Create and restore a temporary SQLite backup without retaining it",
@@ -3521,6 +3536,35 @@ def _cmd_sqlite_backup(args: argparse.Namespace) -> int:
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         payload["manifest_path"] = str(manifest_path)
     _print_json(payload)
+    return 0
+
+
+def _cmd_sqlite_backup_scope_audit(args: argparse.Namespace) -> int:
+    """Report the fixed backup inventory without changing source or runtime state."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import audit_sqlite_backup_scope
+
+    _print_json(asdict(audit_sqlite_backup_scope(Path(args.repo_dir))))
+    return 0
+
+
+def _cmd_sqlite_backup_bundle(args: argparse.Namespace) -> int:
+    """Create a local, non-authorizing backup bundle from the fixed scope."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import create_verified_sqlite_backup_bundle
+
+    _print_json(
+        asdict(
+            create_verified_sqlite_backup_bundle(
+                Path(args.repo_dir),
+                Path(args.bundle_path),
+            )
+        )
+    )
     return 0
 
 

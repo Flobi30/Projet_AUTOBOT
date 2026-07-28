@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
@@ -13,7 +14,9 @@ from autobot.v2.research.resilience_readiness import (
     ResilienceError,
     RetryPolicy,
     RuntimeDeploymentEvidence,
+    audit_sqlite_backup_scope,
     build_readiness_dossier_from_coverage,
+    create_verified_sqlite_backup_bundle,
     create_verified_sqlite_backup,
     decide_fail_closed,
     evaluate_human_paper_readiness,
@@ -28,6 +31,24 @@ from autobot.v2.research.resilience_readiness import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _write_sqlite(path: Path, *, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("CREATE TABLE evidence (id INTEGER PRIMARY KEY, value TEXT)")
+        connection.execute("INSERT INTO evidence(value) VALUES (?)", (value,))
+        connection.commit()
+
+
+def _backup_scope_repo(tmp_path: Path, *, include_optional: bool = False) -> Path:
+    repo = tmp_path / "repo"
+    _write_sqlite(repo / "data" / "autobot_state.db", value="runtime")
+    _write_sqlite(repo / "data" / "global_kill_switch.db", value="kill-switch")
+    if include_optional:
+        _write_sqlite(repo / "data" / "research" / "experiment_registry.sqlite3", value="experiments")
+        _write_sqlite(repo / "data" / "research" / "strategy_artifacts.sqlite3", value="artifacts")
+    return repo
 
 
 def _deployment_evidence(*, observed_at: datetime | None = None, **overrides: object) -> RuntimeDeploymentEvidence:
@@ -185,6 +206,99 @@ def test_verified_sqlite_backup_can_be_read_and_never_claims_unconfigured_encryp
         create_verified_sqlite_backup(source, source)
     with pytest.raises(ResilienceError, match="refusing to overwrite"):
         create_verified_sqlite_backup(source, destination)
+
+
+def test_sqlite_backup_scope_audit_is_fixed_read_only_and_marks_absent_research_registries_optional(tmp_path):
+    repo = _backup_scope_repo(tmp_path)
+    state_before = (repo / "data" / "autobot_state.db").read_bytes()
+    kill_before = (repo / "data" / "global_kill_switch.db").read_bytes()
+
+    audit = audit_sqlite_backup_scope(repo)
+
+    assert [entry.identifier for entry in audit.entries] == [
+        "runtime_state",
+        "global_kill_switch",
+        "experiment_registry",
+        "strategy_artifacts",
+    ]
+    assert [entry.status for entry in audit.entries] == [
+        "READY",
+        "READY",
+        "MISSING_OPTIONAL",
+        "MISSING_OPTIONAL",
+    ]
+    assert audit.missing_required == ()
+    assert audit.research_only is True
+    assert audit.paper_capital_allowed is False
+    assert audit.live_allowed is False
+    assert state_before == (repo / "data" / "autobot_state.db").read_bytes()
+    assert kill_before == (repo / "data" / "global_kill_switch.db").read_bytes()
+    assert not (repo / "data" / "research" / "experiment_registry.sqlite3").exists()
+    assert not (repo / "data" / "research" / "strategy_artifacts.sqlite3").exists()
+
+
+def test_sqlite_backup_bundle_captures_fixed_scope_and_preserves_wal_commits(tmp_path):
+    repo = _backup_scope_repo(tmp_path, include_optional=True)
+    state_path = repo / "data" / "autobot_state.db"
+    with sqlite3.connect(state_path) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("INSERT INTO evidence(value) VALUES ('committed_in_wal')")
+        connection.commit()
+        state_before = state_path.read_bytes()
+        bundle = create_verified_sqlite_backup_bundle(repo, tmp_path / "backups" / "run_2026_07_29")
+
+    assert bundle.bundle_id == "run_2026_07_29"
+    assert bundle.capture_finished_at >= bundle.capture_started_at
+    assert [entry.status for entry in bundle.entries] == ["BACKED_UP"] * 4
+    assert (tmp_path / "backups" / "run_2026_07_29" / "manifest.json").is_file()
+    assert state_before == state_path.read_bytes()
+    for entry in bundle.entries:
+        assert entry.backup is not None
+        backup_path = Path(entry.backup.backup_path)
+        assert backup_path.is_file()
+        assert verify_sqlite_restore_drill(backup_path).temporary_restore_cleaned is True
+    with sqlite3.connect(Path(bundle.entries[0].backup.backup_path)) as connection:  # type: ignore[union-attr]
+        count = connection.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
+    assert count == 2
+
+
+@pytest.mark.parametrize(
+    ("missing_filename", "expected_identifier"),
+    (("autobot_state.db", "runtime_state"), ("global_kill_switch.db", "global_kill_switch")),
+)
+def test_sqlite_backup_bundle_fails_closed_for_missing_required_source_or_unsafe_identifier(
+    tmp_path,
+    missing_filename,
+    expected_identifier,
+):
+    repo = _backup_scope_repo(tmp_path)
+    (repo / "data" / missing_filename).unlink()
+    destination = tmp_path / "backups" / "missing_required"
+
+    with pytest.raises(ResilienceError, match=f"required SQLite backup sources are missing: {expected_identifier}"):
+        create_verified_sqlite_backup_bundle(repo, destination)
+    assert not destination.exists()
+
+    _write_sqlite(repo / "data" / missing_filename, value="restored-fixture")
+    with pytest.raises(ResilienceError, match="backup bundle identifier is unsafe"):
+        create_verified_sqlite_backup_bundle(repo, tmp_path / "backups" / "unsafe..bundle")
+    assert not (tmp_path / "backups" / "unsafe..bundle").exists()
+
+
+def test_sqlite_backup_bundle_skips_only_optional_absent_sources_and_refuses_overwrite(tmp_path):
+    repo = _backup_scope_repo(tmp_path)
+    destination = tmp_path / "backups" / "bounded_scope"
+
+    bundle = create_verified_sqlite_backup_bundle(repo, destination)
+
+    assert [entry.status for entry in bundle.entries] == [
+        "BACKED_UP",
+        "BACKED_UP",
+        "SKIPPED_OPTIONAL_MISSING",
+        "SKIPPED_OPTIONAL_MISSING",
+    ]
+    with pytest.raises(ResilienceError, match="refusing to overwrite"):
+        create_verified_sqlite_backup_bundle(repo, destination)
 
 
 def test_sqlite_restore_drill_is_hermetic_and_preserves_backup_input(tmp_path):

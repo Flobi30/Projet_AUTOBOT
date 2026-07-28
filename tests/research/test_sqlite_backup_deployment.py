@@ -24,8 +24,10 @@ def test_sqlite_backup_script_is_disabled_by_default_and_has_a_narrow_mount_boun
     assert "--security-opt no-new-privileges" in script
     assert '"${REPO_DIR}/data:/app/data:ro"' in script
     assert '"${BACKUP_DIR}:/app/backups"' in script
-    assert "--source /app/data/autobot_state.db" in script
-    assert "--backup-path" in script
+    assert "sqlite-backup-bundle" in script
+    assert "--repo-dir /app" in script
+    assert '--bundle-path "/app/backups/${RUN_ID}"' in script
+    assert '[[ ! "${RUN_ID}" =~ ^[[:alnum:]_][[:alnum:]_.-]*$ || "${RUN_ID}" == *".."* ]]' in script
     assert ".env" not in script
     assert "sendorder" not in script.lower()
     assert "\nrm " not in script

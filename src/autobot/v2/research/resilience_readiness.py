@@ -8,15 +8,16 @@ flags.  A readiness result is documentation for human review, never a mandate.
 from __future__ import annotations
 
 from contextlib import closing
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
 import os
 from pathlib import Path
+from shutil import rmtree
 import sqlite3
-from tempfile import TemporaryDirectory, mkstemp
+from tempfile import TemporaryDirectory, mkdtemp, mkstemp
 from time import sleep
 from typing import Any, Callable, Mapping, Sequence, TypeVar
 
@@ -71,6 +72,19 @@ _RECOVERY_STEPS_BY_INCIDENT: Mapping[str, tuple[str, ...]] = {
     ),
 }
 _T = TypeVar("_T")
+
+
+# This is a deliberately small, versioned inventory of SQLite state that is
+# required to reconstruct AUTOBOT's research/observation safety posture.  It
+# is not a discovery mechanism: a backup job must never silently sweep an
+# arbitrary data directory or include credentials/configuration by accident.
+DEFAULT_SQLITE_BACKUP_SCOPE: tuple[tuple[str, str, bool, str], ...] = (
+    ("runtime_state", "data/autobot_state.db", True, "observation runtime state and append-only ledger"),
+    ("global_kill_switch", "data/global_kill_switch.db", True, "persistent fail-closed kill-switch state"),
+    ("experiment_registry", "data/research/experiment_registry.sqlite3", False, "append-only research experiment registry"),
+    ("strategy_artifacts", "data/research/strategy_artifacts.sqlite3", False, "append-only governed strategy artifacts"),
+)
+SQLITE_BACKUP_SCOPE_VERSION = "autobot_sqlite_backup_scope_v1"
 
 
 class ResilienceError(ValueError):
@@ -316,6 +330,143 @@ class SQLiteBackupManifest:
 
 
 @dataclass(frozen=True)
+class SQLiteBackupScopeEntry:
+    """One fixed, non-secret SQLite source included in the resilience scope."""
+
+    identifier: str
+    relative_source_path: str
+    required: bool
+    purpose: str
+
+    def __post_init__(self) -> None:
+        identifier = str(self.identifier).strip().lower()
+        if not identifier or not all(character.isalnum() or character == "_" for character in identifier):
+            raise ResilienceError("backup scope identifier must contain only lowercase-safe characters")
+        relative_path = Path(str(self.relative_source_path))
+        if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.parts:
+            raise ResilienceError("backup scope source must be a relative path")
+        if relative_path.parts[0] != "data" or relative_path.suffix.lower() not in {".db", ".sqlite3"}:
+            raise ResilienceError("backup scope source must be a SQLite file below data/")
+        if not isinstance(self.required, bool) or not str(self.purpose).strip():
+            raise ResilienceError("backup scope entry requires required flag and purpose")
+        object.__setattr__(self, "identifier", identifier)
+        object.__setattr__(self, "relative_source_path", relative_path.as_posix())
+        object.__setattr__(self, "purpose", str(self.purpose).strip())
+
+
+@dataclass(frozen=True)
+class SQLiteBackupScopeAuditEntry:
+    """Read-only availability evidence for one fixed backup source."""
+
+    identifier: str
+    relative_source_path: str
+    purpose: str
+    required: bool
+    status: str
+    source_path: str
+    source_sha256: str | None
+
+    def __post_init__(self) -> None:
+        if self.status not in {"READY", "MISSING_REQUIRED", "MISSING_OPTIONAL"}:
+            raise ResilienceError("unsupported backup scope audit status")
+        if self.status == "READY" and not _is_sha256(self.source_sha256):
+            raise ResilienceError("ready backup source requires a SHA-256 fingerprint")
+        if self.status != "READY" and self.source_sha256 is not None:
+            raise ResilienceError("missing backup source cannot carry a fingerprint")
+
+
+@dataclass(frozen=True)
+class SQLiteBackupScopeAudit:
+    """Read-only inventory of the explicitly allowed local backup sources."""
+
+    repo_dir: str
+    scope_version: str
+    scope_fingerprint: str
+    entries: tuple[SQLiteBackupScopeAuditEntry, ...]
+    audited_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.scope_version != SQLITE_BACKUP_SCOPE_VERSION or not _is_sha256(self.scope_fingerprint):
+            raise ResilienceError("backup scope audit requires the canonical scope and fingerprint")
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("backup scope audits cannot authorize paper or live")
+        _parse_aware_utc(self.audited_at, "audited_at")
+        identifiers = tuple(entry.identifier for entry in self.entries)
+        if not identifiers or len(identifiers) != len(set(identifiers)):
+            raise ResilienceError("backup scope audit identifiers must be unique")
+
+    @property
+    def missing_required(self) -> tuple[str, ...]:
+        return tuple(entry.identifier for entry in self.entries if entry.status == "MISSING_REQUIRED")
+
+    @property
+    def ready_entries(self) -> tuple[SQLiteBackupScopeAuditEntry, ...]:
+        return tuple(entry for entry in self.entries if entry.status == "READY")
+
+
+@dataclass(frozen=True)
+class SQLiteBackupBundleEntry:
+    """One completed or explicitly skipped member of a local backup bundle."""
+
+    audit: SQLiteBackupScopeAuditEntry
+    status: str
+    backup: SQLiteBackupManifest | None
+
+    def __post_init__(self) -> None:
+        if self.status not in {"BACKED_UP", "SKIPPED_OPTIONAL_MISSING"}:
+            raise ResilienceError("unsupported backup bundle entry status")
+        if self.status == "BACKED_UP":
+            if self.audit.status != "READY" or self.backup is None:
+                raise ResilienceError("backed-up scope entry requires ready source evidence")
+        elif self.audit.status != "MISSING_OPTIONAL" or self.backup is not None:
+            raise ResilienceError("only optional missing scope entries may be skipped")
+
+
+@dataclass(frozen=True)
+class SQLiteBackupBundleManifest:
+    """Local bundle of approved SQLite resilience sources.
+
+    Individual SQLite snapshots are integrity-checked, but they are captured
+    sequentially and are not an inter-database transaction.  The manifest
+    records the capture window so later recovery review does not infer a false
+    global atomicity.  Retention, encryption and off-VPS replication remain
+    separate operator-policy responsibilities.
+    """
+
+    bundle_id: str
+    bundle_path: str
+    manifest_path: str
+    scope: SQLiteBackupScopeAudit
+    entries: tuple[SQLiteBackupBundleEntry, ...]
+    capture_started_at: str
+    capture_finished_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("SQLite backup bundles cannot authorize paper or live")
+        _validate_backup_bundle_id(self.bundle_id)
+        capture_started_at = _parse_aware_utc(self.capture_started_at, "capture_started_at")
+        capture_finished_at = _parse_aware_utc(self.capture_finished_at, "capture_finished_at")
+        if capture_finished_at < capture_started_at:
+            raise ResilienceError("backup bundle capture window is invalid")
+        if self.scope.missing_required:
+            raise ResilienceError("backup bundle cannot be complete with missing required scope sources")
+        if not self.entries:
+            raise ResilienceError("backup bundle requires at least one scope entry")
+        identifiers = tuple(entry.audit.identifier for entry in self.entries)
+        if identifiers != tuple(entry.identifier for entry in self.scope.entries):
+            raise ResilienceError("backup bundle entries must preserve the canonical scope order")
+        if any(entry.status == "BACKED_UP" and entry.backup is None for entry in self.entries):
+            raise ResilienceError("backup bundle entry is missing its backup manifest")
+
+
+@dataclass(frozen=True)
 class SQLiteRestoreDrillManifest:
     backup_path: str
     backup_sha256_before: str
@@ -500,6 +651,121 @@ def retry_bounded(
             delays.append(delay)
             sleeper(delay)
     raise AssertionError("retry policy exhausted without producing a result")
+
+
+def canonical_sqlite_backup_scope() -> tuple[SQLiteBackupScopeEntry, ...]:
+    """Return the fixed, versioned set of non-secret SQLite backup sources."""
+
+    return tuple(SQLiteBackupScopeEntry(*entry) for entry in DEFAULT_SQLITE_BACKUP_SCOPE)
+
+
+def audit_sqlite_backup_scope(repo_dir: str | Path) -> SQLiteBackupScopeAudit:
+    """Inspect the fixed local SQLite scope without creating backups or directories."""
+
+    resolved_repo_dir = Path(repo_dir).resolve()
+    if not resolved_repo_dir.is_dir():
+        raise ResilienceError("backup scope repository directory does not exist")
+    resolved_data_dir = (resolved_repo_dir / "data").resolve()
+    scope = canonical_sqlite_backup_scope()
+    payload = [asdict(entry) for entry in scope]
+    scope_fingerprint = sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    audit_entries: list[SQLiteBackupScopeAuditEntry] = []
+    for entry in scope:
+        source_path = (resolved_repo_dir / entry.relative_source_path).resolve()
+        if not _is_path_within(source_path, resolved_data_dir):
+            raise ResilienceError("backup scope source resolves outside the repository data directory")
+        if source_path.is_file():
+            status = "READY"
+            source_sha256: str | None = _sha256_file(source_path)
+        else:
+            status = "MISSING_REQUIRED" if entry.required else "MISSING_OPTIONAL"
+            source_sha256 = None
+        audit_entries.append(
+            SQLiteBackupScopeAuditEntry(
+                identifier=entry.identifier,
+                relative_source_path=entry.relative_source_path,
+                purpose=entry.purpose,
+                required=entry.required,
+                status=status,
+                source_path=str(source_path),
+                source_sha256=source_sha256,
+            )
+        )
+    return SQLiteBackupScopeAudit(
+        repo_dir=str(resolved_repo_dir),
+        scope_version=SQLITE_BACKUP_SCOPE_VERSION,
+        scope_fingerprint=scope_fingerprint,
+        entries=tuple(audit_entries),
+        audited_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def create_verified_sqlite_backup_bundle(
+    repo_dir: str | Path,
+    bundle_path: str | Path,
+) -> SQLiteBackupBundleManifest:
+    """Create one sequential local bundle from the explicit resilience scope.
+
+    Only the fixed scope under ``repo_dir/data`` is read.  The caller chooses
+    the writable destination; this helper never enables retention, encryption,
+    replication, paper capital or live execution.
+    """
+
+    audit = audit_sqlite_backup_scope(repo_dir)
+    if audit.missing_required:
+        raise ResilienceError(
+            "required SQLite backup sources are missing: " + ", ".join(audit.missing_required)
+        )
+    destination_path = Path(bundle_path).resolve()
+    _validate_backup_bundle_id(destination_path.name)
+    if destination_path.exists():
+        raise ResilienceError("SQLite backup bundle destination already exists; refusing to overwrite it")
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    staging_path = Path(mkdtemp(prefix=".autobot-sqlite-backup-bundle-", dir=destination_path.parent))
+    capture_started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        bundle_entries: list[SQLiteBackupBundleEntry] = []
+        for audit_entry in audit.entries:
+            if audit_entry.status == "READY":
+                staged_backup_path = staging_path / f"{audit_entry.identifier}.sqlite3"
+                backup = create_verified_sqlite_backup(audit_entry.source_path, staged_backup_path)
+                bundle_entries.append(
+                    SQLiteBackupBundleEntry(
+                        audit=audit_entry,
+                        status="BACKED_UP",
+                        backup=replace(backup, backup_path=str(destination_path / staged_backup_path.name)),
+                    )
+                )
+            else:
+                bundle_entries.append(
+                    SQLiteBackupBundleEntry(
+                        audit=audit_entry,
+                        status="SKIPPED_OPTIONAL_MISSING",
+                        backup=None,
+                    )
+                )
+        manifest_path = destination_path / "manifest.json"
+        manifest = SQLiteBackupBundleManifest(
+            bundle_id=destination_path.name,
+            bundle_path=str(destination_path),
+            manifest_path=str(manifest_path),
+            scope=audit,
+            entries=tuple(bundle_entries),
+            capture_started_at=capture_started_at,
+            capture_finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        (staging_path / "manifest.json").write_text(
+            json.dumps(asdict(manifest), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(staging_path, destination_path)
+        return manifest
+    except Exception:
+        if staging_path.exists():
+            rmtree(staging_path)
+        raise
 
 
 def create_verified_sqlite_backup(
@@ -767,6 +1033,30 @@ def _parse_aware_utc(value: str, field_name: str) -> datetime:
 
 def _is_commit_identifier(value: str) -> bool:
     return 7 <= len(value) <= 64 and all(character in "0123456789abcdef" for character in value)
+
+
+def _is_sha256(value: str | None) -> bool:
+    normalized = str(value or "").strip().lower()
+    return len(normalized) == 64 and all(character in "0123456789abcdef" for character in normalized)
+
+
+def _is_path_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_backup_bundle_id(value: str) -> None:
+    normalized = str(value).strip()
+    if (
+        not normalized
+        or normalized in {".", ".."}
+        or ".." in normalized
+        or not all(character.isalnum() or character in "_.-" for character in normalized)
+    ):
+        raise ResilienceError("backup bundle identifier is unsafe")
 
 
 def _sha256_file(path: Path) -> str:

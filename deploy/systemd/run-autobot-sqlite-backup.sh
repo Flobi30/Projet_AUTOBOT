@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # This job is intentionally disabled until an operator has approved retention
-# and off-VPS encryption. It only creates a local, integrity-checked snapshot;
-# it never starts AUTOBOT, touches order paths or mounts secrets.
+# and off-VPS encryption. It only creates a local, integrity-checked bundle of
+# the fixed runtime/research resilience scope; it never starts AUTOBOT, touches
+# order paths or mounts secrets.
 REPO_DIR="${AUTOBOT_REPO_DIR:-/opt/Projet_AUTOBOT}"
 IMAGE="${AUTOBOT_RESEARCH_IMAGE:-projet_autobot-autobot}"
 BACKUP_ENABLED="${AUTOBOT_SQLITE_BACKUP_ENABLED:-false}"
@@ -11,6 +12,11 @@ EXTERNAL_POLICY_APPROVED="${AUTOBOT_SQLITE_BACKUP_EXTERNAL_POLICY_APPROVED:-fals
 RUN_ID="${AUTOBOT_SQLITE_BACKUP_RUN_ID:-sqlite_$(date -u +%Y_%m_%dT%H_%M_%SZ)}"
 LOCK_PATH="${AUTOBOT_SQLITE_BACKUP_LOCK_PATH:-/run/lock/autobot-sqlite-backup.lock}"
 BACKUP_DIR="${AUTOBOT_SQLITE_BACKUP_DIR:-${REPO_DIR}/backups/sqlite}"
+
+if [[ ! "${RUN_ID}" =~ ^[[:alnum:]_][[:alnum:]_.-]*$ || "${RUN_ID}" == *".."* ]]; then
+  echo "AUTOBOT SQLite backup run identifier is unsafe." >&2
+  exit 1
+fi
 
 if [[ "${BACKUP_ENABLED}" != "true" ]]; then
   echo "AUTOBOT SQLite backup is disabled pending explicit storage approval."
@@ -27,10 +33,6 @@ if ! flock -n 9; then
   exit 0
 fi
 
-if [[ ! -r "${REPO_DIR}/data/autobot_state.db" ]]; then
-  echo "AUTOBOT runtime SQLite database is unavailable." >&2
-  exit 1
-fi
 if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
   echo "AUTOBOT backup image is unavailable: ${IMAGE}" >&2
   exit 1
@@ -61,7 +63,6 @@ exec docker run --rm \
   --volume "${REPO_DIR}/data:/app/data:ro" \
   --volume "${BACKUP_DIR}:/app/backups" \
   "${IMAGE}" \
-  python -m autobot.v2.cli sqlite-backup \
-    --source /app/data/autobot_state.db \
-    --backup-path "/app/backups/${RUN_ID}.sqlite3" \
-    --manifest-path "/app/backups/${RUN_ID}.json"
+  python -m autobot.v2.cli sqlite-backup-bundle \
+    --repo-dir /app \
+    --bundle-path "/app/backups/${RUN_ID}"

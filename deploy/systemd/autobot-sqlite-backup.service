@@ -1,5 +1,5 @@
 [Unit]
-Description=AUTOBOT verified local SQLite backup (disabled until storage policy approval)
+Description=AUTOBOT verified local SQLite resilience bundle (disabled until storage policy approval)
 Documentation=file:///opt/Projet_AUTOBOT/docs/research/RESILIENCE_RESTORE_DRILL.md
 After=docker.service
 Requires=docker.service
