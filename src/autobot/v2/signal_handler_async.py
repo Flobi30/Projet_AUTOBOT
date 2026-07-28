@@ -36,7 +36,7 @@ from .reconciliation_strict import StrictReconciliation
 from .modules.fee_optimizer import FeeOptimizer
 from .market_analyzer import get_market_analyzer
 from .opportunity_scoring import OpportunityScorer
-from .research.runtime_shadow_preview import preview_runtime_buy_signal
+from .research.runtime_shadow_decision_bridge import build_runtime_shadow_decision
 
 logger = logging.getLogger(__name__)
 
@@ -1135,13 +1135,8 @@ class SignalHandlerAsync:
         # must therefore fail closed until that integration is complete. This
         # does not affect exits, stop-loss handling, or isolated shadow replay.
         if not self._legacy_direct_execution_enabled():
-            shadow_preview = preview_runtime_buy_signal(
-                symbol=signal.symbol,
-                price=float(signal.price),
-                signal_timestamp=signal.timestamp,
-                metadata=signal_metadata,
-                decision_id=decision_id,
-            )
+            shadow_decision = build_runtime_shadow_decision(signal, decision_id=decision_id)
+            shadow_decision_payload = shadow_decision.to_dict()
             self._record_runtime_event(
                 "_last_decision_event",
                 event="buy_rejected",
@@ -1152,7 +1147,11 @@ class SignalHandlerAsync:
                 signal_id=signal_id,
                 execution_engine=signal_engine,
                 source=signal_source,
-                shadow_contract_preview=shadow_preview.to_dict(),
+                shadow_contract_decision=shadow_decision_payload,
+                # Keep the historical dashboard contract readable while the
+                # canonical field is adopted. The payload contains no intent
+                # or command and remains observation-only.
+                shadow_contract_preview=shadow_decision_payload,
             )
             logger.warning(
                 "New direct entry blocked for %s: the official portfolio/risk/OMS path is not integrated",

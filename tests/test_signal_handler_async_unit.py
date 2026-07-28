@@ -415,12 +415,12 @@ async def test_execute_buy_fails_closed_when_legacy_direct_execution_is_not_expl
     assert executor.market_calls == 0
     assert executor.limit_calls == 0
     assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
-    assert handler._last_decision_event["shadow_contract_preview"]["status"] == "SHADOW_PREVIEW_REJECTED"
+    assert handler._last_decision_event["shadow_contract_decision"]["status"] == "SHADOW_DECISION_REJECTED"
     assert handler._last_decision_event["shadow_contract_preview"]["execution_command_created"] is False
 
 
 @pytest.mark.asyncio
-async def test_execute_buy_records_ready_shadow_contract_preview_without_submitting_order(monkeypatch):
+async def test_execute_buy_records_canonical_shadow_rejection_without_submitting_order(monkeypatch):
     monkeypatch.delenv("AUTOBOT_LEGACY_DIRECT_EXECUTION_ENABLED", raising=False)
     executor = _Executor()
     handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
@@ -525,10 +525,11 @@ async def test_execute_buy_records_ready_shadow_contract_preview_without_submitt
 
     await handler._execute_buy(signal)
 
-    preview = handler._last_decision_event["shadow_contract_preview"]
-    assert preview["status"] == "SHADOW_PREVIEW_READY"
-    assert preview["order_intent"]["execution_mode"] == "shadow"
-    assert preview["execution_command_created"] is False
+    decision = handler._last_decision_event["shadow_contract_decision"]
+    assert decision["status"] == "SHADOW_DECISION_REJECTED"
+    assert decision["reason"] == "capacity_review_required"
+    assert decision["order_intent_created"] is False
+    assert decision["execution_command_created"] is False
     assert executor.market_calls == 0
     assert executor.limit_calls == 0
     assert handler.instance.opened == []
