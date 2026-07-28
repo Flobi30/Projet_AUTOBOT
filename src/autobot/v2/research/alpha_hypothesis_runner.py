@@ -50,6 +50,10 @@ from .volatility_reversal_research_adapter import (
     build_volatility_reversal_availability,
     run_volatility_reversal_research_smoke,
 )
+from .volatility_reversal_walk_forward import (
+    VolatilityReversalWalkForwardConfig,
+    build_volatility_reversal_walk_forward_report,
+)
 
 
 AUTO_ALLOWED = "AUTO_ALLOWED"
@@ -845,14 +849,17 @@ def _walk_forward(
             artifacts={"folds": [fold.to_dict() for fold in report.folds], "diagnostics": dict(report.diagnostics)},
         )
     if hypothesis_id == "mean_reversion_volatility_reversal":
+        report = _volatility_reversal_walk_forward_report(config)
         return _gate(
             "WALK_FORWARD",
-            "WAITING_FOR_WALK_FORWARD_ADAPTER",
-            False,
-            True,
-            ["volatility_reversal_walk_forward_adapter_not_implemented"],
+            report.decision,
+            report.decision == "KEEP_RESEARCH",
+            report.decision != "KEEP_RESEARCH",
+            report.reasons,
             policy,
             started,
+            metrics=report.overall_oos.to_dict(),
+            artifacts={"folds": [fold.to_dict() for fold in report.folds], "diagnostics": dict(report.diagnostics)},
         )
     if hypothesis_id != "volatility_breakout":
         return _gate("WALK_FORWARD", "REJECTED", False, True, ["walk_forward_adapter_missing"], policy, started)
@@ -1088,6 +1095,28 @@ def _volatility_reversal_config(
         max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
         max_runtime_seconds=min(config.max_runtime_seconds, float(template.get("max_runtime_seconds", config.max_runtime_seconds))),
         max_data_rows=config.max_data_rows,
+    )
+
+
+def _volatility_reversal_walk_forward_report(
+    config: AlphaHypothesisRunnerConfig,
+):
+    template = _volatility_reversal_template(config)
+    return build_volatility_reversal_walk_forward_report(
+        VolatilityReversalWalkForwardConfig(
+            run_id=f"{config.run_id}_{template['template_id']}_walk_forward",
+            data_paths=config.data_paths,
+            template=template,
+            symbols=config.symbols,
+            cost_profile=config.cost_profile,
+            max_variants=min(config.max_variants, int(template.get("max_variants", config.max_variants))),
+            max_symbols=min(config.max_symbols, int(template.get("max_symbols", config.max_symbols))),
+            max_runtime_seconds=min(
+                config.max_runtime_seconds,
+                float(template.get("max_runtime_seconds", config.max_runtime_seconds)),
+            ),
+            max_data_rows=config.max_data_rows,
+        )
     )
 
 

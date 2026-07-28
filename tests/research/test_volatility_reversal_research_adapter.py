@@ -8,7 +8,9 @@ import pytest
 
 from autobot.v2.research.alpha_hypothesis_runner import (
     AlphaHypothesisRunnerConfig,
+    _walk_forward,
     build_alpha_hypothesis_runner_report,
+    load_alpha_autonomy_policy,
 )
 from autobot.v2.research.alpha_hypothesis_scheduler import (
     AlphaResearchMemory,
@@ -20,6 +22,10 @@ from autobot.v2.research.volatility_reversal_research_adapter import (
     ADAPTER_ID,
     VolatilityReversalResearchConfig,
     run_volatility_reversal_research_smoke,
+)
+from autobot.v2.research.volatility_reversal_walk_forward import (
+    VolatilityReversalWalkForwardConfig,
+    build_volatility_reversal_walk_forward_report,
 )
 
 
@@ -86,9 +92,14 @@ def test_adapter_bounds_variants_and_has_no_runtime_or_order_imports(tmp_path: P
             max_variants=4,
         )
 
-    source = Path("src/autobot/v2/research/volatility_reversal_research_adapter.py").read_text(encoding="utf-8")
-    for forbidden in ("order_router", "paper_trading", "signal_handler", "kraken_client", "create_order"):
-        assert forbidden not in source
+    sources = (
+        Path("src/autobot/v2/research/volatility_reversal_research_adapter.py"),
+        Path("src/autobot/v2/research/volatility_reversal_walk_forward.py"),
+    )
+    for source_path in sources:
+        source = source_path.read_text(encoding="utf-8")
+        for forbidden in ("order_router", "paper_trading", "signal_handler", "kraken_client", "create_order"):
+            assert forbidden not in source
 
 
 def test_alpha_runner_binds_distinct_mean_reversion_hypothesis_to_research_adapter(tmp_path: Path) -> None:
@@ -154,6 +165,67 @@ def test_scheduler_treats_new_template_as_distinct_from_rejected_legacy_mean_rev
     assert candidate.adapter_ready is True
     assert candidate.status == "RUNNABLE_SMOKE"
     assert ADAPTER_ID not in {item.adapter_id for item in report.adapter_backlog}
+
+
+def test_walk_forward_keeps_closed_bar_reversal_trades_inside_non_overlapping_oos_windows(tmp_path: Path) -> None:
+    data_dir = _reversal_data(tmp_path)
+    report = build_volatility_reversal_walk_forward_report(
+        VolatilityReversalWalkForwardConfig(
+            run_id="pytest_reversal_walk_forward",
+            data_paths=(data_dir,),
+            template=_template(minimum_sample_size=2),
+            symbols=("BTCZEUR", "ETHZEUR"),
+            folds=3,
+        )
+    )
+
+    assert len(report.folds) == 3
+    assert report.diagnostics["fixed_template_only"] is True
+    assert report.diagnostics["test_windows_non_overlapping"] is True
+    for fold in report.folds:
+        assert fold.train_end == fold.test_start
+        assert fold.test_end > fold.test_start
+    for trade in report.oos_trades:
+        matching = [
+            fold
+            for fold in report.folds
+            if trade.signal_at >= fold.test_start
+            and trade.opened_at >= fold.test_start
+            and trade.closed_at <= fold.test_end
+        ]
+        assert len(matching) == 1
+        assert trade.opened_at >= trade.signal_at
+    assert report.paper_capital_allowed is False
+    assert report.live_allowed is False
+    assert report.promotable is False
+
+
+def test_alpha_runner_uses_reversal_walk_forward_without_creating_an_execution_path(tmp_path: Path) -> None:
+    data_dir = _reversal_data(tmp_path)
+    config = AlphaHypothesisRunnerConfig(
+        run_id="pytest_reversal_runner_walk_forward",
+        hypothesis_id="mean_reversion_volatility_reversal",
+        template_id="volatility_reversal_after_extension",
+        mode="walk_forward",
+        data_paths=(data_dir,),
+        symbols=("BTCZEUR", "ETHZEUR"),
+        max_variants=3,
+        max_symbols=2,
+    )
+
+    gate = _walk_forward(
+        config,
+        "mean_reversion_volatility_reversal",
+        load_alpha_autonomy_policy(config.autonomy_policy_path),
+        0.0,
+        "test",
+    )
+
+    assert gate.gate == "WALK_FORWARD"
+    assert gate.status in {"KEEP_RESEARCH", "REJECTED", "INSUFFICIENT_DATA"}
+    assert gate.artifacts["diagnostics"]["fixed_template_only"] is True
+    assert gate.safety["paper_capital_allowed"] is False
+    assert gate.safety["live_allowed"] is False
 
 
 def _template(*, minimum_sample_size: int = 50) -> dict[str, object]:

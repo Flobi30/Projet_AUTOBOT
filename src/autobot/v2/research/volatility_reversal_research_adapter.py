@@ -49,6 +49,8 @@ class VolatilityReversalResearchConfig:
     max_data_rows: int = 250_000
     order_notional_eur: float = 100.0
     timeframe_preference: tuple[str, ...] = ("1h", "15m", "5m")
+    evaluation_start_at: datetime | None = None
+    evaluation_end_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.run_id.strip() or not self.data_paths:
@@ -61,6 +63,15 @@ class VolatilityReversalResearchConfig:
             raise ValueError("runtime, data-row, and notional limits must be positive")
         if not self.timeframe_preference or any(value not in TIMEFRAME_SECONDS for value in self.timeframe_preference):
             raise ValueError("timeframe_preference must contain supported closed-bar timeframes")
+        for value in (self.evaluation_start_at, self.evaluation_end_at):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError("evaluation bounds must be timezone-aware")
+        if (
+            self.evaluation_start_at is not None
+            and self.evaluation_end_at is not None
+            and self.evaluation_end_at <= self.evaluation_start_at
+        ):
+            raise ValueError("evaluation_end_at must be after evaluation_start_at")
         execution_cost_config_for_profile(self.cost_profile).validate()
 
 
@@ -254,6 +265,10 @@ def _simulate(
                 index += 1
                 continue
             exit_index, exit_price, exit_reason = _exit(bars, index + 1, hold_bars, target, stop)
+            closed_at = _available_at(bars[exit_index])
+            if not _inside_evaluation_window(config, signal_at, entry_bar.timestamp, closed_at):
+                index += 1
+                continue
             gross_bps = _return_bps(entry_bar.open, exit_price)
             metadata = {
                 "anti_lookahead": "prior_window_excludes_signal_bar; signal_uses_closed_bar; entry_is_next_bar_open",
@@ -275,7 +290,7 @@ def _simulate(
                 CrossSectionalTrade(
                     symbol=symbol.upper(),
                     opened_at=entry_bar.timestamp,
-                    closed_at=_available_at(bars[exit_index]),
+                    closed_at=closed_at,
                     signal_at=signal_at,
                     mode=SUPPORTED_MODE,
                     variant_label=_label(variant),
@@ -345,6 +360,14 @@ def _metrics(trades: Sequence[CrossSectionalTrade]) -> CrossSectionalMetrics:
             "top_positive_pnl_share": round(top_value / total_positive, 6) if total_positive else 0.0,
         },
     )
+
+
+def compute_volatility_reversal_metrics(
+    trades: Sequence[CrossSectionalTrade],
+) -> CrossSectionalMetrics:
+    """Return the canonical net-of-cost metrics for this research adapter."""
+
+    return _metrics(trades)
 
 
 def _decision(
@@ -455,6 +478,25 @@ def _available_at(bar: MarketBar) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("available_time must be timezone-aware")
     return parsed.astimezone(timezone.utc)
+
+
+def _inside_evaluation_window(
+    config: VolatilityReversalResearchConfig,
+    signal_at: datetime,
+    opened_at: datetime,
+    closed_at: datetime,
+) -> bool:
+    """Keep evaluation records fully inside an explicitly bounded OOS window."""
+
+    if config.evaluation_start_at is not None:
+        start = config.evaluation_start_at.astimezone(timezone.utc)
+        if signal_at < start or opened_at < start:
+            return False
+    if config.evaluation_end_at is not None:
+        end = config.evaluation_end_at.astimezone(timezone.utc)
+        if signal_at >= end or closed_at > end:
+            return False
+    return True
 
 
 def _return_bps(start: float, end: float) -> float:
