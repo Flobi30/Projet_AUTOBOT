@@ -1,134 +1,35 @@
-# PAPER_TRADING_OPERATIONS — ARCHIVED
+# PAPER_TRADING_OPERATIONS — ARCHIVED / NON-OPERATIONAL
 
-> **Current programme status:** this legacy paper-operation guide is not an
-> authorization to enable paper capital, strategy promotion, or live trading.
-> AUTOBOT is in research/shadow-only mode. Follow
-> [the research/shadow incident runbook](runbooks/RESEARCH_SHADOW_INCIDENTS.md)
-> for the current safe operational procedures. Any future paper activation
-> requires an explicit human decision after a `READY_FOR_HUMAN_PAPER_REVIEW`
-> dossier; that dossier does not itself enable execution.
+This document is deliberately not an operating procedure.
 
-The material below is retained only as historical operational reference. It
-must not be used to change runtime flags during the 24-layer programme.
+AUTOBOT is currently restricted to research and non-executable shadow work.
+Paper capital, strategy promotion, live trading, leverage changes and order
+submission remain out of scope. No command, environment-variable matrix or
+credential instruction in a historical paper guide may be used to alter that
+state.
 
-Operational support pass for safer day-to-day paper trading.
+## Current operational reference
 
-## 0) Credentials exchange: règle conditionnelle
+Use [the research/shadow incident runbook](runbooks/RESEARCH_SHADOW_INCIDENTS.md).
+It documents only fail-closed, non-authorizing diagnostics and recovery
+evidence.
 
-- **Préflight complet** (attestation avec connectivité exchange) => `KRAKEN_API_KEY` + `KRAKEN_API_SECRET` **obligatoires**.
-- **Paper réel** (trading simulé mais connecté) => `KRAKEN_API_KEY` + `KRAKEN_API_SECRET` **obligatoires**.
-- **Offline/mock pur** => credentials non requis, activer explicitement `MOCK_BROKER=true`.
+## Future paper boundary
 
-### Matrice “mode d'exécution -> variables obligatoires”
+Paper can be considered only after all of the following:
 
-| Mode | Variables obligatoires |
-|---|---|
-| Préflight complet | `PREFLIGHT_ONLY=true`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` |
-| Paper réel | `PREFLIGHT_ONLY=false`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`, `LIVE_TRADING_CONFIRMATION=false`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT`, `KRAKEN_API_KEY`, `KRAKEN_API_SECRET` |
-| Offline/mock pur | `PREFLIGHT_ONLY=true`, `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`, `MOCK_BROKER=true`, `DASHBOARD_API_TOKEN`, `INITIAL_CAPITAL`, `MAX_DRAWDOWN_PCT`, `RISK_PER_TRADE_PCT`, `MAX_POSITION_SIZE_PCT` |
+1. A strategy independently passes the research, out-of-sample, cost and
+   capacity gates.
+2. The versioned layer coverage matrix has every required layer `VERIFIED`.
+3. Kill-switch, reconciliation and restore drills are proven.
+4. Fresh deployment evidence shows the same commit on GitHub, VPS and
+   container, with healthy health/WebSocket checks and paper/live/promotion
+   paths still disabled.
+5. A `READY_FOR_HUMAN_PAPER_REVIEW` dossier is generated.
+6. A human explicitly approves one bounded paper mandate.
 
-### Exemple “attestation pass + trading paper activé”
+The dossier itself never enables paper capital, live trading or promotion.
 
-```bash
-# 1) Attestation
-PREFLIGHT_ONLY=true PAPER_TRADING=false DEPLOYMENT_STAGE=paper \
-DASHBOARD_API_TOKEN=change_me INITIAL_CAPITAL=1000 \
-MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
-KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
-python -u src/autobot/v2/main_async.py
-
-# 2) Passage en paper activé
-PREFLIGHT_ONLY=false PAPER_TRADING=true DEPLOYMENT_STAGE=paper \
-LIVE_TRADING_CONFIRMATION=false DASHBOARD_API_TOKEN=change_me \
-INITIAL_CAPITAL=1000 MAX_DRAWDOWN_PCT=10 RISK_PER_TRADE_PCT=1 MAX_POSITION_SIZE_PCT=20 \
-KRAKEN_API_KEY=krk_xxx KRAKEN_API_SECRET=krk_yyy \
-python -u src/autobot/v2/main_async.py
-```
-
-## 1) Pre-launch validation helper
-
-Validate `.env` and paper safety gates before starting:
-
-```bash
-python tools/paper_ops.py validate --env-file .env
-```
-
-What it checks:
-- Required paper gates: `DEPLOYMENT_STAGE=paper`, `PAPER_TRADING=true`
-- Recommended paper defaults (`LIVE_TRADING_CONFIRMATION=false`, `AUTOBOT_SAFE_MODE=true`, etc.)
-- Marker lockout (`data/compromised_secret.marker`)
-- Basic pair/capital sanity
-- Risky override warning: `AUTOBOT_FORCE_ENABLE_ALL=true`
-
-## 2) Start guidance artifact
-
-Print operator runbook commands directly:
-
-```bash
-python tools/paper_ops.py start-guide
-```
-
-This gives an explicit sequence:
-1. validate env,
-2. run `PREFLIGHT_ONLY=true` attestation,
-3. launch paper mode,
-4. monitor logs + status endpoint,
-5. generate end-of-session summary.
-
-## 3) Post-run session summary helper
-
-Summarize the latest log session from `autobot_async.log`:
-
-```bash
-python tools/paper_ops.py session-summary --log-file autobot_async.log --hours 24 --format text
-```
-
-Operator-friendly Markdown output:
-
-```bash
-python tools/paper_ops.py session-summary --log-file autobot_async.log --hours 24 --format markdown
-```
-
-Machine-readable JSON output:
-
-```bash
-python tools/paper_ops.py session-summary --log-file autobot_async.log --hours 24 --format json
-```
-
-Optional runtime status snapshot enrichment (if you exported an API status JSON):
-
-```bash
-curl -s http://127.0.0.1:8080/api/status > session_status.json
-python tools/paper_ops.py session-summary --log-file autobot_async.log --hours 24 --format markdown --status-file session_status.json
-```
-
-Report now includes:
-- warnings/errors totals and top recurring lines,
-- kill-switch mentions,
-- attestation + preflight state,
-- instance creation clues (names/symbols),
-- ranking/opportunity/scaling/allocation/universe/health clue counters,
-- session health level (`stable` / `degraded` / `critical`),
-- explicit “what to inspect next” hints.
-
-## 4) Feature-flag activation guidance (paper mode)
-
-Print a concrete paper flag matrix:
-
-```bash
-python tools/paper_ops.py flags-guide
-```
-
-It outputs required and recommended paper gates plus baseline feature toggles that keep operations predictable.
-
-## 5) Lightweight diagnostics/observability usage
-
-Use the helper outputs with existing logs/endpoints:
-
-```bash
-tail -f autobot_async.log
-curl -s http://127.0.0.1:8080/api/status
-python tools/paper_ops.py session-summary --hours 6
-```
-
-No trading logic is altered by this pass; helpers are operator-side tooling only.
+Historical instructions were removed from this working document to prevent
+their accidental reuse. They remain recoverable through Git history if an
+auditor needs provenance.
