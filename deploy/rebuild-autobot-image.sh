@@ -46,4 +46,17 @@ if [[ "${IMAGE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
   exit 1
 fi
 
+EXPECTED_IMAGE_ID="$(docker image inspect --format '{{.Id}}' projet_autobot-autobot 2>/dev/null || true)"
+CONTAINER_ID="$(docker compose --project-directory "${REPO_DIR}" ps -q autobot)"
+if [[ -z "${CONTAINER_ID}" ]]; then
+  echo "AUTOBOT container was not created by the controlled rebuild." >&2
+  exit 1
+fi
+CONTAINER_STATUS="$(docker inspect --format '{{.State.Status}}' "${CONTAINER_ID}" 2>/dev/null || true)"
+CONTAINER_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${CONTAINER_ID}" 2>/dev/null || true)"
+if [[ "${CONTAINER_STATUS}" != "running" || -z "${EXPECTED_IMAGE_ID}" || "${CONTAINER_IMAGE_ID}" != "${EXPECTED_IMAGE_ID}" ]]; then
+  echo "AUTOBOT container/image verification failed after controlled rebuild." >&2
+  exit 1
+fi
+
 echo "AUTOBOT image built and recreated with commit ${SOURCE_COMMIT}."

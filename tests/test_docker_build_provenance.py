@@ -32,3 +32,8 @@ def test_rebuild_helper_binds_image_label_to_clean_checkout_commit():
     assert 'AUTOBOT_BUILD_COMMIT="${SOURCE_COMMIT}"' in script
     assert "'{{ index .Config.Labels \"org.opencontainers.image.revision\" }}'" in script
     assert '"${IMAGE_COMMIT}" != "${SOURCE_COMMIT}"' in script
+    assert 'docker compose --project-directory "${REPO_DIR}" ps -q autobot' in script
+    assert "AUTOBOT container was not created by the controlled rebuild." in script
+    assert "'{{.State.Status}}'" in script
+    assert "'{{.Image}}'" in script
+    assert '"${CONTAINER_IMAGE_ID}" != "${EXPECTED_IMAGE_ID}"' in script
