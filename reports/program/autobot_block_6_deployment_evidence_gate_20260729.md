@@ -63,4 +63,3 @@ until SSH is restored and the controlled deployment smoke has completed.
 4. Capture fresh `RuntimeDeploymentEvidence` from the GitHub/VPS/container
    alignment, health, WebSocket and non-authorizing runtime flags.
 5. Run exactly one bounded research-only smoke after the deployment checks.
-
