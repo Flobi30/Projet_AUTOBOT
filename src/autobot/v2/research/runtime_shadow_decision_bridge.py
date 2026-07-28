@@ -23,6 +23,7 @@ from autobot.v2.contracts import (
     AlphaSignal,
     MarketIdentity,
     RiskDecision,
+    SizingDecision,
     StrategyArtifactReference,
     TargetPortfolio,
     contract_to_dict,
@@ -36,6 +37,7 @@ from .portfolio_construction import (
     PortfolioConstructionError,
     build_target_portfolio,
 )
+from .portfolio_sizing import research_sizing_blocker
 from .shadow_governance import strategy_artifact_reference_from_mapping
 from .verified_feature_vector import VerifiedFeatureVectorError, parse_verified_feature_vectors
 
@@ -53,6 +55,7 @@ class RuntimeShadowDecision:
     reason: str
     alpha_signal: AlphaSignal | None = None
     target_portfolio: TargetPortfolio | None = None
+    sizing_decision: SizingDecision | None = None
     risk_decision: RiskDecision | None = None
     capacity_review: PortfolioCapacityReview | None = None
     risk_evidence_fingerprint: str | None = None
@@ -63,6 +66,7 @@ class RuntimeShadowDecision:
             "reason": self.reason,
             "alpha_signal": contract_to_dict(self.alpha_signal) if self.alpha_signal else None,
             "target_portfolio": contract_to_dict(self.target_portfolio) if self.target_portfolio else None,
+            "sizing_decision": contract_to_dict(self.sizing_decision) if self.sizing_decision else None,
             "risk_decision": contract_to_dict(self.risk_decision) if self.risk_decision else None,
             "capacity_review": contract_to_dict(self.capacity_review) if self.capacity_review else None,
             "risk_evidence_fingerprint": self.risk_evidence_fingerprint,
@@ -175,6 +179,24 @@ def build_runtime_shadow_decision(
                 target_portfolio=target_result.target,
                 capacity_review=capacity_review,
             )
+        sizing_decision = _required_sizing_decision(metadata)
+        sizing_blocker = research_sizing_blocker(
+            sizing_decision,
+            target=target_result.target,
+            capacity_review=capacity_review,
+            strategy_artifact=artifact,
+            market=market,
+        )
+        if sizing_blocker is not None:
+            return _rejected(
+                normalized_decision_id,
+                available_at,
+                sizing_blocker,
+                alpha_signal=alpha,
+                target_portfolio=target_result.target,
+                capacity_review=capacity_review,
+                sizing_decision=sizing_decision,
+            )
         evidence = _required_risk_evidence(metadata)
         blocker = shadow_risk_evidence_blocker(
             evidence,
@@ -192,12 +214,14 @@ def build_runtime_shadow_decision(
                 alpha_signal=alpha,
                 target_portfolio=target_result.target,
                 capacity_review=capacity_review,
+                sizing_decision=sizing_decision,
             )
         return RuntimeShadowDecision(
             status="SHADOW_DECISION_VERIFIED_NO_EXECUTION",
             reason="runtime_shadow_observation_only",
             alpha_signal=alpha,
             target_portfolio=target_result.target,
+            sizing_decision=sizing_decision,
             capacity_review=capacity_review,
             risk_evidence_fingerprint=evidence.fingerprint,
             risk_decision=RiskDecision(
@@ -226,6 +250,7 @@ def _rejected(
     alpha_signal: AlphaSignal | None = None,
     target_portfolio: TargetPortfolio | None = None,
     capacity_review: PortfolioCapacityReview | None = None,
+    sizing_decision: SizingDecision | None = None,
 ) -> RuntimeShadowDecision:
     return RuntimeShadowDecision(
         status="SHADOW_DECISION_REJECTED",
@@ -233,6 +258,7 @@ def _rejected(
         alpha_signal=alpha_signal,
         target_portfolio=target_portfolio,
         capacity_review=capacity_review,
+        sizing_decision=sizing_decision,
         risk_decision=RiskDecision(
             decision_id=decision_id,
             approved=False,
@@ -255,6 +281,13 @@ def _required_risk_evidence(metadata: Mapping[str, Any]) -> BoundShadowRiskEvide
     value = metadata.get("bound_shadow_risk_evidence")
     if not isinstance(value, BoundShadowRiskEvidence):
         raise ValueError("bound_shadow_risk_evidence_required")
+    return value
+
+
+def _required_sizing_decision(metadata: Mapping[str, Any]) -> SizingDecision:
+    value = metadata.get("sizing_decision")
+    if not isinstance(value, SizingDecision):
+        raise ValueError("sizing_decision_required")
     return value
 
 

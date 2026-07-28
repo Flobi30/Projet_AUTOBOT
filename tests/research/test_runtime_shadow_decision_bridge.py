@@ -22,6 +22,7 @@ from autobot.v2.research.portfolio_construction import (
     build_target_portfolio,
     review_target_portfolio_capacity,
 )
+from autobot.v2.research.portfolio_sizing import derive_research_sizing_decision
 from autobot.v2.research.runtime_shadow_decision_bridge import build_runtime_shadow_decision
 from autobot.v2.research.shadow_governance import (
     StrategyArtifact,
@@ -234,6 +235,12 @@ def _verified_metadata() -> dict:
         target_notional_eur=notional,
     )
     metadata["capacity_review"] = capacity
+    metadata["sizing_decision"] = derive_research_sizing_decision(
+        target=target,
+        capacity_review=capacity,
+        strategy_artifact=artifact,
+        market=_market(),
+    )
     metadata["bound_shadow_risk_evidence"] = evidence
     return metadata
 
@@ -246,6 +253,11 @@ def test_verified_legacy_signal_records_canonical_non_executable_decision():
     assert decision.alpha_signal.signal_id == "sig-bridge-1"
     assert decision.target_portfolio is not None
     assert decision.target_portfolio.decision_id == "dec-bridge-1"
+    assert decision.sizing_decision is not None
+    assert decision.sizing_decision.status == "READY_FOR_SHADOW_REVIEW"
+    assert decision.sizing_decision.research_only is True
+    assert decision.sizing_decision.paper_capital_allowed is False
+    assert decision.sizing_decision.live_allowed is False
     assert decision.risk_decision is not None
     assert decision.risk_decision.decision_id == "dec-bridge-1"
     assert decision.risk_decision.approved is False
@@ -261,7 +273,9 @@ def test_verified_legacy_signal_records_canonical_non_executable_decision():
 def test_missing_capacity_or_risk_evidence_fails_closed_without_inference():
     missing_capacity = build_runtime_shadow_decision(_signal(_base_metadata()), decision_id="dec-bridge-1")
     metadata = _base_metadata()
-    metadata["capacity_review"] = _verified_metadata()["capacity_review"]
+    verified = _verified_metadata()
+    metadata["capacity_review"] = verified["capacity_review"]
+    metadata["sizing_decision"] = verified["sizing_decision"]
     missing_risk = build_runtime_shadow_decision(_signal(metadata), decision_id="dec-bridge-1")
 
     assert missing_capacity.status == "SHADOW_DECISION_REJECTED"
@@ -269,6 +283,27 @@ def test_missing_capacity_or_risk_evidence_fails_closed_without_inference():
     assert missing_risk.status == "SHADOW_DECISION_REJECTED"
     assert missing_risk.reason == "bound_shadow_risk_evidence_required"
     assert missing_capacity.risk_decision is not None and missing_capacity.risk_decision.approved is False
+
+
+def test_missing_or_tampered_sizing_fails_closed_without_inference():
+    metadata = _verified_metadata()
+    metadata.pop("sizing_decision")
+    missing = build_runtime_shadow_decision(_signal(metadata), decision_id="dec-bridge-1")
+
+    tampered = _verified_metadata()
+    sizing = tampered["sizing_decision"]
+    tampered["sizing_decision"] = sizing.__class__(
+        **{
+            **sizing.__dict__,
+            "proposed_notional_eur": sizing.proposed_notional_eur + 1.0,
+        }
+    )
+    invalid = build_runtime_shadow_decision(_signal(tampered), decision_id="dec-bridge-1")
+
+    assert missing.status == "SHADOW_DECISION_REJECTED"
+    assert missing.reason == "sizing_decision_required"
+    assert invalid.status == "SHADOW_DECISION_REJECTED"
+    assert invalid.reason == "sizing_decision_notional_mismatch"
 
 
 def test_legacy_signal_type_and_retired_strategy_are_rejected():

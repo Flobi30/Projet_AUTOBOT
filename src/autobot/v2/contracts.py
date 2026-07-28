@@ -457,6 +457,76 @@ class TargetPortfolio:
 
 
 @dataclass(frozen=True)
+class SizingDecision:
+    """Non-executable notional derived from a target, capacity and mandate.
+
+    This boundary deliberately separates portfolio construction from the risk
+    decision that may later approve or reject it.  It represents a research
+    shadow proposal only and carries no execution permission.
+    """
+
+    decision_id: str
+    generated_at: datetime
+    market: MarketIdentity
+    target_portfolio_fingerprint: str
+    capacity_review_fingerprint: str
+    risk_mandate_fingerprint: str
+    target_weight: Decimal | float
+    reference_capital_eur: Decimal | float
+    proposed_notional_eur: Decimal | float
+    status: str
+    reasons: tuple[str, ...] = ()
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+    contract_version: int = CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        generated_at = _utc(self.generated_at, "generated_at")
+        status = _required(self.status, "sizing status").upper()
+        if status not in {"READY_FOR_SHADOW_REVIEW", "REJECTED", "NO_ALLOCATION"}:
+            raise ValueError("unsupported sizing status")
+        for field_name in (
+            "decision_id",
+            "target_portfolio_fingerprint",
+            "capacity_review_fingerprint",
+            "risk_mandate_fingerprint",
+        ):
+            object.__setattr__(self, field_name, _required(getattr(self, field_name), field_name))
+        if not isinstance(self.market, MarketIdentity):
+            raise ValueError("sizing market must be a MarketIdentity")
+        target_weight = float(self.target_weight)
+        reference_capital = float(self.reference_capital_eur)
+        proposed_notional = float(self.proposed_notional_eur)
+        if (
+            not math.isfinite(target_weight)
+            or not math.isfinite(reference_capital)
+            or not math.isfinite(proposed_notional)
+        ):
+            raise ValueError("sizing values must be finite")
+        if not 0.0 <= target_weight <= 1.0:
+            raise ValueError("target_weight must be in [0, 1]")
+        if reference_capital <= 0.0:
+            raise ValueError("reference_capital_eur must be positive")
+        if proposed_notional < 0.0:
+            raise ValueError("proposed_notional_eur must be non-negative")
+        reasons = tuple(_required(reason, "sizing reason") for reason in self.reasons)
+        if status == "READY_FOR_SHADOW_REVIEW":
+            if target_weight <= 0.0 or proposed_notional <= 0.0:
+                raise ValueError("ready sizing requires a positive target and notional")
+        elif not reasons:
+            raise ValueError("non-ready sizing requires at least one reason")
+        if self.paper_capital_allowed or self.live_allowed or not self.research_only:
+            raise ValueError("sizing decision is research-only")
+        object.__setattr__(self, "generated_at", generated_at)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "target_weight", target_weight)
+        object.__setattr__(self, "reference_capital_eur", reference_capital)
+        object.__setattr__(self, "proposed_notional_eur", proposed_notional)
+        object.__setattr__(self, "reasons", reasons)
+
+
+@dataclass(frozen=True)
 class OrderIntent:
     """Non-executable request that must pass independent risk review."""
     decision_id: str
