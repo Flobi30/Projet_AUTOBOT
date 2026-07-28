@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -8,8 +9,10 @@ import pytest
 
 from autobot.v2.research.resilience_readiness import (
     FailClosedIncidentSummary,
+    PaperReadinessDossier,
     ResilienceError,
     RetryPolicy,
+    RuntimeDeploymentEvidence,
     build_readiness_dossier_from_coverage,
     create_verified_sqlite_backup,
     decide_fail_closed,
@@ -25,6 +28,26 @@ from autobot.v2.research.resilience_readiness import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _deployment_evidence(*, observed_at: datetime | None = None, **overrides: object) -> RuntimeDeploymentEvidence:
+    commit = "a" * 40
+    payload: dict[str, object] = {
+        "source_commit": commit,
+        "github_commit": commit,
+        "vps_commit": commit,
+        "container_revision": commit,
+        "observed_at": (observed_at or datetime(2026, 7, 29, 12, tzinfo=timezone.utc)).isoformat(),
+        "container_healthy": True,
+        "health_endpoint_healthy": True,
+        "websocket_connected": True,
+        "observation_only_runtime": True,
+        "paper_capital_disabled": True,
+        "live_disabled": True,
+        "automatic_promotion_disabled": True,
+    }
+    payload.update(overrides)
+    return RuntimeDeploymentEvidence(**payload)  # type: ignore[arg-type]
 
 
 def test_fail_closed_actions_are_monotonic_and_never_enable_risk():
@@ -243,6 +266,8 @@ def test_readiness_dossier_is_non_authorizing_and_blocks_partial_or_unsafe_layer
         kill_switch_tested=True,
         reconciliation_tested=True,
         restore_tested=True,
+        deployment_evidence=_deployment_evidence(),
+        evaluated_at=datetime(2026, 7, 29, 12, 1, tzinfo=timezone.utc),
     )
     blocked = evaluate_human_paper_readiness(
         layer_statuses={**required, 22: "UNSAFE"},
@@ -258,6 +283,7 @@ def test_readiness_dossier_is_non_authorizing_and_blocks_partial_or_unsafe_layer
     assert "layer_22_unsafe" in blocked.blockers
     assert "kill_switch_not_tested" in blocked.blockers
     assert "restore_not_tested" in blocked.blockers
+    assert "deployment_evidence_missing" in blocked.blockers
 
 
 def test_versioned_coverage_produces_not_ready_dossier_until_runtime_gates_are_verified(tmp_path):
@@ -273,7 +299,59 @@ def test_versioned_coverage_produces_not_ready_dossier_until_runtime_gates_are_v
     assert dossier.status == "NOT_READY_FOR_HUMAN_PAPER_REVIEW"
     assert "layer_13_unsafe" in dossier.blockers
     assert "layer_22_unsafe" in dossier.blockers
+    assert "deployment_evidence_missing" in dossier.blockers
     assert written.exists()
+
+
+def test_readiness_dossier_requires_fresh_aligned_observation_only_deployment_evidence():
+    required = {layer: "VERIFIED" for layer in (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)}
+    now = datetime(2026, 7, 29, 12, 10, tzinfo=timezone.utc)
+    evidence = _deployment_evidence(
+        observed_at=datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc),
+        vps_commit="b" * 40,
+        paper_capital_disabled=False,
+        automatic_promotion_disabled=False,
+    )
+
+    dossier = evaluate_human_paper_readiness(
+        layer_statuses=required,
+        kill_switch_tested=True,
+        reconciliation_tested=True,
+        restore_tested=True,
+        deployment_evidence=evidence,
+        evaluated_at=now,
+        max_deployment_evidence_age_seconds=60,
+    )
+
+    assert dossier.status == "NOT_READY_FOR_HUMAN_PAPER_REVIEW"
+    assert "deployment_evidence_stale" in dossier.blockers
+    assert "vps_commit_not_aligned_with_source" in dossier.blockers
+    assert "paper_capital_not_disabled" in dossier.blockers
+    assert "automatic_promotion_not_disabled" in dossier.blockers
+    assert dossier.paper_capital_allowed is False
+    assert dossier.live_allowed is False
+
+
+def test_runtime_deployment_evidence_rejects_non_commit_or_naive_timestamp():
+    with pytest.raises(ResilienceError, match="source_commit"):
+        _deployment_evidence(source_commit="not-a-commit")
+    with pytest.raises(ResilienceError, match="timezone-aware"):
+        _deployment_evidence(observed_at=datetime(2026, 7, 29, 12, 0))
+    with pytest.raises(ResilienceError, match="container_healthy"):
+        _deployment_evidence(container_healthy="true")
+
+
+def test_readiness_dossier_cannot_authorize_execution_even_if_constructed_directly():
+    with pytest.raises(ResilienceError, match="cannot authorize"):
+        PaperReadinessDossier(
+            status="READY_FOR_HUMAN_PAPER_REVIEW",
+            blockers=(),
+            layer_statuses={},
+            kill_switch_tested=True,
+            reconciliation_tested=True,
+            restore_tested=True,
+            paper_capital_allowed=True,
+        )
 
 
 def test_resilience_module_does_not_import_runtime_or_execution_paths():

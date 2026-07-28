@@ -78,6 +78,87 @@ class ResilienceError(ValueError):
 
 
 @dataclass(frozen=True)
+class RuntimeDeploymentEvidence:
+    """Fresh, non-authorizing evidence from one controlled VPS validation.
+
+    A readiness dossier cannot infer deployment health from local tests. This
+    compact record binds a source commit to GitHub, VPS and container facts,
+    while retaining only non-secret safety state. It is evidence for a human
+    decision, never a mandate to enable paper or live execution.
+    """
+
+    source_commit: str
+    github_commit: str
+    vps_commit: str
+    container_revision: str
+    observed_at: str
+    container_healthy: bool
+    health_endpoint_healthy: bool
+    websocket_connected: bool
+    observation_only_runtime: bool
+    paper_capital_disabled: bool
+    live_disabled: bool
+    automatic_promotion_disabled: bool
+
+    def __post_init__(self) -> None:
+        for field_name in ("source_commit", "github_commit", "vps_commit", "container_revision"):
+            value = str(getattr(self, field_name)).strip().lower()
+            if not _is_commit_identifier(value):
+                raise ResilienceError(f"{field_name} must be a Git commit identifier")
+            object.__setattr__(self, field_name, value)
+        observed_at = _parse_aware_utc(self.observed_at, "observed_at")
+        object.__setattr__(self, "observed_at", observed_at.isoformat())
+        for field_name in (
+            "container_healthy",
+            "health_endpoint_healthy",
+            "websocket_connected",
+            "observation_only_runtime",
+            "paper_capital_disabled",
+            "live_disabled",
+            "automatic_promotion_disabled",
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                raise ResilienceError(f"{field_name} must be a boolean")
+
+    def blockers(
+        self,
+        *,
+        evaluated_at: datetime,
+        max_age_seconds: int,
+    ) -> tuple[str, ...]:
+        if max_age_seconds < 0:
+            raise ResilienceError("max_deployment_evidence_age_seconds must be non-negative")
+        now = _as_utc(evaluated_at)
+        observed = _parse_aware_utc(self.observed_at, "observed_at")
+        blockers: list[str] = []
+        if observed > now:
+            blockers.append("deployment_evidence_in_future")
+        elif (now - observed).total_seconds() > max_age_seconds:
+            blockers.append("deployment_evidence_stale")
+        if self.source_commit != self.github_commit:
+            blockers.append("github_commit_not_aligned_with_source")
+        if self.source_commit != self.vps_commit:
+            blockers.append("vps_commit_not_aligned_with_source")
+        if self.source_commit != self.container_revision:
+            blockers.append("container_revision_not_aligned_with_source")
+        if not self.container_healthy:
+            blockers.append("container_not_healthy")
+        if not self.health_endpoint_healthy:
+            blockers.append("health_endpoint_not_healthy")
+        if not self.websocket_connected:
+            blockers.append("websocket_not_connected")
+        if not self.observation_only_runtime:
+            blockers.append("observation_only_runtime_not_confirmed")
+        if not self.paper_capital_disabled:
+            blockers.append("paper_capital_not_disabled")
+        if not self.live_disabled:
+            blockers.append("live_not_disabled")
+        if not self.automatic_promotion_disabled:
+            blockers.append("automatic_promotion_not_disabled")
+        return tuple(blockers)
+
+
+@dataclass(frozen=True)
 class IncidentDecision:
     incident_type: str
     action: str
@@ -281,9 +362,16 @@ class PaperReadinessDossier:
     kill_switch_tested: bool
     reconciliation_tested: bool
     restore_tested: bool
+    deployment_evidence: RuntimeDeploymentEvidence | None = None
     paper_capital_allowed: bool = False
     live_allowed: bool = False
     automatic_promotion_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {"READY_FOR_HUMAN_PAPER_REVIEW", "NOT_READY_FOR_HUMAN_PAPER_REVIEW"}:
+            raise ResilienceError("unsupported paper readiness status")
+        if self.paper_capital_allowed or self.live_allowed or self.automatic_promotion_allowed:
+            raise ResilienceError("paper readiness dossiers cannot authorize paper, live or promotion")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -411,6 +499,7 @@ def retry_bounded(
             delay = min(policy.max_delay_seconds, policy.initial_delay_seconds * (policy.multiplier ** (attempt - 1)))
             delays.append(delay)
             sleeper(delay)
+    raise AssertionError("retry policy exhausted without producing a result")
 
 
 def create_verified_sqlite_backup(
@@ -550,9 +639,14 @@ def evaluate_human_paper_readiness(
     kill_switch_tested: bool,
     reconciliation_tested: bool,
     restore_tested: bool,
+    deployment_evidence: RuntimeDeploymentEvidence | None = None,
+    evaluated_at: datetime | None = None,
+    max_deployment_evidence_age_seconds: int = 300,
 ) -> PaperReadinessDossier:
     """Produce a non-authorizing dossier from explicit evidence only."""
 
+    if max_deployment_evidence_age_seconds < 0:
+        raise ResilienceError("max_deployment_evidence_age_seconds must be non-negative")
     required_layers = (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
     normalized = {int(key): str(value).upper() for key, value in layer_statuses.items()}
     blockers = [f"layer_{layer}_{normalized.get(layer, 'MISSING').lower()}" for layer in required_layers if normalized.get(layer) != "VERIFIED"]
@@ -562,6 +656,15 @@ def evaluate_human_paper_readiness(
         blockers.append("reconciliation_not_tested")
     if not restore_tested:
         blockers.append("restore_not_tested")
+    if deployment_evidence is None:
+        blockers.append("deployment_evidence_missing")
+    else:
+        blockers.extend(
+            deployment_evidence.blockers(
+                evaluated_at=evaluated_at or datetime.now(timezone.utc),
+                max_age_seconds=max_deployment_evidence_age_seconds,
+            )
+        )
     return PaperReadinessDossier(
         status="READY_FOR_HUMAN_PAPER_REVIEW" if not blockers else "NOT_READY_FOR_HUMAN_PAPER_REVIEW",
         blockers=tuple(blockers),
@@ -569,6 +672,7 @@ def evaluate_human_paper_readiness(
         kill_switch_tested=kill_switch_tested,
         reconciliation_tested=reconciliation_tested,
         restore_tested=restore_tested,
+        deployment_evidence=deployment_evidence,
     )
 
 
@@ -578,6 +682,9 @@ def build_readiness_dossier_from_coverage(
     kill_switch_tested: bool = False,
     reconciliation_tested: bool = False,
     restore_tested: bool = False,
+    deployment_evidence: RuntimeDeploymentEvidence | None = None,
+    evaluated_at: datetime | None = None,
+    max_deployment_evidence_age_seconds: int = 300,
 ) -> PaperReadinessDossier:
     """Read the versioned coverage matrix without changing any runtime flag."""
 
@@ -592,6 +699,9 @@ def build_readiness_dossier_from_coverage(
         kill_switch_tested=kill_switch_tested,
         reconciliation_tested=reconciliation_tested,
         restore_tested=restore_tested,
+        deployment_evidence=deployment_evidence,
+        evaluated_at=evaluated_at,
+        max_deployment_evidence_age_seconds=max_deployment_evidence_age_seconds,
     )
 
 
@@ -608,6 +718,7 @@ def write_readiness_dossier(dossier: PaperReadinessDossier, destination: str | P
         f"- Kill switch tested: `{dossier.kill_switch_tested}`",
         f"- Reconciliation tested: `{dossier.reconciliation_tested}`",
         f"- Restore tested: `{dossier.restore_tested}`",
+        f"- Deployment evidence supplied: `{dossier.deployment_evidence is not None}`",
         "",
         "## Blockers",
         "",
@@ -638,6 +749,24 @@ def _normalize_incident_types(incident_types: Sequence[str]) -> tuple[str, ...]:
 
 def _more_severe(first: str, second: str) -> str:
     return first if FAIL_CLOSED_ACTIONS.index(first) >= FAIL_CLOSED_ACTIONS.index(second) else second
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _parse_aware_utc(value: str, field_name: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ResilienceError(f"{field_name} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ResilienceError(f"{field_name} must be timezone-aware")
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_commit_identifier(value: str) -> bool:
+    return 7 <= len(value) <= 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def _sha256_file(path: Path) -> str:
