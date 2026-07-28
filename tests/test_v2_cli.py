@@ -1976,6 +1976,8 @@ def test_cli_sqlite_backup_scope_audit_and_bundle_are_non_authorizing(tmp_path, 
         ]
     )
     bundle_output = json.loads(capsys.readouterr().out)
+    restore_exit_code = cli.main(["sqlite-backup-bundle-restore-drill", "--bundle-path", str(bundle_path)])
+    restore_output = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
     assert audit_output["research_only"] is True
@@ -1990,6 +1992,14 @@ def test_cli_sqlite_backup_scope_audit_and_bundle_are_non_authorizing(tmp_path, 
     assert bundle_output["paper_capital_allowed"] is False
     assert bundle_output["live_allowed"] is False
     assert (bundle_path / "manifest.json").is_file()
+    assert restore_exit_code == 0
+    assert [entry["identifier"] for entry in restore_output["entries"]] == [
+        "runtime_state",
+        "global_kill_switch",
+    ]
+    assert restore_output["research_only"] is True
+    assert restore_output["paper_capital_allowed"] is False
+    assert restore_output["live_allowed"] is False
     assert before == {path: path.read_bytes() for path in (state_path, kill_switch_path)}
 
 

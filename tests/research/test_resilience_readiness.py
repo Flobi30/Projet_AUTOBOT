@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from contextlib import closing
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sqlite3
 
@@ -25,6 +26,7 @@ from autobot.v2.research.resilience_readiness import (
     run_fail_closed_drill,
     run_ephemeral_sqlite_restore_drill,
     summarize_fail_closed_incidents,
+    verify_sqlite_backup_bundle_restore_drill,
     verify_sqlite_restore_drill,
     write_readiness_dossier,
 )
@@ -260,6 +262,49 @@ def test_sqlite_backup_bundle_captures_fixed_scope_and_preserves_wal_commits(tmp
     with sqlite3.connect(Path(bundle.entries[0].backup.backup_path)) as connection:  # type: ignore[union-attr]
         count = connection.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
     assert count == 2
+
+
+def test_sqlite_backup_bundle_restore_drill_is_hermetic_and_validates_only_fixed_scope(tmp_path):
+    repo = _backup_scope_repo(tmp_path, include_optional=True)
+    bundle_path = tmp_path / "backups" / "restore_proof"
+    create_verified_sqlite_backup_bundle(repo, bundle_path)
+    manifest_before = (bundle_path / "manifest.json").read_bytes()
+    snapshot_before = {path.name: path.read_bytes() for path in bundle_path.glob("*.sqlite3")}
+
+    drill = verify_sqlite_backup_bundle_restore_drill(bundle_path)
+
+    assert [entry.identifier for entry in drill.entries] == [
+        "runtime_state",
+        "global_kill_switch",
+        "experiment_registry",
+        "strategy_artifacts",
+    ]
+    assert all(entry.restore.temporary_restore_cleaned for entry in drill.entries)
+    assert drill.bundle_manifest_sha256_before == drill.bundle_manifest_sha256_after
+    assert drill.research_only is True
+    assert drill.paper_capital_allowed is False
+    assert drill.live_allowed is False
+    assert manifest_before == (bundle_path / "manifest.json").read_bytes()
+    assert snapshot_before == {path.name: path.read_bytes() for path in bundle_path.glob("*.sqlite3")}
+
+
+def test_sqlite_backup_bundle_restore_drill_rejects_tampered_manifest_or_missing_snapshot(tmp_path):
+    repo = _backup_scope_repo(tmp_path)
+    bundle_path = tmp_path / "backups" / "tampered_bundle"
+    create_verified_sqlite_backup_bundle(repo, bundle_path)
+    manifest_path = bundle_path / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["entries"][0]["backup"]["backup_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ResilienceError, match="snapshot fingerprint mismatch"):
+        verify_sqlite_backup_bundle_restore_drill(bundle_path)
+
+    fresh_bundle_path = tmp_path / "backups" / "missing_snapshot"
+    create_verified_sqlite_backup_bundle(repo, fresh_bundle_path)
+    (fresh_bundle_path / "runtime_state.sqlite3").unlink()
+    with pytest.raises(ResilienceError, match="snapshot is missing"):
+        verify_sqlite_backup_bundle_restore_drill(fresh_bundle_path)
 
 
 @pytest.mark.parametrize(

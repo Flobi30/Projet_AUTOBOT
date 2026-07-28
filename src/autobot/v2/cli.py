@@ -716,6 +716,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sqlite_backup_bundle.add_argument("--bundle-path", required=True)
     sqlite_backup_bundle.set_defaults(handler=_cmd_sqlite_backup_bundle)
 
+    sqlite_backup_bundle_restore_drill = subparsers.add_parser(
+        "sqlite-backup-bundle-restore-drill",
+        help="Verify every bundled SQLite snapshot through disposable restores; it never restores runtime state",
+    )
+    sqlite_backup_bundle_restore_drill.add_argument("--bundle-path", required=True)
+    sqlite_backup_bundle_restore_drill.set_defaults(handler=_cmd_sqlite_backup_bundle_restore_drill)
+
     sqlite_ephemeral_restore_drill = subparsers.add_parser(
         "sqlite-ephemeral-restore-drill",
         help="Create and restore a temporary SQLite backup without retaining it",
@@ -3565,6 +3572,17 @@ def _cmd_sqlite_backup_bundle(args: argparse.Namespace) -> int:
             )
         )
     )
+    return 0
+
+
+def _cmd_sqlite_backup_bundle_restore_drill(args: argparse.Namespace) -> int:
+    """Restore bundle snapshots only into disposable directories."""
+
+    from dataclasses import asdict
+
+    from autobot.v2.research.resilience_readiness import verify_sqlite_backup_bundle_restore_drill
+
+    _print_json(asdict(verify_sqlite_backup_bundle_restore_drill(Path(args.bundle_path))))
     return 0
 
 

@@ -54,6 +54,16 @@ The bundle manifest records the capture start/end times: it must never be
 treated as a transactionally atomic snapshot across multiple databases. Missing
 optional research registries are recorded as skipped and are never created.
 
+Verify every present bundle member through independent disposable restores:
+
+```text
+python -m autobot.v2.cli sqlite-backup-bundle-restore-drill \
+  --bundle-path backups/sqlite/<run-id>
+```
+
+This drill validates only the fixed scope and the bundle fingerprints. It never
+restores a file into the runtime data directory.
+
 To prove a backup/restore cycle without retaining any backup artifact:
 
 ```text

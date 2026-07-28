@@ -28,7 +28,10 @@ arbitrary files, mount secrets or create absent research registries.
 Every present database is copied through SQLite's backup API, integrity-checked
 and fingerprinted. The manifest records a capture start/end window. This is a
 **sequential** set of individual database snapshots, not a falsely claimed
-cross-database transaction.
+cross-database transaction. A follow-up bundle restore drill validates every
+present fixed-scope snapshot in disposable space and rejects a tampered
+manifest, mismatched fingerprint or missing snapshot without restoring runtime
+state.
 
 ## Operator safeguards
 
@@ -59,13 +62,20 @@ python -m autobot.v2.cli sqlite-backup-bundle \
   --bundle-path backups/sqlite/<run-id>
 ```
 
+Verify a retained bundle without touching runtime data:
+
+```text
+python -m autobot.v2.cli sqlite-backup-bundle-restore-drill \
+  --bundle-path backups/sqlite/<run-id>
+```
+
 ## Verification
 
 | Check | Result |
 | --- | --- |
-| Scope/bundle/CLI focused tests | `68 passed` |
-| B5/B6 resilience and deployment-safety tests | `88 passed` |
-| Full test suite | `1943 passed, 6 skipped, 2 deselected` |
+| Scope/bundle/restore-drill/CLI focused tests | `70 passed` |
+| B5/B6 resilience and deployment-safety tests | `90 passed` |
+| Full test suite | `1945 passed, 6 skipped, 2 deselected` |
 | Python compilation | passed |
 | JSON matrix validation | passed |
 | Shell syntax | passed |

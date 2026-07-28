@@ -467,6 +467,46 @@ class SQLiteBackupBundleManifest:
 
 
 @dataclass(frozen=True)
+class SQLiteBackupBundleRestoreDrillEntry:
+    """Read-only restoration evidence for one bundled SQLite snapshot."""
+
+    identifier: str
+    backup_path: str
+    restore: SQLiteRestoreDrillManifest
+
+    def __post_init__(self) -> None:
+        _validate_backup_bundle_id(self.identifier)
+        if Path(self.backup_path).name != f"{self.identifier}.sqlite3":
+            raise ResilienceError("backup bundle restore entry has an unexpected snapshot filename")
+
+
+@dataclass(frozen=True)
+class SQLiteBackupBundleRestoreDrillManifest:
+    """Evidence that every present bundle member restored in disposable space."""
+
+    bundle_path: str
+    bundle_manifest_sha256_before: str
+    bundle_manifest_sha256_after: str
+    entries: tuple[SQLiteBackupBundleRestoreDrillEntry, ...]
+    verified_at: str
+    research_only: bool = True
+    paper_capital_allowed: bool = False
+    live_allowed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
+            raise ResilienceError("backup bundle restore drills cannot authorize paper or live")
+        if not _is_sha256(self.bundle_manifest_sha256_before) or not _is_sha256(self.bundle_manifest_sha256_after):
+            raise ResilienceError("backup bundle restore drill requires manifest fingerprints")
+        if self.bundle_manifest_sha256_before != self.bundle_manifest_sha256_after:
+            raise ResilienceError("backup bundle restore drill modified its manifest input")
+        _parse_aware_utc(self.verified_at, "verified_at")
+        identifiers = tuple(entry.identifier for entry in self.entries)
+        if not identifiers or len(identifiers) != len(set(identifiers)):
+            raise ResilienceError("backup bundle restore drill entries must be unique")
+
+
+@dataclass(frozen=True)
 class SQLiteRestoreDrillManifest:
     backup_path: str
     backup_sha256_before: str
@@ -667,10 +707,7 @@ def audit_sqlite_backup_scope(repo_dir: str | Path) -> SQLiteBackupScopeAudit:
         raise ResilienceError("backup scope repository directory does not exist")
     resolved_data_dir = (resolved_repo_dir / "data").resolve()
     scope = canonical_sqlite_backup_scope()
-    payload = [asdict(entry) for entry in scope]
-    scope_fingerprint = sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    scope_fingerprint = _sqlite_backup_scope_fingerprint(scope)
     audit_entries: list[SQLiteBackupScopeAuditEntry] = []
     for entry in scope:
         source_path = (resolved_repo_dir / entry.relative_source_path).resolve()
@@ -766,6 +803,102 @@ def create_verified_sqlite_backup_bundle(
         if staging_path.exists():
             rmtree(staging_path)
         raise
+
+
+def verify_sqlite_backup_bundle_restore_drill(
+    bundle_path: str | Path,
+) -> SQLiteBackupBundleRestoreDrillManifest:
+    """Restore each present fixed-scope bundle member in disposable space.
+
+    This verifies an already-created local bundle.  It never restores a
+    snapshot into the AUTOBOT runtime location, creates a source database or
+    interprets arbitrary paths embedded in the bundle manifest.
+    """
+
+    resolved_bundle_path = Path(bundle_path).resolve()
+    _validate_backup_bundle_id(resolved_bundle_path.name)
+    manifest_path = resolved_bundle_path / "manifest.json"
+    if not resolved_bundle_path.is_dir() or not manifest_path.is_file():
+        raise ResilienceError("SQLite backup bundle manifest does not exist")
+    manifest_sha256_before = _sha256_file(manifest_path)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ResilienceError("SQLite backup bundle manifest is unreadable") from exc
+    if not isinstance(payload, Mapping):
+        raise ResilienceError("SQLite backup bundle manifest must be an object")
+    if payload.get("bundle_id") != resolved_bundle_path.name:
+        raise ResilienceError("SQLite backup bundle manifest identifier does not match its directory")
+    scope_payload = payload.get("scope")
+    entries_payload = payload.get("entries")
+    if not isinstance(scope_payload, Mapping) or not isinstance(entries_payload, list):
+        raise ResilienceError("SQLite backup bundle manifest has an invalid scope or entries payload")
+    if scope_payload.get("scope_version") != SQLITE_BACKUP_SCOPE_VERSION:
+        raise ResilienceError("SQLite backup bundle manifest has an unsupported scope version")
+    expected_scope = canonical_sqlite_backup_scope()
+    if scope_payload.get("scope_fingerprint") != _sqlite_backup_scope_fingerprint(expected_scope):
+        raise ResilienceError("SQLite backup bundle manifest scope fingerprint mismatch")
+    if (
+        payload.get("research_only") is not True
+        or payload.get("paper_capital_allowed") is not False
+        or payload.get("live_allowed") is not False
+    ):
+        raise ResilienceError("SQLite backup bundle manifest must remain non-authorizing")
+    if len(entries_payload) != len(expected_scope):
+        raise ResilienceError("SQLite backup bundle manifest entry count does not match the canonical scope")
+
+    drill_entries: list[SQLiteBackupBundleRestoreDrillEntry] = []
+    for expected, entry_payload in zip(expected_scope, entries_payload, strict=True):
+        if not isinstance(entry_payload, Mapping):
+            raise ResilienceError("SQLite backup bundle manifest entry must be an object")
+        audit_payload = entry_payload.get("audit")
+        if not isinstance(audit_payload, Mapping):
+            raise ResilienceError("SQLite backup bundle manifest entry lacks audit evidence")
+        if (
+            audit_payload.get("identifier") != expected.identifier
+            or audit_payload.get("relative_source_path") != expected.relative_source_path
+            or audit_payload.get("required") is not expected.required
+        ):
+            raise ResilienceError("SQLite backup bundle manifest does not match the canonical scope")
+        status = entry_payload.get("status")
+        backup_payload = entry_payload.get("backup")
+        if status == "SKIPPED_OPTIONAL_MISSING":
+            if expected.required or backup_payload is not None or audit_payload.get("status") != "MISSING_OPTIONAL":
+                raise ResilienceError("required or backed-up SQLite bundle entry cannot be skipped")
+            continue
+        if (
+            status != "BACKED_UP"
+            or audit_payload.get("status") != "READY"
+            or not isinstance(backup_payload, Mapping)
+        ):
+            raise ResilienceError("SQLite backup bundle entry is neither a valid backup nor an optional skip")
+        snapshot_path = resolved_bundle_path / f"{expected.identifier}.sqlite3"
+        if not snapshot_path.is_file():
+            raise ResilienceError("SQLite backup bundle snapshot is missing")
+        recorded_backup_name = str(backup_payload.get("backup_path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if recorded_backup_name != snapshot_path.name:
+            raise ResilienceError("SQLite backup bundle manifest has an unexpected snapshot filename")
+        expected_backup_sha256 = str(backup_payload.get("backup_sha256") or "")
+        if not _is_sha256(expected_backup_sha256) or _sha256_file(snapshot_path) != expected_backup_sha256:
+            raise ResilienceError("SQLite backup bundle snapshot fingerprint mismatch")
+        restore = verify_sqlite_restore_drill(snapshot_path)
+        drill_entries.append(
+            SQLiteBackupBundleRestoreDrillEntry(
+                identifier=expected.identifier,
+                backup_path=str(snapshot_path),
+                restore=restore,
+            )
+        )
+    if not drill_entries:
+        raise ResilienceError("SQLite backup bundle contains no snapshots to restore")
+    manifest_sha256_after = _sha256_file(manifest_path)
+    return SQLiteBackupBundleRestoreDrillManifest(
+        bundle_path=str(resolved_bundle_path),
+        bundle_manifest_sha256_before=manifest_sha256_before,
+        bundle_manifest_sha256_after=manifest_sha256_after,
+        entries=tuple(drill_entries),
+        verified_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def create_verified_sqlite_backup(
@@ -1057,6 +1190,11 @@ def _validate_backup_bundle_id(value: str) -> None:
         or not all(character.isalnum() or character in "_.-" for character in normalized)
     ):
         raise ResilienceError("backup bundle identifier is unsafe")
+
+
+def _sqlite_backup_scope_fingerprint(scope: Sequence[SQLiteBackupScopeEntry]) -> str:
+    payload = [asdict(entry) for entry in scope]
+    return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _sha256_file(path: Path) -> str:
