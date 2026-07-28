@@ -54,6 +54,10 @@ from .volatility_reversal_walk_forward import (
     VolatilityReversalWalkForwardConfig,
     build_volatility_reversal_walk_forward_report,
 )
+from .volatility_reversal_statistical_validation import (
+    VolatilityReversalStatisticalValidationConfig,
+    build_volatility_reversal_statistical_validation_report,
+)
 
 
 AUTO_ALLOWED = "AUTO_ALLOWED"
@@ -894,6 +898,64 @@ def _stress_placeholder(
     policy: Mapping[str, Any],
     started: float,
 ) -> AlphaGateResult:
+    if hypothesis_id == "mean_reversion_volatility_reversal":
+        report = _volatility_reversal_walk_forward_report(config)
+        if report.decision != "KEEP_RESEARCH":
+            return _gate(
+                "STRESS_MONTE_CARLO",
+                "REJECTED",
+                False,
+                True,
+                ("walk_forward_gate_not_passed", *report.reasons),
+                policy,
+                started,
+                metrics=report.overall_oos.to_dict(),
+            )
+        validation = build_volatility_reversal_statistical_validation_report(
+            report.oos_trades,
+            VolatilityReversalStatisticalValidationConfig(
+                run_id=f"{config.run_id}_statistical_validation",
+                assumed_trial_count=_validation_trial_count(config, len(report.folds)),
+                trial_scope_id=(
+                    config.validation_trial_scope_id
+                    or f"hypothesis_{str(hypothesis_id).strip().lower()}"
+                ),
+            ),
+            walk_forward_passed=True,
+        )
+        statistical_gate = dict(validation.statistical_gate)
+        passed = (
+            validation.decision == "KEEP_RESEARCH"
+            and statistical_gate.get("decision") == "SHADOW_REVIEW_ELIGIBLE"
+        )
+        reasons = list(validation.reasons)
+        if not passed and "consolidated_statistical_gate_blocked" not in reasons:
+            reasons.append("consolidated_statistical_gate_blocked")
+            reasons.extend(
+                f"statistical_gate_{item}"
+                for item in statistical_gate.get("blockers", [])
+                if isinstance(item, str)
+            )
+        return _gate(
+            "STRESS_MONTE_CARLO",
+            "KEEP_RESEARCH" if passed else "REJECTED",
+            passed,
+            not passed,
+            tuple(dict.fromkeys(reasons)),
+            policy,
+            started,
+            metrics={
+                "trade_count": validation.trade_count,
+                "assumed_trial_count": validation.assumed_trial_count,
+                "trial_scope_id": validation.trial_scope_id,
+                "deflated_sharpe": dict(validation.deflated_sharpe),
+                "probabilistic_sharpe": dict(validation.probabilistic_sharpe),
+                "robustness": dict(validation.robustness),
+                "statistical_gate_decision": statistical_gate.get("decision"),
+                "statistical_gate_blockers": list(statistical_gate.get("blockers", [])),
+            },
+            artifacts={"statistical_gate": statistical_gate},
+        )
     if hypothesis_id == "funding_basis":
         report = _funding_basis_walk_forward_report(config)
         if report.decision != "KEEP_RESEARCH":

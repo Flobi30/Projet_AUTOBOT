@@ -60,8 +60,8 @@ flowchart TD
 - `mean_reversion_volatility_reversal`: a separate, bounded closed-bar
   research hypothesis. It may run at most three predeclared net-of-cost smoke
   variants across six symbols, then a separate fixed-template walk-forward
-  review. A pass can only request later statistical validation; it cannot
-  start shadow, paper, or live trading.
+  review and deterministic PSR/DSR/bootstrap gate on complete OOS trades. A
+  pass remains research-only; it cannot start shadow, paper, or live trading.
 - `high_conviction_swing`: research only after P17 rejection of current configuration.
 
 No benchmark is allowed to become paper or live through this lab.

@@ -3,11 +3,14 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import time
+from types import SimpleNamespace
 
 import pytest
 
 from autobot.v2.research.alpha_hypothesis_runner import (
     AlphaHypothesisRunnerConfig,
+    _stress_placeholder,
     _walk_forward,
     build_alpha_hypothesis_runner_report,
     load_alpha_autonomy_policy,
@@ -224,6 +227,67 @@ def test_alpha_runner_uses_reversal_walk_forward_without_creating_an_execution_p
     assert gate.gate == "WALK_FORWARD"
     assert gate.status in {"KEEP_RESEARCH", "REJECTED", "INSUFFICIENT_DATA"}
     assert gate.artifacts["diagnostics"]["fixed_template_only"] is True
+    assert gate.safety["paper_capital_allowed"] is False
+    assert gate.safety["live_allowed"] is False
+
+
+def test_alpha_runner_requires_consolidated_statistical_gate_before_keep_research(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AlphaHypothesisRunnerConfig(
+        run_id="pytest_reversal_runner_statistics",
+        hypothesis_id="mean_reversion_volatility_reversal",
+        mode="full_research",
+        data_paths=(tmp_path,),
+        symbols=("BTCZEUR",),
+    )
+    walk_forward = SimpleNamespace(
+        decision="KEEP_RESEARCH",
+        reasons=(),
+        oos_trades=(),
+        folds=(object(),),
+        overall_oos=SimpleNamespace(to_dict=lambda: {"trade_count": 60}),
+    )
+    validation = SimpleNamespace(
+        decision="KEEP_RESEARCH",
+        reasons=("synthetic_validation",),
+        trade_count=60,
+        assumed_trial_count=3,
+        trial_scope_id="hypothesis_mean_reversion_volatility_reversal",
+        deflated_sharpe={"acceptable": True},
+        probabilistic_sharpe={"acceptable": True},
+        robustness={"verdict": "observation_ready_not_promoted"},
+        statistical_gate={
+            "decision": "RESEARCH_BLOCKED",
+            "blockers": ["net_pnl_not_positive_after_costs"],
+            "research_only": True,
+            "paper_capital_allowed": False,
+            "live_allowed": False,
+            "promotable": False,
+        },
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner._volatility_reversal_walk_forward_report",
+        lambda _: walk_forward,
+    )
+    monkeypatch.setattr(
+        "autobot.v2.research.alpha_hypothesis_runner.build_volatility_reversal_statistical_validation_report",
+        lambda *_args, **_kwargs: validation,
+    )
+
+    gate = _stress_placeholder(
+        config,
+        "mean_reversion_volatility_reversal",
+        load_alpha_autonomy_policy(config.autonomy_policy_path),
+        time.perf_counter(),
+    )
+
+    assert gate.status == "REJECTED"
+    assert gate.passed is False
+    assert "consolidated_statistical_gate_blocked" in gate.reasons
+    assert "statistical_gate_net_pnl_not_positive_after_costs" in gate.reasons
+    assert gate.artifacts["statistical_gate"]["decision"] == "RESEARCH_BLOCKED"
     assert gate.safety["paper_capital_allowed"] is False
     assert gate.safety["live_allowed"] is False
 

@@ -270,6 +270,13 @@ def _simulate(
                 index += 1
                 continue
             gross_bps = _return_bps(entry_bar.open, exit_price)
+            cost_eur = {
+                key.replace("_bps", "_eur"): round(
+                    config.order_notional_eur * value / 10_000.0,
+                    8,
+                )
+                for key, value in cost_parts.items()
+            }
             metadata = {
                 "anti_lookahead": "prior_window_excludes_signal_bar; signal_uses_closed_bar; entry_is_next_bar_open",
                 "signal_bar_timestamp": signal_bar.timestamp.isoformat(),
@@ -283,6 +290,10 @@ def _simulate(
                 "stop_price": round(stop, 10),
                 "exit_reason": exit_reason,
                 "cost_components_bps": {key: round(value, 8) for key, value in cost_parts.items()},
+                "cost_components_eur": cost_eur,
+                "entry_price": round(entry_bar.open, 10),
+                "exit_price": round(exit_price, 10),
+                "order_notional_eur": config.order_notional_eur,
                 "cost_profile": costs.cost_profile,
                 **RESEARCH_ONLY_CAPITAL_FLAGS,
             }
