@@ -127,7 +127,9 @@ BACKFILL_SOURCE_REPORTS = {
 }
 
 DEFAULT_RESEARCH_MEMORY_PATH = Path("data/research/alpha_research_memory.sqlite3")
-LEGACY_RESEARCH_MEMORY_PATH = Path("reports/research/alpha_research_memory.json")
+# This is a checked-in, immutable migration seed, never a runtime sink.  New
+# research observations live only in the append-only SQLite store above.
+VERSIONED_RESEARCH_MEMORY_SEED_PATH = Path("docs/research/legacy_alpha_research_memory_seed.json")
 
 
 class AlphaSchedulerError(ValueError):
@@ -486,9 +488,13 @@ def load_alpha_research_memory(path: str | Path) -> AlphaResearchMemory:
     memory_path = Path(path)
     if memory_path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
         store = ResearchMemoryStore(memory_path)
-        if memory_path == DEFAULT_RESEARCH_MEMORY_PATH and not memory_path.exists() and LEGACY_RESEARCH_MEMORY_PATH.exists():
-            legacy = load_alpha_research_memory(LEGACY_RESEARCH_MEMORY_PATH)
-            store.append_many(record.to_dict() for record in legacy.records)
+        if (
+            memory_path == DEFAULT_RESEARCH_MEMORY_PATH
+            and not memory_path.exists()
+            and VERSIONED_RESEARCH_MEMORY_SEED_PATH.exists()
+        ):
+            seed = load_alpha_research_memory(VERSIONED_RESEARCH_MEMORY_SEED_PATH)
+            store.append_many(record.to_dict() for record in seed.records)
         records = tuple(ResearchMemoryRecord.from_mapping(item) for item in store.latest_records())
         return AlphaResearchMemory(memory_path, tuple(_with_running_counts(records)))
     if not memory_path.exists():

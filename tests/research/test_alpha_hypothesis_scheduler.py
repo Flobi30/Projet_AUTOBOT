@@ -113,6 +113,23 @@ def test_sqlite_memory_is_append_only_idempotent_and_keeps_latest_record(tmp_pat
     assert len(exported["records"]) == 1
 
 
+def test_default_sqlite_memory_imports_versioned_seed_once(tmp_path, monkeypatch):
+    import autobot.v2.research.alpha_hypothesis_scheduler as scheduler
+
+    seed_path = tmp_path / "docs" / "research" / "legacy_seed.json"
+    AlphaResearchMemory(seed_path, ()).add_record(_record("versioned-seed", variant_count=2)).write(seed_path)
+    runtime_path = tmp_path / "data" / "research" / "memory.sqlite3"
+    monkeypatch.setattr(scheduler, "DEFAULT_RESEARCH_MEMORY_PATH", runtime_path)
+    monkeypatch.setattr(scheduler, "VERSIONED_RESEARCH_MEMORY_SEED_PATH", seed_path)
+
+    first = scheduler.load_alpha_research_memory(runtime_path)
+    second = scheduler.load_alpha_research_memory(runtime_path)
+
+    assert [record.run_id for record in first.records] == ["versioned-seed"]
+    assert [record.run_id for record in second.records] == ["versioned-seed"]
+    assert ResearchMemoryStore(runtime_path).event_count() == 1
+
+
 def test_scheduler_refuses_rejected_current_config_and_selects_next_runnable(tmp_path):
     data_dir = _write_ohlcv(tmp_path)
     memory_path = tmp_path / "memory.json"
