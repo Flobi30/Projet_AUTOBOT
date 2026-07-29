@@ -1,6 +1,7 @@
 import pytest
 
 import math
+import os
 
 from autobot.v2.main_async import AutoBotV2Async, _build_grid_config, _default_runtime_log_file
 
@@ -106,3 +107,5 @@ def test_observation_runtime_does_not_retain_private_exchange_credentials(monkey
 
     assert bot.api_key is None
     assert bot.api_secret is None
+    assert "KRAKEN_API_KEY" not in os.environ
+    assert "KRAKEN_API_SECRET" not in os.environ

@@ -9,7 +9,9 @@ The async executor representation also exposed a short key prefix.
 ## Change
 
 - In observation-only mode, `AutoBotV2Async` discards supplied and environment
-  exchange credentials before it can construct the orchestrator.
+  exchange credentials before it can construct the orchestrator, and removes
+  the two legacy exchange credential variables from its own process
+  environment.
 - `OrderExecutorAsync.__repr__` now reports only whether credentials are
   configured; it never includes key material.
 
