@@ -117,23 +117,24 @@ class _PersistenceRepositoryBase:
                 try:
                     return await operation()
                 except Exception as exc:
-                    if not self._is_busy_error(exc) or attempt >= self._write_retries:
-                        raise
-                    # A busy error can be raised by commit after the write has
-                    # started. Roll back while the shared write lock is still
-                    # held, otherwise the next retry could inherit a stale
-                    # transaction or interleave with another repository.
+                    retryable = self._is_busy_error(exc) and attempt < self._write_retries
+                    # A failed write can leave the shared connection inside a
+                    # transaction. Roll back while the shared write lock is
+                    # still held before either surfacing the error or retrying;
+                    # otherwise another repository could inherit stale state.
                     try:
                         conn = await self.get_conn()
                         await conn.rollback()
                     except Exception as rollback_exc:
                         logger.error(
-                            "SQLite rollback failed after busy %s during %s; refusing retry (%s)",
+                            "SQLite rollback failed after %s during %s; refusing retry (%s)",
                             type(exc).__name__,
                             label,
                             type(rollback_exc).__name__,
                         )
                         raise exc from rollback_exc
+                    if not retryable:
+                        raise
                     last_exc = exc
                     delay = (self._retry_base_delay_ms / 1000.0) * (2 ** attempt)
                     logger.warning(
@@ -486,39 +487,47 @@ class AuditRepository(_PersistenceRepositoryBase):
     ) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.get_conn()
-            # Get previous hash
-            async with conn.execute("SELECT event_hash FROM audit_events ORDER BY created_at DESC LIMIT 1") as cursor:
-                prev_row = await cursor.fetchone()
-                prev_hash = prev_row["event_hash"] if prev_row else "0" * 64
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                # The previous hash and new event must be one short write
+                # transaction. BEGIN IMMEDIATE prevents another process from
+                # appending an event between the chain read and the insert.
+                await conn.execute("BEGIN IMMEDIATE")
+                async with conn.execute(
+                    "SELECT event_hash FROM audit_events ORDER BY created_at DESC LIMIT 1"
+                ) as cursor:
+                    prev_row = await cursor.fetchone()
+                    prev_hash = prev_row["event_hash"] if prev_row else "0" * 64
 
-            risk_json = orjson.dumps(risk_snapshot).decode()
-            bal_b_json = orjson.dumps(balance_before).decode() if balance_before else None
-            bal_a_json = orjson.dumps(balance_after).decode() if balance_after else None
-            raw_json = orjson.dumps(exchange_raw_normalized).decode() if exchange_raw_normalized else None
+                risk_json = orjson.dumps(risk_snapshot).decode()
+                bal_b_json = orjson.dumps(balance_before).decode() if balance_before else None
+                bal_a_json = orjson.dumps(balance_after).decode() if balance_after else None
+                raw_json = orjson.dumps(exchange_raw_normalized).decode() if exchange_raw_normalized else None
 
-            # Simple hash chaining
-            payload = f"{prev_hash}{event_id}{event_type}{instance_id}{now}"
-            event_hash = hashlib.sha256(payload.encode()).hexdigest()
+                # Simple hash chaining
+                payload = f"{prev_hash}{event_id}{event_type}{instance_id}{now}"
+                event_hash = hashlib.sha256(payload.encode()).hexdigest()
 
-            await conn.execute(
-                """
-                INSERT INTO audit_events
-                (event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
-                 instance_id, config_hash, risk_snapshot, balance_before, balance_after,
-                 fees, slippage_bps, order_from_status, order_to_status,
-                 exchange_raw_normalized, prev_event_hash, event_hash, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
-                    instance_id, config_hash, risk_json, bal_b_json, bal_a_json,
-                    fees, slippage_bps, order_from_status, order_to_status,
-                    raw_json, prev_hash, event_hash, now,
-                ),
-            )
-            await conn.commit()
-            return True
+                await conn.execute(
+                    """
+                    INSERT INTO audit_events
+                    (event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                     instance_id, config_hash, risk_snapshot, balance_before, balance_after,
+                     fees, slippage_bps, order_from_status, order_to_status,
+                     exchange_raw_normalized, prev_event_hash, event_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id, event_type, decision_id, signal_id, client_order_id, exchange_order_id,
+                        instance_id, config_hash, risk_json, bal_b_json, bal_a_json,
+                        fees, slippage_bps, order_from_status, order_to_status,
+                        raw_json, prev_hash, event_hash, now,
+                    ),
+                )
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("append_audit_event", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur append_audit_event {event_id}: {e}")
             return False
@@ -551,7 +560,6 @@ class PositionRepository(_PersistenceRepositoryBase):
                       symbol: Optional[str] = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.get_conn()
             metadata = dict(metadata or {})
             if symbol is None:
                 symbol = metadata.get("symbol")
@@ -559,25 +567,33 @@ class PositionRepository(_PersistenceRepositoryBase):
                 metadata["symbol"] = symbol
             normalized_symbol = str(symbol or "").strip().upper() or None
             meta_json = orjson.dumps(metadata).decode() if metadata else None
-            await conn.execute(
-                """
-                INSERT INTO positions (id, instance_id, symbol, buy_price, volume, status, open_time, strategy, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (position_id, instance_id, normalized_symbol, buy_price, volume, status, now, strategy, meta_json)
-            )
-            await conn.commit()
-            return True
+
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                await conn.execute(
+                    """
+                    INSERT INTO positions (id, instance_id, symbol, buy_price, volume, status, open_time, strategy, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (position_id, instance_id, normalized_symbol, buy_price, volume, status, now, strategy, meta_json)
+                )
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("save_position", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur sauvegarde position {position_id}: {e}")
             return False
 
     async def update_position_status(self, position_id: str, status: str) -> bool:
         try:
-            conn = await self.get_conn()
-            await conn.execute("UPDATE positions SET status = ? WHERE id = ?", (status, position_id))
-            await conn.commit()
-            return True
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                await conn.execute("UPDATE positions SET status = ? WHERE id = ?", (status, position_id))
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("update_position_status", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur update_position_status {position_id}: {e}")
             return False
@@ -793,24 +809,27 @@ class InstanceStateRepository(_PersistenceRepositoryBase):
                             initial_capital: Optional[float] = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.get_conn()
-            await conn.execute(
-                """
-                INSERT INTO instance_state (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(instance_id) DO UPDATE SET
-                    status=excluded.status,
-                    current_capital=excluded.current_capital,
-                    allocated_capital=excluded.allocated_capital,
-                    win_count=excluded.win_count,
-                    loss_count=excluded.loss_count,
-                    initial_capital=COALESCE(excluded.initial_capital, instance_state.initial_capital),
-                    updated_at=excluded.updated_at
-                """,
-                (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, now)
-            )
-            await conn.commit()
-            return True
+            async def _write() -> bool:
+                conn = await self.get_conn()
+                await conn.execute(
+                    """
+                    INSERT INTO instance_state (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(instance_id) DO UPDATE SET
+                        status=excluded.status,
+                        current_capital=excluded.current_capital,
+                        allocated_capital=excluded.allocated_capital,
+                        win_count=excluded.win_count,
+                        loss_count=excluded.loss_count,
+                        initial_capital=COALESCE(excluded.initial_capital, instance_state.initial_capital),
+                        updated_at=excluded.updated_at
+                    """,
+                    (instance_id, status, current_capital, allocated_capital, win_count, loss_count, initial_capital, now)
+                )
+                await conn.commit()
+                return True
+
+            return await self._with_write_retries("save_instance_state", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur sauvegarde état instance: {e}")
             return False

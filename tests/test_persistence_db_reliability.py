@@ -18,6 +18,7 @@ class _BusyThenOkConnection:
     def __init__(self):
         self.execute_calls = 0
         self.commit_calls = 0
+        self.rollback_calls = 0
 
     async def execute(self, *args, **kwargs):
         self.execute_calls += 1
@@ -29,7 +30,7 @@ class _BusyThenOkConnection:
         self.commit_calls += 1
 
     async def rollback(self):
-        return None
+        self.rollback_calls += 1
 
 
 class _CommitBusyThenOkConnection:
@@ -55,6 +56,60 @@ class _CommitBusyRollbackFailureConnection(_CommitBusyThenOkConnection):
     async def rollback(self):
         self.rollback_calls += 1
         raise sqlite3.OperationalError("rollback is locked")
+
+
+class _AuditCursor:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    async def fetchone(self):
+        return None
+
+
+class _AuditExecuteResult:
+    """Minimal aiosqlite execute result: awaitable and async context manager."""
+
+    def __init__(self, cursor, error=None):
+        self.cursor = cursor
+        self.error = error
+
+    def __await__(self):
+        async def _resolve():
+            if self.error is not None:
+                raise self.error
+            return self.cursor
+
+        return _resolve().__await__()
+
+    async def __aenter__(self):
+        if self.error is not None:
+            raise self.error
+        return self.cursor
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _AuditBusyThenOkConnection:
+    def __init__(self):
+        self.execute_calls = 0
+        self.commit_calls = 0
+        self.rollback_calls = 0
+
+    def execute(self, *args, **kwargs):
+        self.execute_calls += 1
+        if self.execute_calls == 1:
+            return _AuditExecuteResult(_AuditCursor(), sqlite3.OperationalError("database is busy"))
+        return _AuditExecuteResult(_AuditCursor())
+
+    async def commit(self):
+        self.commit_calls += 1
+
+    async def rollback(self):
+        self.rollback_calls += 1
 
 
 @pytest.mark.asyncio
@@ -153,6 +208,112 @@ async def test_decision_ledger_refuses_retry_when_busy_commit_cannot_roll_back(m
     assert fake_conn.execute_calls == 1
     assert fake_conn.commit_calls == 1
     assert fake_conn.rollback_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_append_retries_busy_chain_transaction(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    fake_conn = _AuditBusyThenOkConnection()
+
+    async def fake_get_conn():
+        return fake_conn
+
+    monkeypatch.setattr(persistence.audit, "get_conn", fake_get_conn)
+
+    appended = await persistence.append_audit_event(
+        event_id="audit-retry",
+        event_type="order_rejected",
+        instance_id="inst",
+        config_hash="cfg",
+        risk_snapshot={"reason": "pytest"},
+    )
+    await persistence.close()
+
+    assert appended is True
+    assert fake_conn.execute_calls == 4  # busy BEGIN, BEGIN, SELECT, INSERT
+    assert fake_conn.commit_calls == 1
+    assert fake_conn.rollback_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_hash_chain_is_serialized_in_a_short_write_transaction(tmp_path):
+    db_path = tmp_path / "state.db"
+    persistence = StatePersistence(str(db_path))
+
+    for event_id in ("audit-chain-1", "audit-chain-2"):
+        assert await persistence.append_audit_event(
+            event_id=event_id,
+            event_type="decision",
+            instance_id="inst",
+            config_hash="cfg",
+            risk_snapshot={"event_id": event_id},
+        ) is True
+    await persistence.close()
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT prev_event_hash, event_hash FROM audit_events ORDER BY rowid"
+        ).fetchall()
+
+    assert rows[0][0] == "0" * 64
+    assert rows[1][0] == rows[0][1]
+
+
+@pytest.mark.asyncio
+async def test_position_and_instance_writes_retry_temporary_sqlite_lock(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+
+    position_connection = _BusyThenOkConnection()
+
+    async def get_position_connection():
+        return position_connection
+
+    monkeypatch.setattr(persistence.positions, "get_conn", get_position_connection)
+    assert await persistence.save_position(
+        position_id="pos-retry",
+        instance_id="inst",
+        buy_price=1.0,
+        volume=1.0,
+        strategy="trend_momentum",
+    ) is True
+    assert position_connection.execute_calls == 2
+    assert position_connection.commit_calls == 1
+    assert position_connection.rollback_calls == 1
+
+    status_connection = _BusyThenOkConnection()
+
+    async def get_status_connection():
+        return status_connection
+
+    monkeypatch.setattr(persistence.positions, "get_conn", get_status_connection)
+    assert await persistence.update_position_status("pos-retry", "closed") is True
+    assert status_connection.execute_calls == 2
+    assert status_connection.commit_calls == 1
+    assert status_connection.rollback_calls == 1
+
+    instance_connection = _BusyThenOkConnection()
+
+    async def get_instance_connection():
+        return instance_connection
+
+    monkeypatch.setattr(persistence.instance_state, "get_conn", get_instance_connection)
+    assert await persistence.save_instance_state(
+        "inst",
+        "running",
+        10.0,
+        10.0,
+        0,
+        0,
+    ) is True
+    await persistence.close()
+
+    assert instance_connection.execute_calls == 2
+    assert instance_connection.commit_calls == 1
+    assert instance_connection.rollback_calls == 1
 
 
 @pytest.mark.asyncio
