@@ -502,6 +502,81 @@ def test_learning_strategy_can_write_shadow_paper_observation_with_strategy_id(t
     assert rows[-1][5] == pytest.approx(8.00)
 
 
+def test_shadow_sync_retries_a_busy_state_commit_after_rollback():
+    class _BusyCommitConnection:
+        def __init__(self):
+            self.commit_calls = 0
+            self.rollback_calls = 0
+
+        def commit(self):
+            self.commit_calls += 1
+            if self.commit_calls == 1:
+                raise sqlite3.OperationalError("database is locked")
+
+        def rollback(self):
+            self.rollback_calls += 1
+
+    conn = _BusyCommitConnection()
+    operation_calls = 0
+    delays: list[float] = []
+
+    def operation():
+        nonlocal operation_calls
+        operation_calls += 1
+        return "synced"
+
+    result = shadow_observation_sync._run_state_write_with_retry(
+        conn,
+        "pytest_shadow_sync",
+        operation,
+        retries=1,
+        retry_base_delay_seconds=0.01,
+        sleeper=delays.append,
+    )
+
+    assert result == "synced"
+    assert operation_calls == 2
+    assert conn.commit_calls == 2
+    assert conn.rollback_calls == 1
+    assert delays == [0.01]
+
+
+def test_shadow_sync_retries_a_temporary_source_lock_without_writing_duplicate_rows(tmp_path, monkeypatch):
+    state_db = tmp_path / "state.db"
+    registry = tmp_path / "strategy_hypotheses.json"
+    trend_db = tmp_path / "trend_shadow_lab.db"
+    _write_registry(registry)
+    _write_shadow_db(trend_db, "trend_shadow_trades")
+    original_sync_source = shadow_observation_sync._sync_source
+    attempts = 0
+
+    def flaky_sync_source(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return original_sync_source(*args, **kwargs)
+
+    monkeypatch.setattr(shadow_observation_sync, "_sync_source", flaky_sync_source)
+
+    report = sync_shadow_paper_observations(
+        ShadowPaperObservationSyncConfig(
+            state_db_path=state_db,
+            registry_path=registry,
+            trend_shadow_db_path=trend_db,
+            mean_reversion_shadow_db_path=tmp_path / "missing_mean.db",
+            output_dir=tmp_path / "reports",
+            write_report=False,
+        )
+    ).to_dict()
+
+    trend = next(item for item in report["source_results"] if item["strategy_id"] == "trend_momentum")
+    assert attempts >= 2
+    assert trend["inserted_trade_count"] == 1
+    with sqlite3.connect(state_db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trade_ledger").fetchone()[0] == 2
+
+
 def test_shadow_sync_preserves_opportunity_score_metadata(tmp_path):
     state_db = tmp_path / "state.db"
     registry = tmp_path / "strategy_hypotheses.json"

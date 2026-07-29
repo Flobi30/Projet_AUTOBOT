@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from pathlib import Path
+from time import sleep
 from typing import Any, Iterable, Mapping, Sequence
 
 from autobot.v2.cost_profiles import DEFAULT_PAPER_COST_PROFILE, get_cost_profile
@@ -64,6 +65,10 @@ UNSYNCED_OBSERVATION_STRATEGIES: tuple[dict[str, str], ...] = (
         "reason": "scoring_layer_no_direct_trade_source",
     },
 )
+
+SHADOW_SYNC_SQLITE_BUSY_TIMEOUT_SECONDS = 30.0
+SHADOW_SYNC_SQLITE_WRITE_RETRIES = 3
+SHADOW_SYNC_SQLITE_RETRY_BASE_DELAY_SECONDS = 0.05
 
 
 @dataclass(frozen=True)
@@ -177,21 +182,44 @@ def sync_shadow_paper_observations(
     registry_payload = load_registry(config.registry_path)
     generated_at = config.generated_at.isoformat()
 
-    state_conn = sqlite3.connect(config.state_db_path, timeout=30.0)
+    state_conn = sqlite3.connect(config.state_db_path, timeout=SHADOW_SYNC_SQLITE_BUSY_TIMEOUT_SECONDS)
     state_conn.row_factory = sqlite3.Row
     try:
-        state_conn.execute("PRAGMA busy_timeout=30000")
-        _ensure_trade_ledger_schema(state_conn)
+        state_conn.execute(f"PRAGMA busy_timeout={int(SHADOW_SYNC_SQLITE_BUSY_TIMEOUT_SECONDS * 1000)}")
+        _run_state_write_with_retry(
+            state_conn,
+            "ensure_trade_ledger_schema",
+            lambda: _ensure_trade_ledger_schema(state_conn),
+        )
         opportunity_lookup = _load_opportunity_score_lookup(state_conn)
         source_results: list[ShadowSyncSourceResult] = []
         for source in SYNCABLE_SHADOW_SOURCES:
-            result = _sync_source(config, registry_payload, state_conn, source, generated_at, opportunity_lookup)
+            result = _run_state_write_with_retry(
+                state_conn,
+                f"sync_shadow_source:{source['strategy_id']}",
+                lambda source=source: _sync_source(
+                    config,
+                    registry_payload,
+                    state_conn,
+                    source,
+                    generated_at,
+                    opportunity_lookup,
+                ),
+            )
             source_results.append(result)
-            state_conn.commit()
         source_results.append(
-            _sync_high_conviction_source(config, registry_payload, state_conn, generated_at, opportunity_lookup)
+            _run_state_write_with_retry(
+                state_conn,
+                "sync_shadow_source:high_conviction_swing",
+                lambda: _sync_high_conviction_source(
+                    config,
+                    registry_payload,
+                    state_conn,
+                    generated_at,
+                    opportunity_lookup,
+                ),
+            )
         )
-        state_conn.commit()
         for source in UNSYNCED_OBSERVATION_STRATEGIES:
             source_results.append(_unsynced_source_result(registry_payload, source))
         accumulation = _build_accumulation(state_conn, now=config.generated_at)
@@ -320,6 +348,8 @@ def _sync_source(
             score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             latest_closed_at = str(row["closed_at"] or latest_closed_at or "")
             reason_counts[str(row["reason"] or "unknown_exit")] += 1
+        except sqlite3.OperationalError:
+            raise
         except (TypeError, ValueError, sqlite3.Error) as exc:
             skipped += 1
             reason = f"insert_error:{type(exc).__name__}"
@@ -507,6 +537,8 @@ def _sync_high_conviction_source(
             score_origin_counts[_opportunity_metadata_origin(opportunity_metadata)] += 1
             latest_closed_at = record.closed_at.isoformat()
             reason_counts[str(record.exit_reason or "unknown_exit")] += 1
+        except sqlite3.OperationalError:
+            raise
         except (TypeError, ValueError, sqlite3.Error) as exc:
             skipped += 1
             reason = f"insert_error:{type(exc).__name__}"
@@ -678,6 +710,51 @@ def _select_shadow_source_rows(conn: sqlite3.Connection, table: str) -> list[sql
         ORDER BY closed_at ASC, id ASC
         """
     ).fetchall()
+
+
+def _is_sqlite_busy_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database is busy" in message
+
+
+def _run_state_write_with_retry(
+    conn: sqlite3.Connection,
+    label: str,
+    operation,
+    *,
+    retries: int = SHADOW_SYNC_SQLITE_WRITE_RETRIES,
+    retry_base_delay_seconds: float = SHADOW_SYNC_SQLITE_RETRY_BASE_DELAY_SECONDS,
+    sleeper=sleep,
+):
+    """Commit one short shadow-ledger transaction with bounded busy recovery.
+
+    The synchronizer is a batch research job rather than an order path. Still,
+    it shares the runtime SQLite database with observation services, so every
+    retry rolls back before re-running its idempotent source operation. A final
+    busy error remains visible to the caller instead of being converted into a
+    skipped trade.
+    """
+
+    if retries < 0:
+        raise ValueError("shadow sync SQLite retries cannot be negative")
+    if retry_base_delay_seconds < 0.0:
+        raise ValueError("shadow sync SQLite retry delay cannot be negative")
+    for attempt in range(retries + 1):
+        try:
+            result = operation()
+            conn.commit()
+            return result
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_busy_error(exc) or attempt >= retries:
+                raise
+            try:
+                conn.rollback()
+            except sqlite3.Error as rollback_exc:
+                raise sqlite3.OperationalError(
+                    f"shadow sync rollback failed after {label}: {type(rollback_exc).__name__}"
+                ) from rollback_exc
+            sleeper(retry_base_delay_seconds * (2**attempt))
+    raise AssertionError("shadow sync SQLite retry loop exhausted unexpectedly")
 
 
 def _insert_shadow_trade_pair(
