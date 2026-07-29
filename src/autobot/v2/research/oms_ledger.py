@@ -297,7 +297,7 @@ class ShadowOMSLedger:
             if duplicate:
                 return False
             intent = self._load_intent(connection, fill.client_order_id)
-            risk_decision_id = self._require_approved_risk_decision(
+            risk_decision_id, approved_notional_cap = self._approved_risk_decision(
                 connection,
                 fill.client_order_id,
                 occurred_at=fill.occurred_at,
@@ -314,6 +314,20 @@ class ShadowOMSLedger:
                 raise OMSLedgerError("fill requires acknowledged, partial or recovered-unknown order state")
             if latest_event is None or fill.occurred_at <= latest_event[1]:
                 raise OMSLedgerError("fill timestamp must follow the latest order event")
+            requested_notional = float(intent["target_notional"])
+            # The historical shadow ledger tolerates a small execution-price
+            # overshoot of the original target notional. Apply a hard cap only
+            # when the independent risk decision actually reduces that target.
+            reduced_notional_cap = (
+                approved_notional_cap
+                if approved_notional_cap is not None and approved_notional_cap < requested_notional
+                else None
+            )
+            prospective_notional = self._filled_notional(connection, fill.client_order_id) + (
+                float(fill.quantity) * float(fill.average_price)
+            )
+            if reduced_notional_cap is not None and prospective_notional > reduced_notional_cap + 1e-9:
+                raise OMSLedgerError("fill exceeds approved risk notional cap")
             fill_id = str(fill.fill_id)
             connection.execute(
                 """
@@ -323,9 +337,9 @@ class ShadowOMSLedger:
                 """,
                 (fill_id, fill.client_order_id, _json(contract_to_dict(fill)), _json(dict(costs)), fill.occurred_at.isoformat()),
             )
-            requested_notional = float(intent["target_notional"])
             total_notional = self._filled_notional(connection, fill.client_order_id)
-            next_state = "FILLED" if total_notional + 1e-9 >= requested_notional else "PARTIALLY_FILLED"
+            terminal_notional = reduced_notional_cap if reduced_notional_cap is not None else requested_notional
+            next_state = "FILLED" if total_notional + 1e-9 >= terminal_notional else "PARTIALLY_FILLED"
             self._record_order_event(
                 connection,
                 OrderEvent(
@@ -577,9 +591,23 @@ class ShadowOMSLedger:
         *,
         occurred_at: datetime | None = None,
     ) -> str:
+        return ShadowOMSLedger._approved_risk_decision(
+            connection,
+            client_order_id,
+            occurred_at=occurred_at,
+        )[0]
+
+    @staticmethod
+    def _approved_risk_decision(
+        connection: sqlite3.Connection,
+        client_order_id: str,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> tuple[str, float | None]:
         row = connection.execute(
             """
-            SELECT risk.risk_decision_id, risk.decision_id, intent.decision_id, risk.approved, risk.decided_at
+            SELECT risk.risk_decision_id, risk.decision_id, intent.decision_id, risk.approved,
+                   risk.decided_at, risk.decision_json
             FROM oms_risk_decisions AS risk
             JOIN oms_intents AS intent ON intent.client_order_id = risk.client_order_id
             WHERE risk.client_order_id = ?
@@ -588,14 +616,21 @@ class ShadowOMSLedger:
         ).fetchone()
         if not row:
             raise OMSLedgerError("order evidence requires matching approved risk decision")
-        risk_decision_id, recorded_decision_id, intent_decision_id, approved, decided_at = row
+        risk_decision_id, recorded_decision_id, intent_decision_id, approved, decided_at, decision_json = row
         if str(recorded_decision_id) != str(intent_decision_id) or int(approved) != 1:
             raise OMSLedgerError("order evidence requires matching approved risk decision")
         if occurred_at is not None:
             decided = datetime.fromisoformat(str(decided_at))
             if decided > occurred_at:
                 raise OMSLedgerError("risk decision must be recorded before order event")
-        return str(risk_decision_id)
+        payload = json.loads(str(decision_json))
+        reduced_notional = payload.get("reduced_notional")
+        if reduced_notional is None:
+            return str(risk_decision_id), None
+        reduced_notional_value = float(reduced_notional)
+        if not math.isfinite(reduced_notional_value) or reduced_notional_value < 0.0:
+            raise OMSLedgerError("approved risk decision has invalid reduced_notional")
+        return str(risk_decision_id), reduced_notional_value
 
     @staticmethod
     def _record_order_event(connection: sqlite3.Connection, event: OrderEvent) -> bool:

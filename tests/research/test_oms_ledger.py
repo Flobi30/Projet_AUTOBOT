@@ -87,8 +87,13 @@ def _intent(*, mode: str = "shadow", notional: float = 200.0) -> OrderIntent:
     )
 
 
-def _acknowledge(ledger: ShadowOMSLedger, intent: OrderIntent) -> None:
-    ledger.record_risk_decision(intent, _risk_decision(intent))
+def _acknowledge(
+    ledger: ShadowOMSLedger,
+    intent: OrderIntent,
+    *,
+    risk_decision: RiskDecision | None = None,
+) -> None:
+    ledger.record_risk_decision(intent, risk_decision or _risk_decision(intent))
     at = intent.created_at
     assert ledger.record_order_event(OrderEvent(intent.client_order_id, "CREATED", at))
     assert ledger.record_order_event(OrderEvent(intent.client_order_id, "SUBMITTED", at + timedelta(seconds=1)))
@@ -105,12 +110,14 @@ def _risk_decision(
     approved: bool = True,
     decision_id: str | None = None,
     decided_at: datetime | None = None,
+    reduced_notional: float | None = None,
 ) -> RiskDecision:
     return RiskDecision(
         decision_id=decision_id or intent.decision_id,
         approved=approved,
         decided_at=decided_at or intent.created_at,
         reasons=() if approved else ("fixture_risk_rejected",),
+        reduced_notional=reduced_notional,
     )
 
 
@@ -179,6 +186,60 @@ def test_oms_ledger_handles_partial_fill_duplicate_and_restart_reconstruction(tm
     assert positions[0].market.symbol == "BTCEUR"
     assert positions[0].quantity == pytest.approx(2.0)
     assert restarted.reconcile(observed_positions={"BTCEUR": 2.0}, observed_open_orders=()).status == "RECONCILED"
+
+
+def test_oms_ledger_caps_shadow_fills_at_approved_risk_reduction(tmp_path):
+    path = tmp_path / "oms.sqlite3"
+    ledger = ShadowOMSLedger(path)
+    intent = _intent(notional=100.0)
+    assert ledger.register_intent(intent)
+    _acknowledge(ledger, intent, risk_decision=_risk_decision(intent, reduced_notional=50.0))
+
+    with pytest.raises(OMSLedgerError, match="approved risk notional cap"):
+        ledger.record_fill(
+            FillEvent(intent.client_order_id, "fill-over-risk-cap", intent.created_at + timedelta(seconds=3), 0.75, 100.0, 0.16),
+            costs=_costs(),
+        )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM oms_fill_events").fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT event_type FROM oms_order_events ORDER BY occurred_at DESC, event_id DESC LIMIT 1"
+        ).fetchone()[0] == "ACKNOWLEDGED"
+
+    assert ledger.record_fill(
+        FillEvent(intent.client_order_id, "fill-at-risk-cap", intent.created_at + timedelta(seconds=3), 0.5, 100.0, 0.16),
+        costs=_costs(),
+    )
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT event_type FROM oms_order_events ORDER BY occurred_at DESC, event_id DESC LIMIT 1"
+        ).fetchone()[0] == "FILLED"
+    assert ShadowOMSLedger(path).reconstruct_positions()[0].quantity == pytest.approx(0.5)
+
+
+def test_oms_ledger_restores_reduced_risk_cap_for_partial_shadow_fills(tmp_path):
+    path = tmp_path / "oms.sqlite3"
+    ledger = ShadowOMSLedger(path)
+    intent = _intent(notional=100.0)
+    assert ledger.register_intent(intent)
+    _acknowledge(ledger, intent, risk_decision=_risk_decision(intent, reduced_notional=50.0))
+    assert ledger.record_fill(
+        FillEvent(intent.client_order_id, "fill-partial-risk-cap", intent.created_at + timedelta(seconds=3), 0.2, 100.0, 0.16),
+        costs=_costs(),
+    )
+
+    restarted = ShadowOMSLedger(path)
+    with pytest.raises(OMSLedgerError, match="approved risk notional cap"):
+        restarted.record_fill(
+            FillEvent(intent.client_order_id, "fill-restart-over-risk-cap", intent.created_at + timedelta(seconds=4), 0.31, 100.0, 0.16),
+            costs=_costs(),
+        )
+    assert restarted.record_fill(
+        FillEvent(intent.client_order_id, "fill-restart-at-risk-cap", intent.created_at + timedelta(seconds=4), 0.3, 100.0, 0.16),
+        costs=_costs(),
+    )
+    assert restarted.reconstruct_positions()[0].quantity == pytest.approx(0.5)
 
 
 def test_oms_ledger_rejects_reused_client_order_id_with_different_intent_evidence(tmp_path):
