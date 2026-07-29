@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from contextlib import closing
+from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -23,8 +24,10 @@ from autobot.v2.research.resilience_readiness import (
     create_verified_sqlite_backup,
     decide_fail_closed,
     evaluate_human_paper_readiness,
+    load_runtime_deployment_evidence,
     plan_fail_closed_recovery,
     retry_bounded,
+    runtime_deployment_evidence_from_mapping,
     run_fail_closed_drill,
     run_ephemeral_sqlite_restore_drill,
     summarize_fail_closed_incidents,
@@ -519,6 +522,50 @@ def test_runtime_deployment_evidence_rejects_non_commit_or_naive_timestamp():
         _deployment_evidence(observed_at=datetime(2026, 7, 29, 12, 0))
     with pytest.raises(ResilienceError, match="container_healthy"):
         _deployment_evidence(container_healthy="true")
+
+
+def test_runtime_deployment_evidence_json_loader_requires_the_exact_verifier_schema(tmp_path):
+    source = tmp_path / "runtime_evidence.json"
+    payload = asdict(_deployment_evidence())
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_runtime_deployment_evidence(source)
+    reconstructed = runtime_deployment_evidence_from_mapping(payload)
+
+    assert loaded == reconstructed
+    with pytest.raises(ResilienceError, match="unexpected fields"):
+        runtime_deployment_evidence_from_mapping({**payload, "paper_capital_allowed": False})
+    with pytest.raises(ResilienceError, match="missing fields"):
+        runtime_deployment_evidence_from_mapping(
+            {key: value for key, value in payload.items() if key != "websocket_connected"}
+        )
+
+
+def test_readiness_dossier_rejects_deployment_evidence_from_another_source_commit():
+    required = {layer: "VERIFIED" for layer in (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)}
+    dossier = evaluate_human_paper_readiness(
+        layer_statuses=required,
+        kill_switch_tested=True,
+        reconciliation_tested=True,
+        restore_tested=True,
+        deployment_evidence=_deployment_evidence(),
+        expected_source_commit="b" * 40,
+        evaluated_at=datetime(2026, 7, 29, 12, 1, tzinfo=timezone.utc),
+    )
+
+    assert dossier.status == "NOT_READY_FOR_HUMAN_PAPER_REVIEW"
+    assert "deployment_evidence_source_commit_mismatch" in dossier.blockers
+
+
+def test_readiness_dossier_rejects_invalid_expected_source_commit_even_without_evidence():
+    with pytest.raises(ResilienceError, match="expected_source_commit"):
+        evaluate_human_paper_readiness(
+            layer_statuses={},
+            kill_switch_tested=False,
+            reconciliation_tested=False,
+            restore_tested=False,
+            expected_source_commit="not-a-commit",
+        )
 
 
 def test_readiness_dossier_cannot_authorize_execution_even_if_constructed_directly():

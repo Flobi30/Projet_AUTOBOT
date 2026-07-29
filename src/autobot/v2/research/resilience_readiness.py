@@ -172,6 +172,57 @@ class RuntimeDeploymentEvidence:
         return tuple(blockers)
 
 
+_RUNTIME_DEPLOYMENT_EVIDENCE_FIELDS = frozenset(
+    {
+        "source_commit",
+        "github_commit",
+        "vps_commit",
+        "container_revision",
+        "observed_at",
+        "container_healthy",
+        "health_endpoint_healthy",
+        "websocket_connected",
+        "observation_only_runtime",
+        "paper_capital_disabled",
+        "live_disabled",
+        "automatic_promotion_disabled",
+    }
+)
+
+
+def runtime_deployment_evidence_from_mapping(payload: Mapping[str, Any]) -> RuntimeDeploymentEvidence:
+    """Validate the exact non-secret schema emitted by the VPS verifier.
+
+    The readiness path must not silently discard an unexpected field or infer a
+    missing safety assertion.  This function only validates supplied evidence;
+    it neither contacts a VPS nor changes a runtime state.
+    """
+
+    if not isinstance(payload, Mapping):
+        raise ResilienceError("deployment evidence must be a JSON object")
+    provided_fields = {str(field) for field in payload}
+    missing = sorted(_RUNTIME_DEPLOYMENT_EVIDENCE_FIELDS - provided_fields)
+    unexpected = sorted(provided_fields - _RUNTIME_DEPLOYMENT_EVIDENCE_FIELDS)
+    if missing:
+        raise ResilienceError(f"deployment evidence missing fields: {', '.join(missing)}")
+    if unexpected:
+        raise ResilienceError(f"deployment evidence has unexpected fields: {', '.join(unexpected)}")
+    return RuntimeDeploymentEvidence(
+        **{field: payload[field] for field in _RUNTIME_DEPLOYMENT_EVIDENCE_FIELDS}  # type: ignore[arg-type]
+    )
+
+
+def load_runtime_deployment_evidence(source: str | Path) -> RuntimeDeploymentEvidence:
+    """Load one verifier record without accepting an implicit or partial schema."""
+
+    path = Path(source)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ResilienceError(f"unable to load deployment evidence: {path}") from exc
+    return runtime_deployment_evidence_from_mapping(payload)
+
+
 @dataclass(frozen=True)
 class IncidentDecision:
     incident_type: str
@@ -1067,6 +1118,7 @@ def evaluate_human_paper_readiness(
     reconciliation_tested: bool,
     restore_tested: bool,
     deployment_evidence: RuntimeDeploymentEvidence | None = None,
+    expected_source_commit: str | None = None,
     evaluated_at: datetime | None = None,
     max_deployment_evidence_age_seconds: int = 300,
 ) -> PaperReadinessDossier:
@@ -1074,6 +1126,11 @@ def evaluate_human_paper_readiness(
 
     if max_deployment_evidence_age_seconds < 0:
         raise ResilienceError("max_deployment_evidence_age_seconds must be non-negative")
+    expected_commit: str | None = None
+    if expected_source_commit is not None:
+        expected_commit = str(expected_source_commit).strip().lower()
+        if not _is_commit_identifier(expected_commit):
+            raise ResilienceError("expected_source_commit must be a Git commit identifier")
     required_layers = (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
     normalized = {int(key): str(value).upper() for key, value in layer_statuses.items()}
     blockers = [f"layer_{layer}_{normalized.get(layer, 'MISSING').lower()}" for layer in required_layers if normalized.get(layer) != "VERIFIED"]
@@ -1092,6 +1149,9 @@ def evaluate_human_paper_readiness(
                 max_age_seconds=max_deployment_evidence_age_seconds,
             )
         )
+        if expected_commit is not None:
+            if deployment_evidence.source_commit != expected_commit:
+                blockers.append("deployment_evidence_source_commit_mismatch")
     return PaperReadinessDossier(
         status="READY_FOR_HUMAN_PAPER_REVIEW" if not blockers else "NOT_READY_FOR_HUMAN_PAPER_REVIEW",
         blockers=tuple(blockers),
@@ -1110,6 +1170,7 @@ def build_readiness_dossier_from_coverage(
     reconciliation_tested: bool = False,
     restore_tested: bool = False,
     deployment_evidence: RuntimeDeploymentEvidence | None = None,
+    expected_source_commit: str | None = None,
     evaluated_at: datetime | None = None,
     max_deployment_evidence_age_seconds: int = 300,
 ) -> PaperReadinessDossier:
@@ -1127,6 +1188,7 @@ def build_readiness_dossier_from_coverage(
         reconciliation_tested=reconciliation_tested,
         restore_tested=restore_tested,
         deployment_evidence=deployment_evidence,
+        expected_source_commit=expected_source_commit,
         evaluated_at=evaluated_at,
         max_deployment_evidence_age_seconds=max_deployment_evidence_age_seconds,
     )
@@ -1151,6 +1213,20 @@ def write_readiness_dossier(dossier: PaperReadinessDossier, destination: str | P
         "",
     ]
     lines.extend(f"- `{blocker}`" for blocker in dossier.blockers) if dossier.blockers else lines.append("- None")
+    if dossier.deployment_evidence is not None:
+        evidence = dossier.deployment_evidence
+        lines.extend(
+            [
+                "",
+                "## Deployment evidence",
+                "",
+                f"- Source commit: `{evidence.source_commit}`",
+                f"- GitHub commit: `{evidence.github_commit}`",
+                f"- VPS commit: `{evidence.vps_commit}`",
+                f"- Container revision: `{evidence.container_revision}`",
+                f"- Observed at: `{evidence.observed_at}`",
+            ]
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 

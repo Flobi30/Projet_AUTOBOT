@@ -757,6 +757,28 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fail_closed_drill.set_defaults(handler=_cmd_fail_closed_drill)
 
+    paper_readiness_dossier = subparsers.add_parser(
+        "paper-readiness-dossier",
+        help="Write a non-authorizing readiness dossier from coverage and optional verified VPS evidence",
+    )
+    paper_readiness_dossier.add_argument("--coverage-path", default="docs/architecture/layer_coverage.json")
+    paper_readiness_dossier.add_argument(
+        "--deployment-evidence-json",
+        default=None,
+        help="Exact non-secret JSON emitted by deploy/verify-autobot-runtime-evidence.sh",
+    )
+    paper_readiness_dossier.add_argument(
+        "--expected-source-commit",
+        default=None,
+        help="Required with --deployment-evidence-json; rejects evidence from another source revision",
+    )
+    paper_readiness_dossier.add_argument("--max-deployment-evidence-age-seconds", type=int, default=300)
+    paper_readiness_dossier.add_argument("--kill-switch-tested", action="store_true")
+    paper_readiness_dossier.add_argument("--reconciliation-tested", action="store_true")
+    paper_readiness_dossier.add_argument("--restore-tested", action="store_true")
+    paper_readiness_dossier.add_argument("--output", required=True)
+    paper_readiness_dossier.set_defaults(handler=_cmd_paper_readiness_dossier)
+
     runtime_oms_ledger_audit = subparsers.add_parser(
         "runtime-oms-ledger-audit",
         help="Read existing runtime OMS/ledger evidence without modifying SQLite or routing orders",
@@ -3618,6 +3640,46 @@ def _cmd_fail_closed_drill(args: argparse.Namespace) -> int:
     from autobot.v2.research.resilience_readiness import run_fail_closed_drill
 
     _print_json(asdict(run_fail_closed_drill(args.incident_type)))
+    return 0
+
+
+def _cmd_paper_readiness_dossier(args: argparse.Namespace) -> int:
+    """Write a human-review dossier; this command cannot authorize execution."""
+
+    from autobot.v2.research.resilience_readiness import (
+        build_readiness_dossier_from_coverage,
+        load_runtime_deployment_evidence,
+        write_readiness_dossier,
+    )
+
+    if bool(args.deployment_evidence_json) != bool(args.expected_source_commit):
+        raise ValueError(
+            "--deployment-evidence-json and --expected-source-commit must be supplied together"
+        )
+    evidence = (
+        load_runtime_deployment_evidence(Path(args.deployment_evidence_json))
+        if args.deployment_evidence_json
+        else None
+    )
+    dossier = build_readiness_dossier_from_coverage(
+        Path(args.coverage_path),
+        kill_switch_tested=args.kill_switch_tested,
+        reconciliation_tested=args.reconciliation_tested,
+        restore_tested=args.restore_tested,
+        deployment_evidence=evidence,
+        expected_source_commit=args.expected_source_commit,
+        max_deployment_evidence_age_seconds=args.max_deployment_evidence_age_seconds,
+    )
+    destination = write_readiness_dossier(dossier, Path(args.output))
+    payload = dossier.to_dict()
+    payload.update(
+        {
+            "dossier_path": str(destination),
+            "research_only": True,
+            "order_submission_attempted": False,
+        }
+    )
+    _print_json(payload)
     return 0
 
 

@@ -2078,6 +2078,118 @@ def test_cli_fail_closed_drill_is_in_memory_and_never_authorizes_execution(capsy
     assert output["live_allowed"] is False
 
 
+def test_cli_paper_readiness_dossier_binds_exact_vps_evidence_without_authorizing_execution(tmp_path, capsys):
+    commit = "a" * 40
+    coverage_path = tmp_path / "coverage.json"
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "layers": [
+                    {"id": layer, "status": "VERIFIED"}
+                    for layer in (3, 5, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    evidence_path = tmp_path / "runtime_evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "source_commit": commit,
+                "github_commit": commit,
+                "vps_commit": commit,
+                "container_revision": commit,
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "container_healthy": True,
+                "health_endpoint_healthy": True,
+                "websocket_connected": True,
+                "observation_only_runtime": True,
+                "paper_capital_disabled": True,
+                "live_disabled": True,
+                "automatic_promotion_disabled": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "readiness.md"
+
+    exit_code = cli.main(
+        [
+            "paper-readiness-dossier",
+            "--coverage-path",
+            str(coverage_path),
+            "--deployment-evidence-json",
+            str(evidence_path),
+            "--expected-source-commit",
+            commit,
+            "--kill-switch-tested",
+            "--reconciliation-tested",
+            "--restore-tested",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["status"] == "READY_FOR_HUMAN_PAPER_REVIEW"
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+    assert output["automatic_promotion_allowed"] is False
+    assert output["research_only"] is True
+    assert output["order_submission_attempted"] is False
+    assert output_path.is_file()
+    assert f"Source commit: `{commit}`" in output_path.read_text(encoding="utf-8")
+
+
+def test_cli_paper_readiness_dossier_blocks_mismatched_vps_evidence(tmp_path, capsys):
+    commit = "a" * 40
+    coverage_path = tmp_path / "coverage.json"
+    coverage_path.write_text('{"layers": []}', encoding="utf-8")
+    evidence_path = tmp_path / "runtime_evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "source_commit": commit,
+                "github_commit": commit,
+                "vps_commit": commit,
+                "container_revision": commit,
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "container_healthy": True,
+                "health_endpoint_healthy": True,
+                "websocket_connected": True,
+                "observation_only_runtime": True,
+                "paper_capital_disabled": True,
+                "live_disabled": True,
+                "automatic_promotion_disabled": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "paper-readiness-dossier",
+            "--coverage-path",
+            str(coverage_path),
+            "--deployment-evidence-json",
+            str(evidence_path),
+            "--expected-source-commit",
+            "b" * 40,
+            "--output",
+            str(tmp_path / "readiness.md"),
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["status"] == "NOT_READY_FOR_HUMAN_PAPER_REVIEW"
+    assert "deployment_evidence_source_commit_mismatch" in output["blockers"]
+    assert output["paper_capital_allowed"] is False
+    assert output["live_allowed"] is False
+
+
 def test_cli_runtime_oms_ledger_migration_plan_is_non_authorizing(tmp_path, capsys):
     state_db = tmp_path / "state.sqlite3"
     with sqlite3.connect(state_db) as connection:
