@@ -13,6 +13,7 @@ pytestmark = pytest.mark.unit
 
 
 _COMMIT = "a" * 40
+_TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
 
 
 def _bash_path(path: Path) -> str:
@@ -145,6 +146,7 @@ esac
         capture_output=True,
         check=False,
         env=environment,
+        timeout=_TEST_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

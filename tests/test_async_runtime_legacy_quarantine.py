@@ -16,6 +16,7 @@ from autobot.v2.orchestrator import InstanceConfig as LegacyInstanceConfig
 
 
 pytestmark = pytest.mark.unit
+_TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
 
 
 def test_legacy_imports_reexport_passive_shared_contracts():
@@ -46,7 +47,7 @@ def test_async_main_import_does_not_load_sync_execution_engines():
         capture_output=True,
         text=True,
         check=False,
+        timeout=_TEST_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-

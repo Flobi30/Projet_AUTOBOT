@@ -7,6 +7,7 @@ import pytest
 
 
 pytestmark = pytest.mark.integration
+_TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
 
 
 def _run_cli(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -16,6 +17,7 @@ def _run_cli(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[st
         capture_output=True,
         text=True,
         check=False,
+        timeout=_TEST_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

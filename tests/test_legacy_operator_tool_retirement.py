@@ -10,6 +10,7 @@ import pytest
 
 
 pytestmark = pytest.mark.unit
+_TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
 
 
 def test_retired_python_entrypoints_exit_before_runtime_or_secret_handling():
@@ -22,6 +23,7 @@ def test_retired_python_entrypoints_exit_before_runtime_or_secret_handling():
             capture_output=True,
             text=True,
             check=False,
+            timeout=_TEST_SUBPROCESS_TIMEOUT_SECONDS,
         )
         assert result.returncode == 2
         assert "retired_from_execution" in result.stdout
