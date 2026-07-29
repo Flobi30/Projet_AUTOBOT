@@ -41,6 +41,7 @@ def _run_verifier_with_fake_runtime_lock(
     observation_only: bool = True,
     paper_authorized: bool = False,
     real_order_authorized: bool = False,
+    final_health_payload: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the verifier against fake local tools, never a real container."""
 
@@ -56,7 +57,18 @@ def _run_verifier_with_fake_runtime_lock(
     )
     _write_executable(
         fake_bin / "curl",
-        "#!/usr/bin/env bash\nprintf '%s\\n' '{\"status\":\"healthy\",\"components\":{\"websocket\":\"connected\"}}'\n",
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${FAKE_FINAL_HEALTH_PAYLOAD:-}" ]]; then
+  if [[ -f "${FAKE_HEALTH_CALL_FILE:?}" ]]; then
+    printf '%s\\n' "${FAKE_FINAL_HEALTH_PAYLOAD}"
+    exit 0
+  fi
+  : > "${FAKE_HEALTH_CALL_FILE}"
+fi
+printf '%s\\n' '{"status":"healthy","components":{"websocket":"connected"}}'
+""",
     )
     _write_executable(
         fake_bin / "docker",
@@ -116,17 +128,23 @@ esac
         f"FAKE_OBSERVATION_ONLY_RUNTIME={str(observation_only).lower()}; "
         f"FAKE_PAPER_EXECUTION_AUTHORIZED={str(paper_authorized).lower()}; "
         f"FAKE_REAL_ORDER_MUTATION_AUTHORIZED={str(real_order_authorized).lower()}; "
+        f"FAKE_FINAL_HEALTH_PAYLOAD={shlex.quote(final_health_payload or '')}; "
+        f"FAKE_HEALTH_CALL_FILE={shlex.quote(_bash_path(fake_bin / 'health-call'))}; "
         "export PATH AUTOBOT_REPO_DIR FAKE_PROGRAM_EXECUTION_LOCKED "
         "FAKE_OBSERVATION_ONLY_RUNTIME FAKE_PAPER_EXECUTION_AUTHORIZED "
-        "FAKE_REAL_ORDER_MUTATION_AUTHORIZED; "
+        "FAKE_REAL_ORDER_MUTATION_AUTHORIZED FAKE_FINAL_HEALTH_PAYLOAD "
+        "FAKE_HEALTH_CALL_FILE; "
         f"exec bash {shlex.quote(_bash_path(root / 'deploy' / 'verify-autobot-runtime-evidence.sh'))}"
     )
+    environment = os.environ.copy()
+    environment["FAKE_FINAL_HEALTH_PAYLOAD"] = final_health_payload or ""
+    environment["FAKE_HEALTH_CALL_FILE"] = _bash_path(fake_bin / "health-call")
     return subprocess.run(
         [bash, "-c", shell_command],
         text=True,
         capture_output=True,
         check=False,
-        env=os.environ.copy(),
+        env=environment,
     )
 
 
@@ -160,6 +178,8 @@ def test_runtime_evidence_script_is_read_only_and_requires_strict_safety_proof()
     assert '"program_execution_locked":true' in script
     assert '"paper_capital_disabled":true' in script
     assert '"live_disabled":true' in script
+    assert "final health payload does not prove a connected WebSocket" in script
+    assert "AUTOBOT container changed or is no longer healthy during verification" in script
 
 
 @pytest.mark.integration
@@ -177,3 +197,14 @@ def test_runtime_evidence_verifier_accepts_only_the_exact_container_lock_state(t
     for forged in forged_states:
         assert forged.returncode != 0
         assert "running container does not prove the program execution lock" in forged.stderr
+
+
+@pytest.mark.integration
+def test_runtime_evidence_verifier_rechecks_websocket_immediately_before_emitting_evidence(tmp_path):
+    final_health_failure = _run_verifier_with_fake_runtime_lock(
+        tmp_path / "final-health-failure",
+        final_health_payload='{"status":"unhealthy","components":{"websocket":"disconnected"}}',
+    )
+
+    assert final_health_failure.returncode != 0
+    assert "final health payload does not prove a connected WebSocket" in final_health_failure.stderr

@@ -88,6 +88,12 @@ default). Missing, future or stale evidence produces the existing fail-closed
 The monitor is still read-only, network-isolated from exchanges and unable to
 enable paper capital, live execution or any order path.
 
+The controlled deployment-evidence verifier separately re-checks the exact
+container identity, image, health endpoint and connected WebSocket immediately
+before it emits its non-secret evidence record. It refuses a container swap or
+a health change during slower authorization checks rather than reusing earlier
+startup evidence.
+
 ## Offline shadow-provenance boundary
 
 `offline-shadow-provenance-bind` is the only supported v1 batch hand-off from

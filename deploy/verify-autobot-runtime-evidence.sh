@@ -58,7 +58,8 @@ while :; do
   sleep 2
 done
 
-websocket_connected="$(printf '%s' "${health_payload}" | python3 -c '
+health_payload_proves_connected() {
+  python3 -c '
 import json
 import sys
 try:
@@ -68,7 +69,10 @@ try:
     print("true" if payload.get("status") == "healthy" and websocket == "connected" else "false")
 except (TypeError, ValueError, json.JSONDecodeError):
     print("false")
-')"
+'
+}
+
+websocket_connected="$(printf '%s' "${health_payload}" | health_payload_proves_connected)"
 if [[ "${websocket_connected}" != "true" ]]; then
   echo "Refusing deployment evidence: health payload does not prove a connected WebSocket." >&2
   exit 1
@@ -161,6 +165,25 @@ else:
 )"
 if [[ "${runtime_lock_verified}" != "true" ]]; then
   echo "Refusing deployment evidence: running container does not prove the program execution lock." >&2
+  exit 1
+fi
+
+# Re-check the exact same running container immediately before emitting the
+# evidence. The startup loop above only proves that one earlier health response
+# was good; it must not be reused after slower Docker/authorization checks.
+FINAL_CONTAINER_ID="$(docker ps -q --filter "name=^/${CONTAINER_NAME}$")"
+FINAL_CONTAINER_STATUS="$(docker inspect --format '{{.State.Status}}' "${CONTAINER_ID}" 2>/dev/null || true)"
+FINAL_CONTAINER_HEALTH="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${CONTAINER_ID}" 2>/dev/null || true)"
+FINAL_CONTAINER_IMAGE_ID="$(docker inspect --format '{{.Image}}' "${CONTAINER_ID}" 2>/dev/null || true)"
+if [[ "${FINAL_CONTAINER_ID}" != "${CONTAINER_ID}" || "${FINAL_CONTAINER_STATUS}" != "running" || "${FINAL_CONTAINER_HEALTH}" != "healthy" || "${FINAL_CONTAINER_IMAGE_ID}" != "${EXPECTED_IMAGE_ID}" ]]; then
+  echo "Refusing deployment evidence: AUTOBOT container changed or is no longer healthy during verification." >&2
+  exit 1
+fi
+
+final_health_payload="$(curl --fail --silent --max-time 5 http://127.0.0.1:8080/health || true)"
+final_websocket_connected="$(printf '%s' "${final_health_payload}" | health_payload_proves_connected)"
+if [[ "${final_websocket_connected}" != "true" ]]; then
+  echo "Refusing deployment evidence: final health payload does not prove a connected WebSocket." >&2
   exit 1
 fi
 
