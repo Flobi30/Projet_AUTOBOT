@@ -526,7 +526,13 @@ def adapt_legacy_canonical_row(
         if recorded_ingestion_time.tzinfo is None or recorded_ingestion_time.utcoffset() is None:
             raise ValueError("recorded_ingestion_time must be timezone-aware")
         known_ingestion = max(_parse_iso(adapted["available_time"]) or recorded_ingestion_time, recorded_ingestion_time.astimezone(timezone.utc))
+        # Once the ingestion moment is known, the legacy row must no longer
+        # claim it was available at its historical bar close. This keeps every
+        # consumer point-in-time safe even if it does not reapply the feature
+        # registry's ingestion-time guard.
+        adapted["available_time"] = known_ingestion.isoformat()
         adapted["ingestion_time"] = known_ingestion.isoformat()
+        adapted["availability_basis"] = "MIGRATED_LEGACY_BAR_CLOSE_CONSTRAINED_BY_RECORDED_INGESTION"
         adapted["temporal_status"] = "MIGRATED_LEGACY_WITH_RECORDED_INGESTION"
     return adapted
 
@@ -790,23 +796,34 @@ def _canonical_row(
         raise ValueError(f"unsupported_source_timestamp_role:{source_timestamp_role}")
     event_time = bar_close_time
     _reject_naive_explicit_temporal_times(row)
-    explicit_available = _parse_iso(row.get("available_time") or row.get("bar_close_time"))
-    available_time = max(bar_close_time, explicit_available) if explicit_available else bar_close_time
     explicit_ingestion = _parse_iso(
         row.get("ingestion_time") or row.get("ingested_at") or row.get("collected_at") or row.get("fetched_at")
     )
+    explicit_available = _parse_iso(row.get("available_time") or row.get("bar_close_time"))
+    # A source availability timestamp is authoritative when present. If it is
+    # absent but ingestion is known, a historical bar cannot become usable
+    # before the system actually received it. Preserve a close-time default
+    # only when both source availability and ingestion are unknown.
+    if explicit_available is not None:
+        available_time = max(bar_close_time, explicit_available)
+        default_availability_basis = "EXPLICIT_SOURCE"
+        default_temporal_status = "EXPLICIT_SOURCE_TIMES"
+    elif explicit_ingestion is not None:
+        available_time = max(bar_close_time, explicit_ingestion)
+        default_availability_basis = "DERIVED_BAR_CLOSE_CONSTRAINED_BY_INGESTION"
+        default_temporal_status = "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+    else:
+        available_time = bar_close_time
+        default_availability_basis = "DERIVED_BAR_CLOSE"
+        default_temporal_status = "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN"
     ingestion_time = max(available_time, explicit_ingestion) if explicit_ingestion else None
     availability_basis = str(
         row.get("availability_basis")
-        or ("EXPLICIT_SOURCE" if explicit_available else "DERIVED_BAR_CLOSE")
+        or default_availability_basis
     ).strip()
     temporal_status = str(
         row.get("temporal_status")
-        or (
-            "EXPLICIT_SOURCE_TIMES"
-            if explicit_ingestion or explicit_available
-            else "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN"
-        )
+        or default_temporal_status
     ).strip()
     if not availability_basis or not temporal_status:
         raise ValueError("empty_temporal_provenance")

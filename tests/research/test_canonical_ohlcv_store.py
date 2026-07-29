@@ -236,6 +236,34 @@ def test_canonical_ohlcv_preserves_explicit_aware_temporal_times(tmp_path):
     assert row["ingestion_time"] == "2026-01-01T00:07:00+00:00"
 
 
+def test_canonical_ohlcv_uses_known_ingestion_when_source_availability_is_missing(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    path = raw / "BTCZEUR_5m.csv"
+    path.write_text(
+        "timestamp,symbol,timeframe,open,high,low,close,volume,ingestion_time\n"
+        "2026-01-01T00:00:00+00:00,BTCZEUR,5m,100,101,99,100.5,1000,2026-01-01T00:15:00+00:00\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_canonical_ohlcv_snapshot(
+        CanonicalOHLCVConfig(
+            run_id="pytest_ingestion_constrained_availability",
+            raw_paths=(raw,),
+            output_dir=tmp_path / "canonical" / "ohlcv",
+            manifest_dir=tmp_path / "manifests",
+            quarantine_dir=tmp_path / "quarantine",
+        )
+    )
+
+    row = _read_rows(Path(snapshot.files[0].csv_path))[0]
+    assert row["bar_close_time"] == "2026-01-01T00:05:00+00:00"
+    assert row["available_time"] == "2026-01-01T00:15:00+00:00"
+    assert row["ingestion_time"] == "2026-01-01T00:15:00+00:00"
+    assert row["availability_basis"] == "DERIVED_BAR_CLOSE_CONSTRAINED_BY_INGESTION"
+    assert row["temporal_status"] == "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION"
+
+
 def test_legacy_canonical_rows_adapt_without_faking_ingestion_time():
     legacy = {
         "exchange": "kraken",
@@ -262,6 +290,29 @@ def test_legacy_canonical_rows_adapt_without_faking_ingestion_time():
     assert adapted["event_time"] == "2026-01-01T00:05:00+00:00"
     assert adapted["ingestion_time"] == ""
     assert adapted["temporal_status"] == "AVAILABLE_AT_BAR_CLOSE_INGESTION_UNKNOWN"
+
+
+def test_legacy_canonical_row_with_recorded_ingestion_becomes_available_at_ingestion():
+    legacy = {
+        "exchange": "kraken",
+        "market_type": "spot",
+        "symbol": "BTCZEUR",
+        "timeframe": "5m",
+        "open_timestamp": "2026-01-01T00:00:00+00:00",
+        "open": "100",
+        "high": "101",
+        "low": "99",
+        "close": "100.5",
+        "volume": "1000",
+    }
+    recorded_ingestion = datetime(2026, 1, 1, 0, 15, tzinfo=timezone.utc)
+
+    adapted = adapt_legacy_canonical_row(legacy, recorded_ingestion_time=recorded_ingestion)
+
+    assert adapted["available_time"] == recorded_ingestion.isoformat()
+    assert adapted["ingestion_time"] == recorded_ingestion.isoformat()
+    assert adapted["availability_basis"] == "MIGRATED_LEGACY_BAR_CLOSE_CONSTRAINED_BY_RECORDED_INGESTION"
+    assert adapted["temporal_status"] == "MIGRATED_LEGACY_WITH_RECORDED_INGESTION"
 
 
 def test_conflicting_legacy_timestamp_columns_are_quarantined(tmp_path):
