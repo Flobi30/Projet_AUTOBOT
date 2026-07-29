@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from unittest.mock import AsyncMock
 
 import pytest
@@ -24,6 +25,7 @@ from autobot.v2.paper_trading import (
     reset_paper_executor,
 )
 from autobot.v2.orchestrator_async import (
+    OrchestratorAsync,
     _build_runtime_order_executor,
     _exchange_reconciliation_enabled,
 )
@@ -35,6 +37,7 @@ from autobot.v2.runtime_execution_mode import (
     ObservationOnlyExecutionComponentDisabled,
     observation_only_runtime,
     paper_execution_authorized,
+    runtime_exchange_credentials,
 )
 from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome
 
@@ -114,6 +117,60 @@ def test_observation_runtime_rejects_legacy_private_capital_lookup(monkeypatch):
             api_key="must-not-be-used",
             api_secret="must-not-be-used",
         )
+
+
+def test_observation_runtime_discards_private_credentials_before_component_construction(monkeypatch):
+    monkeypatch.setenv("KRAKEN_API_KEY", "environment-key-must-not-survive")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "environment-secret-must-not-survive")
+
+    api_key, api_secret = runtime_exchange_credentials(
+        "argument-key-must-not-survive",
+        "argument-secret-must-not-survive",
+        observation_only=True,
+    )
+
+    assert api_key is None
+    assert api_secret is None
+    assert "KRAKEN_API_KEY" not in os.environ
+    assert "KRAKEN_API_SECRET" not in os.environ
+
+
+def test_non_observation_runtime_preserves_explicit_credentials(monkeypatch):
+    monkeypatch.setenv("KRAKEN_API_KEY", "environment-key")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "environment-secret")
+
+    api_key, api_secret = runtime_exchange_credentials(
+        "explicit-key",
+        "explicit-secret",
+        observation_only=False,
+    )
+
+    assert (api_key, api_secret) == ("explicit-key", "explicit-secret")
+    assert os.environ["KRAKEN_API_KEY"] == "environment-key"
+    assert os.environ["KRAKEN_API_SECRET"] == "environment-secret"
+
+
+def test_direct_observation_orchestrator_never_forwards_credentials_to_public_websocket(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+    monkeypatch.setenv("PAPER_TRADING", "true")
+    monkeypatch.setenv("KRAKEN_API_KEY", "environment-key-must-not-survive")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "environment-secret-must-not-survive")
+
+    orchestrator = OrchestratorAsync(
+        api_key="argument-key-must-not-survive",
+        api_secret="argument-secret-must-not-survive",
+    )
+
+    assert orchestrator.api_key is None
+    assert orchestrator.api_secret is None
+    assert orchestrator.ring_dispatcher._ws.api_key is None
+    assert orchestrator.ring_dispatcher._ws.api_secret is None
+    assert "KRAKEN_API_KEY" not in os.environ
+    assert "KRAKEN_API_SECRET" not in os.environ
 
 
 def test_legacy_order_router_cannot_construct_an_executor_or_submit_in_observation_mode(monkeypatch):

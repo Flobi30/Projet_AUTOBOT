@@ -57,6 +57,28 @@ def observation_only_runtime() -> bool:
     return not (paper_execution_authorized() or real_order_mutation_authorized())
 
 
+def runtime_exchange_credentials(
+    api_key: str | None,
+    api_secret: str | None,
+    *,
+    observation_only: bool | None = None,
+) -> tuple[str | None, str | None]:
+    """Return only private credentials permitted by the active runtime mode.
+
+    Public market-data components do not require private Kraken credentials.
+    Clearing inherited process values at this single boundary prevents an
+    alternate application entrypoint or direct orchestrator construction from
+    retaining or forwarding them in observation-only deployments.
+    """
+    if observation_only is None:
+        observation_only = observation_only_runtime()
+    if observation_only:
+        os.environ.pop("KRAKEN_API_KEY", None)
+        os.environ.pop("KRAKEN_API_SECRET", None)
+        return None, None
+    return api_key, api_secret
+
+
 def reject_private_execution_component(component: str) -> None:
     """Fail before a direct Kraken executor can exist in observation mode.
 

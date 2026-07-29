@@ -182,6 +182,7 @@ from .runtime_execution_mode import (
     observation_only_runtime,
     paper_execution_authorized,
     reject_private_execution_component,
+    runtime_exchange_credentials,
 )
 
 logger = logging.getLogger(__name__)
@@ -318,12 +319,19 @@ class OrchestratorAsync:
         self.observation_only_runtime = observation_only_runtime() or (
             self.paper_mode and not self.paper_execution_enabled
         )
+        # Direct construction must observe the same credential boundary as
+        # the main application entrypoint before a public dispatcher exists.
+        self.api_key, self.api_secret = runtime_exchange_credentials(
+            api_key,
+            api_secret,
+            observation_only=self.observation_only_runtime,
+        )
         self.order_executor, execution_mode = _build_runtime_order_executor(
             paper_mode=self.paper_mode,
             observation_only=self.observation_only_runtime,
             paper_execution_enabled=self.paper_execution_enabled,
-            api_key=api_key,
-            api_secret=api_secret,
+            api_key=self.api_key,
+            api_secret=self.api_secret,
         )
 
         if execution_mode == "observation_only":
@@ -344,7 +352,7 @@ class OrchestratorAsync:
         self.stop_loss_manager = StopLossManagerAsync(self.order_executor)
 
         # P2: Ring buffer dispatcher (WebSocket → per-pair RingBuffers)
-        self.ring_dispatcher = RingBufferDispatcher(api_key, api_secret)
+        self.ring_dispatcher = RingBufferDispatcher(self.api_key, self.api_secret)
         self.ws_client = self.ring_dispatcher  # Alias for is_connected() / stats
 
         # P3: Async dispatcher (RingBuffers → per-instance asyncio.Queues)
