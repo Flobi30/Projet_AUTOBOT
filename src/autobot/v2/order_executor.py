@@ -144,7 +144,8 @@ class OrderExecutor:
             return False
     
     def _get_client(self):
-        """Retourne client Krakenex (lazy init)"""
+        """Return the private client only outside the observation boundary."""
+        reject_private_execution_component("OrderExecutor private Kraken client")
         if self._client is None:
             if not self.api_key or not self.api_secret:
                 raise ValueError("Clés API Kraken non configurées")

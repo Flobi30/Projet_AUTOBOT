@@ -16,6 +16,7 @@ except ImportError:
 
 from .error_handler import ErrorHandler
 from .v2.legacy_runtime import reject_legacy_synchronous_runtime
+from .v2.runtime_execution_mode import reject_private_execution_component
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,8 @@ class OrderManager:
         order.closed_at = self._utcnow()
     
     def _get_client(self):
-        """Retourne le client API Kraken"""
+        """Return the legacy private client only when execution is permitted."""
+        reject_private_execution_component("legacy OrderManager private Kraken client")
         if self._client is None:
             raise RuntimeError("Client Kraken non initialisé - vérifiez les clés API")
         return self._client

@@ -12,6 +12,7 @@ import autobot.v2.orchestrator as legacy_orchestrator
 import autobot.v2.tests.test_kraken_api as legacy_kraken_api
 from autobot.order_manager import OrderManager as legacy_order_manager
 from autobot.v2.legacy_runtime import LegacySynchronousRuntimeRetired
+from autobot.v2.runtime_execution_mode import ObservationOnlyExecutionComponentDisabled
 
 
 pytestmark = pytest.mark.unit
@@ -92,3 +93,25 @@ def test_legacy_order_manager_rejects_real_execution_before_client_initializatio
             api_secret="must-not-be-used",
             sandbox=False,
         )
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    ("_cancel_all_orders", "_close_all_positions_market"),
+)
+def test_legacy_instance_direct_mutation_methods_fail_before_object_state_access(method_name):
+    """A bypassed constructor must not revive an archived private API path."""
+
+    instance = object.__new__(legacy_instance.TradingInstance)
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="disabled"):
+        getattr(instance, method_name)()
+
+
+def test_legacy_order_manager_private_client_is_blocked_even_in_sandbox_mode():
+    """Sandbox construction must not expose a private-client escape hatch."""
+
+    manager = legacy_order_manager(sandbox=True)
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="disabled"):
+        manager._get_client()

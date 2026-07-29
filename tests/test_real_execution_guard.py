@@ -7,6 +7,7 @@ import pytest
 from autobot.v2 import orchestrator_async
 from autobot.v2.order_executor import OrderExecutor
 from autobot.v2.order_executor_async import OrderExecutorAsync
+from autobot.v2.runtime_execution_mode import ObservationOnlyExecutionComponentDisabled
 
 
 pytestmark = pytest.mark.unit
@@ -127,6 +128,23 @@ def test_sync_executor_cannot_bypass_real_mutation_guard(monkeypatch):
     assert success is False
     assert response["error_code"] == "REAL_ORDER_MUTATION_BLOCKED"
     assert queried is False
+
+
+def test_sync_private_client_rejects_constructor_bypass_before_object_state_access():
+    executor = object.__new__(OrderExecutor)
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="disabled"):
+        executor._get_client()
+
+
+def test_async_private_query_rejects_constructor_bypass_before_object_state_access():
+    async def _run():
+        executor = object.__new__(OrderExecutorAsync)
+
+        with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="disabled"):
+            await executor._query_private("Balance")
+
+    asyncio.run(_run())
 
 
 def test_private_executor_repr_never_exposes_key_material(monkeypatch):

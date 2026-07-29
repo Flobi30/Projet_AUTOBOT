@@ -194,6 +194,9 @@ class OrderExecutorAsync:
 
     async def _query_private(self, method: str, **params: Any) -> dict:
         """Call Kraken private API endpoint with HMAC signing."""
+        # Constructors are guarded too, but this must remain the first
+        # operation for direct invocation against a malformed legacy object.
+        reject_private_execution_component("OrderExecutorAsync private Kraken query")
         if not self._api_key or not self._api_secret:
             raise ValueError("Clés API Kraken non configurées")
 

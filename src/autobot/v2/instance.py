@@ -76,6 +76,7 @@ class Position:
 
 from .instance_models import InstanceStatus, LeverageLevel, Position, Trade
 from .legacy_runtime import reject_legacy_synchronous_runtime
+from .runtime_execution_mode import reject_private_execution_component
 
 
 class TradingInstance:
@@ -916,6 +917,11 @@ class TradingInstance:
         Returns:
             True si succès, False sinon
         """
+        # The archived constructor is already retired, but guard the direct
+        # mutation method too. This blocks deserialization, object.__new__,
+        # or an accidental legacy callback before any state or API access.
+        reject_private_execution_component("TradingInstance._cancel_all_orders")
+
         logger.info(f"🚫 Annulation ordres {self.id}")
         
         # Récupère clés API depuis l'orchestrateur
@@ -1009,6 +1015,12 @@ class TradingInstance:
         Returns:
             Dict avec 'success': bool, 'closed': int, 'errors': List[str]
         """
+        # Keep this first: a bypassed archived constructor must not revive a
+        # private Kraken execution path.
+        reject_private_execution_component(
+            "TradingInstance._close_all_positions_market"
+        )
+
         logger.warning(f"🚨 Fermeture marché toutes positions {self.id}")
         
         result = {'success': False, 'closed': 0, 'errors': []}
