@@ -12,14 +12,19 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import logging
 import math
 from pathlib import Path
 import sqlite3
 from itertools import product
-from typing import Any, Iterable, Mapping, Sequence
+from time import sleep
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar
 
 from .alpha_hypothesis_lab import CANONICAL_RESEARCH_STAGES, next_research_stage, normalize_research_stage
 
+
+logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 STAGES = CANONICAL_RESEARCH_STAGES
 TERMINAL_STATUSES = {"REJECTED", "INSUFFICIENT_DATA"}
 PASS_STATUS = "PASSED"
@@ -225,13 +230,27 @@ class StatisticalValidationArtifact:
 class ExperimentRegistry:
     """SQLite-backed append-only experiment metadata, trials and gate evidence."""
 
-    def __init__(self, path: str | Path = DEFAULT_EXPERIMENT_REGISTRY_PATH) -> None:
+    def __init__(
+        self,
+        path: str | Path = DEFAULT_EXPERIMENT_REGISTRY_PATH,
+        *,
+        sqlite_timeout_seconds: float = 30.0,
+        write_retries: int = 3,
+        retry_base_delay_seconds: float = 0.05,
+        sleeper: Callable[[float], None] = sleep,
+    ) -> None:
         self.path = Path(path)
+        if sqlite_timeout_seconds <= 0.0 or write_retries < 0 or retry_base_delay_seconds < 0.0:
+            raise ValueError("invalid experiment-registry SQLite retry configuration")
+        self._sqlite_timeout_seconds = float(sqlite_timeout_seconds)
+        self._busy_timeout_ms = max(1, int(self._sqlite_timeout_seconds * 1000))
+        self._write_retries = int(write_retries)
+        self._retry_base_delay_seconds = float(retry_base_delay_seconds)
+        self._sleeper = sleeper
 
     def register_experiment(self, spec: ExperimentSpec) -> ExperimentState:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            self._initialize(connection)
+        def _write(connection: sqlite3.Connection) -> ExperimentState:
             self._validate_successor_spec(connection, spec)
             existing = connection.execute(
                 "SELECT experiment_id FROM experiments WHERE material_fingerprint = ?",
@@ -259,6 +278,8 @@ class ExperimentRegistry:
             )
             return self._state(connection, spec.experiment_id)
 
+        return self._run_write("register_experiment", _write)
+
     def reserve_holdout(
         self,
         *,
@@ -271,8 +292,7 @@ class ExperimentRegistry:
             raise ExperimentRegistryError("holdout id, snapshot id and fingerprint are required")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         manifest_json = _json(dict(manifest or {}))
-        with self._connect() as connection:
-            self._initialize(connection)
+        def _write(connection: sqlite3.Connection) -> bool:
             existing = connection.execute(
                 "SELECT data_snapshot_id, immutable_fingerprint, manifest_json FROM holdout_reservations WHERE holdout_id = ?",
                 (holdout_id,),
@@ -290,6 +310,8 @@ class ExperimentRegistry:
                 (holdout_id, data_snapshot_id, immutable_fingerprint, manifest_json, _now()),
             )
             return True
+
+        return self._run_write("reserve_holdout", _write)
 
     def record_trial(
         self,
@@ -507,8 +529,7 @@ class ExperimentRegistry:
         a different experiment is rejected before it can consume the holdout.
         """
 
-        with self._connect() as connection:
-            self._initialize(connection)
+        def _write(connection: sqlite3.Connection) -> bool:
             row = connection.execute(
                 "SELECT spec_json FROM experiments WHERE experiment_id = ?", (experiment_id,)
             ).fetchone()
@@ -542,6 +563,8 @@ class ExperimentRegistry:
                 (holdout_id, experiment_id, _now()),
             )
             return True
+
+        return self._run_write("claim_final_holdout_review", _write)
 
     def record_gate_result(
         self,
@@ -1406,11 +1429,73 @@ class ExperimentRegistry:
         )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30.0)
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("PRAGMA journal_mode = WAL")
-        return connection
+        connection = sqlite3.connect(self.path, timeout=self._sqlite_timeout_seconds)
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            connection.execute("PRAGMA journal_mode = WAL")
+            return connection
+        except Exception:
+            connection.close()
+            raise
+
+    def _run_write(self, operation_name: str, operation: Callable[[sqlite3.Connection], _T]) -> _T:
+        """Run one idempotent registry write with bounded SQLite lock recovery.
+
+        This helper is intentionally reserved for operations whose result can be
+        re-read deterministically after an uncertain SQLite acknowledgement.
+        More sensitive final-holdout recording remains separately fail-closed.
+        """
+
+        last_error: sqlite3.OperationalError | None = None
+        for attempt in range(self._write_retries + 1):
+            connection: sqlite3.Connection | None = None
+            try:
+                connection = self._connect()
+                # Serialize the read/validate/write sequence across registry
+                # processes. This prevents a second writer from observing an
+                # absent experiment, holdout or claim between the first read
+                # and its immutable insert.
+                connection.execute("BEGIN IMMEDIATE")
+                self._initialize(connection)
+                result = operation(connection)
+                connection.commit()
+                return result
+            except sqlite3.OperationalError as exc:
+                if connection is not None:
+                    try:
+                        connection.rollback()
+                    except sqlite3.DatabaseError as rollback_error:
+                        raise ExperimentRegistryError(
+                            f"experiment registry {operation_name} rollback failed"
+                        ) from rollback_error
+                if not _is_transient_lock(exc) or attempt >= self._write_retries:
+                    raise
+                last_error = exc
+                delay = self._retry_base_delay_seconds * (2 ** attempt)
+                logger.warning(
+                    "Experiment-registry SQLite busy during %s; retry %s/%s in %.3fs",
+                    operation_name,
+                    attempt + 1,
+                    self._write_retries,
+                    delay,
+                )
+                self._sleeper(delay)
+            except Exception:
+                if connection is not None:
+                    try:
+                        connection.rollback()
+                    except sqlite3.DatabaseError as rollback_error:
+                        raise ExperimentRegistryError(
+                            f"experiment registry {operation_name} rollback failed"
+                        ) from rollback_error
+                raise
+            finally:
+                if connection is not None:
+                    connection.close()
+        if last_error is not None:
+            raise last_error
+        raise AssertionError("unreachable experiment-registry SQLite retry state")
 
     @staticmethod
     def _initialize(connection: sqlite3.Connection) -> None:
@@ -1644,6 +1729,11 @@ def _normalized_trial_values(values: Sequence[str], *, uppercase: bool = False) 
 
 def _fingerprint(value: Any) -> str:
     return sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _is_transient_lock(error: sqlite3.OperationalError) -> bool:
+    message = str(error).lower()
+    return "locked" in message or "busy" in message
 
 
 def _validate_passed_stage_evidence(

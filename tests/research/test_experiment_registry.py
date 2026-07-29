@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ast
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from hashlib import sha256
 import json
 import sqlite3
+from threading import Barrier
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -199,6 +201,97 @@ def test_experiment_registry_is_idempotent_and_tracks_all_trial_dimensions(tmp_p
     assert registry.validation_trial_count(hypothesis_id="funding_basis") == 4
     assert state.paper_capital_allowed is False
     assert state.live_allowed is False
+
+
+def test_registry_write_transaction_retries_temporary_lock_and_surfaces_persistent_lock(tmp_path):
+    retries: list[float] = []
+    registry = ExperimentRegistry(
+        tmp_path / "registry.sqlite3",
+        sqlite_timeout_seconds=0.01,
+        write_retries=1,
+        retry_base_delay_seconds=0.001,
+        sleeper=retries.append,
+    )
+    attempts = 0
+
+    def busy_once(_connection):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return "durable"
+
+    assert registry._run_write("pytest", busy_once) == "durable"
+    assert attempts == 2
+    assert retries == [0.001]
+
+    persistent = ExperimentRegistry(
+        tmp_path / "persistent.sqlite3",
+        sqlite_timeout_seconds=0.01,
+        write_retries=1,
+        retry_base_delay_seconds=0.0,
+        sleeper=lambda _: None,
+    )
+
+    def always_busy(_connection):
+        raise sqlite3.OperationalError("database is busy")
+
+    with pytest.raises(sqlite3.OperationalError, match="busy"):
+        persistent._run_write("pytest", always_busy)
+
+
+def test_concurrent_registry_writes_are_idempotent_for_experiment_holdout_and_claim(tmp_path):
+    path = tmp_path / "registry.sqlite3"
+
+    def registry() -> ExperimentRegistry:
+        return ExperimentRegistry(
+            path,
+            sqlite_timeout_seconds=0.01,
+            write_retries=10,
+            retry_base_delay_seconds=0.001,
+        )
+
+    registration_barrier = Barrier(2)
+
+    def register_once() -> str:
+        registration_barrier.wait()
+        return registry().register_experiment(_spec()).experiment_id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        experiment_ids = list(executor.map(lambda _: register_once(), range(2)))
+
+    assert experiment_ids == [_spec().experiment_id, _spec().experiment_id]
+    owner = registry()
+    assert owner.trial_count() == 0
+
+    holdout_barrier = Barrier(2)
+
+    def reserve_once() -> bool:
+        holdout_barrier.wait()
+        return registry().reserve_holdout(
+            holdout_id="holdout_2026_q3",
+            data_snapshot_id="ohlcv_v2_holdout",
+            immutable_fingerprint=str(_holdout_partition()["fingerprint"]),
+            manifest={"partition": _holdout_partition()},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        holdout_results = list(executor.map(lambda _: reserve_once(), range(2)))
+
+    assert sorted(holdout_results) == [False, True]
+
+    claim_barrier = Barrier(2)
+
+    def claim_once() -> bool:
+        claim_barrier.wait()
+        return registry().claim_final_holdout_review(experiment_id=_spec().experiment_id)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        claim_results = list(executor.map(lambda _: claim_once(), range(2)))
+
+    assert sorted(claim_results) == [False, True]
+    manifest = owner.export_manifest(_spec().experiment_id)
+    assert manifest["final_holdout_review_claim"]["experiment_id"] == _spec().experiment_id
 
 
 def test_trial_plan_is_idempotent_and_counts_candidate_configurations_across_experiments(tmp_path):
