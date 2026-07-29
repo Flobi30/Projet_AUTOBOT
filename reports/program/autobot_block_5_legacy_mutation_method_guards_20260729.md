@@ -28,12 +28,14 @@ any Kraken endpoint.
 
 - `python -m compileall -q src`: passed.
 - Focused retirement, executor, deployment-evidence and order-manager suites:
-  `51 passed`.
+  `59 passed`.
 - `git diff --check`: passed.
 - The regression test constructs the archived trading instance with
   `object.__new__` and proves both mutating methods fail before any object
   attribute needs to exist.
 - Equivalent direct-invocation tests cover both order-executor private helpers.
+- A static inventory pins the complete production `query_private` surface to
+  the tested fail-closed boundaries.
 
 ## Safety
 
