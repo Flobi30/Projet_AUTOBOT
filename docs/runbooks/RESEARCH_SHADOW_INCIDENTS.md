@@ -93,7 +93,8 @@ passes research gates:
 - clean reconciliation evidence;
 - verified restore evidence;
 - fresh deployment evidence showing the same commit on GitHub, VPS and
-  container, with health/WebSocket checks and all paper/live/promotion paths
+  container, with health/WebSocket checks, the code-level programme execution
+  lock confirmed inside the container, and all paper/live/promotion paths
   still disabled;
 - a versioned coverage matrix with every required layer `VERIFIED`;
 - a generated `READY_FOR_HUMAN_PAPER_REVIEW` dossier.
