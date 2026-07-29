@@ -38,6 +38,7 @@ from autobot.v2.research.portfolio_construction import (
     build_target_portfolio,
     review_target_portfolio_capacity,
 )
+from autobot.v2.research.portfolio_sizing import derive_research_sizing_decision
 from autobot.v2.research.strategy_risk_mandates import (
     PreTradeAutonomyRequest,
     StrategyHealthSnapshot,
@@ -181,6 +182,12 @@ def _bound_risk_evidence(
         expected_markets={signal.market.symbol: signal.market},
         max_liquidity_participation=max_liquidity_participation,
     )
+    sizing_decision = derive_research_sizing_decision(
+        target=target,
+        capacity_review=capacity,
+        strategy_artifact=artifact,
+        market=signal.market,
+    )
     mandate = _mandate()
     request = PreTradeAutonomyRequest(
         strategy_id=signal.strategy_id,
@@ -208,6 +215,7 @@ def _bound_risk_evidence(
         strategy_artifact=artifact,
         target=target,
         capacity_review=capacity,
+        sizing_decision=sizing_decision,
         mandate=mandate,
         pre_trade_request=request,
         health=health or StrategyHealthSnapshot(rolling_pf=1.3, rolling_expectancy=0.2),
@@ -555,19 +563,28 @@ def test_bound_shadow_risk_evidence_rejects_a_target_or_gate_mismatch():
     signal = _signal()
     artifact = _artifact()
     evidence = _bound_risk_evidence(signal, artifact)
+    target = build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target
+    capacity = review_target_portfolio_capacity(
+        target,
+        capital_eur=1_000.0,
+        observations={"BTCEUR": _capacity_observation()},
+        expected_markets={signal.market.symbol: signal.market},
+        max_liquidity_participation=0.05,
+    )
+    sizing_decision = derive_research_sizing_decision(
+        target=target,
+        capacity_review=capacity,
+        strategy_artifact=artifact,
+        market=signal.market,
+    )
     with pytest.raises(BoundShadowRiskEvidenceError, match="pre-trade request notional mismatch"):
         build_bound_shadow_risk_evidence(
             decision_id="decision-contract-shadow",
             signal=signal,
             strategy_artifact=artifact,
-            target=build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target,
-            capacity_review=review_target_portfolio_capacity(
-                build_target_portfolio((signal,), decision_id="decision-contract-shadow", decision_at=signal.available_at).target,
-                capital_eur=1_000.0,
-                observations={"BTCEUR": _capacity_observation()},
-                expected_markets={signal.market.symbol: signal.market},
-                max_liquidity_participation=0.05,
-            ),
+            target=target,
+            capacity_review=capacity,
+            sizing_decision=sizing_decision,
             mandate=_mandate(),
             pre_trade_request=replace(evidence.pre_trade_request, notional_eur=evidence.target_notional_eur + 1.0),
         )

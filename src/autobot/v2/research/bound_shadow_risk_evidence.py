@@ -17,12 +17,14 @@ import math
 from autobot.v2.contracts import (
     AlphaSignal,
     RiskDecision,
+    SizingDecision,
     StrategyArtifactReference,
     TargetPortfolio,
     contract_fingerprint,
 )
 
 from .portfolio_construction import PortfolioCapacityReview
+from .portfolio_sizing import research_sizing_blocker
 from .strategy_risk_mandates import (
     DECISION_ALLOW,
     AutonomyDecision,
@@ -50,6 +52,7 @@ class BoundShadowRiskEvidence:
     market_symbol: str
     target_portfolio_fingerprint: str
     capacity_review_fingerprint: str
+    sizing_decision_fingerprint: str
     pre_trade_request: PreTradeAutonomyRequest
     health: StrategyHealthSnapshot
     gate_decision: str
@@ -73,6 +76,7 @@ class BoundShadowRiskEvidence:
             "market_symbol",
             "target_portfolio_fingerprint",
             "capacity_review_fingerprint",
+            "sizing_decision_fingerprint",
             "gate_checks_fingerprint",
         ):
             if not str(getattr(self, field_name)).strip():
@@ -109,6 +113,7 @@ class BoundShadowRiskEvidence:
         object.__setattr__(self, "market_symbol", str(self.market_symbol).strip().upper())
         object.__setattr__(self, "target_portfolio_fingerprint", str(self.target_portfolio_fingerprint).strip())
         object.__setattr__(self, "capacity_review_fingerprint", str(self.capacity_review_fingerprint).strip())
+        object.__setattr__(self, "sizing_decision_fingerprint", str(self.sizing_decision_fingerprint).strip())
         object.__setattr__(self, "gate_decision", str(self.gate_decision).strip().upper())
         object.__setattr__(self, "gate_reasons", gate_reasons)
         object.__setattr__(self, "gate_checks_fingerprint", str(self.gate_checks_fingerprint).strip())
@@ -129,6 +134,7 @@ class BoundShadowRiskEvidence:
             "market_symbol": self.market_symbol,
             "target_portfolio_fingerprint": self.target_portfolio_fingerprint,
             "capacity_review_fingerprint": self.capacity_review_fingerprint,
+            "sizing_decision_fingerprint": self.sizing_decision_fingerprint,
             "pre_trade_request": _primitive(asdict(self.pre_trade_request)),
             "health": _primitive(asdict(self.health)),
             "gate_decision": self.gate_decision,
@@ -152,6 +158,7 @@ def build_bound_shadow_risk_evidence(
     strategy_artifact: StrategyArtifactReference,
     target: TargetPortfolio,
     capacity_review: PortfolioCapacityReview,
+    sizing_decision: SizingDecision,
     mandate: StrategyRiskMandate,
     pre_trade_request: PreTradeAutonomyRequest,
     health: StrategyHealthSnapshot | None = None,
@@ -171,6 +178,7 @@ def build_bound_shadow_risk_evidence(
         strategy_artifact=strategy_artifact,
         target=target,
         capacity_review=capacity_review,
+        sizing_decision=sizing_decision,
         mandate=mandate,
         pre_trade_request=pre_trade_request,
     )
@@ -201,6 +209,7 @@ def build_bound_shadow_risk_evidence(
         market_symbol=signal.market.symbol,
         target_portfolio_fingerprint=contract_fingerprint(target),
         capacity_review_fingerprint=contract_fingerprint(capacity_review),
+        sizing_decision_fingerprint=contract_fingerprint(sizing_decision),
         pre_trade_request=pre_trade_request,
         health=health,
         gate_decision=autonomy_decision.decision,
@@ -220,6 +229,7 @@ def shadow_risk_evidence_blocker(
     strategy_artifact: StrategyArtifactReference,
     target: TargetPortfolio,
     capacity_review: PortfolioCapacityReview,
+    sizing_decision: SizingDecision,
 ) -> str | None:
     """Return a fail-closed blocker if evidence cannot authorize a shadow review."""
 
@@ -230,6 +240,15 @@ def shadow_risk_evidence_blocker(
     mandate = strategy_artifact.risk_mandate
     if mandate is None:
         return "strategy_artifact_risk_mandate_missing"
+    sizing_blocker = research_sizing_blocker(
+        sizing_decision,
+        target=target,
+        capacity_review=capacity_review,
+        strategy_artifact=strategy_artifact,
+        market=signal.market,
+    )
+    if sizing_blocker is not None:
+        return f"bound_shadow_risk_evidence_{sizing_blocker}"
     expected_notional = _target_notional(target, capacity_review, signal.market.symbol)
     expected = {
         "decision_id": decision_id,
@@ -241,6 +260,7 @@ def shadow_risk_evidence_blocker(
         "market_symbol": signal.market.symbol.upper(),
         "target_portfolio_fingerprint": contract_fingerprint(target),
         "capacity_review_fingerprint": contract_fingerprint(capacity_review),
+        "sizing_decision_fingerprint": contract_fingerprint(sizing_decision),
     }
     for field_name, value in expected.items():
         if getattr(evidence, field_name) != value:
@@ -282,6 +302,7 @@ def _validate_bindings(
     strategy_artifact: StrategyArtifactReference,
     target: TargetPortfolio,
     capacity_review: PortfolioCapacityReview,
+    sizing_decision: SizingDecision,
     mandate: StrategyRiskMandate,
     pre_trade_request: PreTradeAutonomyRequest,
 ) -> None:
@@ -293,6 +314,19 @@ def _validate_bindings(
         raise BoundShadowRiskEvidenceError("strategy artifact risk mandate is required")
     if strategy_artifact.risk_mandate != mandate.to_reference():
         raise BoundShadowRiskEvidenceError("strategy artifact mandate reference mismatch")
+    sizing_blocker = research_sizing_blocker(
+        sizing_decision,
+        target=target,
+        capacity_review=capacity_review,
+        strategy_artifact=strategy_artifact,
+        market=signal.market,
+    )
+    if sizing_blocker is not None:
+        raise BoundShadowRiskEvidenceError(f"sizing decision invalid: {sizing_blocker}")
+    if target.generated_at != signal.available_at or capacity_review.decision_at != signal.available_at:
+        raise BoundShadowRiskEvidenceError("target, capacity and signal times must match")
+    if not strategy_artifact.risk_mandate.is_current(signal.available_at):
+        raise BoundShadowRiskEvidenceError("strategy artifact risk mandate is expired")
     if pre_trade_request.strategy_id.lower() != signal.strategy_id.lower():
         raise BoundShadowRiskEvidenceError("pre-trade request strategy mismatch")
     if pre_trade_request.symbol.upper() != signal.market.symbol:

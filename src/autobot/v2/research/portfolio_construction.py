@@ -242,16 +242,45 @@ class PortfolioCapacityReview:
     live_allowed: bool = False
 
     def __post_init__(self) -> None:
+        if self.paper_capital_allowed or self.live_allowed or not self.research_only:
+            raise PortfolioConstructionError("portfolio capacity review is research-only")
         if self.decision_at.tzinfo is None or self.decision_at.utcoffset() is None:
             raise PortfolioConstructionError("decision_at must be timezone-aware")
+        decision_id = str(self.decision_id).strip()
+        if not decision_id:
+            raise PortfolioConstructionError("capacity review decision_id is required")
         if not math.isfinite(float(self.capital_eur)) or float(self.capital_eur) <= 0.0:
             raise PortfolioConstructionError("capital_eur must be positive and finite")
+        status = str(self.status).strip().upper()
+        if status not in {"CAPACITY_OK", "CAPACITY_EXCEEDED", "WAITING_FOR_MORE_DATA", "NO_TARGET_EXPOSURE"}:
+            raise PortfolioConstructionError("unsupported capacity review status")
+        notionals = {str(symbol).strip().upper(): float(notional) for symbol, notional in self.target_notionals_eur.items()}
+        if not all(notionals) or any(not math.isfinite(value) or value < 0.0 for value in notionals.values()):
+            raise PortfolioConstructionError("target notionals must be finite non-negative values")
+        estimates = tuple(self.estimates)
+        if any(not isinstance(estimate, CapacityEstimate) for estimate in estimates):
+            raise PortfolioConstructionError("capacity estimates must be CapacityEstimate values")
+        estimate_symbols = tuple(str(estimate.symbol).strip().upper() for estimate in estimates)
+        if not all(estimate_symbols) or len(estimate_symbols) != len(set(estimate_symbols)):
+            raise PortfolioConstructionError("capacity estimate symbols must be non-empty and unique")
+        if any(
+            estimate.paper_capital_allowed or estimate.live_allowed or not estimate.research_only
+            for estimate in estimates
+        ):
+            raise PortfolioConstructionError("capacity estimates must be research-only")
         object.__setattr__(self, "decision_at", self.decision_at.astimezone(timezone.utc))
+        object.__setattr__(self, "decision_id", decision_id)
+        object.__setattr__(self, "status", status)
         object.__setattr__(
             self,
             "target_notionals_eur",
-            {str(symbol).upper(): float(notional) for symbol, notional in sorted(self.target_notionals_eur.items())},
+            {symbol: notionals[symbol] for symbol in sorted(notionals)},
         )
+        object.__setattr__(self, "estimates", tuple(sorted(estimates, key=lambda estimate: estimate.symbol.upper())))
+        reasons = tuple(str(value).strip() for value in self.reasons)
+        if not reasons or not all(reasons):
+            raise PortfolioConstructionError("capacity review reasons must be non-empty")
+        object.__setattr__(self, "reasons", reasons)
         snapshot_ids = tuple(str(value).strip() for value in self.capacity_source_snapshot_ids)
         if not all(snapshot_ids) or len(snapshot_ids) != len(set(snapshot_ids)):
             raise PortfolioConstructionError("capacity source snapshot ids must be non-empty and unique")
@@ -262,6 +291,30 @@ class PortfolioCapacityReview:
         if len(evidence_fingerprints) != len(set(evidence_fingerprints)):
             raise PortfolioConstructionError("capacity evidence fingerprints must be unique")
         object.__setattr__(self, "capacity_evidence_fingerprints", tuple(sorted(evidence_fingerprints)))
+        if status == "CAPACITY_OK":
+            if not notionals:
+                raise PortfolioConstructionError("capacity ok requires target notionals")
+            if set(estimate_symbols) != set(notionals):
+                raise PortfolioConstructionError("capacity ok requires one estimate for every target market")
+            if not snapshot_ids or not evidence_fingerprints:
+                raise PortfolioConstructionError("capacity ok requires immutable source evidence")
+            if len(evidence_fingerprints) != len(notionals):
+                raise PortfolioConstructionError("capacity ok requires one evidence fingerprint per target market")
+            for estimate in estimates:
+                desired = float(estimate.desired_notional_eur)
+                maximum = estimate.maximum_capacity_eur
+                if (
+                    estimate.status != "CAPACITY_OK"
+                    or not math.isfinite(desired)
+                    or desired <= 0.0
+                    or desired != notionals[estimate.symbol.upper()]
+                    or maximum is None
+                    or not math.isfinite(float(maximum))
+                    or float(maximum) < desired
+                    or estimate.observed_liquidity_eur is None
+                    or float(estimate.observed_liquidity_eur) <= 0.0
+                ):
+                    raise PortfolioConstructionError("capacity ok estimate evidence is incomplete or inconsistent")
 
 
 def build_target_portfolio(

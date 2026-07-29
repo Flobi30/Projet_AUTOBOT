@@ -28,6 +28,15 @@ capital allocation.
   `shadow_notional_max_eur`.
 - A missing, expired, mismatched, failed-capacity or tampered sizing decision
   is rejected.
+- A `CAPACITY_OK` review requires one fresh, research-only estimate and one
+  immutable evidence fingerprint for every target market; it cannot be
+  hand-constructed from an empty or incomplete proof set.
+- Target construction time, capacity-review time and signal availability must
+  be identical. This prevents a mandate from being evaluated before it has
+  expired and reused later.
+- The approved risk evidence stores the canonical sizing fingerprint. A risk
+  review cannot be replayed with a different sizing object, even if the amount
+  is superficially identical.
 - `research_only=true`, `paper_capital_allowed=false` and `live_allowed=false`
   are enforced by the contract.
 - The sizing module statically excludes order router, paper engine, Kraken and
@@ -55,6 +64,19 @@ PASS
 
 python -m pytest -q
 PASS (full local regression suite)
+```
+
+After adversarial review, the sizing/capacity/risk boundary regression suite
+was extended and passed:
+
+```text
+71 passed
+```
+
+The complete contract, risk and handler boundary suite then passed:
+
+```text
+108 passed
 ```
 
 VPS deployment evidence is recorded only after this increment is committed and

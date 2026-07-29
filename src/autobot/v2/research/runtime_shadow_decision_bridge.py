@@ -179,6 +179,15 @@ def build_runtime_shadow_decision(
                 target_portfolio=target_result.target,
                 capacity_review=capacity_review,
             )
+        if capacity_review.decision_at != available_at or target_result.target.generated_at != available_at:
+            return _rejected(
+                normalized_decision_id,
+                available_at,
+                "capacity_review_decision_time_mismatch",
+                alpha_signal=alpha,
+                target_portfolio=target_result.target,
+                capacity_review=capacity_review,
+            )
         sizing_decision = _required_sizing_decision(metadata)
         sizing_blocker = research_sizing_blocker(
             sizing_decision,
@@ -205,6 +214,7 @@ def build_runtime_shadow_decision(
             strategy_artifact=artifact,
             target=target_result.target,
             capacity_review=capacity_review,
+            sizing_decision=sizing_decision,
         )
         if blocker is not None:
             return _rejected(

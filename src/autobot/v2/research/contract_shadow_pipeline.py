@@ -14,7 +14,14 @@ from hashlib import sha256
 import math
 from typing import Mapping, Sequence
 
-from autobot.v2.contracts import AlphaSignal, OrderIntent, RiskDecision, StrategyArtifactReference, TargetPortfolio
+from autobot.v2.contracts import (
+    AlphaSignal,
+    OrderIntent,
+    RiskDecision,
+    StrategyArtifactReference,
+    TargetPortfolio,
+    contract_fingerprint,
+)
 
 from .backtest_alpha_adapter import cost_model_fingerprint
 from .bound_shadow_risk_evidence import BoundShadowRiskEvidence, shadow_risk_evidence_blocker
@@ -36,6 +43,7 @@ from .portfolio_construction import (
     build_target_portfolio,
     review_target_portfolio_capacity,
 )
+from .portfolio_sizing import derive_research_sizing_decision
 
 
 @dataclass(frozen=True)
@@ -154,6 +162,23 @@ def evaluate_alpha_signal_in_shadow(
             risk_decision=risk_decision,
         )
 
+    sizing_decision = derive_research_sizing_decision(
+        target=target_result.target,
+        capacity_review=capacity_review,
+        strategy_artifact=strategy_artifact,
+        market=signal.market,
+    )
+    if sizing_decision.status != "READY_FOR_SHADOW_REVIEW":
+        return ContractShadowPipelineReview(
+            "SIZING_BLOCKED",
+            sizing_decision.reasons[0],
+            signal,
+            target_result=target_result,
+            capacity_review=capacity_review,
+            scenario_review=scenario_review,
+            risk_decision=risk_decision,
+        )
+
     symbol = signal.market.symbol.upper()
     target_notional = float(capacity_review.target_notionals_eur.get(symbol, 0.0))
     if not math.isfinite(target_notional) or target_notional <= 0.0:
@@ -186,6 +211,7 @@ def evaluate_alpha_signal_in_shadow(
         strategy_artifact=strategy_artifact,
         target=target_result.target,
         capacity_review=capacity_review,
+        sizing_decision=sizing_decision,
     )
     if risk_evidence_reason is not None:
         return ContractShadowPipelineReview(
@@ -214,6 +240,7 @@ def evaluate_alpha_signal_in_shadow(
             "signal_id": signal.signal_id,
             "target_weight": target_result.target.target_weights[symbol],
             "capacity_status": capacity_review.status,
+            "sizing_decision_fingerprint": contract_fingerprint(sizing_decision),
             "expected_edge_bps": signal.expected_edge_bps,
             "cost_model_fingerprint": scenario_review.base_cost_model_fingerprint,
             "simulation_cost_model_fingerprint": cost_model_fingerprint(simulator.cost_config.to_dict()),

@@ -13,6 +13,8 @@ import pytest
 from autobot.v2.contracts import AlphaSignal, MarketIdentity, RiskMandateReference
 from autobot.v2.research.portfolio_construction import (
     CapacityObservation,
+    PortfolioConstructionError,
+    PortfolioCapacityReview,
     build_target_portfolio,
     review_target_portfolio_capacity,
 )
@@ -148,16 +150,11 @@ def test_sizing_is_exactly_capacity_bounded_and_research_only():
 
 def test_sizing_rejects_capacity_mismatch_and_mandate_limit():
     target, capacity = _target_and_capacity()
-    mismatched_capacity = replace(
-        capacity,
-        target_notionals_eur={"BTCEUR": capacity.target_notionals_eur["BTCEUR"] - 1.0},
-    )
-    mismatch = derive_research_sizing_decision(
-        target=target,
-        capacity_review=mismatched_capacity,
-        strategy_artifact=_artifact(),
-        market=_market(),
-    )
+    with pytest.raises(PortfolioConstructionError, match="capacity ok estimate evidence"):
+        replace(
+            capacity,
+            target_notionals_eur={"BTCEUR": capacity.target_notionals_eur["BTCEUR"] - 1.0},
+        )
     limited = derive_research_sizing_decision(
         target=target,
         capacity_review=capacity,
@@ -165,10 +162,21 @@ def test_sizing_rejects_capacity_mismatch_and_mandate_limit():
         market=_market(),
     )
 
-    assert mismatch.status == "REJECTED"
-    assert mismatch.reasons == ("capacity_notional_mismatch",)
     assert limited.status == "REJECTED"
     assert limited.reasons == ("shadow_notional_limit_exceeded",)
+
+
+def test_capacity_ok_cannot_be_constructed_without_complete_market_evidence():
+    with pytest.raises(PortfolioConstructionError, match="capacity ok requires target notionals"):
+        PortfolioCapacityReview(
+            decision_id="forged-capacity-review",
+            decision_at=_time(),
+            capital_eur=1_000.0,
+            target_notionals_eur={},
+            estimates=(),
+            status="CAPACITY_OK",
+            reasons=("forged",),
+        )
 
 
 def test_sizing_rejects_expired_mandate_and_tampered_notional():

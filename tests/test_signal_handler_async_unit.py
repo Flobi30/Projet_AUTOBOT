@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from autobot.v2.order_executor import OrderResult, OrderStatus
-from autobot.v2.contracts import RiskMandateReference
+from autobot.v2.contracts import RiskDecision, RiskMandateReference
+from autobot.v2.research.runtime_shadow_decision_bridge import RuntimeShadowDecision
 from autobot.v2.research.shadow_governance import StrategyArtifact, feature_snapshot_reference_from_mapping
 from autobot.v2.signal_handler_async import SignalHandlerAsync
 from autobot.v2.strategies import SignalType, TradingSignal
@@ -532,6 +533,48 @@ async def test_execute_buy_records_canonical_shadow_rejection_without_submitting
     assert decision["execution_command_created"] is False
     assert executor.market_calls == 0
     assert executor.limit_calls == 0
+    assert handler.instance.opened == []
+
+
+@pytest.mark.asyncio
+async def test_execute_buy_cannot_submit_when_the_complete_shadow_chain_is_verified(monkeypatch):
+    """The handler is still observation-only after every B3 boundary passes."""
+
+    import autobot.v2.signal_handler_async as handler_module
+
+    executor = _Executor()
+    handler = SignalHandlerAsync(instance=_Instance(), order_executor=executor)
+    handler.validator = _Validator()
+    handler._osm = _CountingOSM()
+    verified = RuntimeShadowDecision(
+        status="SHADOW_DECISION_VERIFIED_NO_EXECUTION",
+        reason="runtime_shadow_observation_only",
+        risk_decision=RiskDecision(
+            decision_id="complete-shadow-chain",
+            approved=False,
+            decided_at=datetime(2026, 7, 12, 10, tzinfo=timezone.utc),
+            reasons=("runtime_shadow_observation_only",),
+        ),
+    )
+    monkeypatch.setattr(handler_module, "build_runtime_shadow_decision", lambda *_args, **_kwargs: verified)
+
+    await handler._execute_buy(
+        TradingSignal(
+            type=SignalType.BUY,
+            symbol="BTC/EUR",
+            price=100.0,
+            volume=0.2,
+            reason="verified shadow fixture",
+            timestamp=datetime(2026, 7, 12, 10, tzinfo=timezone.utc),
+            metadata={"strategy_id": "trend_momentum"},
+        )
+    )
+
+    assert handler._last_decision_event["reason"] == "legacy_direct_execution_disabled"
+    assert handler._last_decision_event["shadow_contract_decision"]["status"] == "SHADOW_DECISION_VERIFIED_NO_EXECUTION"
+    assert executor.market_calls == 0
+    assert executor.limit_calls == 0
+    assert handler._osm.new_order_calls == 0
     assert handler.instance.opened == []
 
 

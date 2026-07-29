@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import ast
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
@@ -189,6 +190,12 @@ def _verified_metadata() -> dict:
         expected_markets={"BTCEUR": _market()},
         max_liquidity_participation=0.05,
     )
+    sizing = derive_research_sizing_decision(
+        target=target,
+        capacity_review=capacity,
+        strategy_artifact=artifact,
+        market=_market(),
+    )
     notional = capacity.target_notionals_eur["BTCEUR"]
     request = PreTradeAutonomyRequest(
         strategy_id="trend_momentum",
@@ -220,6 +227,7 @@ def _verified_metadata() -> dict:
         market_symbol="BTCEUR",
         target_portfolio_fingerprint=contract_fingerprint(target),
         capacity_review_fingerprint=contract_fingerprint(capacity),
+        sizing_decision_fingerprint=contract_fingerprint(sizing),
         pre_trade_request=request,
         health=StrategyHealthSnapshot(rolling_pf=1.2, rolling_expectancy=0.1),
         gate_decision="ALLOW",
@@ -235,12 +243,7 @@ def _verified_metadata() -> dict:
         target_notional_eur=notional,
     )
     metadata["capacity_review"] = capacity
-    metadata["sizing_decision"] = derive_research_sizing_decision(
-        target=target,
-        capacity_review=capacity,
-        strategy_artifact=artifact,
-        market=_market(),
-    )
+    metadata["sizing_decision"] = sizing
     metadata["bound_shadow_risk_evidence"] = evidence
     return metadata
 
@@ -295,7 +298,7 @@ def test_missing_or_tampered_sizing_fails_closed_without_inference():
     tampered["sizing_decision"] = sizing.__class__(
         **{
             **sizing.__dict__,
-            "proposed_notional_eur": sizing.proposed_notional_eur + 1.0,
+            "proposed_notional_eur": sizing.proposed_notional_eur + 0.0000000001,
         }
     )
     invalid = build_runtime_shadow_decision(_signal(tampered), decision_id="dec-bridge-1")
@@ -304,6 +307,26 @@ def test_missing_or_tampered_sizing_fails_closed_without_inference():
     assert missing.reason == "sizing_decision_required"
     assert invalid.status == "SHADOW_DECISION_REJECTED"
     assert invalid.reason == "sizing_decision_notional_mismatch"
+
+
+def test_capacity_time_and_sizing_risk_fingerprint_mismatches_fail_closed():
+    stale_capacity = _verified_metadata()
+    capacity = stale_capacity["capacity_review"]
+    stale_capacity["capacity_review"] = replace(capacity, decision_at=capacity.decision_at - timedelta(seconds=1))
+    stale = build_runtime_shadow_decision(_signal(stale_capacity), decision_id="dec-bridge-1")
+
+    mismatched_evidence = _verified_metadata()
+    evidence = mismatched_evidence["bound_shadow_risk_evidence"]
+    mismatched_evidence["bound_shadow_risk_evidence"] = replace(
+        evidence,
+        sizing_decision_fingerprint="different-sizing-provenance",
+    )
+    mismatch = build_runtime_shadow_decision(_signal(mismatched_evidence), decision_id="dec-bridge-1")
+
+    assert stale.status == "SHADOW_DECISION_REJECTED"
+    assert stale.reason == "capacity_review_decision_time_mismatch"
+    assert mismatch.status == "SHADOW_DECISION_REJECTED"
+    assert mismatch.reason == "bound_shadow_risk_evidence_sizing_decision_fingerprint_mismatch"
 
 
 def test_legacy_signal_type_and_retired_strategy_are_rejected():

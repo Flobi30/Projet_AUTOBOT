@@ -96,7 +96,7 @@ def derive_research_sizing_decision(
     if (
         not math.isfinite(proposed_notional)
         or proposed_notional <= 0.0
-        or not math.isclose(proposed_notional, expected_notional, rel_tol=0.0, abs_tol=1e-9)
+        or proposed_notional != expected_notional
     ):
         return SizingDecision(
             **common,
@@ -161,13 +161,13 @@ def research_sizing_blocker(
         return f"sizing_decision_not_ready:{sizing.status.lower()}"
     if sizing.generated_at != capacity_review.decision_at:
         return "sizing_decision_time_mismatch"
-    if not math.isclose(sizing.reference_capital_eur, capacity_review.capital_eur, rel_tol=0.0, abs_tol=1e-9):
+    if sizing.reference_capital_eur != capacity_review.capital_eur:
         return "sizing_decision_reference_capital_mismatch"
     target_weight = float(target.target_weights.get(market.symbol, 0.0))
-    if not math.isclose(sizing.target_weight, target_weight, rel_tol=0.0, abs_tol=1e-12):
+    if sizing.target_weight != target_weight:
         return "sizing_decision_target_weight_mismatch"
     expected_notional = float(capacity_review.target_notionals_eur.get(market.symbol, 0.0))
-    if not math.isclose(sizing.proposed_notional_eur, expected_notional, rel_tol=0.0, abs_tol=1e-9):
+    if sizing.proposed_notional_eur != expected_notional:
         return "sizing_decision_notional_mismatch"
     if sizing.paper_capital_allowed or sizing.live_allowed or not sizing.research_only:
         return "sizing_decision_permissions_invalid"
