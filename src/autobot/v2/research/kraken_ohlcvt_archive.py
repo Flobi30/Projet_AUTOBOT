@@ -28,6 +28,7 @@ from .kraken_symbol_mapping import (
     preflight_kraken_public_symbols,
 )
 from .market_data_repository import MarketBar, MarketDataRepository
+from .public_collector_boundary import assert_public_collector_boundary
 from .symbol_normalization import normalize_research_symbol
 
 
@@ -180,6 +181,7 @@ def import_kraken_ohlcvt_archive(
     exchange archive from silently consuming the VPS disk.
     """
 
+    assert_public_collector_boundary(("kraken_ohlcvt_archive",))
     timestamp = _utc(imported_at or datetime.now(timezone.utc), "imported_at")
     mappings = _resolve_symbol_mappings(
         config.symbols,

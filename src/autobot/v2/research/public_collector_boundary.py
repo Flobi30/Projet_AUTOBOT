@@ -15,7 +15,9 @@ from typing import Iterable, Mapping
 
 
 PUBLIC_COLLECTOR_MODULES = (
+    "daily_data_collection_runner",
     "historical_data_collector",
+    "kraken_ohlcvt_archive",
     "spread_depth_recorder",
     "forward_microstructure_collection",
     "kraken_futures_derivatives_collector",
@@ -97,13 +99,19 @@ def _module_source_paths(
 
 def _is_forbidden_import(module_name: str) -> bool:
     normalized = module_name.lstrip(".")
-    leaf = normalized.rsplit(".", 1)[-1]
-    return any(
-        normalized == prefix
-        or normalized.endswith(f".{prefix}")
-        or leaf == prefix
-        for prefix in _FORBIDDEN_IMPORT_PREFIXES
+    return any(part in _FORBIDDEN_IMPORT_PREFIXES for part in normalized.split("."))
+
+
+def _dynamic_import_target(node: ast.Call) -> str | None:
+    if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+        return None
+    function = node.func
+    is_dynamic_import = (
+        isinstance(function, ast.Name) and function.id in {"__import__", "import_module"}
+    ) or (
+        isinstance(function, ast.Attribute) and function.attr == "import_module"
     )
+    return node.args[0].value if is_dynamic_import else None
 
 
 def audit_public_collector_sources(
@@ -154,6 +162,15 @@ def audit_public_collector_sources(
                             value=node.value,
                         )
                     )
+            elif isinstance(node, ast.Name) and node.id in _FORBIDDEN_REFERENCES:
+                findings.append(
+                    PublicCollectorBoundaryFinding(
+                        module=module,
+                        line=node.lineno,
+                        kind="forbidden_reference",
+                        value=node.id,
+                    )
+                )
             elif isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_REFERENCES:
                 findings.append(
                     PublicCollectorBoundaryFinding(
@@ -161,8 +178,19 @@ def audit_public_collector_sources(
                         line=node.lineno,
                         kind="forbidden_reference",
                         value=node.attr,
+                        )
                     )
-                )
+            elif isinstance(node, ast.Call):
+                dynamic_target = _dynamic_import_target(node)
+                if dynamic_target and _is_forbidden_import(dynamic_target):
+                    findings.append(
+                        PublicCollectorBoundaryFinding(
+                            module=module,
+                            line=node.lineno,
+                            kind="forbidden_import",
+                            value=dynamic_target,
+                        )
+                    )
 
     return PublicCollectorBoundaryReport(
         modules=modules,

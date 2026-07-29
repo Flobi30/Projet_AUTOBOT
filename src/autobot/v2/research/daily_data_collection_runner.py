@@ -27,6 +27,7 @@ from .kraken_symbol_mapping import (
     preflight_kraken_public_symbols,
 )
 from .microstructure_profile import build_microstructure_profile, write_microstructure_profile_report
+from .public_collector_boundary import assert_public_collector_boundary
 from .spread_depth_recorder import (
     DepthFetcher,
     SpreadDepthRecorderConfig,
@@ -458,6 +459,7 @@ def run_daily_research_data_collection(
     depth_fetcher: DepthFetcher | None = None,
     asset_pairs_fetcher: AssetPairsFetcher | None = None,
 ) -> DailyResearchDataCollectionResult:
+    assert_public_collector_boundary(("daily_data_collection_runner",))
     config = load_daily_research_data_collection_config(config_path)
     run_report_dir = config.output_dirs.reports / run_id
     run_ohlcv_dir = config.output_dirs.ohlcv / run_id
