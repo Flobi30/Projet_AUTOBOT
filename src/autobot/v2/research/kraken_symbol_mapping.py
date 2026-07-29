@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Mapping, Sequence
 
+from .public_collector_boundary import assert_public_collector_boundary
 from .symbol_normalization import expand_research_symbol_aliases, normalize_research_symbol
 
 
@@ -188,6 +189,10 @@ def detect_active_autobot_symbols(
 @lru_cache(maxsize=1)
 def fetch_kraken_public_asset_pairs() -> dict[str, Mapping[str, Any]]:
     """Fetch public Kraken asset pairs from the official REST API."""
+
+    # Keep direct public endpoint use behind the same fail-closed static
+    # preflight as the research collectors that consume this mapping.
+    assert_public_collector_boundary(("kraken_symbol_mapping",))
 
     with urllib.request.urlopen(KRAKEN_PUBLIC_ASSET_PAIRS_URL, timeout=20) as response:  # nosec B310 - public fixed HTTPS endpoint.
         payload = json.loads(response.read().decode("utf-8"))

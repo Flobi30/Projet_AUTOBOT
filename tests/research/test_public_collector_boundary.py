@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from autobot.v2.research import historical_data_collector as historical
 from autobot.v2.research import kraken_ohlcvt_archive as ohlcvt_archive
 from autobot.v2.research import kraken_futures_derivatives_collector as derivatives
 from autobot.v2.research import kraken_post_trade_backfill as post_trade
+from autobot.v2.research import kraken_symbol_mapping as symbol_mapping
 from autobot.v2.research import spread_depth_recorder as spread_depth
 from autobot.v2.research import daily_data_collection_runner as daily_runner
 from autobot.v2.research.public_collector_boundary import (
@@ -90,6 +92,29 @@ def test_cli_boundary_audit_is_read_only_and_reports_a_pass(capsys):
     assert payload["passed"] is True
     assert payload["network_access"] == "not_used"
     assert payload["runtime_state_access"] == "not_used"
+
+
+def test_urlopen_based_public_sources_are_registered_with_the_boundary():
+    source_root = Path(boundary.__file__).resolve().parent
+    direct_network_modules = {
+        source.stem
+        for source in source_root.glob("*.py")
+        if "urlopen(" in source.read_text(encoding="utf-8")
+    }
+
+    assert direct_network_modules <= set(boundary.PUBLIC_COLLECTOR_MODULES)
+
+
+def test_symbol_mapping_fails_before_public_asset_pairs_request_when_boundary_audit_fails(monkeypatch):
+    symbol_mapping.fetch_kraken_public_asset_pairs.cache_clear()
+    monkeypatch.setattr(
+        symbol_mapping,
+        "assert_public_collector_boundary",
+        lambda _modules: (_ for _ in ()).throw(PublicCollectorBoundaryError("synthetic boundary failure")),
+    )
+
+    with pytest.raises(PublicCollectorBoundaryError, match="synthetic boundary failure"):
+        symbol_mapping.fetch_kraken_public_asset_pairs()
 
 
 @pytest.mark.parametrize(

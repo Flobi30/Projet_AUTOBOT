@@ -10,10 +10,14 @@ public-collector inventory and fail-closed preflight.
 ## Change
 
 - The PostTrade collector is listed in `PUBLIC_COLLECTOR_MODULES`.
+- The direct public `AssetPairs` symbol-mapping fetcher is listed and audited
+  before it may open its public HTTP request.
 - Its collection entrypoint runs the static public-collector audit before it
   constructs a default HTTP client or invokes a caller-provided client.
 - The test suite proves a synthetic audit failure aborts PostTrade collection
   before any input/output or public network activity.
+- A static test keeps every current `urlopen`-based research source registered
+  in the boundary inventory.
 
 ## Safety
 

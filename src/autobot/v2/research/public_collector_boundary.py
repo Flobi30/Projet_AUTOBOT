@@ -17,6 +17,7 @@ from typing import Iterable, Mapping
 PUBLIC_COLLECTOR_MODULES = (
     "daily_data_collection_runner",
     "historical_data_collector",
+    "kraken_symbol_mapping",
     "kraken_ohlcvt_archive",
     "spread_depth_recorder",
     "forward_microstructure_collection",
