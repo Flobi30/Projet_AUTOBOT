@@ -34,7 +34,14 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _run_verifier_with_fake_runtime_lock(tmp_path: Path, *, program_locked: bool) -> subprocess.CompletedProcess[str]:
+def _run_verifier_with_fake_runtime_lock(
+    tmp_path: Path,
+    *,
+    program_locked: bool = True,
+    observation_only: bool = True,
+    paper_authorized: bool = False,
+    real_order_authorized: bool = False,
+) -> subprocess.CompletedProcess[str]:
     """Run the verifier against fake local tools, never a real container."""
 
     root = Path(__file__).resolve().parents[1]
@@ -91,7 +98,7 @@ ENV
     fi
     ;;
   exec)
-    printf '{\"program_execution_locked\":%s,\"observation_only_runtime\":true,\"paper_execution_authorized\":false,\"real_order_mutation_authorized\":false}\\n' "${FAKE_PROGRAM_EXECUTION_LOCKED:?}"
+    printf '{\"program_execution_locked\":%s,\"observation_only_runtime\":%s,\"paper_execution_authorized\":%s,\"real_order_mutation_authorized\":%s}\\n' "${FAKE_PROGRAM_EXECUTION_LOCKED:?}" "${FAKE_OBSERVATION_ONLY_RUNTIME:?}" "${FAKE_PAPER_EXECUTION_AUTHORIZED:?}" "${FAKE_REAL_ORDER_MUTATION_AUTHORIZED:?}"
     ;;
   *)
     exit 64
@@ -106,7 +113,12 @@ esac
         f"PATH={shlex.quote(_bash_path(fake_bin))}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
         f"AUTOBOT_REPO_DIR={shlex.quote(_bash_path(repo))}; "
         f"FAKE_PROGRAM_EXECUTION_LOCKED={str(program_locked).lower()}; "
-        "export PATH AUTOBOT_REPO_DIR FAKE_PROGRAM_EXECUTION_LOCKED; "
+        f"FAKE_OBSERVATION_ONLY_RUNTIME={str(observation_only).lower()}; "
+        f"FAKE_PAPER_EXECUTION_AUTHORIZED={str(paper_authorized).lower()}; "
+        f"FAKE_REAL_ORDER_MUTATION_AUTHORIZED={str(real_order_authorized).lower()}; "
+        "export PATH AUTOBOT_REPO_DIR FAKE_PROGRAM_EXECUTION_LOCKED "
+        "FAKE_OBSERVATION_ONLY_RUNTIME FAKE_PAPER_EXECUTION_AUTHORIZED "
+        "FAKE_REAL_ORDER_MUTATION_AUTHORIZED; "
         f"exec bash {shlex.quote(_bash_path(root / 'deploy' / 'verify-autobot-runtime-evidence.sh'))}"
     )
     return subprocess.run(
@@ -152,10 +164,16 @@ def test_runtime_evidence_script_is_read_only_and_requires_strict_safety_proof()
 
 @pytest.mark.integration
 def test_runtime_evidence_verifier_accepts_only_the_exact_container_lock_state(tmp_path):
-    valid = _run_verifier_with_fake_runtime_lock(tmp_path / "valid", program_locked=True)
-    forged = _run_verifier_with_fake_runtime_lock(tmp_path / "forged", program_locked=False)
+    valid = _run_verifier_with_fake_runtime_lock(tmp_path / "valid")
+    forged_states = (
+        _run_verifier_with_fake_runtime_lock(tmp_path / "program-unlocked", program_locked=False),
+        _run_verifier_with_fake_runtime_lock(tmp_path / "observation-disabled", observation_only=False),
+        _run_verifier_with_fake_runtime_lock(tmp_path / "paper-authorized", paper_authorized=True),
+        _run_verifier_with_fake_runtime_lock(tmp_path / "real-order-authorized", real_order_authorized=True),
+    )
 
     assert valid.returncode == 0, valid.stderr
     assert '"program_execution_locked":true' in valid.stdout
-    assert forged.returncode != 0
-    assert "running container does not prove the program execution lock" in forged.stderr
+    for forged in forged_states:
+        assert forged.returncode != 0
+        assert "running container does not prove the program execution lock" in forged.stderr
