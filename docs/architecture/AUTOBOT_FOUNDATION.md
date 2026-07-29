@@ -42,8 +42,22 @@ either use a contract directly or add an explicit adapter with a contract test.
 | Positions, PnL and audit history | append-only ledger and reconciliation |
 | Displayed health and metrics | monitoring/dashboard reader |
 
-No component may infer quote currency, symbol mapping, or event availability
-time. These facts must be explicit in the relevant contract.
+  No component may infer quote currency, symbol mapping, or event availability
+  time. These facts must be explicit in the relevant contract.
+
+## Multi-signal portfolio shadow review
+
+`portfolio_shadow_review` is the research-only gate between a set of accepted
+`AlphaSignal` values and any later order-oriented boundary. It creates one
+deterministic `TargetPortfolio`, requires every accepted component to pass the
+same pessimistic cost scenario, then requires fresh, explicit-market capacity
+evidence for every final target exposure.
+
+Its only positive result, `PORTFOLIO_SHADOW_READY`, is still non-executable:
+it cannot create an `OrderIntent`, a fill, a paper allocation or a live
+permission. An invalid input signal remains an auditable target rejection;
+missing capacity or one component failing pessimistic costs blocks the entire
+target rather than allowing a partial unreviewed portfolio through.
 
 ## Offline shadow-provenance boundary
 
