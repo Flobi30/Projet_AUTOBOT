@@ -602,7 +602,12 @@ def test_bound_shadow_risk_evidence_cannot_cross_a_kill_gate():
 def test_bound_shadow_risk_evidence_does_not_import_runtime_execution_paths():
     root = Path(__file__).resolve().parents[2]
     tree = ast.parse((root / "src/autobot/v2/research/bound_shadow_risk_evidence.py").read_text(encoding="utf-8"))
-    forbidden = {"autobot.v2.order_router", "autobot.v2.signal_handler_async", "autobot.v2.paper_trading"}
+    forbidden = {
+        "autobot.v2.portfolio_allocator",
+        "autobot.v2.order_router",
+        "autobot.v2.signal_handler_async",
+        "autobot.v2.paper_trading",
+    }
     imports = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
     imports.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
     assert imports.isdisjoint(forbidden)
