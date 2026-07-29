@@ -583,14 +583,51 @@ class ExperimentRegistry:
         status = str(status).upper()
         if status not in {PASS_STATUS, *TERMINAL_STATUSES}:
             raise ExperimentRegistryError("gate status must be PASSED, REJECTED or INSUFFICIENT_DATA")
-        with self._connect() as connection:
-            self._initialize(connection)
+        metrics_json = _json(metrics or {})
+        reasons_json = _json(list(reasons))
+        transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
+        expected_artifact_ids = frozenset(
+            self._artifact_id(experiment_id=experiment_id, stage=stage, artifact=artifact)
+            for artifact in artifacts
+        )
+
+        def _write(connection: sqlite3.Connection) -> ExperimentState:
             previous = self._state(connection, experiment_id)
+            if previous.terminal and previous.latest_stage != stage:
+                raise ExperimentRegistryError("terminal experiment cannot advance")
+            existing_transition = connection.execute(
+                """
+                SELECT status, metrics_json, reasons_json
+                FROM experiment_transitions
+                WHERE transition_id = ?
+                """,
+                (transition_id,),
+            ).fetchone()
+            if existing_transition is not None:
+                if tuple(existing_transition) != (status, metrics_json, reasons_json):
+                    raise ExperimentRegistryError("existing gate transition differs from retry payload")
+                existing_artifact_ids = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT artifact_id FROM experiment_artifacts WHERE experiment_id = ? AND stage = ?",
+                        (experiment_id, stage),
+                    ).fetchall()
+                }
+                if existing_artifact_ids != set(expected_artifact_ids):
+                    raise ExperimentRegistryError("existing gate artifacts differ from retry payload")
+                return self._state(connection, experiment_id)
+
             if previous.terminal:
                 raise ExperimentRegistryError("terminal experiment cannot advance")
             expected = STAGES[0] if previous.latest_stage is None else _next_stage(previous.latest_stage)
             if stage != expected:
                 raise ExperimentRegistryError(f"expected stage {expected}, received {stage}")
+            existing_stage = connection.execute(
+                "SELECT transition_id FROM experiment_transitions WHERE experiment_id = ? AND stage = ?",
+                (experiment_id, stage),
+            ).fetchone()
+            if existing_stage is not None:
+                raise ExperimentRegistryError("gate stage is already recorded with different evidence")
             if status == PASS_STATUS:
                 _validate_passed_stage_evidence(stage=stage, metrics=metrics, artifacts=artifacts)
                 if stage == "STRESS_MONTE_CARLO":
@@ -601,18 +638,19 @@ class ExperimentRegistry:
                     )
             if stage == STAGES[-1] and status == PASS_STATUS:
                 self._require_final_holdout_review(connection, experiment_id=experiment_id)
-            transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
             connection.execute(
                 """
-                INSERT OR IGNORE INTO experiment_transitions
+                INSERT INTO experiment_transitions
                     (transition_id, experiment_id, stage, status, metrics_json, reasons_json, recorded_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (transition_id, experiment_id, stage, status, _json(metrics or {}), _json(list(reasons)), _now()),
+                (transition_id, experiment_id, stage, status, metrics_json, reasons_json, _now()),
             )
             for artifact in artifacts:
                 self._record_artifact(connection, experiment_id=experiment_id, stage=stage, artifact=artifact)
             return self._state(connection, experiment_id)
+
+        return self._run_write("record_gate_result", _write)
 
     def record_runner_evidence(
         self,
@@ -1416,9 +1454,11 @@ class ExperimentRegistry:
     ) -> None:
         path = str(artifact.get("path") or "").strip()
         fingerprint = str(artifact.get("fingerprint") or _fingerprint(dict(artifact)))
-        if not path:
-            raise ExperimentRegistryError("artifact path is required")
-        artifact_id = f"artifact_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'path': path, 'fingerprint': fingerprint})[:20]}"
+        artifact_id = ExperimentRegistry._artifact_id(
+            experiment_id=experiment_id,
+            stage=stage,
+            artifact=artifact,
+        )
         connection.execute(
             """
             INSERT OR IGNORE INTO experiment_artifacts
@@ -1427,6 +1467,14 @@ class ExperimentRegistry:
             """,
             (artifact_id, experiment_id, stage, path, fingerprint, _json(dict(artifact)), _now()),
         )
+
+    @staticmethod
+    def _artifact_id(*, experiment_id: str, stage: str, artifact: Mapping[str, Any]) -> str:
+        path = str(artifact.get("path") or "").strip()
+        fingerprint = str(artifact.get("fingerprint") or _fingerprint(dict(artifact)))
+        if not path:
+            raise ExperimentRegistryError("artifact path is required")
+        return f"artifact_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'path': path, 'fingerprint': fingerprint})[:20]}"
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=self._sqlite_timeout_seconds)

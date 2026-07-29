@@ -294,6 +294,48 @@ def test_concurrent_registry_writes_are_idempotent_for_experiment_holdout_and_cl
     assert manifest["final_holdout_review_claim"]["experiment_id"] == _spec().experiment_id
 
 
+def test_gate_transition_retry_requires_exact_existing_evidence(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    experiment = registry.register_experiment(_spec())
+
+    first = registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="DATA_CHECK",
+        status="PASSED",
+    )
+    repeated = registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="DATA_CHECK",
+        status="PASSED",
+    )
+    assert repeated == first
+
+    evidence = _passed_gate_evidence("NET_SMOKE")
+    net_smoke = registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="NET_SMOKE",
+        status="PASSED",
+        **evidence,
+    )
+    assert registry.record_gate_result(
+        experiment_id=experiment.experiment_id,
+        stage="NET_SMOKE",
+        status="PASSED",
+        **evidence,
+    ) == net_smoke
+
+    with pytest.raises(ExperimentRegistryError, match="artifacts differ"):
+        registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage="NET_SMOKE",
+            status="PASSED",
+            **{
+                **evidence,
+                "artifacts": ({"path": "pytest://NET_SMOKE", "fingerprint": "different"},),
+            },
+        )
+
+
 def test_trial_plan_is_idempotent_and_counts_candidate_configurations_across_experiments(tmp_path):
     registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
     first = registry.register_experiment(_spec(snapshot="ohlcv_v2_first"))
