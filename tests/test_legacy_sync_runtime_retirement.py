@@ -33,6 +33,14 @@ def test_legacy_orchestrator_fails_before_execution_or_websocket_initialization(
     assert calls == []
 
 
+def test_legacy_synchronous_capital_lookup_is_retired_before_private_client_creation():
+    with pytest.raises(LegacySynchronousRuntimeRetired, match="retired_from_execution"):
+        legacy_orchestrator._get_available_capital_real(
+            api_key="must-not-be-used",
+            api_secret="must-not-be-used",
+        )
+
+
 def test_legacy_trading_instance_fails_before_persistence_or_executor_use(monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr(

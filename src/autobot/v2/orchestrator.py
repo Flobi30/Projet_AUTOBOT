@@ -35,6 +35,10 @@ def _get_available_capital_real(api_key: Optional[str] = None, api_secret: Optio
         Capital disponible en EUR (ZEUR), ou 0.0 en cas d'erreur ou clés non configurées.
         NOTE: 0.0 peut signifier "vraiment zéro" OU "erreur API". C'est le pattern fail-safe.
     """
+    # ``Orchestrator`` is retired. Its helper must not bypass constructor
+    # retirement and create a private client through a direct import.
+    reject_legacy_synchronous_runtime("legacy synchronous capital lookup")
+
     import os
     
     # Récupère clés depuis arguments ou env vars

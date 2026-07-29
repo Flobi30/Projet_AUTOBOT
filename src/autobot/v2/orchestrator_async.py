@@ -178,7 +178,11 @@ from .governance_observability import GovernanceDecisionObserver
 from .strategy_reconciliation import StrategyReconciliationEngine
 from .strategy_router import StrategyRouter
 from .strategy_runtime_policy import GRID_RUNTIME_RETIRED_REASON, retired_grid_snapshot
-from .runtime_execution_mode import observation_only_runtime, paper_execution_authorized
+from .runtime_execution_mode import (
+    observation_only_runtime,
+    paper_execution_authorized,
+    reject_private_execution_component,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +274,9 @@ def _get_available_capital_real(
     api_secret: Optional[str] = None,
 ) -> float:
     """Get available capital from Kraken API (sync — called via run_in_executor)."""
+    # Retained only for a future explicitly authorised deployment. A stale
+    # current-runtime caller must not construct a private Kraken client.
+    reject_private_execution_component("legacy async capital lookup")
     key = api_key or os.getenv("KRAKEN_API_KEY")
     secret = api_secret or os.getenv("KRAKEN_API_SECRET")
     if not key or not secret:

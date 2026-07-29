@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import autobot.v2.orchestrator_async as async_orchestrator
 from autobot.v2.observation_executor import (
     OBSERVATION_EXECUTION_DISABLED,
     ObservationOnlyOrderExecutor,
@@ -98,6 +99,16 @@ def test_observation_runtime_defaults_closed_until_an_execution_authorization_is
 def test_observation_runtime_never_starts_private_exchange_reconciliation():
     assert _exchange_reconciliation_enabled(observation_only=True) is False
     assert _exchange_reconciliation_enabled(observation_only=False) is True
+
+
+def test_observation_runtime_rejects_legacy_private_capital_lookup(monkeypatch):
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="legacy async capital lookup"):
+        async_orchestrator._get_available_capital_real(
+            api_key="must-not-be-used",
+            api_secret="must-not-be-used",
+        )
 
 
 def test_legacy_order_router_cannot_construct_an_executor_or_submit_in_observation_mode(monkeypatch):
