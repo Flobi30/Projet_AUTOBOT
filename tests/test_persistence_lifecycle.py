@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from autobot.v2.persistence import close_persistence, get_persistence
+from autobot.v2.persistence import StatePersistence
 
 
 pytestmark = pytest.mark.unit
@@ -53,3 +55,53 @@ async def test_orchestrator_shutdown_releases_persistence_after_component_failur
 
     assert orchestrator.running is False
     close_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persistence_close_attempts_every_repository_before_reporting_a_failure(tmp_path):
+    """A close failure must not strand sibling aiosqlite workers."""
+
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    closed: list[str] = []
+
+    class CloseProbe:
+        def __init__(self, name: str, *, fails: bool = False):
+            self.name = name
+            self.fails = fails
+
+        async def close(self) -> None:
+            closed.append(self.name)
+            if self.fails:
+                raise OSError(f"simulated close failure: {self.name}")
+
+    persistence.orders._conn = CloseProbe("orders")
+    persistence.audit._conn = CloseProbe("audit", fails=True)
+    persistence.positions._conn = CloseProbe("positions")
+    persistence.instance_state._conn = CloseProbe("instance_state")
+
+    with pytest.raises(RuntimeError, match="audit:OSError"):
+        await persistence.close()
+
+    assert set(closed) == {"orders", "audit", "positions", "instance_state"}
+    assert persistence.orders._conn is None
+    assert persistence.audit._conn is None
+    assert persistence.positions._conn is None
+    assert persistence.instance_state._conn is None
+
+
+@pytest.mark.asyncio
+async def test_repository_close_times_out_and_detaches_a_stalled_connection(monkeypatch, tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    monkeypatch.setenv("SQLITE_CLOSE_TIMEOUT_SECONDS", "1")
+    never_finishes = asyncio.Event()
+
+    class StalledClose:
+        async def close(self) -> None:
+            await never_finishes.wait()
+
+    persistence.orders._conn = StalledClose()
+
+    with pytest.raises(RuntimeError, match="sqlite_repository_close_timed_out"):
+        await persistence.orders.close()
+
+    assert persistence.orders._conn is None

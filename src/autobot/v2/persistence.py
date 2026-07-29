@@ -90,6 +90,12 @@ class _PersistenceRepositoryBase:
     def _retry_base_delay_ms(self) -> int:
         return _env_int("SQLITE_RETRY_BASE_DELAY_MS", 50, 1, 10_000)
 
+    @property
+    def _close_timeout_seconds(self) -> int:
+        """Bound shutdown so a stalled SQLite worker cannot hang the process."""
+
+        return _env_int("SQLITE_CLOSE_TIMEOUT_SECONDS", 10, 1, 120)
+
     async def get_conn(self) -> aiosqlite.Connection:
         async with self._conn_lock:
             if self._conn is None:
@@ -148,11 +154,31 @@ class _PersistenceRepositoryBase:
         if last_exc is not None:
             raise last_exc
 
-    async def close(self):
-        async with self._conn_lock:
-            if self._conn:
-                await self._conn.close()
+    async def _close_owned_connection(self) -> None:
+        """Close one repository connection without racing an active write."""
+
+        async with self._write_lock:
+            async with self._conn_lock:
+                connection = self._conn
+                if connection is None:
+                    return
+                # A timed out or failed close must never leave a stale
+                # connection reusable. The process has to fail closed instead.
                 self._conn = None
+                await connection.close()
+
+    async def close(self) -> None:
+        try:
+            await asyncio.wait_for(
+                self._close_owned_connection(),
+                timeout=self._close_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "SQLite repository connection close timed out after %ss",
+                self._close_timeout_seconds,
+            )
+            raise RuntimeError("sqlite_repository_close_timed_out") from exc
 
 
 class OrderRepository(_PersistenceRepositoryBase):
@@ -1178,11 +1204,37 @@ class StatePersistence:
         self._initialized = True
         logger.info(f"💾 Persistance Async initialisée: {self.db_path}")
 
-    async def close(self):
-        await self.orders.close()
-        await self.audit.close()
-        await self.positions.close()
-        await self.instance_state.close()
+    async def close(self) -> None:
+        """Close every repository, surfacing failure only after all attempts.
+
+        Shutdown must not strand another aiosqlite worker merely because one
+        repository close fails or times out. A reported failure remains
+        fail-closed: callers cannot reuse this StatePersistence instance.
+        """
+
+        repositories = (
+            ("orders", self.orders),
+            ("audit", self.audit),
+            ("positions", self.positions),
+            ("instance_state", self.instance_state),
+        )
+        results = await asyncio.gather(
+            *(repository.close() for _, repository in repositories),
+            return_exceptions=True,
+        )
+        failures = [
+            f"{name}:{type(result).__name__}"
+            for (name, _), result in zip(repositories, results)
+            if isinstance(result, Exception)
+        ]
+        if failures:
+            logger.error(
+                "SQLite persistence shutdown incomplete after closing all repositories: %s",
+                ", ".join(failures),
+            )
+            raise RuntimeError(
+                "sqlite_persistence_shutdown_incomplete:" + ",".join(failures)
+            )
 
     async def upsert_order(self, **kwargs) -> bool:
         await self.initialize()
