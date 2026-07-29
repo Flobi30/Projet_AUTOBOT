@@ -108,6 +108,26 @@ def test_feature_registry_historical_shadow_parity_is_deterministic():
     assert result.differences == ()
 
 
+def test_feature_registry_full_parity_compares_streams_not_materialized_series(monkeypatch):
+    registry = FeatureRegistry((FeatureDefinition("return_1", "1", "canonical_ohlcv", "return_bps"),))
+
+    def _materialized_series_must_not_run(**_kwargs):
+        pytest.fail("full parity must compare iterators rather than materialize feature series")
+
+    monkeypatch.setattr(registry, "compute_series", _materialized_series_must_not_run)
+
+    result = validate_historical_shadow_parity(
+        rows=_rows(),
+        market=_market(),
+        timeframe="5m",
+        source_snapshot_id="streaming-parity",
+        registry=registry,
+    )
+
+    assert result.parity_ok is True
+    assert result.feature_count == len(_rows())
+
+
 def test_feature_registry_delays_visibility_until_ingestion_and_replays_identically():
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     rows = [

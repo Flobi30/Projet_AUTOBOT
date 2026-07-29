@@ -8,6 +8,7 @@ from autobot.v2.research.experiment_registry import ExperimentRegistry, Experime
 from autobot.v2.research.regime_context import enrich_bars_with_regime_context
 from autobot.v2.research.regime_context import (
     BoundedRegimeSegmentation,
+    DEFAULT_RESEARCH_REGIME_SEGMENTATION,
     record_regime_segmentation_experiment_trial,
     record_regime_segmentation_trial,
 )
@@ -59,10 +60,30 @@ def _experiment_spec(snapshot_id: str) -> ExperimentSpec:
     )
 
 
-def test_regime_context_uses_only_observed_history_per_bar():
-    bars = [_bar(index, close) for index, close in enumerate([100.0, 101.0, 102.0, 103.0])]
+def _custom_regime_context(tmp_path):
+    snapshot_id = "canonical_ohlcv_v2"
+    registry = ExperimentRegistry(tmp_path / "experiment_registry.sqlite3")
+    experiment = registry.register_experiment(_experiment_spec(snapshot_id))
+    segmentation = BoundedRegimeSegmentation(
+        segmentation_id="pytest_market_regimes",
+        version="1.0.0",
+        labels=("trend", "range", "high_vol", "chaos"),
+    )
+    return registry, experiment.experiment_id, snapshot_id, segmentation
 
-    enriched = enrich_bars_with_regime_context(bars, regime_engine=_engine())
+
+def test_regime_context_uses_only_observed_history_per_bar(tmp_path):
+    bars = [_bar(index, close) for index, close in enumerate([100.0, 101.0, 102.0, 103.0])]
+    registry, experiment_id, snapshot_id, segmentation = _custom_regime_context(tmp_path)
+
+    enriched = enrich_bars_with_regime_context(
+        bars,
+        regime_engine=_engine(),
+        segmentation=segmentation,
+        experiment_registry=registry,
+        experiment_id=experiment_id,
+        snapshot_id=snapshot_id,
+    )
 
     first_context = enriched[0].metadata["regime_context"]
     last_context = enriched[-1].metadata["regime_context"]
@@ -73,15 +94,39 @@ def test_regime_context_uses_only_observed_history_per_bar():
     assert last_context["regime"] == "trend"
     assert enriched[-1].metadata["regime"] == "trend"
     assert enriched[-1].metadata["regime_source"] == "research_regime_features"
+    assert enriched[-1].metadata["regime_segmentation"]["trial_id"].startswith("trial_")
+    assert enriched[-1].metadata["regime_segmentation"]["baseline"] is False
 
 
-def test_regime_context_preserves_explicit_non_unknown_regime_label():
+def test_regime_context_preserves_explicit_non_unknown_regime_label(tmp_path):
     bars = [_bar(index, close, metadata={"regime": "manual_range"}) for index, close in enumerate([100.0, 101.0, 102.0])]
+    registry, experiment_id, snapshot_id, segmentation = _custom_regime_context(tmp_path)
 
-    enriched = enrich_bars_with_regime_context(bars, regime_engine=_engine())
+    enriched = enrich_bars_with_regime_context(
+        bars,
+        regime_engine=_engine(),
+        segmentation=segmentation,
+        experiment_registry=registry,
+        experiment_id=experiment_id,
+        snapshot_id=snapshot_id,
+    )
 
     assert enriched[-1].metadata["regime"] == "manual_range"
     assert enriched[-1].metadata["regime_context"]["regime"] == "trend"
+
+
+def test_default_regime_context_is_fixed_research_baseline_without_runtime_environment():
+    enriched = enrich_bars_with_regime_context([_bar(index, 100.0 + index) for index in range(3)])
+
+    segmentation = enriched[-1].metadata["regime_segmentation"]
+    assert segmentation["segmentation_id"] == DEFAULT_RESEARCH_REGIME_SEGMENTATION.segmentation_id
+    assert segmentation["baseline"] is True
+    assert segmentation["trial_id"] is None
+
+
+def test_custom_regime_context_cannot_bypass_experiment_trial():
+    with pytest.raises(ValueError, match="custom regime context requires"):
+        enrich_bars_with_regime_context([_bar(0, 100.0)], regime_engine=_engine())
 
 
 def test_regime_segmentations_are_bounded_and_recorded_as_idempotent_trials(tmp_path):
@@ -99,6 +144,27 @@ def test_regime_segmentations_are_bounded_and_recorded_as_idempotent_trials(tmp_
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1
     with pytest.raises(ValueError, match="max_segments"):
         BoundedRegimeSegmentation("too_many", "1", tuple(str(index) for index in range(7)))
+
+
+def test_regime_trial_identity_includes_custom_feature_configuration(tmp_path):
+    segmentation = BoundedRegimeSegmentation("regime_config_trial", "1.0.0", ("trend", "range"))
+    path = tmp_path / "regime_trials.jsonl"
+
+    baseline = record_regime_segmentation_trial(
+        path=path,
+        segmentation=segmentation,
+        snapshot_id="snapshot-1",
+        feature_config=RegimeFeatureConfig(min_samples=32),
+    )
+    alternative = record_regime_segmentation_trial(
+        path=path,
+        segmentation=segmentation,
+        snapshot_id="snapshot-1",
+        feature_config=RegimeFeatureConfig(min_samples=64),
+    )
+
+    assert baseline["trial_id"] != alternative["trial_id"]
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_regime_segmentation_is_a_snapshot_bound_idempotent_experiment_trial(tmp_path):

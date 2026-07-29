@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 import hashlib
+from itertools import zip_longest
 import json
 import math
 from dataclasses import asdict, dataclass
@@ -154,6 +155,35 @@ class FeatureRegistry:
         of the same batch iterator.
         """
 
+        return tuple(
+            self.iter_shadow_replay_series(
+                rows=rows,
+                market=market,
+                timeframe=timeframe,
+                source_snapshot_id=source_snapshot_id,
+                feature_ids=feature_ids,
+                as_of_time=as_of_time,
+            )
+        )
+
+    def iter_shadow_replay_series(
+        self,
+        *,
+        rows: Sequence[Mapping[str, Any]],
+        market: MarketIdentity,
+        timeframe: str,
+        source_snapshot_id: str,
+        feature_ids: Sequence[str] | None = None,
+        as_of_time: datetime | None = None,
+    ) -> Iterable[FeatureValue]:
+        """Yield independent shadow replay values without retaining features.
+
+        Full historical/shadow parity is a batch research gate.  The source
+        index remains bounded by the input rows, while the duplicate feature
+        values are yielded so a large snapshot need not retain both complete
+        payloads merely to demonstrate parity.
+        """
+
         definitions = tuple(self.get(item) for item in (feature_ids or tuple(self._definitions)))
         cutoff = _utc(as_of_time) if as_of_time else None
         normalized = _normalize_rows(rows)
@@ -173,7 +203,6 @@ class FeatureRegistry:
         )
         event_position_by_row = {row_index: position for position, row_index in enumerate(event_order)}
         event_rows = [normalized[row_index] for row_index in event_order]
-        values: list[FeatureValue] = []
         published_event_positions: list[int] = []
         index = 0
         while index < len(normalized):
@@ -192,18 +221,15 @@ class FeatureRegistry:
                 start = max(0, end - (max_lookback + 1))
                 observed = [event_rows[position] for position in published_event_positions[start:end]]
                 for definition in definitions:
-                    values.append(
-                        _compute_feature(
-                            definition,
-                            observed=observed,
-                            target=target,
-                            market=market,
-                            timeframe=timeframe,
-                            source_snapshot_id=source_snapshot_id,
-                        )
+                    yield _compute_feature(
+                        definition,
+                        observed=observed,
+                        target=target,
+                        market=market,
+                        timeframe=timeframe,
+                        source_snapshot_id=source_snapshot_id,
                     )
             index = group_end
-        return tuple(values)
 
     def iter_series(
         self,
@@ -286,30 +312,45 @@ def validate_historical_shadow_parity(
     registry: FeatureRegistry | None = None,
     feature_ids: Sequence[str] | None = None,
 ) -> FeatureParityResult:
-    """Prove batch and shadow replay use identical deterministic features."""
+    """Prove batch and shadow replay use identical deterministic features.
+
+    The comparison is streaming.  A partial parity sample must never become
+    implicit proof that an entire future shadow hand-off has identical feature
+    semantics.
+    """
 
     active_registry = registry or default_feature_registry()
-    historical = active_registry.compute_series(
+    historical = active_registry.iter_series(
         rows=rows,
         market=market,
         timeframe=timeframe,
         source_snapshot_id=source_snapshot_id,
         feature_ids=feature_ids,
     )
-    shadow = active_registry.compute_shadow_replay_series(
+    shadow = active_registry.iter_shadow_replay_series(
         rows=rows,
         market=market,
         timeframe=timeframe,
         source_snapshot_id=source_snapshot_id,
         feature_ids=feature_ids,
     )
-    historical_payload = [_feature_payload(item) for item in historical]
-    shadow_payload = [_feature_payload(item) for item in shadow]
-    differences = () if historical_payload == shadow_payload else ("historical_shadow_feature_payload_mismatch",)
+    sentinel = object()
+    feature_count = 0
+    mismatch = False
+    for historical_value, shadow_value in zip_longest(historical, shadow, fillvalue=sentinel):
+        if historical_value is not sentinel:
+            feature_count += 1
+        if (
+            historical_value is sentinel
+            or shadow_value is sentinel
+            or _feature_payload(historical_value) != _feature_payload(shadow_value)
+        ):
+            mismatch = True
+    differences = ("historical_shadow_feature_payload_mismatch",) if mismatch else ()
     return FeatureParityResult(
         snapshot_id=source_snapshot_id,
         registry_fingerprint=active_registry.fingerprint,
-        feature_count=len(historical),
+        feature_count=feature_count,
         parity_ok=not differences,
         differences=differences,
     )

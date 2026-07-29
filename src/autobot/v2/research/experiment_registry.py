@@ -233,6 +233,7 @@ class ExperimentRegistry:
         labels: Sequence[str],
         max_segments: int,
         data_snapshot_id: str,
+        feature_config_fingerprint: str,
     ) -> str:
         """Record one bounded regime split as an optimization trial.
 
@@ -246,6 +247,7 @@ class ExperimentRegistry:
         normalized_version = str(segmentation_version or "").strip()
         normalized_fingerprint = str(segmentation_fingerprint or "").strip().lower()
         normalized_snapshot_id = str(data_snapshot_id or "").strip()
+        normalized_feature_config_fingerprint = str(feature_config_fingerprint or "").strip().lower()
         normalized_labels = tuple(
             str(label).strip().lower() for label in labels if str(label).strip()
         )
@@ -256,8 +258,15 @@ class ExperimentRegistry:
 
         if not normalized_id or not all(character.isalnum() or character in "_.-" for character in normalized_id):
             raise ExperimentRegistryError("segmentation_id must contain only letters, digits, _, . or -")
-        if not normalized_version or not normalized_fingerprint or not normalized_snapshot_id:
-            raise ExperimentRegistryError("segmentation version, fingerprint and data_snapshot_id are required")
+        if (
+            not normalized_version
+            or not normalized_fingerprint
+            or not normalized_snapshot_id
+            or not normalized_feature_config_fingerprint
+        ):
+            raise ExperimentRegistryError(
+                "segmentation version, fingerprints and data_snapshot_id are required"
+            )
         if (
             bounded_max_segments < 1
             or not normalized_labels
@@ -287,10 +296,11 @@ class ExperimentRegistry:
             experiment_id=experiment_id,
             dimension="regime_segmentation",
             value={
-                "schema_version": 1,
+                "schema_version": 2,
                 "segmentation_id": normalized_id,
                 "segmentation_version": normalized_version,
                 "segmentation_fingerprint": normalized_fingerprint,
+                "feature_config_fingerprint": normalized_feature_config_fingerprint,
                 "labels": list(normalized_labels),
                 "max_segments": bounded_max_segments,
                 "data_snapshot_id": normalized_snapshot_id,

@@ -58,7 +58,12 @@ def _canonical_manifest(tmp_path: Path, *, explicit_mapping: bool, row_count: in
     return Path(str(snapshot.manifest_path))
 
 
-def _ready_feature_snapshot(tmp_path: Path):
+def _ready_feature_snapshot(
+    tmp_path: Path,
+    *,
+    row_count: int = 30,
+    parity_validation_scope: str = "full_streaming",
+):
     """Build a compact source with known ingestion times for vector tests."""
 
     source_file = tmp_path / "canonical_ready_source.csv"
@@ -84,7 +89,7 @@ def _ready_feature_snapshot(tmp_path: Path):
     with source_file.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        for index in range(30):
+        for index in range(row_count):
             event = origin + timedelta(minutes=5 * (index + 1))
             price = 100.0 + index
             writer.writerow(
@@ -126,6 +131,7 @@ def _ready_feature_snapshot(tmp_path: Path):
             canonical_manifest_path=source_manifest,
             output_dir=tmp_path / "features",
             manifest_dir=tmp_path / "feature_manifests",
+            parity_validation_scope=parity_validation_scope,
         )
     )
     assert snapshot.status == "READY"
@@ -386,12 +392,12 @@ def test_feature_snapshot_records_and_verifies_its_optimization_partition(tmp_pa
         )
 
 
-def test_feature_snapshot_streams_full_history_with_bounded_parity_replay(tmp_path):
+def test_feature_snapshot_defaults_to_full_streaming_parity_for_large_history(tmp_path):
     manifest = _canonical_manifest(tmp_path, explicit_mapping=True, row_count=2_500)
 
     snapshot = build_canonical_feature_snapshot(
         CanonicalFeatureSnapshotConfig(
-            run_id="features_bounded_parity",
+            run_id="features_full_parity",
             canonical_manifest_path=manifest,
             output_dir=tmp_path / "features",
             manifest_dir=tmp_path / "feature_manifests",
@@ -400,10 +406,39 @@ def test_feature_snapshot_streams_full_history_with_bounded_parity_replay(tmp_pa
 
     assert snapshot.canonical_row_count == 2_500
     assert snapshot.feature_count == 2_500 * 4
-    assert snapshot.parity_sample_row_count == 2_048
-    assert snapshot.parity_validation_scope == "bounded_deterministic_sample"
+    assert snapshot.parity_sample_row_count == 2_500
+    assert snapshot.parity_validation_scope == "full_streaming"
     assert snapshot.parity_ok is True
     assert not list((tmp_path / "features").glob(".autobot_features_*"))
+
+
+def test_bounded_parity_sample_cannot_prove_runtime_parity_on_large_snapshot(tmp_path):
+    snapshot = _ready_feature_snapshot(
+        tmp_path,
+        row_count=2_500,
+        parity_validation_scope="bounded_deterministic_sample",
+    )
+
+    assert snapshot.status == "READY"
+    assert snapshot.parity_ok is True
+    assert snapshot.parity_sample_row_count == 2_048
+    assert snapshot.parity_validation_scope == "bounded_deterministic_sample"
+    assert snapshot.runtime_parity_proven is False
+    assert "FEATURE_PARITY_SAMPLE_ONLY" in snapshot.blockers
+
+    manifest_path = Path(str(snapshot.manifest_path))
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["runtime_parity_proven"] = True
+    manifest_path.write_text(json.dumps(manifest_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="runtime parity must be proven"):
+        load_verified_feature_vector_from_canonical_snapshot(
+            manifest_path,
+            symbol="BTCEUR",
+            timeframe="5m",
+            event_time=datetime(2026, 1, 1, 0, 25, tzinfo=timezone.utc),
+            observed_at=datetime(2026, 1, 1, 0, 25, tzinfo=timezone.utc),
+        )
 
 
 def test_legacy_feature_manifest_upgrade_requires_matching_registry_fingerprint(tmp_path):

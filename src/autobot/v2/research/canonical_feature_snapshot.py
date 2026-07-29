@@ -54,6 +54,9 @@ FEATURE_CSV_FIELDS = (
     "metadata_json",
 )
 FEATURE_PARITY_MAX_ROWS = 2_048
+FULL_PARITY_VALIDATION_SCOPE = "full_streaming"
+SAMPLED_PARITY_VALIDATION_SCOPE = "bounded_deterministic_sample"
+PARITY_VALIDATION_SCOPES = frozenset({FULL_PARITY_VALIDATION_SCOPE, SAMPLED_PARITY_VALIDATION_SCOPE})
 HISTORICAL_RUNTIME_PARITY_UNPROVEN_STATUSES = {
     "HISTORICAL_BACKFILL_AVAILABLE_AT_INGESTION",
     "HISTORICAL_ARCHIVE_AVAILABLE_AT_INGESTION",
@@ -67,6 +70,13 @@ class CanonicalFeatureSnapshotConfig:
     output_dir: Path = Path("data/research/canonical/features")
     manifest_dir: Path = Path("data/research/manifests")
     feature_ids: tuple[str, ...] = DEFAULT_CANONICAL_OHLCV_FEATURE_IDS
+    parity_validation_scope: str = FULL_PARITY_VALIDATION_SCOPE
+
+    def __post_init__(self) -> None:
+        if str(self.parity_validation_scope).strip() not in PARITY_VALIDATION_SCOPES:
+            raise ValueError(
+                "parity_validation_scope must be full_streaming or bounded_deterministic_sample"
+            )
 
 
 @dataclass(frozen=True)
@@ -112,7 +122,7 @@ class CanonicalFeatureSnapshot:
     blockers: tuple[str, ...]
     files: tuple[CanonicalFeatureFile, ...]
     parity_sample_row_count: int = 0
-    parity_validation_scope: str = "bounded_deterministic_sample"
+    parity_validation_scope: str = FULL_PARITY_VALIDATION_SCOPE
     holdout_partition: Mapping[str, Any] | None = None
     holdout_partition_role: str | None = None
     manifest_path: str | None = None
@@ -163,7 +173,7 @@ class CanonicalFeatureSnapshot:
                 "Rows without exchange-declared base/quote mapping are excluded rather than inferred.",
                 "Unknown ingestion time remains explicit and prevents this bundle from proving runtime parity.",
                 "Historical archive/backfill rows remain research-only and cannot prove runtime parity.",
-                "Feature CSV content and the logical feature fingerprint are re-verified before a bundle can prove shadow parity.",
+                "Only a full streaming parity replay can prove a bundle suitable for future shadow parity.",
             ],
         }
 
@@ -268,7 +278,7 @@ def build_canonical_feature_snapshot(
                 raise ValueError(f"canonical manifest contains duplicate market/timeframe file: {market.symbol} {timeframe}")
             seen_keys.add(key)
             rows = sorted(eligible_rows, key=lambda item: (str(item.get("available_time")), str(item.get("event_time"))))
-            parity_rows = _bounded_parity_rows(rows)
+            parity_rows = _parity_rows(rows, scope=config.parity_validation_scope)
             parity_sample_row_count += len(parity_rows)
             parity = validate_historical_shadow_parity(
                 rows=parity_rows,
@@ -352,9 +362,12 @@ def build_canonical_feature_snapshot(
         blockers.append("HISTORICAL_DATA_RUNTIME_PARITY_NOT_PROVEN")
     if not parity_ok:
         blockers.append("FEATURE_PARITY_FAILED")
+    if config.parity_validation_scope != FULL_PARITY_VALIDATION_SCOPE:
+        blockers.append("FEATURE_PARITY_SAMPLE_ONLY")
     status = "READY" if feature_count and parity_ok and ingestion_time_unknown_count == 0 else "DATA_MISSING"
     runtime_parity_proven = bool(
         parity_ok
+        and config.parity_validation_scope == FULL_PARITY_VALIDATION_SCOPE
         and ingestion_time_unknown_count == 0
         and historical_runtime_parity_unproven_count == 0
     )
@@ -386,6 +399,7 @@ def build_canonical_feature_snapshot(
         blockers=tuple(blockers),
         files=tuple(files),
         parity_sample_row_count=parity_sample_row_count,
+        parity_validation_scope=config.parity_validation_scope,
         holdout_partition=holdout_partition,
         holdout_partition_role=holdout_partition_role,
     )
@@ -548,18 +562,22 @@ def load_verified_feature_vector_from_canonical_snapshot(
         for row in selected
     )
     # ``runtime_parity_proven`` was not serialized by the first v2 manifest
-    # writer.  A READY manifest is nevertheless sufficient proof here only
-    # when its stored parity result is true and no source row had an unknown
-    # ingestion time.  Keep accepting an explicit value for future manifests,
-    # but never infer parity from a bare status or from the caller.
+    # writer.  A legacy manifest without explicit full-streaming proof is not
+    # enough for a shadow-capable hand-off.  Keep accepting an explicit value
+    # for current manifests, but never infer parity from a bare READY status,
+    # a caller, or a bounded deterministic sample.
     explicit_runtime_parity = payload.get("runtime_parity_proven")
-    runtime_parity_proven = (
-        explicit_runtime_parity
-        if isinstance(explicit_runtime_parity, bool)
-        else (
-            payload.get("parity_ok") is True
-            and int(payload.get("ingestion_time_unknown_count") or 0) == 0
-            and int(payload.get("historical_runtime_parity_unproven_count") or 0) == 0
+    full_streaming_parity = payload.get("parity_validation_scope") == FULL_PARITY_VALIDATION_SCOPE
+    runtime_parity_proven = bool(
+        full_streaming_parity
+        and (
+            explicit_runtime_parity
+            if isinstance(explicit_runtime_parity, bool)
+            else (
+                payload.get("parity_ok") is True
+                and int(payload.get("ingestion_time_unknown_count") or 0) == 0
+                and int(payload.get("historical_runtime_parity_unproven_count") or 0) == 0
+            )
         )
     )
     snapshot = FeatureSnapshotReference(
@@ -703,7 +721,7 @@ def render_canonical_feature_snapshot_report(snapshot: CanonicalFeatureSnapshot)
         f"- Source snapshot: `{snapshot.source_snapshot_id}`",
         f"- Status: `{snapshot.status}`",
         f"- Parity: `{snapshot.parity_ok}`",
-        f"- Parity validation: `{snapshot.parity_validation_scope}` ({snapshot.parity_sample_row_count} sampled canonical rows)",
+        f"- Parity validation: `{snapshot.parity_validation_scope}` ({snapshot.parity_sample_row_count} validated canonical rows)",
         f"- Canonical rows: `{snapshot.canonical_row_count}`",
         f"- Eligible explicit-mapping rows: `{snapshot.eligible_row_count}`",
         f"- Feature rows: `{snapshot.feature_count}` (ready `{snapshot.ready_count}`, waiting `{snapshot.waiting_count}`, missing `{snapshot.missing_count}`)",
@@ -880,15 +898,23 @@ def _feature_value_from_csv_row(
     )
 
 
-def _bounded_parity_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Return a deterministic parity sample without weakening feature output.
+def _parity_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    scope: str,
+) -> list[dict[str, Any]]:
+    """Return rows for one declared parity-validation scope.
 
-    The full feature bundle is still computed and written.  Only the duplicate
-    historical-vs-shadow parity replay is bounded, because replaying an entire
-    multi-million-row archive twice can exhaust the isolated collection job.
+    Full streaming is the default and the only scope that can prove runtime
+    parity.  The bounded mode is retained for explicitly research-only
+    diagnostics and carries a permanent sample-only blocker.
     """
 
     normalized = [dict(row) for row in rows]
+    if scope == FULL_PARITY_VALIDATION_SCOPE:
+        return normalized
+    if scope != SAMPLED_PARITY_VALIDATION_SCOPE:
+        raise ValueError("unsupported parity validation scope")
     if len(normalized) <= FEATURE_PARITY_MAX_ROWS:
         return normalized
     last_index = len(normalized) - 1
