@@ -10,7 +10,9 @@ import sqlite3
 import pytest
 
 from autobot.v2.research.resilience_readiness import (
+    FailClosedRecoveryPlan,
     FailClosedIncidentSummary,
+    IncidentDecision,
     PaperReadinessDossier,
     ResilienceError,
     RetryPolicy,
@@ -108,6 +110,25 @@ def test_incident_summary_rejects_unknown_or_scalar_inputs():
             action="BLOCK_NEW_SIGNALS",
             reasons=("fixture",),
             paper_capital_allowed=True,
+        )
+
+
+def test_fail_closed_public_contracts_reject_weaker_manual_actions():
+    with pytest.raises(ResilienceError, match="weaker than the required"):
+        IncidentDecision("DATA_STALE", "NORMAL", "forged_healthy_state")
+    with pytest.raises(ResilienceError, match="non-empty reason"):
+        IncidentDecision("DATA_STALE", "BLOCK_NEW_SIGNALS", "")
+    with pytest.raises(ResilienceError, match="weaker than the required"):
+        FailClosedIncidentSummary(
+            incident_types=("ORDER_UNKNOWN",),
+            action="BLOCK_NEW_ORDERS",
+            reasons=("forged_partial_action",),
+        )
+    with pytest.raises(ResilienceError, match="omits a required"):
+        FailClosedRecoveryPlan(
+            incident_types=("ORDER_UNKNOWN",),
+            steps=("BLOCK_NEW_SIGNALS", "BLOCK_NEW_ORDERS"),
+            terminal_action="BLOCK_NEW_ORDERS",
         )
 
 

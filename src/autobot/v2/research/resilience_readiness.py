@@ -183,13 +183,20 @@ class IncidentDecision:
 
     def __post_init__(self) -> None:
         incident = str(self.incident_type).upper()
-        action = str(self.action).upper()
+        action = _validate_action(self.action)
         if incident not in INCIDENT_TYPES or action not in FAIL_CLOSED_ACTIONS:
             raise ResilienceError("unsupported incident or fail-closed action")
+        required_action = _RECOVERY_STEPS_BY_INCIDENT[incident][-1]
+        if FAIL_CLOSED_ACTIONS.index(action) < FAIL_CLOSED_ACTIONS.index(required_action):
+            raise ResilienceError("incident decision action is weaker than the required fail-closed action")
+        reason = str(self.reason or "").strip()
+        if not reason:
+            raise ResilienceError("incident decision requires a non-empty reason")
         if self.risk_increase_allowed or self.paper_capital_allowed or self.live_allowed:
             raise ResilienceError("resilience decisions cannot increase risk or enable paper/live")
         object.__setattr__(self, "incident_type", incident)
         object.__setattr__(self, "action", action)
+        object.__setattr__(self, "reason", reason)
 
 
 @dataclass(frozen=True)
@@ -205,11 +212,24 @@ class FailClosedIncidentSummary:
 
     def __post_init__(self) -> None:
         normalized = _normalize_incident_types(self.incident_types)
-        if self.action not in FAIL_CLOSED_ACTIONS:
-            raise ResilienceError("unsupported fail-closed action")
+        action = _validate_action(self.action)
+        if normalized:
+            required_action = "NORMAL"
+            for incident in normalized:
+                required_action = _more_severe(
+                    required_action,
+                    _RECOVERY_STEPS_BY_INCIDENT[incident][-1],
+                )
+            if FAIL_CLOSED_ACTIONS.index(action) < FAIL_CLOSED_ACTIONS.index(required_action):
+                raise ResilienceError("incident summary action is weaker than the required fail-closed action")
+        reasons = tuple(str(reason).strip() for reason in self.reasons)
+        if normalized and (not reasons or any(not reason for reason in reasons)):
+            raise ResilienceError("incident summary requires non-empty reasons")
         if self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
             raise ResilienceError("incident summaries cannot authorize paper or live")
         object.__setattr__(self, "incident_types", normalized)
+        object.__setattr__(self, "action", action)
+        object.__setattr__(self, "reasons", reasons)
 
 
 @dataclass(frozen=True)
@@ -242,9 +262,17 @@ class FailClosedRecoveryPlan:
             raise ResilienceError("recovery plans cannot contain NORMAL")
         if tuple(sorted(set(normalized_steps), key=FAIL_CLOSED_ACTIONS.index)) != normalized_steps:
             raise ResilienceError("recovery plan steps must be unique and monotonic")
+        required_steps: set[str] = set()
+        for incident in normalized_incidents:
+            required_steps.update(_RECOVERY_STEPS_BY_INCIDENT[incident])
+        if not required_steps.issubset(set(normalized_steps)):
+            raise ResilienceError("recovery plan omits a required fail-closed step")
         terminal = _validate_action(self.terminal_action)
         if terminal != normalized_steps[-1]:
             raise ResilienceError("recovery plan terminal action must match its final step")
+        required_terminal = max(required_steps, key=FAIL_CLOSED_ACTIONS.index)
+        if FAIL_CLOSED_ACTIONS.index(terminal) < FAIL_CLOSED_ACTIONS.index(required_terminal):
+            raise ResilienceError("recovery plan terminal action is weaker than required")
         if self.execution_authorized or self.research_only is not True or self.paper_capital_allowed or self.live_allowed:
             raise ResilienceError("recovery plans cannot authorize execution, paper or live")
         object.__setattr__(self, "incident_types", normalized_incidents)
