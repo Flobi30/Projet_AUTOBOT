@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 
 import pytest
@@ -26,6 +27,34 @@ class _BusyThenOkConnection:
 
     async def commit(self):
         self.commit_calls += 1
+
+    async def rollback(self):
+        return None
+
+
+class _CommitBusyThenOkConnection:
+    def __init__(self):
+        self.execute_calls = 0
+        self.commit_calls = 0
+        self.rollback_calls = 0
+
+    async def execute(self, *args, **kwargs):
+        self.execute_calls += 1
+        return _Cursor()
+
+    async def commit(self):
+        self.commit_calls += 1
+        if self.commit_calls == 1:
+            raise sqlite3.OperationalError("database is locked")
+
+    async def rollback(self):
+        self.rollback_calls += 1
+
+
+class _CommitBusyRollbackFailureConnection(_CommitBusyThenOkConnection):
+    async def rollback(self):
+        self.rollback_calls += 1
+        raise sqlite3.OperationalError("rollback is locked")
 
 
 @pytest.mark.asyncio
@@ -58,6 +87,93 @@ async def test_decision_ledger_write_retries_temporary_sqlite_lock(monkeypatch, 
     assert ok is True
     assert fake_conn.execute_calls == 2
     assert fake_conn.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_decision_ledger_rolls_back_before_retrying_a_busy_commit(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    fake_conn = _CommitBusyThenOkConnection()
+
+    async def fake_get_conn():
+        return fake_conn
+
+    monkeypatch.setattr(persistence.orders, "get_conn", fake_get_conn)
+
+    ok = await persistence.append_decision_ledger_event(
+        event_id="evt-busy-commit",
+        decision_id="dec-busy-commit",
+        signal_id="sig-busy-commit",
+        instance_id="inst",
+        symbol="TRXEUR",
+        strategy="trend_momentum",
+        engine="trend_momentum",
+        event_type="decision",
+        event_status="no_trade",
+        reason="pytest",
+        source="pytest",
+    )
+    await persistence.close()
+
+    assert ok is True
+    assert fake_conn.execute_calls == 2
+    assert fake_conn.commit_calls == 2
+    assert fake_conn.rollback_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_decision_ledger_refuses_retry_when_busy_commit_cannot_roll_back(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    fake_conn = _CommitBusyRollbackFailureConnection()
+
+    async def fake_get_conn():
+        return fake_conn
+
+    monkeypatch.setattr(persistence.orders, "get_conn", fake_get_conn)
+
+    ok = await persistence.append_decision_ledger_event(
+        event_id="evt-rollback-failure",
+        decision_id="dec-rollback-failure",
+        signal_id="sig-rollback-failure",
+        instance_id="inst",
+        symbol="TRXEUR",
+        strategy="trend_momentum",
+        engine="trend_momentum",
+        event_type="decision",
+        event_status="no_trade",
+        reason="pytest",
+        source="pytest",
+    )
+    await persistence.close()
+
+    assert ok is False
+    assert fake_conn.execute_calls == 1
+    assert fake_conn.commit_calls == 1
+    assert fake_conn.rollback_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_initialize_serializes_concurrent_callers(monkeypatch, tmp_path):
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    original_initialize_locked = persistence._initialize_locked
+    call_count = 0
+
+    async def tracked_initialize_locked():
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0)
+        await original_initialize_locked()
+
+    monkeypatch.setattr(persistence, "_initialize_locked", tracked_initialize_locked)
+
+    await asyncio.gather(*(persistence.initialize() for _ in range(8)))
+    await persistence.close()
+
+    assert call_count == 1
+    assert persistence._initialized is True
 
 
 @pytest.mark.asyncio

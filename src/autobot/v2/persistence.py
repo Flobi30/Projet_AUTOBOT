@@ -113,22 +113,37 @@ class _PersistenceRepositoryBase:
     async def _with_write_retries(self, label: str, operation):
         last_exc: Optional[Exception] = None
         for attempt in range(self._write_retries + 1):
-            try:
-                async with self._write_lock:
+            async with self._write_lock:
+                try:
                     return await operation()
-            except Exception as exc:
-                if not self._is_busy_error(exc) or attempt >= self._write_retries:
-                    raise
-                last_exc = exc
-                delay = (self._retry_base_delay_ms / 1000.0) * (2 ** attempt)
-                logger.warning(
-                    "SQLite busy during %s; retry %s/%s in %.3fs",
-                    label,
-                    attempt + 1,
-                    self._write_retries,
-                    delay,
-                )
-                await asyncio.sleep(delay)
+                except Exception as exc:
+                    if not self._is_busy_error(exc) or attempt >= self._write_retries:
+                        raise
+                    # A busy error can be raised by commit after the write has
+                    # started. Roll back while the shared write lock is still
+                    # held, otherwise the next retry could inherit a stale
+                    # transaction or interleave with another repository.
+                    try:
+                        conn = await self.get_conn()
+                        await conn.rollback()
+                    except Exception as rollback_exc:
+                        logger.error(
+                            "SQLite rollback failed after busy %s during %s; refusing retry (%s)",
+                            type(exc).__name__,
+                            label,
+                            type(rollback_exc).__name__,
+                        )
+                        raise exc from rollback_exc
+                    last_exc = exc
+                    delay = (self._retry_base_delay_ms / 1000.0) * (2 ** attempt)
+                    logger.warning(
+                        "SQLite busy during %s; retry %s/%s in %.3fs",
+                        label,
+                        attempt + 1,
+                        self._write_retries,
+                        delay,
+                    )
+            await asyncio.sleep(delay)
         if last_exc is not None:
             raise last_exc
 
@@ -872,6 +887,14 @@ class StatePersistence:
         if self._initialized:
             return
         
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await self._initialize_locked()
+
+    async def _initialize_locked(self):
+        """Apply idempotent schema setup once per StatePersistence instance."""
+
         busy_timeout_ms = _env_int("SQLITE_BUSY_TIMEOUT_MS", 30_000, 1_000, 300_000)
         async with aiosqlite.connect(str(self.db_path), timeout=busy_timeout_ms / 1000.0) as conn:
             await conn.execute("PRAGMA journal_mode=WAL")
