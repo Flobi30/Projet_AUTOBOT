@@ -2071,11 +2071,17 @@ class StatePersistence:
     async def cleanup_old_data(self, days: int = 30) -> int:
         await self.initialize()
         try:
-            conn = await self.orders.get_conn()
-            cursor = await conn.execute("DELETE FROM trades WHERE julianday('now') - julianday(timestamp) > ?", (days,))
-            deleted = cursor.rowcount
-            await conn.commit()
-            return deleted
+            async def _write() -> int:
+                conn = await self.orders.get_conn()
+                cursor = await conn.execute(
+                    "DELETE FROM trades WHERE julianday('now') - julianday(timestamp) > ?",
+                    (days,),
+                )
+                deleted = int(cursor.rowcount or 0)
+                await conn.commit()
+                return deleted
+
+            return await self.orders._with_write_retries("cleanup_old_data", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur nettoyage: {e}")
             return 0

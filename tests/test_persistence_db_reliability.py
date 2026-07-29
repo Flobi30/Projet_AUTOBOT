@@ -233,6 +233,26 @@ async def test_market_sample_retry_is_idempotent(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_legacy_cleanup_retries_a_temporary_sqlite_lock(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+    fake_conn = _BusyThenOkConnection()
+
+    async def fake_get_conn():
+        return fake_conn
+
+    monkeypatch.setattr(persistence.orders, "get_conn", fake_get_conn)
+
+    deleted = await persistence.cleanup_old_data(days=30)
+    await persistence.close()
+
+    assert deleted == 1
+    assert fake_conn.execute_calls == 2
+    assert fake_conn.commit_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_order_transition_records_explicit_from_status_and_rejects_orphans(tmp_path):
     persistence = StatePersistence(str(tmp_path / "state.db"))
     await persistence.initialize()
