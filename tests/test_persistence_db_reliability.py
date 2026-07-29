@@ -317,6 +317,86 @@ async def test_position_and_instance_writes_retry_temporary_sqlite_lock(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_lineage_cleanup_trade_and_outcome_writes_retry_temporary_sqlite_lock(monkeypatch, tmp_path):
+    monkeypatch.setenv("SQLITE_RETRY_BASE_DELAY_MS", "1")
+    persistence = StatePersistence(str(tmp_path / "state.db"))
+    await persistence.initialize()
+
+    cleanup_connection = _BusyThenOkConnection()
+
+    async def get_cleanup_connection():
+        return cleanup_connection
+
+    monkeypatch.setattr(persistence.instance_state, "get_conn", get_cleanup_connection)
+    assert await persistence.cleanup_orphaned_instances(["active-instance"]) == 1
+    assert cleanup_connection.execute_calls == 2
+    assert cleanup_connection.commit_calls == 1
+    assert cleanup_connection.rollback_calls == 1
+
+    lineage_connection = _BusyThenOkConnection()
+
+    async def get_lineage_connection():
+        return lineage_connection
+
+    monkeypatch.setattr(persistence.instance_state, "get_conn", get_lineage_connection)
+    assert await persistence.record_instance_lineage(
+        parent_instance_id="parent",
+        child_instance_id="child",
+        root_instance_id="parent",
+        generation=1,
+        child_capital=10.0,
+        parent_capital_after=90.0,
+    ) is True
+    assert lineage_connection.execute_calls == 2
+    assert lineage_connection.commit_calls == 1
+    assert lineage_connection.rollback_calls == 1
+
+    trade_connection = _BusyThenOkConnection()
+
+    async def get_trade_connection():
+        return trade_connection
+
+    monkeypatch.setattr(persistence.instance_state, "get_conn", get_trade_connection)
+    assert await persistence.record_trade("position", "inst", "buy", 1.0, 2.0) is True
+    assert trade_connection.execute_calls == 2
+    assert trade_connection.commit_calls == 1
+    assert trade_connection.rollback_calls == 1
+
+    outcome_connection = _BusyThenOkConnection()
+
+    async def get_outcome_connection():
+        return outcome_connection
+
+    monkeypatch.setattr(persistence.orders, "get_conn", get_outcome_connection)
+    assert await persistence.upsert_signal_outcome(
+        outcome_id="outcome-retry",
+        decision_ledger_id=1,
+        decision_event_id="decision-event",
+        decision_id="decision",
+        signal_id="signal",
+        instance_id="inst",
+        symbol="TRXEUR",
+        strategy="trend_momentum",
+        engine="trend_momentum",
+        side="buy",
+        original_status="no_trade",
+        rejection_reason="pytest",
+        reference_price=1.0,
+        evaluation_price=1.01,
+        gross_return_bps=100.0,
+        estimated_cost_bps=10.0,
+        net_return_bps=90.0,
+        horizon_minutes=15,
+        outcome_label="win",
+    ) is True
+    await persistence.close()
+
+    assert outcome_connection.execute_calls == 2
+    assert outcome_connection.commit_calls == 1
+    assert outcome_connection.rollback_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_initialize_serializes_concurrent_callers(monkeypatch, tmp_path):
     persistence = StatePersistence(str(tmp_path / "state.db"))
     original_initialize_locked = persistence._initialize_locked

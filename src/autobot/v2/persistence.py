@@ -1311,16 +1311,19 @@ class StatePersistence:
             return 0
         placeholders = ",".join("?" for _ in active_instance_ids)
         try:
-            conn = await self.instance_state.get_conn()
-            cursor = await conn.execute(
-                f"DELETE FROM instance_state WHERE instance_id NOT IN ({placeholders})",
-                tuple(active_instance_ids),
-            )
-            deleted = int(cursor.rowcount or 0)
-            # Keep lineage as an immutable audit trail. It is also the durable
-            # source enforcing one split per parent over the parent's lifetime.
-            await conn.commit()
-            return deleted
+            async def _write() -> int:
+                conn = await self.instance_state.get_conn()
+                cursor = await conn.execute(
+                    f"DELETE FROM instance_state WHERE instance_id NOT IN ({placeholders})",
+                    tuple(active_instance_ids),
+                )
+                deleted = int(cursor.rowcount or 0)
+                # Keep lineage as an immutable audit trail. It is also the durable
+                # source enforcing one split per parent over the parent's lifetime.
+                await conn.commit()
+                return deleted
+
+            return await self.instance_state._with_write_retries("cleanup_orphaned_instances", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur cleanup_orphaned_instances: {e}")
             return 0
@@ -1341,40 +1344,43 @@ class StatePersistence:
         await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.instance_state.get_conn()
-            await conn.execute(
-                """
-                INSERT INTO instance_lineage
-                (child_instance_id, parent_instance_id, root_instance_id, generation,
-                 child_capital, parent_capital_after, symbol, strategy, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(child_instance_id) DO UPDATE SET
-                    parent_instance_id=excluded.parent_instance_id,
-                    root_instance_id=excluded.root_instance_id,
-                    generation=excluded.generation,
-                    child_capital=excluded.child_capital,
-                    parent_capital_after=excluded.parent_capital_after,
-                    symbol=excluded.symbol,
-                    strategy=excluded.strategy,
-                    status=excluded.status,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    child_instance_id,
-                    parent_instance_id,
-                    root_instance_id,
-                    int(generation),
-                    float(child_capital),
-                    float(parent_capital_after),
-                    symbol,
-                    strategy,
-                    status,
-                    now,
-                    now,
-                ),
-            )
-            await conn.commit()
-            return True
+            async def _write() -> bool:
+                conn = await self.instance_state.get_conn()
+                await conn.execute(
+                    """
+                    INSERT INTO instance_lineage
+                    (child_instance_id, parent_instance_id, root_instance_id, generation,
+                     child_capital, parent_capital_after, symbol, strategy, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(child_instance_id) DO UPDATE SET
+                        parent_instance_id=excluded.parent_instance_id,
+                        root_instance_id=excluded.root_instance_id,
+                        generation=excluded.generation,
+                        child_capital=excluded.child_capital,
+                        parent_capital_after=excluded.parent_capital_after,
+                        symbol=excluded.symbol,
+                        strategy=excluded.strategy,
+                        status=excluded.status,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        child_instance_id,
+                        parent_instance_id,
+                        root_instance_id,
+                        int(generation),
+                        float(child_capital),
+                        float(parent_capital_after),
+                        symbol,
+                        strategy,
+                        status,
+                        now,
+                        now,
+                    ),
+                )
+                await conn.commit()
+                return True
+
+            return await self.instance_state._with_write_retries("record_instance_lineage", _write)
         except Exception as e:
             logger.exception(f"Erreur record_instance_lineage: {e}")
             return False
@@ -1414,16 +1420,19 @@ class StatePersistence:
         await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.instance_state.get_conn()
-            await conn.execute(
-                """
-                INSERT INTO trades (position_id, instance_id, side, price, volume, profit, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (position_id, instance_id, side, price, volume, profit, now)
-            )
-            await conn.commit()
-            return True
+            async def _write() -> bool:
+                conn = await self.instance_state.get_conn()
+                await conn.execute(
+                    """
+                    INSERT INTO trades (position_id, instance_id, side, price, volume, profit, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (position_id, instance_id, side, price, volume, profit, now)
+                )
+                await conn.commit()
+                return True
+
+            return await self.instance_state._with_write_retries("record_trade", _write)
         except Exception as e:
             logger.exception(f"❌ Erreur record_trade: {e}")
             return False
@@ -1667,7 +1676,6 @@ class StatePersistence:
         await self.initialize()
         now = datetime.now(timezone.utc).isoformat()
         try:
-            conn = await self.orders.get_conn()
             payload = kwargs.get("payload_json")
             if payload is None:
                 payload = kwargs.get("payload")
@@ -1732,9 +1740,14 @@ class StatePersistence:
                 "ON CONFLICT(decision_ledger_id, horizon_minutes) DO UPDATE SET "
                 f"{assignments}"
             )
-            await conn.execute(query, tuple(vals))
-            await conn.commit()
-            return True
+
+            async def _write() -> bool:
+                conn = await self.orders.get_conn()
+                await conn.execute(query, tuple(vals))
+                await conn.commit()
+                return True
+
+            return await self.orders._with_write_retries("upsert_signal_outcome", _write)
         except Exception as e:
             logger.exception(f"Erreur upsert_signal_outcome: {e}")
             return False
