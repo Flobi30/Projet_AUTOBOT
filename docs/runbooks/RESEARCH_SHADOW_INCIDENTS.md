@@ -67,6 +67,12 @@ This is a proof of recoverability, not a retained backup policy. The retained
 backup service remains disabled until encrypted off-VPS storage, retention and
 restore ownership have been explicitly approved.
 
+When an approved retained bundle is eventually created, recovery must begin
+with `sqlite-backup-bundle-restore-drill`. The drill rejects a bundle without
+its final `.autobot_backup_bundle_durability.json` receipt or whose receipt no
+longer matches `manifest.json`; do not attempt a manual runtime restore from a
+staging directory or an incomplete bundle.
+
 ## Reconciliation and restart
 
 1. Keep paper capital and live disabled.

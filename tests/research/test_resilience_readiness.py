@@ -4,11 +4,14 @@ import ast
 from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
 
 import pytest
+
+import autobot.v2.research.resilience_readiness as resilience_readiness
 
 from autobot.v2.research.resilience_readiness import (
     FailClosedRecoveryPlan,
@@ -278,6 +281,19 @@ def test_sqlite_backup_bundle_captures_fixed_scope_and_preserves_wal_commits(tmp
     assert bundle.capture_finished_at >= bundle.capture_started_at
     assert [entry.status for entry in bundle.entries] == ["BACKED_UP"] * 4
     assert (tmp_path / "backups" / "run_2026_07_29" / "manifest.json").is_file()
+    marker_payload = json.loads(
+        (tmp_path / "backups" / "run_2026_07_29" / ".autobot_backup_bundle_durability.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert marker_payload["publication_complete"] is True
+    assert marker_payload["manifest_sha256"] == sha256(
+        (tmp_path / "backups" / "run_2026_07_29" / "manifest.json").read_bytes()
+    ).hexdigest()
+    assert marker_payload["durability_status"] in {
+        "DURABLE_FILE_AND_DIRECTORY_SYNCED",
+        "FILE_SYNCED_DIRECTORY_SYNC_UNAVAILABLE",
+    }
     assert state_before == state_path.read_bytes()
     for entry in bundle.entries:
         assert entry.backup is not None
@@ -321,6 +337,10 @@ def test_sqlite_backup_bundle_restore_drill_rejects_tampered_manifest_or_missing
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["entries"][0]["backup"]["backup_sha256"] = "0" * 64
     manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    marker_path = bundle_path / ".autobot_backup_bundle_durability.json"
+    marker_payload = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker_payload["manifest_sha256"] = sha256(manifest_path.read_bytes()).hexdigest()
+    marker_path.write_text(json.dumps(marker_payload, sort_keys=True), encoding="utf-8")
 
     with pytest.raises(ResilienceError, match="snapshot fingerprint mismatch"):
         verify_sqlite_backup_bundle_restore_drill(bundle_path)
@@ -330,6 +350,56 @@ def test_sqlite_backup_bundle_restore_drill_rejects_tampered_manifest_or_missing
     (fresh_bundle_path / "runtime_state.sqlite3").unlink()
     with pytest.raises(ResilienceError, match="snapshot is missing"):
         verify_sqlite_backup_bundle_restore_drill(fresh_bundle_path)
+
+
+def test_sqlite_backup_bundle_restore_drill_rejects_missing_or_incomplete_durability_receipt(tmp_path):
+    repo = _backup_scope_repo(tmp_path)
+    bundle_path = tmp_path / "backups" / "durability_receipt"
+    create_verified_sqlite_backup_bundle(repo, bundle_path)
+    marker_path = bundle_path / ".autobot_backup_bundle_durability.json"
+    marker_path.unlink()
+
+    with pytest.raises(ResilienceError, match="not durably published"):
+        verify_sqlite_backup_bundle_restore_drill(bundle_path)
+
+    fresh_bundle_path = tmp_path / "backups" / "pending_durability_receipt"
+    create_verified_sqlite_backup_bundle(repo, fresh_bundle_path)
+    fresh_marker_path = fresh_bundle_path / ".autobot_backup_bundle_durability.json"
+    payload = json.loads(fresh_marker_path.read_text(encoding="utf-8"))
+    payload["durability_status"] = "PENDING_FINAL_DIRECTORY_SYNC"
+    fresh_marker_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ResilienceError, match="not durably published"):
+        verify_sqlite_backup_bundle_restore_drill(fresh_bundle_path)
+
+
+def test_sqlite_backup_bundle_fails_closed_when_final_directory_sync_cannot_complete(tmp_path, monkeypatch):
+    repo = _backup_scope_repo(tmp_path)
+    bundle_path = tmp_path / "backups" / "failed_final_directory_sync"
+    original_sync_directory = resilience_readiness._sync_directory_to_disk
+    bundle_sync_calls = 0
+
+    def fail_only_after_publication(directory: Path) -> bool:
+        nonlocal bundle_sync_calls
+        if directory.resolve() == bundle_path.resolve():
+            bundle_sync_calls += 1
+            if bundle_sync_calls == 2:
+                raise ResilienceError("simulated final directory sync failure")
+            return True
+        return original_sync_directory(directory)
+
+    monkeypatch.setattr(resilience_readiness, "_sync_directory_to_disk", fail_only_after_publication)
+
+    with pytest.raises(ResilienceError, match="simulated final directory sync failure"):
+        create_verified_sqlite_backup_bundle(repo, bundle_path)
+
+    assert bundle_path.is_dir()
+    marker_payload = json.loads(
+        (bundle_path / ".autobot_backup_bundle_durability.json").read_text(encoding="utf-8")
+    )
+    assert marker_payload["durability_status"] == "PENDING_FINAL_DIRECTORY_SYNC"
+    with pytest.raises(ResilienceError, match="not durably published"):
+        verify_sqlite_backup_bundle_restore_drill(bundle_path)
 
 
 @pytest.mark.parametrize(

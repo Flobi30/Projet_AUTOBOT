@@ -85,6 +85,8 @@ DEFAULT_SQLITE_BACKUP_SCOPE: tuple[tuple[str, str, bool, str], ...] = (
     ("strategy_artifacts", "data/research/strategy_artifacts.sqlite3", False, "append-only governed strategy artifacts"),
 )
 SQLITE_BACKUP_SCOPE_VERSION = "autobot_sqlite_backup_scope_v1"
+SQLITE_BACKUP_DURABILITY_MARKER_FILENAME = ".autobot_backup_bundle_durability.json"
+SQLITE_BACKUP_DURABILITY_MARKER_SCHEMA_VERSION = 1
 
 
 class ResilienceError(ValueError):
@@ -881,7 +883,11 @@ def create_verified_sqlite_backup_bundle(
             json.dumps(asdict(manifest), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        _sync_file_to_disk(staging_path / "manifest.json")
+        _sync_directory_to_disk(staging_path)
         os.replace(staging_path, destination_path)
+        _sync_directory_to_disk(destination_path.parent)
+        _publish_sqlite_backup_bundle_durability_marker(destination_path)
         return manifest
     except Exception:
         if staging_path.exists():
@@ -905,6 +911,7 @@ def verify_sqlite_backup_bundle_restore_drill(
     if not resolved_bundle_path.is_dir() or not manifest_path.is_file():
         raise ResilienceError("SQLite backup bundle manifest does not exist")
     manifest_sha256_before = _sha256_file(manifest_path)
+    _verify_sqlite_backup_bundle_durability_marker(resolved_bundle_path, manifest_sha256_before)
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -1025,10 +1032,12 @@ def create_verified_sqlite_backup(
                 destination_connection,
                 context="SQLite backup",
             )
+        _sync_file_to_disk(temporary_path)
         try:
             os.link(temporary_path, destination_path)
         except FileExistsError as exc:
             raise ResilienceError("SQLite backup destination already exists; refusing to overwrite it") from exc
+        _sync_directory_to_disk(destination_path.parent)
     finally:
         _remove_sqlite_artifacts(temporary_path)
     return SQLiteBackupManifest(
@@ -1312,6 +1321,137 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _sync_file_to_disk(path: Path) -> None:
+    """Synchronize a completed file before it is treated as backup evidence."""
+
+    try:
+        # On Windows, ``os.fsync`` rejects a read-only file descriptor. Every
+        # target here is a private staged copy or a compact marker, so opening
+        # it read/write is safe and keeps the same helper valid on Linux.
+        with path.open("r+b") as handle:
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        raise ResilienceError(f"could not synchronize SQLite backup file: {path.name}") from exc
+
+
+def _sync_directory_to_disk(directory: Path) -> bool:
+    """Synchronize directory metadata when the host offers POSIX directory fsync.
+
+    Windows does not expose a portable directory descriptor through ``os.open``.
+    In that case every file and marker is still synchronized, but the marker
+    records that directory-entry durability was not independently proven. The
+    Linux VPS will take the stricter POSIX branch.
+    """
+
+    if os.name == "nt":
+        return False
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(directory, flags)
+    except OSError as exc:
+        raise ResilienceError(f"could not open SQLite backup directory for synchronization: {directory.name}") from exc
+    try:
+        os.fsync(descriptor)
+    except OSError as exc:
+        raise ResilienceError(f"could not synchronize SQLite backup directory: {directory.name}") from exc
+    finally:
+        os.close(descriptor)
+    return True
+
+
+def _publish_sqlite_backup_bundle_durability_marker(bundle_path: Path) -> None:
+    """Write the final fail-closed receipt for an atomically published bundle."""
+
+    manifest_path = bundle_path / "manifest.json"
+    marker_path = bundle_path / SQLITE_BACKUP_DURABILITY_MARKER_FILENAME
+    manifest_sha256 = _sha256_file(manifest_path)
+    base_payload = {
+        "schema_version": SQLITE_BACKUP_DURABILITY_MARKER_SCHEMA_VERSION,
+        "bundle_id": bundle_path.name,
+        "manifest_filename": manifest_path.name,
+        "manifest_sha256": manifest_sha256,
+        "publication_complete": True,
+    }
+    _write_durable_json(
+        marker_path,
+        {
+            **base_payload,
+            "durability_status": "PENDING_FINAL_DIRECTORY_SYNC",
+        },
+    )
+    directory_sync_supported = _sync_directory_to_disk(bundle_path)
+    final_status = (
+        "DURABLE_FILE_AND_DIRECTORY_SYNCED"
+        if directory_sync_supported
+        else "FILE_SYNCED_DIRECTORY_SYNC_UNAVAILABLE"
+    )
+    _write_durable_json(
+        marker_path,
+        {
+            **base_payload,
+            "durability_status": final_status,
+        },
+    )
+    try:
+        _sync_directory_to_disk(bundle_path)
+    except Exception:
+        # The earlier pending receipt was already directory-synchronized. Put
+        # that conservative state back on disk before surfacing the failure so
+        # a later restore drill cannot mistake an interrupted final fsync for
+        # a completed publication.
+        _write_durable_json(
+            marker_path,
+            {
+                **base_payload,
+                "durability_status": "PENDING_FINAL_DIRECTORY_SYNC",
+            },
+        )
+        try:
+            _sync_directory_to_disk(bundle_path)
+        except Exception:
+            # The pending marker is still safer than a success claim. Preserve
+            # the original synchronization failure for the caller.
+            pass
+        raise
+
+
+def _verify_sqlite_backup_bundle_durability_marker(bundle_path: Path, manifest_sha256: str) -> None:
+    """Reject bundles whose atomic publication did not reach its final receipt."""
+
+    marker_path = bundle_path / SQLITE_BACKUP_DURABILITY_MARKER_FILENAME
+    if not marker_path.is_file():
+        raise ResilienceError("SQLite backup bundle is not durably published")
+    try:
+        payload = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ResilienceError("SQLite backup bundle durability marker is unreadable") from exc
+    if not isinstance(payload, Mapping):
+        raise ResilienceError("SQLite backup bundle durability marker must be an object")
+    if payload.get("schema_version") != SQLITE_BACKUP_DURABILITY_MARKER_SCHEMA_VERSION:
+        raise ResilienceError("SQLite backup bundle durability marker has an unsupported schema version")
+    if payload.get("bundle_id") != bundle_path.name or payload.get("manifest_filename") != "manifest.json":
+        raise ResilienceError("SQLite backup bundle durability marker does not match its bundle")
+    if payload.get("publication_complete") is not True or payload.get("manifest_sha256") != manifest_sha256:
+        raise ResilienceError("SQLite backup bundle durability marker does not match its manifest")
+    if payload.get("durability_status") not in {
+        "DURABLE_FILE_AND_DIRECTORY_SYNCED",
+        "FILE_SYNCED_DIRECTORY_SYNC_UNAVAILABLE",
+    }:
+        raise ResilienceError("SQLite backup bundle is not durably published")
+
+
+def _write_durable_json(path: Path, payload: Mapping[str, Any]) -> None:
+    """Write and synchronize a compact non-secret backup publication record."""
+
+    try:
+        with path.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(dict(payload), indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        raise ResilienceError(f"could not synchronize SQLite backup publication record: {path.name}") from exc
 
 
 def _remove_sqlite_artifacts(path: Path) -> None:
