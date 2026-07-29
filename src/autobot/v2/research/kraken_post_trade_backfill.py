@@ -21,6 +21,8 @@ from typing import Any, Mapping, Protocol, Sequence
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .public_collector_boundary import assert_public_collector_boundary
+
 
 KRAKEN_POST_TRADE_ENDPOINT = "/0/public/PostTrade"
 KRAKEN_POST_TRADE_URL = f"https://api.kraken.com{KRAKEN_POST_TRADE_ENDPOINT}"
@@ -280,6 +282,11 @@ def collect_kraken_spot_post_trade_backfill(
     retrieved_at: datetime | None = None,
 ) -> KrakenPostTradeBackfillResult:
     """Collect one bounded public EUR spot window without any order-capable API."""
+
+    # Keep the static public-collector boundary ahead of both the default
+    # network client and any caller-provided client. A source regression must
+    # fail before data retrieval or local output preparation begins.
+    assert_public_collector_boundary(("kraken_post_trade_backfill",))
 
     collected_at = _utc(retrieved_at or datetime.now(timezone.utc), "retrieved_at")
     fetch_client = client or UrllibKrakenPostTradeClient(timeout_seconds=config.timeout_seconds)

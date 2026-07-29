@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -10,6 +11,7 @@ from autobot.v2.research import forward_microstructure_collection as forward_mic
 from autobot.v2.research import historical_data_collector as historical
 from autobot.v2.research import kraken_ohlcvt_archive as ohlcvt_archive
 from autobot.v2.research import kraken_futures_derivatives_collector as derivatives
+from autobot.v2.research import kraken_post_trade_backfill as post_trade
 from autobot.v2.research import spread_depth_recorder as spread_depth
 from autobot.v2.research import daily_data_collection_runner as daily_runner
 from autobot.v2.research.public_collector_boundary import (
@@ -125,6 +127,15 @@ def test_cli_boundary_audit_is_read_only_and_reports_a_pass(capsys):
                 raw_dir="unused",
             ),
         ),
+        (
+            post_trade,
+            post_trade.KrakenPostTradeBackfillConfig(
+                run_id="blocked_post_trade",
+                market=post_trade.KrakenEurSpotMarket("BTCZEUR", "BTC/EUR", "BTC", "XBT"),
+                start_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                end_at=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
+            ),
+        ),
     ],
 )
 def test_public_collector_entrypoints_fail_before_io_when_boundary_audit_fails(
@@ -144,6 +155,8 @@ def test_public_collector_entrypoints_fail_before_io_when_boundary_audit_fails(
             spread_depth.record_spread_depth(config)
         elif module is forward_microstructure:
             forward_microstructure.collect_forward_microstructure(config)
+        elif module is post_trade:
+            post_trade.collect_kraken_spot_post_trade_backfill(config)
         else:
             derivatives.collect_kraken_futures_derivatives(config)
 

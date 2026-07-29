@@ -21,6 +21,7 @@ PUBLIC_COLLECTOR_MODULES = (
     "spread_depth_recorder",
     "forward_microstructure_collection",
     "kraken_futures_derivatives_collector",
+    "kraken_post_trade_backfill",
 )
 
 _FORBIDDEN_IMPORT_PREFIXES = (
