@@ -1011,12 +1011,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     strategy_autonomy = subparsers.add_parser(
         "strategy-autonomy-check",
-        help="Evaluate one strategy against its research-only risk mandate",
+        help="Evaluate one strategy against its research-only risk mandate and optional read-only shadow ledger evidence",
     )
     strategy_autonomy.add_argument("--strategy-id", required=True)
-    strategy_autonomy.add_argument("--state-db", default=None)
+    strategy_autonomy.add_argument(
+        "--state-db",
+        default=None,
+        help="Optional state DB read only through the official attributed shadow ledger loader",
+    )
     strategy_autonomy.add_argument("--mandates", default="docs/research/strategy_risk_mandates.json")
-    strategy_autonomy.add_argument("--output-dir", default=None)
+    strategy_autonomy.add_argument("--registry-path", default="docs/research/strategy_hypotheses.json")
+    strategy_autonomy.add_argument(
+        "--min-closed-trades-for-health",
+        type=int,
+        default=30,
+        help="Minimum attributed shadow closing trades before PF/expectancy can affect health (default: 30)",
+    )
+    strategy_autonomy.add_argument("--initial-capital-eur", type=float, default=1_000.0)
+    strategy_autonomy.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional directory for a compact read-only health evidence JSON artifact",
+    )
     strategy_autonomy.set_defaults(handler=_cmd_strategy_autonomy_check)
 
     paper = subparsers.add_parser("paper", help="Build a paper daily report from journal or SQLite ledgers")
@@ -3830,24 +3846,51 @@ def _cmd_strategy_autonomy_check(args: argparse.Namespace) -> int:
     mandates = load_strategy_risk_mandates(args.mandates)
     mandate = mandates.get(args.strategy_id)
     request = build_default_request(args.strategy_id)
-    gate_decision = PreTradeAutonomyGate().evaluate(mandate, request, StrategyHealthSnapshot())
+    health = StrategyHealthSnapshot()
+    ledger_health_evidence = None
+    extra_warnings: list[str] = []
+    if args.state_db:
+        from autobot.v2.research.strategy_ledger_health_evidence import (
+            StrategyLedgerHealthEvidenceConfig,
+            build_strategy_ledger_health_evidence,
+            write_strategy_ledger_health_evidence,
+        )
+
+        ledger_health_evidence = build_strategy_ledger_health_evidence(
+            StrategyLedgerHealthEvidenceConfig(
+                state_db_path=Path(args.state_db),
+                registry_path=Path(args.registry_path),
+                strategy_id=args.strategy_id,
+                min_closed_trades_for_health=args.min_closed_trades_for_health,
+                initial_capital_eur=args.initial_capital_eur,
+            )
+        )
+        if args.output_dir:
+            ledger_health_evidence = write_strategy_ledger_health_evidence(ledger_health_evidence, args.output_dir)
+        health = ledger_health_evidence.health
+        extra_warnings.extend(ledger_health_evidence.warnings)
+    else:
+        extra_warnings.append("state_db_not_provided_no_ledger_health")
+    gate_decision = PreTradeAutonomyGate().evaluate(mandate, request, health)
     gate_payload = gate_decision.to_dict()
     kill_decision = (
-        AutoKillDowngradeEngine().evaluate(mandate, StrategyHealthSnapshot()).to_dict()
+        AutoKillDowngradeEngine().evaluate(mandate, health).to_dict()
         if mandate is not None
         else None
     )
     payload = {
         "strategy_id": args.strategy_id,
         "state_db": args.state_db,
+        "registry_path": args.registry_path,
         "mandate_active": mandate is not None,
         "mandate": mandate.to_dict() if mandate else None,
+        "ledger_health_evidence": ledger_health_evidence.to_dict() if ledger_health_evidence else None,
         "pre_trade_autonomy": gate_payload,
         "auto_kill_downgrade": kill_decision,
         "passed_checks": gate_payload["passed_checks"],
         "failed_checks": gate_payload["failed_checks"],
         "blockers": gate_payload["blockers"],
-        "warnings": gate_payload["warnings"],
+        "warnings": list(dict.fromkeys([*gate_payload["warnings"], *extra_warnings])),
         "final_decision": gate_payload["final_decision"],
         "risk_direction": gate_payload["risk_direction"],
         "human_review_required": gate_payload["requires_human_approval"],
