@@ -468,6 +468,26 @@ class DataDriftAssessment:
     paper_capital_allowed: bool = False
     live_allowed: bool = False
 
+    def __post_init__(self) -> None:
+        baseline_total = float(self.baseline_total)
+        shadow_total = float(self.shadow_total)
+        if not math.isfinite(baseline_total) or baseline_total <= 0.0:
+            raise ShadowGovernanceError("data drift baseline_total must be finite and positive")
+        if not math.isfinite(shadow_total) or shadow_total <= 0.0:
+            raise ShadowGovernanceError("data drift shadow_total must be finite and positive")
+        categories = tuple(sorted(str(category).strip() for category in self.categories))
+        if not categories or not all(categories) or len(categories) != len(set(categories)):
+            raise ShadowGovernanceError("data drift categories must be non-empty and unique")
+        score = float(self.total_variation_score)
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ShadowGovernanceError("data drift total_variation_score must be in [0, 1]")
+        if self.paper_capital_allowed or self.live_allowed or not self.research_only:
+            raise ShadowGovernanceError("data drift assessment is research-only")
+        object.__setattr__(self, "baseline_total", baseline_total)
+        object.__setattr__(self, "shadow_total", shadow_total)
+        object.__setattr__(self, "categories", categories)
+        object.__setattr__(self, "total_variation_score", score)
+
 
 def assess_data_distribution_drift(
     baseline: Mapping[str, float],
@@ -730,6 +750,7 @@ class ShadowPerformanceWindow:
     data_age: timedelta
     data_drift_score: float | None = None
     feature_drift_evidence: FeatureDriftAssessment | None = None
+    data_drift_evidence: DataDriftAssessment | None = None
 
     def __post_init__(self) -> None:
         if self.trade_count < 0:
@@ -767,6 +788,22 @@ class ShadowPerformanceWindow:
                 abs_tol=1e-12,
             ):
                 raise ShadowGovernanceError("feature_drift_score does not match FeatureDriftAssessment evidence")
+        data_evidence = self.data_drift_evidence
+        if data_evidence is None:
+            if self.data_drift_score is not None:
+                raise ShadowGovernanceError("data_drift_score requires DataDriftAssessment evidence")
+        else:
+            if not isinstance(data_evidence, DataDriftAssessment):
+                raise ShadowGovernanceError("data_drift_evidence must be a DataDriftAssessment")
+            if self.data_drift_score is None:
+                object.__setattr__(self, "data_drift_score", data_evidence.total_variation_score)
+            elif not math.isclose(
+                float(self.data_drift_score),
+                data_evidence.total_variation_score,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ShadowGovernanceError("data_drift_score does not match DataDriftAssessment evidence")
 
 
 @dataclass(frozen=True)
@@ -1203,7 +1240,10 @@ def decide_shadow_safety(
         elif drift >= policy.watch_feature_drift:
             calculated = _more_severe(calculated, "WATCH")
             reasons.append("feature_drift_watch")
-    if performance.data_drift_score is not None:
+    if performance.data_drift_evidence is None:
+        calculated = _more_severe(calculated, "WATCH")
+        reasons.append("data_drift_evidence_missing")
+    elif performance.data_drift_score is not None:
         drift = performance.data_drift_score
         if drift >= policy.quarantine_data_drift:
             calculated = _more_severe(calculated, "QUARANTINE")

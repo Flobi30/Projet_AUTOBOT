@@ -191,6 +191,18 @@ def _feature_drift(score: float) -> object:
     )
 
 
+def _data_drift(score: float) -> object:
+    """Return simple, explicit distribution evidence with one exact score."""
+
+    normalized_score = float(score)
+    if not 0.0 <= normalized_score <= 1.0:
+        raise ValueError("fixture score must be in [0, 1]")
+    return assess_data_distribution_drift(
+        {"stable": 1.0, "shifted": 0.0},
+        {"stable": 1.0 - normalized_score, "shifted": normalized_score},
+    )
+
+
 def _holdout_partition_fixture(partition_id: str) -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -595,6 +607,7 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
         feature_drift_evidence=_feature_drift(0.05),
         cost_drift_bps=0.0,
         data_age=timedelta(seconds=10),
+        data_drift_evidence=_data_drift(0.05),
     )
     severe = ShadowPerformanceWindow(
         trade_count=60,
@@ -605,6 +618,7 @@ def test_shadow_safety_only_escalates_risk_reduction_and_cannot_start_shadow():
         feature_drift_evidence=_feature_drift(0.90),
         cost_drift_bps=10.0,
         data_age=timedelta(minutes=10),
+        data_drift_evidence=_data_drift(0.90),
     )
 
     watch = decide_shadow_safety(normal, previous_action="DISABLE_NEW_ENTRIES")
@@ -656,6 +670,7 @@ def test_shadow_cost_drift_can_only_reduce_or_block_the_shadow_envelope():
             feature_drift_evidence=_feature_drift(0.05),
             cost_drift_bps=cost_drift_bps,
             data_age=timedelta(seconds=10),
+            data_drift_evidence=_data_drift(0.05),
         )
 
     assert decide_shadow_safety(performance(-25.0)).action == "NORMAL"
@@ -695,6 +710,7 @@ def test_shadow_data_distribution_drift_is_bounded_and_can_only_reduce_risk():
             cost_drift_bps=0.0,
             data_age=timedelta(seconds=10),
             data_drift_score=data_drift_score,
+            data_drift_evidence=_data_drift(data_drift_score),
         )
 
     assert decide_shadow_safety(performance(0.15)).action == "WATCH"
@@ -711,6 +727,63 @@ def test_shadow_data_distribution_drift_is_bounded_and_can_only_reduce_risk():
         ShadowSafetyPolicy(reduce_data_drift=0.10)
 
 
+def test_data_drift_score_cannot_be_injected_or_mismatched_without_evidence():
+    missing_evidence = ShadowPerformanceWindow(
+        trade_count=60,
+        rolling_profit_factor=1.4,
+        rolling_expectancy_eur=0.1,
+        max_drawdown_pct=1.0,
+        feature_drift_score=0.05,
+        feature_drift_evidence=_feature_drift(0.05),
+        cost_drift_bps=0.0,
+        data_age=timedelta(seconds=10),
+    )
+    missing_decision = decide_shadow_safety(missing_evidence)
+    assert missing_decision.action == "WATCH"
+    assert "data_drift_evidence_missing" in missing_decision.reasons
+
+    with pytest.raises(ShadowGovernanceError, match="requires DataDriftAssessment"):
+        ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.05,
+            feature_drift_evidence=_feature_drift(0.05),
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=10),
+            data_drift_score=0.30,
+        )
+
+    with pytest.raises(ShadowGovernanceError, match="does not match"):
+        ShadowPerformanceWindow(
+            trade_count=60,
+            rolling_profit_factor=1.4,
+            rolling_expectancy_eur=0.1,
+            max_drawdown_pct=1.0,
+            feature_drift_score=0.05,
+            feature_drift_evidence=_feature_drift(0.05),
+            cost_drift_bps=0.0,
+            data_age=timedelta(seconds=10),
+            data_drift_score=0.10,
+            data_drift_evidence=_data_drift(0.30),
+        )
+
+    verified = ShadowPerformanceWindow(
+        trade_count=60,
+        rolling_profit_factor=1.4,
+        rolling_expectancy_eur=0.1,
+        max_drawdown_pct=1.0,
+        feature_drift_score=0.05,
+        feature_drift_evidence=_feature_drift(0.05),
+        cost_drift_bps=0.0,
+        data_age=timedelta(seconds=10),
+        data_drift_evidence=_data_drift(0.05),
+    )
+    assert verified.data_drift_score == pytest.approx(0.05)
+    assert decide_shadow_safety(verified).action == "NORMAL"
+
+
 def test_feature_drift_is_derived_from_verified_vectors_and_bound_to_safety():
     assessment = _feature_drift(0.30)
     window = ShadowPerformanceWindow(
@@ -722,6 +795,7 @@ def test_feature_drift_is_derived_from_verified_vectors_and_bound_to_safety():
         feature_drift_evidence=assessment,
         cost_drift_bps=0.0,
         data_age=timedelta(seconds=10),
+        data_drift_evidence=_data_drift(0.05),
     )
 
     assert assessment.feature_id == "basis_bps"
