@@ -14,6 +14,7 @@ pytestmark = pytest.mark.unit
 
 def _clear_execution_flags(monkeypatch):
     for name in (
+        "AUTOBOT_OBSERVATION_ONLY_RUNTIME",
         "PAPER_TRADING",
         "LIVE_TRADING_CONFIRMATION",
         "STRATEGY_ROUTER_LIVE_ENABLED",
@@ -26,6 +27,10 @@ def _clear_execution_flags(monkeypatch):
 def test_real_add_order_is_blocked_without_explicit_authorization(monkeypatch):
     async def _run():
         _clear_execution_flags(monkeypatch)
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         executor = OrderExecutorAsync(api_key="test-key", api_secret="c2VjcmV0")
         called = False
 
@@ -47,6 +52,10 @@ def test_real_add_order_is_blocked_without_explicit_authorization(monkeypatch):
 def test_real_cancel_order_is_blocked_without_explicit_authorization(monkeypatch):
     async def _run():
         _clear_execution_flags(monkeypatch)
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         executor = OrderExecutorAsync(api_key="test-key", api_secret="c2VjcmV0")
         called = False
 
@@ -96,6 +105,10 @@ def test_real_mutation_requires_all_explicit_flags(monkeypatch):
 
 def test_sync_executor_cannot_bypass_real_mutation_guard(monkeypatch):
     _clear_execution_flags(monkeypatch)
+    monkeypatch.setattr(
+        "autobot.v2.order_executor.reject_private_execution_component",
+        lambda _component: None,
+    )
     executor = OrderExecutor(api_key="test-key", api_secret="test-secret")
     queried = False
 

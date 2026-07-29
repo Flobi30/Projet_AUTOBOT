@@ -14,6 +14,16 @@ pytestmark = pytest.mark.integration
 
 def test_duplicate_order_idempotency(monkeypatch):
     async def _run():
+        # The executor is replaced below; make this a hermetic router-state
+        # test rather than a deployment-mode test.
+        monkeypatch.setattr(
+            "autobot.v2.order_router.observation_only_runtime",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         router = OrderRouter(api_key="k", api_secret="s")
         await router.start()
 

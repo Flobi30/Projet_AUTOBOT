@@ -59,6 +59,42 @@ def test_paper_execution_requires_every_explicit_guard(monkeypatch):
     assert observation_only_runtime() is True
 
 
+def test_observation_runtime_defaults_closed_until_an_execution_authorization_is_complete(monkeypatch):
+    for name in (
+        "AUTOBOT_OBSERVATION_ONLY_RUNTIME",
+        "PAPER_TRADING",
+        "PAPER_EXECUTION_ADAPTER_ENABLED",
+        "PAPER_EXECUTION_ROUTER_ENABLED",
+        "PAPER_TEST_TRADING_ENABLED",
+        "LIVE_TRADING_CONFIRMATION",
+        "STRATEGY_ROUTER_LIVE_ENABLED",
+        "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED",
+        "PREFLIGHT_ONLY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    assert observation_only_runtime() is True
+
+    # A manually cleared observation lock is not itself an authorization.
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "false")
+    assert observation_only_runtime() is True
+
+    for name, value in {
+        "PAPER_TRADING": "false",
+        "LIVE_TRADING_CONFIRMATION": "true",
+        "STRATEGY_ROUTER_LIVE_ENABLED": "true",
+        "AUTOBOT_REAL_ORDER_EXECUTION_ENABLED": "true",
+        "PREFLIGHT_ONLY": "false",
+    }.items():
+        monkeypatch.setenv(name, value)
+    assert observation_only_runtime() is False
+
+    # The explicit lock remains authoritative even over a complete future
+    # authorization configuration.
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+    assert observation_only_runtime() is True
+
+
 def test_observation_runtime_never_starts_private_exchange_reconciliation():
     assert _exchange_reconciliation_enabled(observation_only=True) is False
     assert _exchange_reconciliation_enabled(observation_only=False) is True

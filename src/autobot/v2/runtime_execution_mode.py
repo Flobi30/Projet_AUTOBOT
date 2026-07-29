@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 
+from .execution_authorization import real_order_mutation_authorized
+
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _PAPER_EXECUTION_GUARDS = (
@@ -41,16 +43,18 @@ def paper_execution_authorized() -> bool:
 def observation_only_runtime() -> bool:
     """Return whether the running service must have no order-capable executor.
 
-    ``AUTOBOT_OBSERVATION_ONLY_RUNTIME`` is an explicit deployment lock.  If
-    it is true, it always wins.  A false value is not an execution
-    authorization: a paper runtime still defaults to observation-only until
-    all paper execution guards are explicitly enabled.
+    ``AUTOBOT_OBSERVATION_ONLY_RUNTIME`` is an explicit deployment lock. If it
+    is true, it always wins. A false value is not an execution authorization.
+    When the variable is absent, fail closed: a private executor is permitted
+    only after the complete paper or real-mutation authorization has been
+    deliberately provided. This prevents an incomplete deployment environment
+    from silently selecting the legacy private-client path.
     """
 
     explicit = os.getenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME")
     if explicit is not None and explicit.strip().lower() in _TRUE_VALUES:
         return True
-    return env_enabled("PAPER_TRADING") and not paper_execution_authorized()
+    return not (paper_execution_authorized() or real_order_mutation_authorized())
 
 
 def reject_private_execution_component(component: str) -> None:

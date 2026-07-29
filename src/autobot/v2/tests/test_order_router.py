@@ -52,6 +52,26 @@ async def reset_router():
     reset_order_router()
 
 
+@pytest.fixture(autouse=True)
+def mock_execution_boundary_for_router_state_tests(monkeypatch):
+    """Keep legacy router state tests hermetic and outside runtime policy.
+
+    This suite replaces the executor with mocks to exercise queue ordering,
+    idempotence and state transitions. It must not depend on the deployment's
+    observation-only lock, which is covered separately by
+    ``test_observation_execution_boundary``.
+    """
+
+    monkeypatch.setattr(
+        "autobot.v2.order_router.observation_only_runtime",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "autobot.v2.order_executor_async.reject_private_execution_component",
+        lambda _component: None,
+    )
+
+
 @pytest_asyncio.fixture
 async def router():
     """Fixture créant un router mocké pour les tests."""

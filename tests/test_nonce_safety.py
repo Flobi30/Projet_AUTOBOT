@@ -67,7 +67,7 @@ def test_nonce_reservation_retries_only_transient_sqlite_lock(tmp_path, monkeypa
     assert high == low + 1
 
 
-def test_order_executor_uses_reserved_local_nonce_range():
+def test_order_executor_uses_reserved_local_nonce_range(monkeypatch):
     async def _run():
         class FakeNonceManager:
             def __init__(self) -> None:
@@ -81,6 +81,12 @@ def test_order_executor_uses_reserved_local_nonce_range():
             def next_nonce(self, _api_key_id: str) -> int:
                 raise AssertionError("next_nonce should not be used by async executor")
 
+        # This is a hermetic nonce unit test, not an execution-path test.
+        # Bypass only the constructor guard; no private request is made.
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         fake = FakeNonceManager()
         ex = OrderExecutorAsync(api_key="k", api_secret="c2VjcmV0", nonce_manager=fake)
 
@@ -99,6 +105,12 @@ def test_repeated_invalid_nonce_triggers_circuit_breaker(monkeypatch):
         async def cb():
             tripped["v"] = True
 
+        # This test exercises the local nonce/error circuit only. It does not
+        # create a private request, so bypass the constructor guard explicitly.
+        monkeypatch.setattr(
+            "autobot.v2.order_executor_async.reject_private_execution_component",
+            lambda _component: None,
+        )
         ex = OrderExecutorAsync(api_key="k", api_secret="c2VjcmV0")
         ex.set_circuit_breaker_callback(cb)
 
