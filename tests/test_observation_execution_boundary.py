@@ -24,6 +24,7 @@ from autobot.v2.paper_trading import (
     get_paper_executor,
     reset_paper_executor,
 )
+from autobot.v2.ring_buffer_dispatcher import RingBufferDispatcher
 from autobot.v2.orchestrator_async import (
     OrchestratorAsync,
     _build_runtime_order_executor,
@@ -40,6 +41,8 @@ from autobot.v2.runtime_execution_mode import (
     runtime_exchange_credentials,
 )
 from autobot.v2.startup_attestation import StartupAttestation, _CheckOutcome
+from autobot.v2.websocket_async import KrakenWebSocketAsync, WebSocketMultiplexerAsync
+from autobot.v2.websocket_client import KrakenWebSocket, WebSocketMultiplexer
 
 
 pytestmark = pytest.mark.unit
@@ -171,6 +174,28 @@ def test_direct_observation_orchestrator_never_forwards_credentials_to_public_we
     assert orchestrator.ring_dispatcher._ws.api_secret is None
     assert "KRAKEN_API_KEY" not in os.environ
     assert "KRAKEN_API_SECRET" not in os.environ
+
+
+def test_public_websocket_components_discard_legacy_credential_arguments():
+    api_key = "argument-key-must-not-survive"
+    api_secret = "argument-secret-must-not-survive"
+
+    async_client = KrakenWebSocketAsync(api_key, api_secret)
+    async_multiplexer = WebSocketMultiplexerAsync(api_key, api_secret)
+    dispatcher = RingBufferDispatcher(api_key, api_secret)
+    sync_client = KrakenWebSocket(api_key, api_secret)
+    sync_multiplexer = WebSocketMultiplexer(api_key, api_secret)
+
+    assert async_client.api_key is None
+    assert async_client.api_secret is None
+    assert async_multiplexer._ws.api_key is None
+    assert async_multiplexer._ws.api_secret is None
+    assert dispatcher._ws.api_key is None
+    assert dispatcher._ws.api_secret is None
+    assert sync_client.api_key is None
+    assert sync_client.api_secret is None
+    assert sync_multiplexer._ws.api_key is None
+    assert sync_multiplexer._ws.api_secret is None
 
 
 def test_legacy_order_router_cannot_construct_an_executor_or_submit_in_observation_mode(monkeypatch):

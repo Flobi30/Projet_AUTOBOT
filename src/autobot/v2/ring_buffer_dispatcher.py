@@ -152,14 +152,17 @@ class RingBufferDispatcher:
     ) -> None:
         """
         Args:
-            api_key:     Kraken API key (passed to KrakenWebSocketAsync).
-            api_secret:  Kraken API secret.
+            api_key:     Accepted only for legacy call compatibility; ignored.
+            api_secret:  Accepted only for legacy call compatibility; ignored.
             buffer_size: Slots per pair buffer.  Must be a power of 2.
                          Default: 65 536 — at 10 ticks/s per pair this
                          gives ~6 553 seconds of history before overwrite.
         """
+        # The dispatcher owns public ticker/book subscriptions only. Discard
+        # legacy credential arguments before constructing its websocket.
+        del api_key, api_secret
         self._buffer_size = buffer_size
-        self._ws = KrakenWebSocketAsync(api_key, api_secret)
+        self._ws = KrakenWebSocketAsync()
 
         # Per-pair ring buffers — created lazily on first subscribe.
         self._buffers: Dict[str, RingBuffer] = {}

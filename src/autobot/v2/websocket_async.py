@@ -50,8 +50,12 @@ class KrakenWebSocketAsync:
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
     ) -> None:
-        self.api_key = api_key
-        self.api_secret = api_secret
+        # This client connects only to ``WS_PUBLIC``. Keep the legacy
+        # parameters for compatibility, but never retain credentials in a
+        # public market-data component.
+        del api_key, api_secret
+        self.api_key: Optional[str] = None
+        self.api_secret: Optional[str] = None
 
         # Connection state
         self._ws: Any = None  # websockets.WebSocketClientProtocol
@@ -652,7 +656,9 @@ class WebSocketMultiplexerAsync:
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
     ) -> None:
-        self._ws = KrakenWebSocketAsync(api_key, api_secret)
+        # Public subscriptions do not require private Kraken credentials.
+        del api_key, api_secret
+        self._ws = KrakenWebSocketAsync()
         self._callbacks: Dict[str, List[AsyncCallback]] = {}
         # Track which pairs we already subscribed on the WS level
         self._ws_subscribed: Set[str] = set()

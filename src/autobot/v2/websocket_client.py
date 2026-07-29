@@ -42,8 +42,11 @@ class KrakenWebSocket:
     WS_PRIVATE = "wss://ws-auth.kraken.com"
     
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
-        self.api_key = api_key
-        self.api_secret = api_secret
+        # This legacy-compatible client uses only the public websocket URL.
+        # Never retain credentials in a market-data component.
+        del api_key, api_secret
+        self.api_key: Optional[str] = None
+        self.api_secret: Optional[str] = None
         self.ws: Optional[websocket.WebSocketApp] = None
         self.thread: Optional[threading.Thread] = None
         
@@ -415,7 +418,8 @@ class WebSocketMultiplexer:
     
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
         # UNE seule connexion WebSocket
-        self._ws = KrakenWebSocket(api_key, api_secret)
+        del api_key, api_secret
+        self._ws = KrakenWebSocket()
         self._lock = threading.Lock()
         
         # Dispatch: pair -> [Queue, ...] pour chaque instance
