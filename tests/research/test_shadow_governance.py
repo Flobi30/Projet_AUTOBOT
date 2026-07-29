@@ -33,6 +33,32 @@ from autobot.v2.research.shadow_governance import (
 pytestmark = pytest.mark.unit
 
 
+def _passed_gate_evidence(stage: str) -> dict[str, object]:
+    metrics: dict[str, object] = {}
+    if stage == "NET_SMOKE":
+        metrics = {"adapter_decision": "KEEP_RESEARCH", "variant_count": 1}
+    elif stage == "WALK_FORWARD":
+        metrics = {"trade_count": 50, "net_pnl_eur": 1.0}
+    elif stage == "STRESS_MONTE_CARLO":
+        metrics = {
+            "trade_count": 50,
+            "assumed_trial_count": 1,
+            "probabilistic_sharpe": {"acceptable": True},
+            "deflated_sharpe": {"acceptable": True},
+            "robustness": {"verdict": "observation_ready_not_promoted"},
+            "statistical_gate_decision": "SHADOW_REVIEW_ELIGIBLE",
+        }
+    return {
+        "metrics": metrics,
+        "artifacts": (
+            {
+                "path": f"pytest://{stage}",
+                "fingerprint": sha256(stage.encode("utf-8")).hexdigest(),
+            },
+        ),
+    }
+
+
 def _risk_mandate() -> RiskMandateReference:
     return RiskMandateReference(
         mandate_id="funding_basis_shadow_mandate",
@@ -210,7 +236,12 @@ def _passed_experiment_registry(tmp_path) -> tuple[ExperimentRegistry, str]:
         manifest={"partition": _holdout_partition_fixture("holdout_shadow_fixture")},
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
-        state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+        state = registry.record_gate_result(
+            experiment_id=state.experiment_id,
+            stage=stage,
+            status="PASSED",
+            **_passed_gate_evidence(stage),
+        )
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},
@@ -429,7 +460,12 @@ def test_shadow_artifact_factory_refuses_experiment_without_point_in_time_featur
         manifest={"partition": _holdout_partition_fixture("holdout_legacy_fixture")},
     )
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
-        state = registry.record_gate_result(experiment_id=state.experiment_id, stage=stage, status="PASSED")
+        state = registry.record_gate_result(
+            experiment_id=state.experiment_id,
+            stage=stage,
+            status="PASSED",
+            **_passed_gate_evidence(stage),
+        )
     registry.record_final_holdout_review(
         experiment_id=state.experiment_id,
         metrics={"net_pnl_eur": 3.0, "profit_factor": 1.2},

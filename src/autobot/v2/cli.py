@@ -2628,17 +2628,19 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
     data_paths = tuple(Path(path) for path in _csv_tuple(args.data_paths, "--data-paths")) if args.data_paths else ()
     if bool(args.holdout_id) != bool(args.holdout_partition_manifest):
         raise ValueError("--holdout-id and --holdout-partition-manifest must be supplied together")
-    if args.holdout_id and not args.feature_snapshot_manifest:
-        raise ValueError("--holdout-id requires --feature-snapshot-manifest for provenance verification")
-    pre_run_context = None
+    if not args.feature_snapshot_manifest:
+        raise ValueError("--feature-snapshot-manifest is required for every material alpha runner execution")
     pre_run_commit = str(args.commit or _current_git_commit() or "").strip()
-    if args.feature_snapshot_manifest and pre_run_commit:
-        pre_run_context = _prepare_alpha_experiment_context(
-            args,
-            data_paths=data_paths,
-            hypothesis_id=args.hypothesis_id,
-            code_commit=pre_run_commit,
-        )
+    if not pre_run_commit:
+        raise ValueError("a code commit is required for every material alpha runner execution")
+    if not str(args.image_ref or "").strip():
+        raise ValueError("--image-ref is required for every material alpha runner execution")
+    pre_run_context = _prepare_alpha_experiment_context(
+        args,
+        data_paths=data_paths,
+        hypothesis_id=args.hypothesis_id,
+        code_commit=pre_run_commit,
+    )
     if pre_run_context and pre_run_context.get("state") and pre_run_context["state"].terminal:
         state = pre_run_context["state"]
         _print_json(
@@ -2707,53 +2709,45 @@ def _cmd_alpha_hypothesis_runner(args: argparse.Namespace) -> int:
             alpha_family_id=str(template["alpha_family_id"]),
         )
     payload = result.to_dict()
-    if args.feature_snapshot_manifest:
-        if pre_run_context is None:
-            pre_run_context = _prepare_alpha_experiment_context(
-                args,
-                data_paths=data_paths,
-                hypothesis_id=result.hypothesis_id,
-                code_commit=str(result.commit or args.commit or ""),
-            )
-        if pre_run_context.get("derivatives_availability") is not None:
-            derivatives_availability = pre_run_context["derivatives_availability"]
-            if derivatives_availability.status != "READY":
-                payload["experiment_registry"] = {
-                    "recorded": False,
-                    "reason": "derivatives_feature_snapshot_not_ready_for_material_experiment",
-                    "derivatives_feature_snapshot": derivatives_availability.to_dict(),
-                    "research_only": True,
-                    "paper_capital_allowed": False,
-                    "live_allowed": False,
-                    "promotable": False,
-                }
-                _print_json(payload)
-                return 0
-        state = pre_run_context["registry"].record_runner_evidence(
-            spec=pre_run_context["spec"],
-            report=result,
-            variant_count=args.max_variants,
-            symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
-            timeframes=_optional_csv_tuple(args.trial_timeframes, "--trial-timeframes"),
-            regimes=_optional_csv_tuple(args.trial_regimes, "--trial-regimes"),
-            record_trial_dimensions=False,
-        )
-        payload["experiment_registry"] = {
-            "path": str(Path(args.experiment_registry)),
-            "state": state.to_dict(),
-            "feature_snapshot": pre_run_context["provenance"].to_dict(),
-            "derivatives_feature_snapshot": (
-                dict(pre_run_context["spec"].environment["derivatives_snapshot"])
-                if pre_run_context["spec"].environment.get("derivatives_snapshot")
-                else None
-            ),
-            "validation_trial_count_floor": validation_trial_count_floor,
-            "pre_registered_before_runner": validation_trial_count_floor > 0,
-            "research_only": True,
-            "paper_capital_allowed": False,
-            "live_allowed": False,
-            "promotable": False,
-        }
+    if pre_run_context.get("derivatives_availability") is not None:
+        derivatives_availability = pre_run_context["derivatives_availability"]
+        if derivatives_availability.status != "READY":
+            payload["experiment_registry"] = {
+                "recorded": False,
+                "reason": "derivatives_feature_snapshot_not_ready_for_material_experiment",
+                "derivatives_feature_snapshot": derivatives_availability.to_dict(),
+                "research_only": True,
+                "paper_capital_allowed": False,
+                "live_allowed": False,
+                "promotable": False,
+            }
+            _print_json(payload)
+            return 0
+    state = pre_run_context["registry"].record_runner_evidence(
+        spec=pre_run_context["spec"],
+        report=result,
+        variant_count=args.max_variants,
+        symbols=_csv_tuple(args.symbols, "--symbols", uppercase=True),
+        timeframes=_optional_csv_tuple(args.trial_timeframes, "--trial-timeframes"),
+        regimes=_optional_csv_tuple(args.trial_regimes, "--trial-regimes"),
+        record_trial_dimensions=False,
+    )
+    payload["experiment_registry"] = {
+        "path": str(Path(args.experiment_registry)),
+        "state": state.to_dict(),
+        "feature_snapshot": pre_run_context["provenance"].to_dict(),
+        "derivatives_feature_snapshot": (
+            dict(pre_run_context["spec"].environment["derivatives_snapshot"])
+            if pre_run_context["spec"].environment.get("derivatives_snapshot")
+            else None
+        ),
+        "validation_trial_count_floor": validation_trial_count_floor,
+        "pre_registered_before_runner": validation_trial_count_floor > 0,
+        "research_only": True,
+        "paper_capital_allowed": False,
+        "live_allowed": False,
+        "promotable": False,
+    }
     _print_json(payload)
     return 0
 
@@ -3070,6 +3064,9 @@ def _cmd_experiment_registry_record_final_holdout_review(args: argparse.Namespac
     reservation = exported.get("holdout")
     if not isinstance(reservation, dict) or str(reservation.get("immutable_fingerprint") or "") != partition.fingerprint:
         raise ValueError("holdout registry reservation does not match the sealed partition")
+    # Claim before opening the result artifact: one immutable holdout may be
+    # reviewed only by this material experiment, including after a retry.
+    registry.claim_final_holdout_review(experiment_id=args.experiment_id)
     metrics, artifact = _load_final_holdout_result_artifact(
         Path(args.result_artifact),
         experiment_id=args.experiment_id,

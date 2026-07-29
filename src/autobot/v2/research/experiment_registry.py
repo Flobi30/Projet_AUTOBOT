@@ -25,6 +25,21 @@ TERMINAL_STATUSES = {"REJECTED", "INSUFFICIENT_DATA"}
 PASS_STATUS = "PASSED"
 DEFAULT_EXPERIMENT_REGISTRY_PATH = Path("data/research/experiment_registry.sqlite3")
 FINAL_HOLDOUT_REVIEW_DIMENSION = "final_holdout_review"
+RESEARCH_EVIDENCE_STAGES = frozenset({"NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"})
+REQUIRED_PASSED_METRIC_KEYS = {
+    "NET_SMOKE": frozenset({"adapter_decision", "variant_count"}),
+    "WALK_FORWARD": frozenset({"trade_count", "net_pnl_eur"}),
+    "STRESS_MONTE_CARLO": frozenset(
+        {
+            "trade_count",
+            "assumed_trial_count",
+            "probabilistic_sharpe",
+            "deflated_sharpe",
+            "robustness",
+            "statistical_gate_decision",
+        }
+    ),
+}
 
 
 class ExperimentRegistryError(ValueError):
@@ -382,6 +397,10 @@ class ExperimentRegistry:
             raise ExperimentRegistryError("final holdout review metrics are required")
         if not isinstance(artifact, Mapping) or not artifact:
             raise ExperimentRegistryError("final holdout review requires a sealed result artifact")
+        # Claim before evaluating/storing the final artifact. A malformed
+        # attempt stays owned by the same experiment and fails closed rather
+        # than allowing another material experiment to inspect the holdout.
+        self.claim_final_holdout_review(experiment_id=experiment_id)
         review_evidence = self._validate_final_holdout_artifact(
             experiment_id=experiment_id,
             metrics=metrics,
@@ -402,6 +421,51 @@ class ExperimentRegistry:
             uses_holdout=True,
             optimization=False,
         )
+
+    def claim_final_holdout_review(self, *, experiment_id: str) -> bool:
+        """Exclusively bind a sealed holdout to one material experiment.
+
+        A physical holdout may be reserved as immutable source metadata before
+        experiments are registered, but its final review may be claimed by one
+        experiment only. The same experiment can resume its interrupted review;
+        a different experiment is rejected before it can consume the holdout.
+        """
+
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                "SELECT spec_json FROM experiments WHERE experiment_id = ?", (experiment_id,)
+            ).fetchone()
+            if row is None:
+                raise ExperimentRegistryError(f"unknown experiment: {experiment_id}")
+            try:
+                spec = json.loads(str(row[0]))
+            except json.JSONDecodeError as exc:
+                raise ExperimentRegistryError("stored experiment spec is invalid JSON") from exc
+            holdout_id = str(spec.get("holdout_id") or "").strip()
+            if not holdout_id:
+                raise ExperimentRegistryError("experiment has no reserved immutable holdout")
+            if not connection.execute(
+                "SELECT 1 FROM holdout_reservations WHERE holdout_id = ?", (holdout_id,)
+            ).fetchone():
+                raise ExperimentRegistryError("experiment holdout must be reserved before final review")
+            existing = connection.execute(
+                "SELECT experiment_id FROM final_holdout_review_claims WHERE holdout_id = ?", (holdout_id,)
+            ).fetchone()
+            if existing is not None:
+                if str(existing[0]) != str(experiment_id):
+                    raise ExperimentRegistryError(
+                        "immutable holdout is already claimed by another material experiment"
+                    )
+                return False
+            connection.execute(
+                """
+                INSERT INTO final_holdout_review_claims (holdout_id, experiment_id, claimed_at)
+                VALUES (?, ?, ?)
+                """,
+                (holdout_id, experiment_id, _now()),
+            )
+            return True
 
     def record_gate_result(
         self,
@@ -428,6 +492,8 @@ class ExperimentRegistry:
             expected = STAGES[0] if previous.latest_stage is None else _next_stage(previous.latest_stage)
             if stage != expected:
                 raise ExperimentRegistryError(f"expected stage {expected}, received {stage}")
+            if status == PASS_STATUS:
+                _validate_passed_stage_evidence(stage=stage, metrics=metrics, artifacts=artifacts)
             if stage == STAGES[-1] and status == PASS_STATUS:
                 self._require_final_holdout_review(connection, experiment_id=experiment_id)
             transition_id = f"gate_{_fingerprint({'experiment_id': experiment_id, 'stage': stage, 'status': status, 'metrics': metrics or {}, 'reasons': list(reasons)})[:20]}"
@@ -502,10 +568,10 @@ class ExperimentRegistry:
                 status=status,
                 metrics=dict(getattr(gate, "metrics", {}) or {}),
                 reasons=tuple(str(item) for item in (getattr(gate, "reasons", ()) or ())),
-                # The report is immutable evidence for the whole runner. Bind
-                # it once at the first canonical gate rather than duplicating
-                # the same artifact for every later transition.
-                artifacts=runner_artifacts if stage == STAGES[0] else (),
+                # Every passed material gate must carry the same immutable
+                # runner report.  This makes stage evidence independently
+                # auditable instead of relying on an unbound earlier report.
+                artifacts=runner_artifacts if status == PASS_STATUS else (),
             )
             if current.terminal:
                 return current
@@ -763,9 +829,14 @@ class ExperimentRegistry:
             ).fetchall()
             spec = json.loads(str(experiment[0]))
             holdout = None
+            final_holdout_review_claim = None
             if spec.get("holdout_id"):
                 holdout = connection.execute(
                     "SELECT data_snapshot_id, immutable_fingerprint, manifest_json, reserved_at FROM holdout_reservations WHERE holdout_id = ?",
+                    (spec["holdout_id"],),
+                ).fetchone()
+                final_holdout_review_claim = connection.execute(
+                    "SELECT experiment_id, claimed_at FROM final_holdout_review_claims WHERE holdout_id = ?",
                     (spec["holdout_id"],),
                 ).fetchone()
         return {
@@ -805,6 +876,16 @@ class ExperimentRegistry:
                     "reserved_at": holdout[3],
                 }
                 if holdout
+                else None
+            ),
+            "final_holdout_review_claim": (
+                {
+                    "holdout_id": spec["holdout_id"],
+                    "experiment_id": final_holdout_review_claim[0],
+                    "claimed_at": final_holdout_review_claim[1],
+                    "owned_by_experiment": final_holdout_review_claim[0] == experiment_id,
+                }
+                if final_holdout_review_claim
                 else None
             ),
             "bounded_research_execution_claim": self._bounded_research_execution_claim(experiment_id),
@@ -1054,6 +1135,13 @@ class ExperimentRegistry:
         holdout_id = str(spec.get("holdout_id") or "").strip()
         if not holdout_id:
             return False
+        claim = connection.execute(
+            "SELECT experiment_id FROM final_holdout_review_claims WHERE holdout_id = ?", (holdout_id,)
+        ).fetchone()
+        if claim is None or str(claim[0]) != str(experiment_id):
+            # Legacy records without an exclusive claim remain historical but
+            # are intentionally not acceptable evidence for SHADOW_REVIEW.
+            return False
         environment = spec.get("environment")
         expected_partition = environment.get("holdout_partition") if isinstance(environment, Mapping) else None
         if not isinstance(expected_partition, Mapping):
@@ -1200,6 +1288,15 @@ class ExperimentRegistry:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS final_holdout_review_claims (
+                holdout_id TEXT PRIMARY KEY REFERENCES holdout_reservations(holdout_id),
+                experiment_id TEXT NOT NULL UNIQUE REFERENCES experiments(experiment_id),
+                claimed_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS legacy_memory_imports (
                 legacy_run_id TEXT NOT NULL,
                 record_fingerprint TEXT NOT NULL UNIQUE,
@@ -1242,6 +1339,7 @@ class ExperimentRegistry:
             "experiment_transitions",
             "experiment_artifacts",
             "holdout_reservations",
+            "final_holdout_review_claims",
             "legacy_memory_imports",
             "bounded_research_execution_claims",
             "bounded_research_snapshot_claims",
@@ -1349,6 +1447,45 @@ def _normalized_trial_values(values: Sequence[str], *, uppercase: bool = False) 
 
 def _fingerprint(value: Any) -> str:
     return sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _validate_passed_stage_evidence(
+    *,
+    stage: str,
+    metrics: Mapping[str, Any] | None,
+    artifacts: Sequence[Mapping[str, Any]],
+) -> None:
+    """Fail closed when a material research gate lacks reproducible evidence.
+
+    The registry does not calculate the statistics itself, but it refuses to
+    record a passed NET_SMOKE, WALK_FORWARD or STRESS_MONTE_CARLO transition
+    unless the producer supplied the stage's minimum metrics and a
+    content-addressed report artifact.  This blocks direct API callers from
+    advancing a material experiment with an empty success record.
+    """
+
+    if stage not in RESEARCH_EVIDENCE_STAGES:
+        return
+    if not isinstance(metrics, Mapping) or not metrics:
+        raise ExperimentRegistryError(f"{stage} PASSED requires metrics evidence")
+    missing = sorted(key for key in REQUIRED_PASSED_METRIC_KEYS[stage] if key not in metrics)
+    if missing:
+        raise ExperimentRegistryError(
+            f"{stage} PASSED missing required metrics: {', '.join(missing)}"
+        )
+    if not artifacts:
+        raise ExperimentRegistryError(f"{stage} PASSED requires a content-addressed report artifact")
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            raise ExperimentRegistryError(f"{stage} PASSED artifact must be a mapping")
+        path = str(artifact.get("path") or "").strip()
+        fingerprint = str(artifact.get("fingerprint") or "").strip().lower()
+        if not path:
+            raise ExperimentRegistryError(f"{stage} PASSED artifact path is required")
+        if len(fingerprint) != 64 or any(character not in "0123456789abcdef" for character in fingerprint):
+            raise ExperimentRegistryError(
+                f"{stage} PASSED artifact fingerprint must be a SHA-256 digest"
+            )
 
 
 def _runner_report_artifacts(report: Any) -> tuple[dict[str, Any], ...]:

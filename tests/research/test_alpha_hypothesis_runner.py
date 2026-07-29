@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from autobot.v2 import cli
 from autobot.v2.cli import _build_parser
 from autobot.v2.research.alpha_hypothesis_runner import (
     AlphaHypothesisRunnerConfig,
@@ -290,6 +291,26 @@ def test_alpha_runner_cli_is_registered():
     assert args.trial_regimes == ""
     assert args.holdout_id is None
     assert args.holdout_partition_manifest is None
+
+
+def test_material_alpha_runner_cli_requires_reproducibility_inputs_before_any_data_read():
+    missing_feature_manifest = _build_parser().parse_args(
+        ["alpha-hypothesis-runner", "--hypothesis-id", "long_trend"]
+    )
+    with pytest.raises(ValueError, match="feature-snapshot-manifest is required"):
+        cli._cmd_alpha_hypothesis_runner(missing_feature_manifest)
+
+    missing_image = _build_parser().parse_args(
+        [
+            "alpha-hypothesis-runner",
+            "--hypothesis-id",
+            "long_trend",
+            "--feature-snapshot-manifest",
+            "missing-but-never-read-before-image-check.json",
+        ]
+    )
+    with pytest.raises(ValueError, match="image-ref is required"):
+        cli._cmd_alpha_hypothesis_runner(missing_image)
 
 
 def test_alpha_runner_rejects_unbounded_variant_count(tmp_path):

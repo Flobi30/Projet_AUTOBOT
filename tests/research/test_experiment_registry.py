@@ -22,6 +22,32 @@ from autobot.v2.research.shadow_review_evidence import seal_shadow_review_eviden
 pytestmark = pytest.mark.unit
 
 
+def _passed_gate_evidence(stage: str) -> dict[str, object]:
+    metrics: dict[str, object] = {}
+    if stage == "NET_SMOKE":
+        metrics = {"adapter_decision": "KEEP_RESEARCH", "variant_count": 1}
+    elif stage == "WALK_FORWARD":
+        metrics = {"trade_count": 50, "net_pnl_eur": 1.0}
+    elif stage == "STRESS_MONTE_CARLO":
+        metrics = {
+            "trade_count": 50,
+            "assumed_trial_count": 1,
+            "probabilistic_sharpe": {"acceptable": True},
+            "deflated_sharpe": {"acceptable": True},
+            "robustness": {"verdict": "observation_ready_not_promoted"},
+            "statistical_gate_decision": "SHADOW_REVIEW_ELIGIBLE",
+        }
+    return {
+        "metrics": metrics,
+        "artifacts": (
+            {
+                "path": f"pytest://{stage}",
+                "fingerprint": sha256(stage.encode("utf-8")).hexdigest(),
+            },
+        )
+    }
+
+
 def _holdout_partition() -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -439,11 +465,71 @@ def test_registry_enforces_monotonic_gate_pipeline_and_terminal_rejection(tmp_pa
         registry.record_trial(experiment_id=experiment.experiment_id, dimension="parameter", value={"threshold": 3.0})
 
 
+@pytest.mark.parametrize("stage", ("NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"))
+def test_registry_rejects_passed_material_gate_without_stage_evidence(tmp_path, stage):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    experiment = registry.register_experiment(_spec())
+    registry.record_gate_result(experiment_id=experiment.experiment_id, stage="DATA_CHECK", status="PASSED")
+    if stage == "STRESS_MONTE_CARLO":
+        registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage="NET_SMOKE",
+            status="PASSED",
+            **_passed_gate_evidence("NET_SMOKE"),
+        )
+        registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage="WALK_FORWARD",
+            status="PASSED",
+            **_passed_gate_evidence("WALK_FORWARD"),
+        )
+    if stage == "WALK_FORWARD":
+        registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage="NET_SMOKE",
+            status="PASSED",
+            **_passed_gate_evidence("NET_SMOKE"),
+        )
+
+    with pytest.raises(ExperimentRegistryError, match="requires metrics evidence"):
+        registry.record_gate_result(experiment_id=experiment.experiment_id, stage=stage, status="PASSED")
+
+
+def test_final_holdout_review_claim_is_exclusive_between_material_experiments(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
+    first = registry.register_experiment(_spec())
+    second = registry.register_experiment(
+        _spec(
+            thesis="a materially distinct funding-basis hypothesis",
+            material_data_signature=_material_signature("materially-distinct-fixture"),
+        )
+    )
+    registry.reserve_holdout(
+        holdout_id="holdout_2026_q3",
+        data_snapshot_id="ohlcv_v2_holdout",
+        immutable_fingerprint=str(_holdout_partition()["fingerprint"]),
+        manifest={"partition": _holdout_partition()},
+    )
+
+    assert registry.claim_final_holdout_review(experiment_id=first.experiment_id) is True
+    assert registry.claim_final_holdout_review(experiment_id=first.experiment_id) is False
+    claim = registry.export_manifest(first.experiment_id)["final_holdout_review_claim"]
+    assert claim["owned_by_experiment"] is True
+    assert claim["experiment_id"] == first.experiment_id
+    with pytest.raises(ExperimentRegistryError, match="already claimed"):
+        registry.claim_final_holdout_review(experiment_id=second.experiment_id)
+
+
 def test_final_shadow_review_closes_the_material_experiment(tmp_path):
     registry = ExperimentRegistry(tmp_path / "registry.sqlite3")
     experiment = registry.register_experiment(_spec())
     for stage in ("DATA_CHECK", "NET_SMOKE", "WALK_FORWARD", "STRESS_MONTE_CARLO"):
-        state = registry.record_gate_result(experiment_id=experiment.experiment_id, stage=stage, status="PASSED")
+        state = registry.record_gate_result(
+            experiment_id=experiment.experiment_id,
+            stage=stage,
+            status="PASSED",
+            **_passed_gate_evidence(stage),
+        )
 
     with pytest.raises(ExperimentRegistryError, match="immutable final holdout review"):
         registry.record_gate_result(experiment_id=experiment.experiment_id, stage="SHADOW_REVIEW", status="PASSED")
