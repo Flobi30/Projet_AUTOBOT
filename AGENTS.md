@@ -42,8 +42,11 @@ git diff --check
 
 For VPS validation, deploy only with `bash deploy/rebuild-autobot-image.sh`,
 then confirm the image revision, `/health`, the observation-only flags and
-the absence of private execution credentials. Research jobs must run in an
-isolated no-network container with no runtime state database or secret mount.
+the absence of private execution credentials. Analyses that consume existing
+data must run in an isolated no-network container with no runtime state
+database or secret mount. Public-data collectors are the explicit exception:
+they may use network access only to their documented public endpoints and
+must still have no secret or runtime-state mount.
 
 ## VPS deployment provenance
 

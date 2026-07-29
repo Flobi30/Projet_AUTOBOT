@@ -18,6 +18,11 @@ from autobot.v2.order_router import (
     OBSERVATION_ORDER_ROUTER_DISABLED,
     OrderRouter,
 )
+from autobot.v2.paper_trading import (
+    OrderExecutorAsyncWithPaper,
+    get_paper_executor,
+    reset_paper_executor,
+)
 from autobot.v2.orchestrator_async import (
     _build_runtime_order_executor,
     _exchange_reconciliation_enabled,
@@ -151,6 +156,20 @@ def test_direct_private_executors_cannot_be_constructed_in_observation_mode(monk
         OrderExecutorAsync(api_key="must-not-be-used", api_secret="must-not-be-used")
     with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="OrderExecutor"):
         OrderExecutor(api_key="must-not-be-used", api_secret="must-not-be-used")
+
+
+def test_operational_paper_entrypoints_cannot_bypass_observation_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+    reset_paper_executor()
+
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="OrderExecutorAsyncWithPaper"):
+        OrderExecutorAsyncWithPaper(paper_mode=True)
+
+    db_path = tmp_path / "paper_trades.db"
+    with pytest.raises(ObservationOnlyExecutionComponentDisabled, match="get_paper_executor"):
+        get_paper_executor(db_path=str(db_path))
+
+    assert not db_path.exists()
 
 
 def test_executor_selection_fails_closed_without_full_paper_authorization(monkeypatch, tmp_path):

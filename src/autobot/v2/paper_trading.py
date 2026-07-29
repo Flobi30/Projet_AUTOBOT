@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Coroutine
 
 from .order_executor import OrderResult, OrderSide, OrderStatus, OrderType
+from .runtime_execution_mode import reject_paper_execution_component
 from .strategy_runtime_policy import canonical_order_append_block_reason
 
 logger = logging.getLogger(__name__)
@@ -1197,6 +1198,7 @@ class OrderExecutorAsyncWithPaper:
         self.paper_mode = paper_mode
         
         if paper_mode:
+            reject_paper_execution_component("OrderExecutorAsyncWithPaper")
             logger.info("🎮 MODE PAPER TRADING ACTIVÉ")
             self._executor = PaperTradingExecutor(
                 initial_capital=paper_initial_capital
@@ -1228,6 +1230,7 @@ def get_paper_executor(
     db_path: str = "data/paper_trades.db",
 ) -> PaperTradingExecutor:
     """Singleton pour PaperTradingExecutor."""
+    reject_paper_execution_component("get_paper_executor")
     global _paper_executor_instance
     if _paper_executor_instance is None:
         _paper_executor_instance = PaperTradingExecutor(

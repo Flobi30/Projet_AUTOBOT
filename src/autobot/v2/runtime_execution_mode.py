@@ -71,3 +71,19 @@ def reject_private_execution_component(component: str) -> None:
         raise ObservationOnlyExecutionComponentDisabled(
             f"{normalized} is disabled in observation-only runtime"
         )
+
+
+def reject_paper_execution_component(component: str) -> None:
+    """Fail closed unless the complete paper-execution authorization exists.
+
+    Paper simulators are valid inside hermetic tests, but their operational
+    wrappers must not create a wallet or write a paper database merely because
+    a legacy caller imports them.  A cleared observation-only lock by itself
+    is not authorization.
+    """
+
+    if not paper_execution_authorized():
+        normalized = str(component or "paper execution component").strip()
+        raise ObservationOnlyExecutionComponentDisabled(
+            f"{normalized} is disabled until paper execution is explicitly authorized"
+        )

@@ -10,6 +10,7 @@ import pytest
 import autobot.v2.instance as legacy_instance
 import autobot.v2.orchestrator as legacy_orchestrator
 import autobot.v2.tests.test_kraken_api as legacy_kraken_api
+from autobot.order_manager import OrderManager as legacy_order_manager
 from autobot.v2.legacy_runtime import LegacySynchronousRuntimeRetired
 
 
@@ -82,3 +83,12 @@ def test_legacy_private_kraken_shell_wrapper_cannot_request_or_forward_credentia
     assert "KRAKEN_API_KEY" not in script
     assert "KRAKEN_API_SECRET" not in script
     assert "test_kraken_api.py" not in script
+
+
+def test_legacy_order_manager_rejects_real_execution_before_client_initialization():
+    with pytest.raises(LegacySynchronousRuntimeRetired, match="retired_from_execution"):
+        legacy_order_manager(
+            api_key="must-not-be-used",
+            api_secret="must-not-be-used",
+            sandbox=False,
+        )

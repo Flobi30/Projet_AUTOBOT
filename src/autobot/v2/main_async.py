@@ -159,8 +159,15 @@ class AutoBotV2Async:
         self.running = False
         self.dashboard_host = dashboard_host
         self.dashboard_port = dashboard_port
-        self.api_key = api_key or os.getenv("KRAKEN_API_KEY")
-        self.api_secret = api_secret or os.getenv("KRAKEN_API_SECRET")
+        # The observation-only runtime consumes public market data only. Do
+        # not retain or forward private exchange credentials merely because a
+        # legacy environment file happens to contain them.
+        if observation_only_runtime():
+            self.api_key = None
+            self.api_secret = None
+        else:
+            self.api_key = api_key or os.getenv("KRAKEN_API_KEY")
+            self.api_secret = api_secret or os.getenv("KRAKEN_API_SECRET")
         # Persisted state is created only when the process is actually started.
         # This keeps configuration inspection and unit tests side-effect free.
         self.startup_kill_switch = startup_kill_switch

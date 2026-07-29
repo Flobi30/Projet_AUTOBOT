@@ -25,4 +25,4 @@ COPY reports/research/relative_value_2026_06_22/relative_value_2026_06_22.json /
 ENV PYTHONPATH=/app/src
 ENV PYTHONDONTWRITEBYTECODE=1
 
-CMD ["python", "-m", "pytest", "-q", "-m", "unit and not external and not e2e"]
+CMD ["python", "-m", "pytest", "-q"]

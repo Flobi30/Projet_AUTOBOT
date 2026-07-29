@@ -15,6 +15,7 @@ except ImportError:
     krakenex = None
 
 from .error_handler import ErrorHandler
+from .v2.legacy_runtime import reject_legacy_synchronous_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,10 @@ class OrderManager:
             max_order_value: Valeur max par ordre en EUR
             max_volume: Volume max par ordre
         """
+        if not sandbox:
+            reject_legacy_synchronous_runtime(
+                "legacy OrderManager real-execution mode"
+            )
         self.api_key = api_key
         # Ne stocke pas le secret en clair, passe-le directement au client
         self.sandbox = sandbox

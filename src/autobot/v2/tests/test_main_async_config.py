@@ -92,3 +92,17 @@ def test_main_async_default_log_path_is_not_the_read_only_container_root(monkeyp
     # default remains writable beneath the process working directory.
     assert _default_runtime_log_file() == "logs/autobot_async.log"
     assert callable(AutoBotV2Async.stop)
+
+
+def test_observation_runtime_does_not_retain_private_exchange_credentials(monkeypatch):
+    monkeypatch.setenv("AUTOBOT_OBSERVATION_ONLY_RUNTIME", "true")
+    monkeypatch.setenv("KRAKEN_API_KEY", "must-not-be-retained")
+    monkeypatch.setenv("KRAKEN_API_SECRET", "must-not-be-retained")
+
+    bot = AutoBotV2Async(
+        api_key="must-not-be-retained",
+        api_secret="must-not-be-retained",
+    )
+
+    assert bot.api_key is None
+    assert bot.api_secret is None

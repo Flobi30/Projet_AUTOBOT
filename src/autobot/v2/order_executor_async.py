@@ -124,8 +124,7 @@ class OrderExecutorAsync:
     """
 
     def __repr__(self) -> str:
-        key_hint = self._api_key[:6] + "..." if self._api_key else "None"
-        return f"OrderExecutorAsync(api_key={key_hint!r})"
+        return f"OrderExecutorAsync(private_credentials_configured={bool(self._api_key)})"
 
     KRAKEN_API_URL = "https://api.kraken.com"
 

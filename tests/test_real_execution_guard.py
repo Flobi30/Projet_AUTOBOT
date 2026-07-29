@@ -125,6 +125,22 @@ def test_sync_executor_cannot_bypass_real_mutation_guard(monkeypatch):
     assert queried is False
 
 
+def test_private_executor_repr_never_exposes_key_material(monkeypatch):
+    _clear_execution_flags(monkeypatch)
+    monkeypatch.setattr(
+        "autobot.v2.order_executor_async.reject_private_execution_component",
+        lambda _component: None,
+    )
+    key = "visible-key-material"
+    executor = OrderExecutorAsync(api_key=key, api_secret="c2VjcmV0")
+
+    rendered = repr(executor)
+
+    assert key not in rendered
+    assert key[:6] not in rendered
+    assert "private_credentials_configured=True" in rendered
+
+
 def test_paper_mode_refuses_fallback_when_paper_executor_is_unavailable(monkeypatch):
     monkeypatch.setattr(orchestrator_async, "PaperTradingExecutor", None)
 
