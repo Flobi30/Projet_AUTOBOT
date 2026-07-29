@@ -107,6 +107,63 @@ require_safety_flag "COLONY_AUTO_LIVE_PROMOTION=false"
 require_safety_flag "STRATEGY_ROUTER_LIVE_ENABLED=false"
 require_safety_flag "LIVE_TRADING_CONFIRMATION=false"
 
+# Environment flags alone are not sufficient evidence that a future legacy
+# path cannot create an order. Probe the code baked into the running container
+# directly, using only pure authorization functions. This starts no AUTOBOT
+# service, opens no database, calls no exchange endpoint and reads no secret.
+runtime_lock_payload="$(
+  docker exec "${CONTAINER_ID}" python -c '
+import json
+
+from autobot.v2.execution_authorization import (
+    program_execution_locked,
+    real_order_mutation_authorized,
+)
+from autobot.v2.runtime_execution_mode import (
+    observation_only_runtime,
+    paper_execution_authorized,
+)
+
+print(
+    json.dumps(
+        {
+            "program_execution_locked": program_execution_locked(),
+            "observation_only_runtime": observation_only_runtime(),
+            "paper_execution_authorized": paper_execution_authorized(),
+            "real_order_mutation_authorized": real_order_mutation_authorized(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+)
+'
+)"
+runtime_lock_verified="$(
+  printf '%s' "${runtime_lock_payload}" | python3 -c '
+import json
+import sys
+
+expected = {
+    "program_execution_locked": True,
+    "observation_only_runtime": True,
+    "paper_execution_authorized": False,
+    "real_order_mutation_authorized": False,
+}
+try:
+    actual = json.load(sys.stdin)
+    if actual != expected:
+        raise ValueError("unexpected program execution lock evidence")
+except (TypeError, ValueError):
+    print("false")
+else:
+    print("true")
+'
+)"
+if [[ "${runtime_lock_verified}" != "true" ]]; then
+  echo "Refusing deployment evidence: running container does not prove the program execution lock." >&2
+  exit 1
+fi
+
 observed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-printf '{"source_commit":"%s","github_commit":"%s","vps_commit":"%s","container_revision":"%s","observed_at":"%s","container_healthy":true,"health_endpoint_healthy":true,"websocket_connected":true,"observation_only_runtime":true,"paper_capital_disabled":true,"live_disabled":true,"automatic_promotion_disabled":true}\n' \
+printf '{"source_commit":"%s","github_commit":"%s","vps_commit":"%s","container_revision":"%s","observed_at":"%s","container_healthy":true,"health_endpoint_healthy":true,"websocket_connected":true,"program_execution_locked":true,"observation_only_runtime":true,"paper_capital_disabled":true,"live_disabled":true,"automatic_promotion_disabled":true}\n' \
   "${SOURCE_COMMIT}" "${GITHUB_COMMIT}" "${SOURCE_COMMIT}" "${IMAGE_COMMIT}" "${observed_at}"

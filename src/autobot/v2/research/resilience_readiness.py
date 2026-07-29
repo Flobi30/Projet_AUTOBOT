@@ -109,6 +109,7 @@ class RuntimeDeploymentEvidence:
     container_healthy: bool
     health_endpoint_healthy: bool
     websocket_connected: bool
+    program_execution_locked: bool
     observation_only_runtime: bool
     paper_capital_disabled: bool
     live_disabled: bool
@@ -126,6 +127,7 @@ class RuntimeDeploymentEvidence:
             "container_healthy",
             "health_endpoint_healthy",
             "websocket_connected",
+            "program_execution_locked",
             "observation_only_runtime",
             "paper_capital_disabled",
             "live_disabled",
@@ -161,6 +163,8 @@ class RuntimeDeploymentEvidence:
             blockers.append("health_endpoint_not_healthy")
         if not self.websocket_connected:
             blockers.append("websocket_not_connected")
+        if not self.program_execution_locked:
+            blockers.append("program_execution_lock_not_confirmed")
         if not self.observation_only_runtime:
             blockers.append("observation_only_runtime_not_confirmed")
         if not self.paper_capital_disabled:
@@ -182,6 +186,7 @@ _RUNTIME_DEPLOYMENT_EVIDENCE_FIELDS = frozenset(
         "container_healthy",
         "health_endpoint_healthy",
         "websocket_connected",
+        "program_execution_locked",
         "observation_only_runtime",
         "paper_capital_disabled",
         "live_disabled",

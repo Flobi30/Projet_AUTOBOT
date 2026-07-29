@@ -23,7 +23,8 @@ Paper can be considered only after all of the following:
 2. The versioned layer coverage matrix has every required layer `VERIFIED`.
 3. Kill-switch, reconciliation and restore drills are proven.
 4. Fresh deployment evidence shows the same commit on GitHub, VPS and
-   container, with healthy health/WebSocket checks and paper/live/promotion
+   container, with healthy health/WebSocket checks, the code-level programme
+   execution lock confirmed inside the container, and paper/live/promotion
    paths still disabled.
 5. A `READY_FOR_HUMAN_PAPER_REVIEW` dossier is generated.
 6. A human explicitly approves one bounded paper mandate.

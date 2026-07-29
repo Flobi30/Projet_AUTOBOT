@@ -69,6 +69,7 @@ def _deployment_evidence(*, observed_at: datetime | None = None, **overrides: ob
         "container_healthy": True,
         "health_endpoint_healthy": True,
         "websocket_connected": True,
+        "program_execution_locked": True,
         "observation_only_runtime": True,
         "paper_capital_disabled": True,
         "live_disabled": True,
@@ -492,6 +493,7 @@ def test_readiness_dossier_requires_fresh_aligned_observation_only_deployment_ev
     evidence = _deployment_evidence(
         observed_at=datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc),
         vps_commit="b" * 40,
+        program_execution_locked=False,
         paper_capital_disabled=False,
         automatic_promotion_disabled=False,
     )
@@ -509,6 +511,7 @@ def test_readiness_dossier_requires_fresh_aligned_observation_only_deployment_ev
     assert dossier.status == "NOT_READY_FOR_HUMAN_PAPER_REVIEW"
     assert "deployment_evidence_stale" in dossier.blockers
     assert "vps_commit_not_aligned_with_source" in dossier.blockers
+    assert "program_execution_lock_not_confirmed" in dossier.blockers
     assert "paper_capital_not_disabled" in dossier.blockers
     assert "automatic_promotion_not_disabled" in dossier.blockers
     assert dossier.paper_capital_allowed is False
@@ -522,6 +525,8 @@ def test_runtime_deployment_evidence_rejects_non_commit_or_naive_timestamp():
         _deployment_evidence(observed_at=datetime(2026, 7, 29, 12, 0))
     with pytest.raises(ResilienceError, match="container_healthy"):
         _deployment_evidence(container_healthy="true")
+    with pytest.raises(ResilienceError, match="program_execution_locked"):
+        _deployment_evidence(program_execution_locked="true")
 
 
 def test_runtime_deployment_evidence_json_loader_requires_the_exact_verifier_schema(tmp_path):
